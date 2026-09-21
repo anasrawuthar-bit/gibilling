@@ -1,0 +1,6 @@
+node_modules/
+dist/
+migration-backups/
+*.tmp
+*.sqlite
+*.db

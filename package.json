@@ -1,0 +1,65 @@
+{
+  "name": "gi-billing-software",
+  "version": "1.0.0",
+  "description": "GI Billing desktop app",
+  "main": "main.js",
+  "scripts": {
+    "start": "node_modules\\electron\\dist\\electron.exe .",
+    "test": "node tests/sale-foundation.test.js && node tests/invoice-readiness.test.js && node tests/phase0-migrations.test.js && node tests/phase1-data-integrity.test.js && node tests/database-diagnostic.test.js && node tests/sync-foundation.test.js && node tests/sync-service.test.js && node tests/database-recovery-and-restore.test.js && node tests/accounting-and-party-integrity.test.js && node tests/real-world-business-lifecycle.test.js && node tests/debit-note-and-fy.test.js && node tests/phase1-production-accounting.test.js && node tests/phase1-runtime-integrity-audit.js",
+    "test:phase1": "node tests/phase1-production-accounting.test.js",
+    "test:purchase-prices": "node tests/purchase-prices.test.js",
+    "test:phase1-audit": "node tests/phase1-runtime-integrity-audit.js",
+    "test:business-lifecycle": "node tests/real-world-business-lifecycle.test.js",
+    "test:debit-note-and-fy": "node tests/debit-note-and-fy.test.js",
+    "test:migrations": "node tests/phase0-migrations.test.js",
+    "test:data-integrity": "node tests/phase1-data-integrity.test.js",
+    "test:recovery": "node tests/database-recovery-and-restore.test.js",
+    "test:accounting": "node tests/accounting-and-party-integrity.test.js",
+    "test:sync-foundation": "node tests/sync-foundation.test.js",
+    "test:sync-service": "node tests/sync-service.test.js",
+    "audit:data-integrity": "node data-integrity-dry-run.js",
+    "diagnose:database": "node database-diagnostic.js",
+    "audit:migration-readiness": "node migration-readiness.js",
+    "test:smoke": "electron tests/electron-smoke.js",
+    "capture:ui": "electron tests/capture-ui.js",
+    "dist": "npx electron-builder"
+  },
+  "build": {
+    "appId": "com.gibilling.desktop",
+    "productName": "GI Billing",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "**/*",
+      "!dist/*",
+      "!tests/*",
+      "!*.tmp",
+      "!migration-backups/*"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "perMachine": false,
+      "deleteAppDataOnUninstall": false
+    }
+  },
+  "author": "GI Billing",
+  "devDependencies": {
+    "electron": "^44.4.3",
+    "electron-builder": "^26.15.3"
+  },
+  "dependencies": {
+    "sql.js": "^1.14.1"
+  }
+}

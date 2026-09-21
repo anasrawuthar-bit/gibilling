@@ -1,0 +1,628 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'self'">
+    <title>GI Billing</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <svg class="gi-icon-sprite" aria-hidden="true">
+      <symbol id="gi-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-4-4"></path></symbol>
+      <symbol id="gi-refresh" viewBox="0 0 24 24"><path d="M20 6v5h-5"></path><path d="M4 18v-5h5"></path><path d="M18.5 9A7 7 0 0 0 6 6.5L4 9m16 6-2 2.5A7 7 0 0 1 5.5 15"></path></symbol>
+      <symbol id="gi-more" viewBox="0 0 24 24"><circle cx="12" cy="5" r="1.5"></circle><circle cx="12" cy="12" r="1.5"></circle><circle cx="12" cy="19" r="1.5"></circle></symbol>
+      <symbol id="gi-home" viewBox="0 0 24 24"><path d="m3 11 9-8 9 8"></path><path d="M5 10v10h14V10M9 20v-6h6v6"></path></symbol>
+      <symbol id="gi-users" viewBox="0 0 24 24"><circle cx="9" cy="8" r="4"></circle><path d="M2 21v-2a7 7 0 0 1 14 0v2M16 4a4 4 0 0 1 0 8m2 3a6 6 0 0 1 4 6"></path></symbol>
+      <symbol id="gi-box" viewBox="0 0 24 24"><path d="m4 7 8-4 8 4-8 4-8-4Z"></path><path d="m4 7 8 4 8-4v10l-8 4-8-4V7Z"></path><path d="M12 11v10"></path></symbol>
+      <symbol id="gi-receipt" viewBox="0 0 24 24"><path d="M6 3h12v18l-3-2-3 2-3-2-3 2V3Z"></path><path d="M9 8h6M9 12h6M9 16h3"></path></symbol>
+      <symbol id="gi-cart" viewBox="0 0 24 24"><circle cx="9" cy="20" r="1.5"></circle><circle cx="18" cy="20" r="1.5"></circle><path d="M3 4h2l2.5 11h10l2-7H7"></path></symbol>
+      <symbol id="gi-trend" viewBox="0 0 24 24"><path d="m3 17 6-6 4 4 8-9"></path><path d="M15 6h6v6"></path></symbol>
+      <symbol id="gi-wallet" viewBox="0 0 24 24"><path d="M4 6h15a2 2 0 0 1 2 2v11H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h13"></path><path d="M16 11h5v4h-5a2 2 0 0 1 0-4Z"></path></symbol>
+      <symbol id="gi-chart" viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"></path></symbol>
+      <symbol id="gi-database" viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="8" ry="3"></ellipse><path d="M4 5v6c0 1.7 3.6 3 8 3s8-1.3 8-3V5M4 11v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"></path></symbol>
+      <symbol id="gi-tools" viewBox="0 0 24 24"><path d="m14 7 3-3a4 4 0 0 1-5 5L4 17l3 3 8-8a4 4 0 0 1 5-5l-3 3"></path></symbol>
+      <symbol id="gi-settings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"></circle><path d="M19 12a7 7 0 0 0-.1-1l2-1.5-2-3.5-2.5 1A7 7 0 0 0 15 6l-.4-3h-4L10 6a7 7 0 0 0-1.4 1L6 6 4 9.5 6.1 11a7 7 0 0 0 0 2L4 14.5 6 18l2.6-1a7 7 0 0 0 1.4 1l.5 3h4l.5-3a7 7 0 0 0 1.4-1l2.6 1 2-3.5-2.1-1.5a7 7 0 0 0 .1-1Z"></path></symbol>
+      <symbol id="gi-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"></path></symbol>
+      <symbol id="gi-chevron-down" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"></path></symbol>
+      <symbol id="gi-chevron-right" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"></path></symbol>
+      <symbol id="gi-phone" viewBox="0 0 24 24"><path d="M7 3H4a2 2 0 0 0-2 2c0 9.4 7.6 17 17 17a2 2 0 0 0 2-2v-3l-5-1-2 3a16 16 0 0 1-9-9l3-2-1-5Z"></path></symbol>
+      <symbol id="gi-arrow-down" viewBox="0 0 24 24"><path d="M12 4v16m-6-6 6 6 6-6"></path></symbol>
+      <symbol id="gi-arrow-up" viewBox="0 0 24 24"><path d="M12 20V4m-6 6 6-6 6 6"></path></symbol>
+      <symbol id="gi-calculator" viewBox="0 0 24 24"><rect x="4" y="2" width="16" height="20" rx="2"></rect><path d="M8 6h8v4H8zM8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01M16 18h.01"></path></symbol>
+      <symbol id="gi-x" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"></path></symbol>
+      <symbol id="gi-image" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"></rect><circle cx="9" cy="9" r="2"></circle><path d="m21 15-5-5L5 20"></path></symbol>
+      <symbol id="gi-paperclip" viewBox="0 0 24 24"><path d="m21 11-9 9a6 6 0 0 1-8-8l9-9a4 4 0 0 1 6 6l-9 9a2 2 0 0 1-3-3l8-8"></path></symbol>
+      <symbol id="gi-share" viewBox="0 0 24 24"><circle cx="18" cy="5" r="3"></circle><circle cx="6" cy="12" r="3"></circle><circle cx="18" cy="19" r="3"></circle><path d="m9 10 6-3m-6 7 6 3"></path></symbol>
+      <symbol id="gi-trash" viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3m3 0-1 14H7L6 7m4 4v6m4-6v6"></path></symbol>
+      <symbol id="gi-file-plus" viewBox="0 0 24 24"><path d="M6 2h8l4 4v16H6V2Z"></path><path d="M14 2v5h5M12 11v6m-3-3h6"></path></symbol>
+      <symbol id="gi-calendar" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="4" rx="2" ry="2"></rect><line x1="16" x2="16" y1="2" y2="6"></line><line x1="8" x2="8" y1="2" y2="6"></line><line x1="3" x2="21" y1="10" y2="10"></line></symbol>
+      <symbol id="gi-check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"></polyline></symbol>
+      <symbol id="gi-building" viewBox="0 0 24 24"><rect width="16" height="20" x="4" y="2" rx="2"></rect><path d="M9 22v-4h6v4"></path><path d="M8 6h.01M16 6h.01M8 10h.01M16 10h.01M8 14h.01M16 14h.01"></path></symbol>
+      <symbol id="gi-edit" viewBox="0 0 24 24"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"></path></symbol>
+    </svg>
+    <section class="company-screen hidden" id="companyScreen">
+      <div class="company-card">
+        <header class="company-card-header">
+          <div>
+            <h1>Company Directory</h1>
+            <nav class="company-tabs" aria-label="Company list tabs">
+              <button class="active" type="button">My Businesses</button>
+            </nav>
+          </div>
+          <label class="company-search">
+            <svg class="gi-icon"><use href="#gi-search"></use></svg>
+            <input id="companySearchInput" type="search" placeholder="Search Company by name..." autocomplete="off">
+          </label>
+        </header>
+        <main class="company-card-body">
+          <div class="company-body-top">
+            <p>Select a business workspace to manage billing, inventory, and accounting.</p>
+            <div class="company-tools">
+              <button class="company-refresh" id="companyRefreshButton" type="button" aria-label="Refresh companies"><svg class="gi-icon"><use href="#gi-refresh"></use></svg></button>
+            </div>
+          </div>
+          <div class="company-list">
+            <article class="company-row">
+              <div>
+                <strong>testt</strong>
+                <span class="company-badge current">Active</span>
+              </div>
+              <span class="company-meta-badge">Local Database</span>
+              <button class="open-company-button" data-company="testt" type="button">Open Workspace</button>
+              <button class="row-menu" type="button" aria-label="Company actions"><svg class="gi-icon"><use href="#gi-more"></use></svg></button>
+            </article>
+          </div>
+        </main>
+        <footer class="company-card-footer">
+          <div>
+            <span>Desktop Storage:</span>
+            <strong>Local SQLite Database (Isolated &amp; Private)</strong>
+          </div>
+          <button class="primary-button square" id="newCompanyButton" type="button">+ Create New Company</button>
+        </footer>
+      </div>
+    </section>
+
+    <div class="app-shell hidden" id="appShell">
+      <aside class="sidebar">
+        <div class="quick-search-wrap">
+          <input class="quick-search" id="searchInput" type="search" placeholder="Open Anything (Ctrl+F)" aria-label="Open Anything" autocomplete="off">
+          <div class="open-anything-panel hidden" id="openAnythingPanel"></div>
+        </div>
+        <nav class="side-nav" aria-label="Main navigation">
+          <button class="nav-item active" data-view="home" type="button"><span><svg class="gi-icon"><use href="#gi-home"></use></svg></span>Home</button>
+          <button class="nav-item" data-view="parties" type="button"><span><svg class="gi-icon"><use href="#gi-users"></use></svg></span>Parties</button>
+          <button class="nav-item" data-view="items" type="button"><span><svg class="gi-icon"><use href="#gi-box"></use></svg></span>Items</button>
+          <button class="nav-item" data-view="sales" type="button"><span><svg class="gi-icon"><use href="#gi-receipt"></use></svg></span>Sale <b><svg class="gi-icon"><use href="#gi-chevron-down"></use></svg></b></button>
+          <div class="submenu hidden" id="saleSubmenu">
+            <button class="submenu-item active" data-view="sales" type="button">Sale Invoices</button>
+            <button class="submenu-item" data-view="estimate" type="button">Estimate / Quotation</button>
+            <button class="submenu-item" data-view="proforma" type="button">Proforma Invoice</button>
+            <button class="submenu-item" data-view="paymentIn" type="button">Payment-In</button>
+            <button class="submenu-item" data-view="saleOrder" type="button">Sale Order</button>
+            <button class="submenu-item" data-view="deliveryChallan" type="button">Delivery Challan</button>
+            <button class="submenu-item two-line" data-view="saleReturn" type="button">Sale Return / Credit Note</button>
+            <button class="submenu-item" data-view="pos" type="button">GI POS</button>
+          </div>
+          <button class="nav-item" data-view="purchases" type="button"><span><svg class="gi-icon"><use href="#gi-cart"></use></svg></span>Purchase &amp; Expense <b><svg class="gi-icon"><use href="#gi-chevron-down"></use></svg></b></button>
+          <div class="submenu hidden" id="purchaseSubmenu">
+            <button class="submenu-item active" data-view="purchases" type="button">Purchase Bills</button>
+            <button class="submenu-item" data-view="paymentOut" type="button">Payment-Out</button>
+            <button class="submenu-item" data-view="expenses" type="button">Expenses</button>
+            <button class="submenu-item" data-view="purchaseOrder" type="button">Purchase Order</button>
+            <button class="submenu-item two-line" data-view="purchaseReturn" type="button">Purchase Return / Dr. Note</button>
+          </div>
+          <button class="nav-item" data-view="grow" type="button"><span><svg class="gi-icon"><use href="#gi-trend"></use></svg></span>Business Health</button>
+          <button class="nav-item" data-view="cash" type="button"><span><svg class="gi-icon"><use href="#gi-wallet"></use></svg></span>Cash &amp; Bank</button>
+          <button class="nav-item" data-view="reports" type="button"><span><svg class="gi-icon"><use href="#gi-chart"></use></svg></span>Reports</button>
+          <button class="nav-item" data-view="sync" type="button"><span><svg class="gi-icon"><use href="#gi-database"></use></svg></span>Backup &amp; Share</button>
+          <button class="nav-item" data-view="settings" type="button"><span><svg class="gi-icon"><use href="#gi-tools"></use></svg></span>Utilities <b><svg class="gi-icon"><use href="#gi-chevron-down"></use></svg></b></button>
+          <div class="submenu hidden" id="utilitiesSubmenu">
+            <button class="submenu-item active" data-view="importItems" type="button">Import Items</button>
+            <button class="submenu-item" data-view="setupBusiness" type="button">Set Up My Business</button>
+            <button class="submenu-item" data-view="reports" type="button">Accountant Reports</button>
+            <button class="submenu-item" data-view="barcodeGenerator" type="button">Barcode Generator</button>
+            <button class="submenu-item" data-view="importParties" type="button">Import Parties</button>
+            <button class="submenu-item" data-view="exportItems" type="button">Export Items</button>
+            <button class="submenu-item" data-view="verifyData" type="button">Verify My Data</button>
+          </div>
+          <button class="nav-item" data-view="appSettings" type="button"><span><svg class="gi-icon"><use href="#gi-settings"></use></svg></span>Settings</button>
+        </nav>
+        <button class="company-switch" type="button" title="Switch Company">
+          <span class="avatar"></span>
+          Testt
+          <svg class="gi-icon"><use href="#gi-chevron-right"></use></svg>
+        </button>
+      </aside>
+
+      <main class="workspace">
+        <header class="window-bar">
+          <div class="menu-strip"></div>
+          <strong></strong>
+          <div class="support">
+            <span class="company-header-badge" id="activeCompanyName">testt</span>
+            <span class="fy-header-badge">FY 2026-27</span>
+            <span class="edition-header-badge">Desktop Standard</span>
+          </div>
+        </header>
+
+        <header class="topbar">
+          <button class="sale-button" id="addSaleButton" type="button"><svg class="gi-icon"><use href="#gi-plus"></use></svg>Add Sale</button>
+          <button class="purchase-button" id="addPurchaseButton" type="button"><svg class="gi-icon"><use href="#gi-plus"></use></svg>Add Purchase</button>
+          <button class="round-button" id="addPartyButton" type="button" aria-label="Add party" title="Add party"><svg class="gi-icon"><use href="#gi-plus"></use></svg></button>
+          <button class="kebab-button" type="button" aria-label="More options" title="More options"><svg class="gi-icon"><use href="#gi-more"></use></svg></button>
+        </header>
+
+        <section class="content-grid">
+          <section class="dashboard-main" id="homeView">
+            <header class="home-hero">
+              <div class="home-hero-title">
+                <p class="muted-label">Dashboard</p>
+                <h1>Business Overview</h1>
+              </div>
+              <div class="home-quick-actions">
+                <button class="sale-button" data-home-action="sale" type="button"><svg class="gi-icon"><use href="#gi-plus"></use></svg> Sale</button>
+                <button class="purchase-button" data-home-action="purchase" type="button"><svg class="gi-icon"><use href="#gi-plus"></use></svg> Purchase</button>
+              </div>
+            </header>
+            <div class="summary-grid">
+              <article class="metric-card">
+                <div>
+                  <p>Total Receivable</p>
+                  <strong id="receivableTotal">₹ 0</strong>
+                  <span id="receivableCaption">You don't have any receivables as of now.</span>
+                </div>
+                <span class="metric-icon green"><svg class="gi-icon"><use href="#gi-arrow-down"></use></svg></span>
+              </article>
+              <article class="metric-card">
+                <div>
+                  <p>Total Payable</p>
+                  <strong id="payableTotal">₹ 0</strong>
+                  <span id="payableCaption">You don't have any payables as of now.</span>
+                </div>
+                <span class="metric-icon pink"><svg class="gi-icon"><use href="#gi-arrow-up"></use></svg></span>
+              </article>
+            </div>
+
+            <article class="chart-panel">
+              <div class="panel-heading">
+                <div>
+                  <p>Total Sale</p>
+                  <strong id="saleTotal">₹ 0</strong>
+                </div>
+                <select id="periodSelect" aria-label="Report period">
+                  <option>This Month</option>
+                  <option>Today</option>
+                  <option>This Year</option>
+                </select>
+              </div>
+              <div class="chart-wrap">
+                <canvas id="salesChart" width="920" height="260" aria-label="Sales chart"></canvas>
+              </div>
+            </article>
+
+            <article class="reports-panel">
+              <div class="panel-heading compact">
+                <h2>Common Reports</h2>
+                <button type="button" class="link-button" data-view="reports">View All</button>
+              </div>
+              <div class="report-grid">
+                <button type="button" data-report="Sale Report">Sale Report <span>›</span></button>
+                <button type="button" data-report="All Transactions">All Transactions <span>›</span></button>
+                <button type="button" data-report="Daybook Report">Daybook Report <span>›</span></button>
+                <button type="button" data-report="Party Statement">Party Statement <span>›</span></button>
+              </div>
+            </article>
+          </section>
+
+          <aside class="right-panel">
+            <div class="focus-panel">
+              <div>
+                <p class="muted-label">Follow up</p>
+                <h2>Work Queue</h2>
+              </div>
+              <button class="focus-row" data-view="parties" type="button">
+                <span>Review parties</span>
+                <b>List</b>
+              </button>
+            </div>
+            <div class="health-panel">
+              <h3>Accounting Checks</h3>
+              <p>Use item matching and smart checks before saving invoices.</p>
+            </div>
+            <div class="empty-state">
+              <div class="shop-illustration" aria-hidden="true">
+                <div class="awning"></div>
+                <div class="shop-body">
+                  <span></span>
+                  <span></span>
+                </div>
+              </div>
+              <strong>It Looks So Empty in Here!</strong>
+              <p>Add one of our widgets to get started and view your business operations</p>
+            </div>
+            <button class="widget-button" type="button">Add Widget of Your Choice <span>＋</span></button>
+          </aside>
+
+          <section class="table-view hidden" id="listView">
+            <div class="list-header">
+              <div>
+                <p id="listEyebrow">Transactions</p>
+                <h1 id="listTitle">All Transactions</h1>
+              </div>
+              <button class="primary-button" id="listActionButton" type="button">+ New Entry</button>
+            </div>
+            <div class="table-card">
+              <table>
+                <thead id="tableHead"></thead>
+                <tbody id="tableBody"></tbody>
+              </table>
+              <div class="empty-table" id="emptyTable">No records found.</div>
+            </div>
+          </section>
+
+          <section class="sale-invoices-view hidden" id="saleInvoicesView">
+            <header class="invoice-header">
+              <div class="invoice-title">
+                <p class="muted-label">Sales</p>
+                <h1>Sale Invoices</h1>
+              </div>
+              <div class="invoice-actions">
+                <button class="sale-button" id="invoiceAddSaleButton" type="button"><svg class="gi-icon"><use href="#gi-plus"></use></svg>Add Sale</button>
+                <button class="icon-button gear-button" type="button" title="Settings"><svg class="gi-icon"><use href="#gi-settings"></use></svg></button>
+              </div>
+            </header>
+            <div class="invoice-toolbar">
+              <label class="invoice-page-search">
+                <span>Search</span>
+                <input id="saleInvoiceSearchInput" type="search" placeholder="Invoice, party, item, status">
+              </label>
+              <div class="invoice-filter-bar">
+                <button type="button">This Month</button>
+                <button type="button"><svg class="gi-icon" style="width:13px;height:13px;margin-right:4px;"><use href="#gi-calendar"></use></svg>Date Range</button>
+                <button type="button">All Firms</button>
+              </div>
+            </div>
+            <section class="invoice-summary-band">
+              <article class="invoice-summary-card">
+                <p>Total Sales</p>
+                <strong id="invoiceSaleTotal">₹ 0</strong>
+                <small>vs last period</small>
+                <div>
+                  <span>Received: <b id="invoiceReceivedTotal">₹ 0</b></span>
+                  <span>Balance: <b id="invoiceBalanceTotal">₹ 0</b></span>
+                </div>
+              </article>
+              <article class="invoice-summary-card invoice-count-card">
+                <p>Invoices</p>
+                <strong id="invoiceCountTotal">0</strong>
+                <span id="invoiceOpenCount">0 open invoices</span>
+              </article>
+            </section>
+            <section class="invoice-empty-panel" id="invoiceEmptyPanel">
+              <div class="invoice-empty-art">
+                <span></span>
+                <span></span>
+                <span></span>
+              </div>
+              <strong>No Transactions to show</strong>
+              <p>You haven't added any sale invoices yet.</p>
+            </section>
+            <section class="invoice-table-panel hidden" id="invoiceTablePanel">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Invoice</th>
+                    <th>Party</th>
+                    <th>Item</th>
+                    <th>Status</th>
+                    <th>Amount</th>
+                    <th>Balance</th>
+                  </tr>
+                </thead>
+                <tbody id="invoiceTableBody"></tbody>
+              </table>
+            </section>
+          </section>
+
+          <section class="purchase-bills-view hidden" id="purchaseBillsView">
+            <div class="purchase-empty-panel" id="purchaseEmptyPanel">
+              <div class="purchase-empty-art">
+                <div class="cart-box">
+                  <span></span>
+                  <span></span>
+                  <span></span>
+                </div>
+                <div class="bill-paper"></div>
+              </div>
+              <p>Make Purchase invoices &amp; Print or share with your customers directly via WhatsApp or Email.</p>
+              <button class="orange-button" id="firstPurchaseButton" type="button">Add Your First Purchase Invoice</button>
+            </div>
+            <section class="invoice-table-panel hidden" id="purchaseTablePanel">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Bill</th>
+                    <th>Supplier</th>
+                    <th>Item</th>
+                    <th>Status</th>
+                    <th>Amount</th>
+                  </tr>
+                </thead>
+                <tbody id="purchaseTableBody"></tbody>
+              </table>
+            </section>
+          </section>
+
+          <section class="feature-view hidden" id="featureView"></section>
+        </section>
+      </main>
+    </div>
+
+    <div class="modal-backdrop hidden" id="countryModal">
+      <section class="modal country-modal" role="dialog" aria-modal="true" aria-labelledby="countryTitle">
+        <header>Select Country</header>
+        <div class="modal-body">
+          <h2 id="countryTitle">Please select your country for automatic tax setup</h2>
+          <p>* Please note that once you select a country you can't change it later.</p>
+          <select id="countrySelect">
+            <option>India</option>
+            <option>United States</option>
+            <option>United Arab Emirates</option>
+            <option>United Kingdom</option>
+          </select>
+        </div>
+        <footer>
+          <button class="primary-button" id="selectCountryButton" type="button">SELECT</button>
+        </footer>
+      </section>
+    </div>
+
+    <div class="modal-backdrop hidden" id="entryModal">
+      <section class="modal entry-modal" role="dialog" aria-modal="true" aria-labelledby="entryTitle">
+        <header>
+          <span id="entryTitle">Add Sale</span>
+          <button class="close-button" id="closeEntryButton" type="button">×</button>
+        </header>
+        <form id="entryForm" class="entry-form">
+          <label>
+            Party name
+            <input name="party" required placeholder="Business or person name">
+          </label>
+          <label>
+            Item
+            <input name="item" required placeholder="Product or service">
+          </label>
+          <label>
+            Amount
+            <input name="amount" required type="number" min="0" step="0.01" placeholder="0.00">
+          </label>
+          <label>
+            Payment status
+            <select name="status">
+              <option value="paid">Paid</option>
+              <option value="due">Due</option>
+            </select>
+          </label>
+          <section class="entry-section party-only">
+            <h3>Contact</h3>
+            <label>Phone<input name="phone" placeholder="Phone number"></label>
+            <label>Email<input name="email" type="email" placeholder="email@example.com"></label>
+            <label>Contact person<input name="contactPerson" placeholder="Owner or accounts contact"></label>
+          </section>
+          <section class="entry-section party-only">
+            <h3>Tax Type</h3>
+            <label>Registration status
+              <select name="taxType" id="partyTaxType">
+                <option value="unregistered">Unregistered / Consumer</option>
+                <option value="gst_registered">GST Registered</option>
+                <option value="composition">Composition Dealer</option>
+                <option value="overseas">Overseas / Export</option>
+              </select>
+            </label>
+            <label>Place of supply / State<input name="state" placeholder="State"></label>
+            <label class="gst-detail-field">GSTIN<input name="gstin" placeholder="GSTIN"><small class="field-hint">Format: 22AAAAA0000A1Z5</small></label>
+            <label class="gst-detail-field">Legal name<input name="legalName" placeholder="Name as per GST"></label>
+            <label class="gst-detail-field">PAN<input name="pan" placeholder="PAN"></label>
+          </section>
+          <section class="entry-section party-only">
+            <h3>Credit & Terms</h3>
+            <label>Opening balance<input name="openingBalance" type="number" step="0.01" placeholder="0.00"></label>
+            <label>Balance type
+              <select name="openingBalanceType">
+                <option value="receivable">Receivable from party</option>
+                <option value="payable">Payable to party</option>
+              </select>
+            </label>
+            <label>Credit limit<input name="creditLimit" type="number" step="0.01" placeholder="0.00"></label>
+            <label>Payment terms<input name="paymentTerms" placeholder="Net 30"></label>
+            <label>Due days<input name="dueDays" type="number" min="0" step="1" placeholder="30"></label>
+          </section>
+          <section class="entry-section party-only">
+            <h3>Address</h3>
+            <label class="wide">Billing address<textarea name="billingAddress" rows="2" placeholder="Billing address"></textarea></label>
+            <label class="wide checkbox-row"><input name="sameAsBilling" type="checkbox"> Shipping same as billing</label>
+            <label class="wide">Shipping address<textarea name="shippingAddress" rows="2" placeholder="Shipping address"></textarea></label>
+          </section>
+          <section class="entry-section item-only">
+            <h3>Basic</h3>
+            <label>Item type
+              <select name="itemType" id="itemType">
+                <option value="product">Product</option>
+                <option value="service">Service</option>
+              </select>
+            </label>
+            <label>Unit
+              <span class="entry-inline-action">
+                <input name="unit" list="itemUnitOptions" placeholder="Choose or type unit" autocomplete="off">
+                <button class="mini-action-button" type="button" data-action="quick-add-unit">+</button>
+              </span>
+            </label>
+            <label>Category
+              <span class="entry-inline-action">
+                <input name="category" list="itemCategoryOptions" placeholder="Choose or type category" autocomplete="off">
+                <button class="mini-action-button" type="button" data-action="quick-add-category">+</button>
+              </span>
+            </label>
+            <label>Item code / SKU<input name="sku" placeholder="SKU or code"></label>
+            <label><span id="hsnSacLabel">HSN Code</span><input name="hsnSac" placeholder="HSN/SAC"></label>
+            <label class="product-stock-field">Storage location<input name="storageLocation" placeholder="Warehouse / shelf"></label>
+            <datalist id="itemUnitOptions"></datalist>
+            <datalist id="itemCategoryOptions"></datalist>
+          </section>
+          <section class="entry-section item-only">
+            <h3>Pricing & Tax</h3>
+            <label>Sale price<input name="salePrice" type="number" min="0" step="0.01" placeholder="0.00"></label>
+            <label>Sale price type
+              <select name="saleTaxType">
+                <option value="without_tax">Without Tax</option>
+                <option value="with_tax">With Tax</option>
+              </select>
+            </label>
+            <label>Purchase price<input name="purchasePrice" type="number" min="0" step="0.01" placeholder="0.00"></label>
+            <label>Purchase price type
+              <select name="purchaseTaxType">
+                <option value="without_tax">Without Tax</option>
+                <option value="with_tax">With Tax</option>
+              </select>
+            </label>
+            <label>GST rate
+              <select name="taxRate">
+                <option value="0">None / 0%</option>
+                <option value="5">GST 5%</option>
+                <option value="12">GST 12%</option>
+                <option value="18">GST 18%</option>
+                <option value="28">GST 28%</option>
+              </select>
+            </label>
+            <label>Default discount<input name="discount" type="number" min="0" step="0.01" placeholder="0.00"></label>
+          </section>
+          <section class="entry-section item-only item-stock-section">
+            <h3>Opening Stock</h3>
+            <label class="product-stock-field">Opening stock<input name="openingStock" type="number" min="0" step="0.01" placeholder="0"></label>
+            <label class="product-stock-field">Opening stock date<input name="openingStockDate" type="date"></label>
+            <label class="product-stock-field">Opening stock value<input name="openingStockValue" type="number" min="0" step="0.01" placeholder="0.00"></label>
+          </section>
+          <section class="entry-section item-only">
+            <h3>Invoice Description</h3>
+            <label class="wide">Description shown on invoice<textarea name="itemDescription" rows="2" placeholder="Description for sale/purchase invoice"></textarea></label>
+          </section>
+          <label class="wide">
+            Notes
+            <textarea name="notes" rows="3" placeholder="Internal notes"></textarea>
+          </label>
+          <footer>
+            <button class="secondary-button" type="button" id="cancelEntryButton">Cancel</button>
+            <button class="primary-button" type="submit">Save</button>
+          </footer>
+        </form>
+      </section>
+    </div>
+
+    <div class="modal-backdrop hidden" id="companyModal">
+      <section class="modal entry-modal company-form-card" role="dialog" aria-modal="true" aria-labelledby="companyModalTitle">
+        <header>
+          <span id="companyModalTitle">Create Business Profile</span>
+          <button class="close-button" id="closeCompanyModalButton" type="button">×</button>
+        </header>
+        <form class="entry-form company-form" id="companyForm" autocomplete="off">
+          <input type="hidden" name="companyId" value="">
+          <section class="entry-section">
+            <h3>General Details</h3>
+            <label class="wide">
+              Business / Trade Name *
+              <input name="businessName" type="text" placeholder="e.g. Acme Enterprises" required>
+            </label>
+            <label>
+              Legal Registered Name
+              <input name="legalName" type="text" placeholder="e.g. Acme Enterprises Private Limited">
+            </label>
+            <label>
+              GSTIN (15 characters)
+              <input name="gstin" type="text" placeholder="e.g. 29AAAAA0000A1Z5" maxlength="15">
+            </label>
+            <label>
+              PAN
+              <input name="pan" type="text" placeholder="e.g. AAAAA0000A" maxlength="10">
+            </label>
+            <label>
+              State
+              <select name="state" id="companyStateSelect">
+                <option value="Karnataka">Karnataka</option>
+                <option value="Maharashtra">Maharashtra</option>
+                <option value="Delhi">Delhi</option>
+                <option value="Tamil Nadu">Tamil Nadu</option>
+                <option value="Gujarat">Gujarat</option>
+                <option value="Uttar Pradesh">Uttar Pradesh</option>
+                <option value="West Bengal">West Bengal</option>
+                <option value="Telangana">Telangana</option>
+                <option value="Kerala">Kerala</option>
+                <option value="Rajasthan">Rajasthan</option>
+                <option value="Andhra Pradesh">Andhra Pradesh</option>
+                <option value="Haryana">Haryana</option>
+                <option value="Punjab">Punjab</option>
+                <option value="Madhya Pradesh">Madhya Pradesh</option>
+                <option value="Bihar">Bihar</option>
+                <option value="Assam">Assam</option>
+                <option value="Odisha">Odisha</option>
+                <option value="Goa">Goa</option>
+                <option value="Other">Other Territory</option>
+              </select>
+            </label>
+          </section>
+          <section class="entry-section">
+            <h3>Contact &amp; Location</h3>
+            <label>
+              Phone / Mobile
+              <input name="phone" type="tel" placeholder="e.g. +91 9876543210">
+            </label>
+            <label>
+              Email Address
+              <input name="email" type="email" placeholder="e.g. billing@acme.in">
+            </label>
+            <label class="wide">
+              Billing Address
+              <textarea name="address" rows="2" placeholder="Building, Street, Area"></textarea>
+            </label>
+            <label>
+              City
+              <input name="city" type="text" placeholder="City">
+            </label>
+            <label>
+              Pincode
+              <input name="pincode" type="text" placeholder="e.g. 560001" maxlength="6">
+            </label>
+          </section>
+          <section class="entry-section">
+            <h3>Banking &amp; Payment (for Invoices &amp; QR Code)</h3>
+            <label>
+              Bank Name
+              <input name="bankName" type="text" placeholder="e.g. HDFC Bank">
+            </label>
+            <label>
+              Account Number
+              <input name="accountNo" type="text" placeholder="e.g. 501000000000">
+            </label>
+            <label>
+              IFSC Code
+              <input name="ifsc" type="text" placeholder="e.g. HDFC0001234">
+            </label>
+            <label>
+              UPI ID (for Payment QR)
+              <input name="upiId" type="text" placeholder="e.g. business@okaxis">
+            </label>
+          </section>
+          <footer>
+            <button class="secondary-button" type="button" id="cancelCompanyModalButton">Cancel</button>
+            <button class="primary-button" type="submit" id="saveCompanyButton">Save Business Profile</button>
+          </footer>
+        </form>
+      </section>
+    </div>
+
+    <script src="app.js"></script>
+  </body>
+</html>
