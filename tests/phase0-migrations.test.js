@@ -93,7 +93,7 @@ async function testVersionSixMissingDocumentType() {
 
     await reopen(fixture.root);
     const info = database.getMigrationInfo();
-    assert.deepEqual(info.lastResult.applied, [7, 8]);
+    assert.deepEqual(info.lastResult.applied, [7, 8, 9]);
     assert.deepEqual(fs.readFileSync(info.lastResult.backup.path), original);
     assertSnapshotsEqual(snapshot(), expected, "version 7 must preserve business records");
     assert.ok(Array.isArray(database.getState().estimates));
@@ -132,7 +132,7 @@ async function testLegacyMigrationAndRepeatRun() {
     await reopen(fixture.root);
     assertSnapshotsEqual(snapshot(), expected, "legacy migration must preserve business data");
     const firstInfo = database.getMigrationInfo();
-    assert.deepEqual(firstInfo.lastResult.applied, [1, 2, 3, 4, 5, 6, 7, 8], "legacy database should receive all required migrations");
+    assert.deepEqual(firstInfo.lastResult.applied, [1, 2, 3, 4, 5, 6, 7, 8, 9], "legacy database should receive all required migrations");
     assert.ok(firstInfo.lastResult.backup?.validated, "legacy migration should create a validated backup");
     assert.ok(fs.existsSync(firstInfo.lastResult.backup.path), "pre-migration backup should remain available");
 
@@ -140,7 +140,7 @@ async function testLegacyMigrationAndRepeatRun() {
     assertSnapshotsEqual(snapshot(), expected, "repeated migration run must preserve data");
     const secondInfo = database.getMigrationInfo();
     assert.deepEqual(secondInfo.lastResult.applied, [], "already applied migration should not run again");
-    assert.equal(secondInfo.currentVersion, 8);
+    assert.equal(secondInfo.currentVersion, 9);
   } finally {
     fixture.cleanup();
   }
@@ -158,7 +158,7 @@ async function testFailedMigrationRollback() {
     try {
       await reopen(fixture.root, {
         additionalMigrations: [{
-          version: 9,
+          version: 10,
           name: "deliberate_test_failure",
           up(migrationDb) {
             migrationDb.run("CREATE TABLE should_be_rolled_back (id INTEGER PRIMARY KEY)");
@@ -180,7 +180,7 @@ async function testFailedMigrationRollback() {
     assert.ok(backups.length >= 1, "failed migration should preserve a pre-migration backup");
     const inspected = await inspectDatabase(fixture.databasePath);
     assert.equal(inspected.query("SELECT name FROM sqlite_master WHERE type='table' AND name='should_be_rolled_back'").length, 0);
-    assert.equal(inspected.query("SELECT version FROM schema_migrations WHERE version=9").length, 0);
+    assert.equal(inspected.query("SELECT version FROM schema_migrations WHERE version=10").length, 0);
     inspected.close();
 
     await reopen(fixture.root);

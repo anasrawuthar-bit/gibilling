@@ -77,6 +77,26 @@ app.whenReady().then(async () => {
     const workspaceVisible = await window.webContents.executeJavaScript('!document.getElementById("appShell").classList.contains("hidden")');
     assert.equal(workspaceVisible, true, "Open should enter the selected company workspace");
 
+    const reports = await window.webContents.executeJavaScript(`(() => {
+      const reportIds = ['overview', 'gstr1', 'gstr2', 'gstLiability', 'sale', 'purchase', 'daybook', 'partyBalances', 'receivableAging', 'payableAging', 'stock', 'itemLedger', 'profitLoss', 'trialBalance', 'cashBank'];
+      const rendered = reportIds.map((id) => {
+        elements.featureView.innerHTML = reportsTemplate(id);
+        return { id, title: elements.featureView.querySelector('.report-page h1')?.textContent || '', table: Boolean(elements.featureView.querySelector('.report-table')) };
+      });
+      elements.featureView.innerHTML = reportsTemplate('sale');
+      bindFeatureActions();
+      const select = elements.featureView.querySelector('[data-report-date-preset]');
+      select.value = 'custom';
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+      const customVisible = !elements.featureView.querySelector('[data-report-date-from]')?.closest('label')?.classList.contains('hidden');
+      reportDateFilter = { preset: 'all', from: '', to: '' };
+      return { rendered, customVisible, menuCount: document.querySelectorAll('[data-report-view]').length };
+    })()`);
+    assert.equal(reports.rendered.length, 15, 'every Report Center view must render');
+    assert.ok(reports.rendered.every((report) => report.title), 'every report must have a title');
+    assert.ok(reports.customVisible, 'custom report period must show from/to dates');
+    assert.ok(reports.menuCount >= 15, 'Report Center should expose all report views');
+
     const invoiceChecks = await window.webContents.executeJavaScript(`(() => {
       const saved = { id: 'preview-check', type: 'sale', party: 'Cash', partyId: null,
         invoiceNo: 'INV-CHECK-1', total: 10.25, received: 10.25, paymentType: 'cash',

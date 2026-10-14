@@ -69,7 +69,7 @@ async function testMigration6AndPaymentPreservation() {
     assert.ok(paymentBefore, "Payment must exist before migration");
 
     const migInfo = database.getMigrationInfo();
-    assert.strictEqual(migInfo.targetVersion, 8, "Target migration version must be 8");
+    assert.strictEqual(migInfo.targetVersion, 9, "Target migration version must be 9");
 
     const afterState = database.getState();
     const paymentAfter = afterState.payments.find((p) => p.id === paymentBefore.id);

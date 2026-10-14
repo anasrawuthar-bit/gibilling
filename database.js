@@ -10,7 +10,7 @@ let dbPath;
 let transactionDepth = 0;
 let lastMigrationResult = null;
 
-const SCHEMA_VERSION = 8;
+const SCHEMA_VERSION = 9;
 
 function enforceForeignKeys(database = db) {
   if (!database) return;
@@ -50,6 +50,27 @@ const DEFAULT_UNITS = [
   "Service",
 ];
 
+const STANDARD_UNIT_METADATA = {
+  Pcs: { short_name: "pcs", code: "PCS", allows_decimal: 0, description: "Pieces" },
+  Nos: { short_name: "nos", code: "NOS", allows_decimal: 0, description: "Numbers" },
+  Box: { short_name: "box", code: "BOX", allows_decimal: 0, description: "Boxes" },
+  Pack: { short_name: "pack", code: "PAC", allows_decimal: 0, description: "Packs" },
+  Set: { short_name: "set", code: "SET", allows_decimal: 0, description: "Sets" },
+  Pair: { short_name: "pair", code: "PRS", allows_decimal: 0, description: "Pairs" },
+  Kg: { short_name: "kg", code: "KGS", allows_decimal: 1, description: "Kilograms" },
+  Gram: { short_name: "g", code: "GRM", allows_decimal: 1, description: "Grams" },
+  Litre: { short_name: "ltr", code: "LTR", allows_decimal: 1, description: "Litres" },
+  ML: { short_name: "ml", code: "MLT", allows_decimal: 1, description: "Millilitres" },
+  Meter: { short_name: "m", code: "MTR", allows_decimal: 1, description: "Meters" },
+  "Sq Ft": { short_name: "sq ft", code: "SQF", allows_decimal: 1, description: "Square Feet" },
+  Bundle: { short_name: "bdl", code: "BDL", allows_decimal: 0, description: "Bundles" },
+  Roll: { short_name: "roll", code: "ROL", allows_decimal: 0, description: "Rolls" },
+  Hr: { short_name: "hr", code: "HRS", allows_decimal: 1, description: "Hours (Service/Labor)" },
+  Day: { short_name: "day", code: "DAY", allows_decimal: 1, description: "Days" },
+  Month: { short_name: "mo", code: "MON", allows_decimal: 0, description: "Months" },
+  Service: { short_name: "srv", code: "OTH", allows_decimal: 0, description: "Other Services" },
+};
+
 const DEFAULT_ITEM_CATEGORIES = [
   "Electronics",
   "Computer Accessories",
@@ -71,6 +92,27 @@ const DEFAULT_ITEM_CATEGORIES = [
   "Other",
 ];
 
+const STANDARD_CATEGORY_METADATA = {
+  Electronics: { code: "ELEC", description: "Electronic devices & gadgets" },
+  "Computer Accessories": { code: "COMP", description: "Peripherals, storage & PC accessories" },
+  "Mobile Accessories": { code: "MOBA", description: "Cases, chargers, earphones & mobile gear" },
+  Stationery: { code: "STAT", description: "Office stationery, books & papers" },
+  Grocery: { code: "GROC", description: "Daily provisions & packaged food" },
+  "Food & Beverage": { code: "FNB", description: "Food items, snacks & drinks" },
+  Apparel: { code: "APPR", description: "Clothing, garments & fashion items" },
+  Hardware: { code: "HDW", description: "Tools, fasteners & general hardware" },
+  Electrical: { code: "ELC", description: "Wiring, switches, lights & panels" },
+  Plumbing: { code: "PLUM", description: "Pipes, valves, taps & plumbing fixtures" },
+  Furniture: { code: "FURN", description: "Desks, chairs & office/home furniture" },
+  Packaging: { code: "PACK", description: "Boxes, tape, wraps & packing materials" },
+  Service: { code: "SERV", description: "Professional, consulting & digital services" },
+  Labour: { code: "LABR", description: "Installation, manual & technician labour" },
+  "Repairs & Maintenance": { code: "REP", description: "Equipment servicing & maintenance" },
+  Rent: { code: "RENT", description: "Space, machinery or vehicle rental" },
+  Transport: { code: "TRN", description: "Freight, delivery & courier transport" },
+  Other: { code: "OTHR", description: "Miscellaneous unclassified items" },
+};
+
 function getMigrations(additionalMigrations = []) {
   return [
     { version: 1, name: "initial_schema_metadata", up: migrate },
@@ -81,6 +123,7 @@ function getMigrations(additionalMigrations = []) {
     { version: 6, name: "payments_nullable_and_journal_unification", up: migratePaymentsNullableAndJournalUnification },
     { version: 7, name: "operational_document_type", up: () => addColumnIfMissing("estimates", "document_type", "TEXT NOT NULL DEFAULT 'estimate'") },
     { version: 8, name: "units_and_categories_upgrade", up: migrateUnitsAndCategoriesUpgrade },
+    { version: 9, name: "gst_compliance_and_journal_tables", up: migrateGstComplianceAndJournalTables },
     ...(additionalMigrations || []),
   ];
 }
@@ -114,6 +157,7 @@ async function initDatabase(userDataPath, options = {}) {
     seedDefaults();
     ensureDebitNoteSchema();
     ensureLocalSyncIdentity();
+    ensureUsersSchema();
     run("UPDATE sync_outbox SET status = 'retry', next_attempt_at = NULL, last_error_code = 'INTERRUPTED' WHERE status = 'uploading'");
     persist();
     return getState();
@@ -1242,6 +1286,83 @@ function createIndexes() {
   `);
 }
 
+function migrateGstComplianceAndJournalTables() {
+  if (!db) return;
+
+  // e-Invoice log — stores IRN, QR code, ack details per invoice
+  db.run(`
+    CREATE TABLE IF NOT EXISTS einvoice_log (
+      id TEXT PRIMARY KEY,
+      company_id INTEGER NOT NULL,
+      invoice_id TEXT NOT NULL,
+      irn TEXT,
+      ack_no TEXT,
+      ack_date TEXT,
+      qr_code TEXT,
+      signed_invoice TEXT,
+      status TEXT NOT NULL DEFAULT 'pending',
+      request_json TEXT,
+      response_json TEXT,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY(company_id) REFERENCES companies(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_einvoice_company_invoice ON einvoice_log(company_id, invoice_id);
+  `);
+
+  // e-Way Bill log — stores EWB number and validity per invoice
+  db.run(`
+    CREATE TABLE IF NOT EXISTS ewaybill_log (
+      id TEXT PRIMARY KEY,
+      company_id INTEGER NOT NULL,
+      invoice_id TEXT NOT NULL,
+      ewb_no TEXT,
+      ewb_date TEXT,
+      valid_upto TEXT,
+      transporter_id TEXT,
+      transport_doc_no TEXT,
+      vehicle_no TEXT,
+      status TEXT NOT NULL DEFAULT 'pending',
+      request_json TEXT,
+      response_json TEXT,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY(company_id) REFERENCES companies(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_ewaybill_company_invoice ON ewaybill_log(company_id, invoice_id);
+  `);
+
+  // Extend ledger_entries to support manual journal vouchers
+  addColumnIfMissing("ledger_entries", "voucher_no", "TEXT");
+  addColumnIfMissing("ledger_entries", "entry_type", "TEXT NOT NULL DEFAULT 'auto'");
+  // entry_type: 'auto' = system-posted, 'journal' = manual voucher
+
+  // ITC register — eligibility per purchase invoice line
+  db.run(`
+    CREATE TABLE IF NOT EXISTS itc_register (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      company_id INTEGER NOT NULL,
+      invoice_id TEXT NOT NULL,
+      invoice_no TEXT,
+      invoice_date TEXT,
+      party TEXT,
+      party_gstin TEXT,
+      item_name TEXT,
+      hsn_sac TEXT,
+      taxable_value REAL NOT NULL DEFAULT 0,
+      cgst_eligible REAL NOT NULL DEFAULT 0,
+      sgst_eligible REAL NOT NULL DEFAULT 0,
+      igst_eligible REAL NOT NULL DEFAULT 0,
+      cgst_blocked REAL NOT NULL DEFAULT 0,
+      sgst_blocked REAL NOT NULL DEFAULT 0,
+      igst_blocked REAL NOT NULL DEFAULT 0,
+      block_reason TEXT,
+      period TEXT,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY(company_id) REFERENCES companies(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_itc_company_period ON itc_register(company_id, period);
+  `);
+}
+
 function ensureDebitNoteSchema() {
   if (!db) return;
   db.run(`
@@ -1327,6 +1448,38 @@ function ensureDebitNoteSchema() {
   addColumnIfMissing("stock_movements", "debit_note_id", "TEXT");
 }
 
+function ensureUsersSchema() {
+  if (!db) return;
+  db.run(`
+    CREATE TABLE IF NOT EXISTS users (
+      id TEXT PRIMARY KEY,
+      company_id INTEGER NOT NULL,
+      username TEXT NOT NULL,
+      display_name TEXT NOT NULL,
+      role TEXT NOT NULL DEFAULT 'admin',
+      pin_hash TEXT,
+      is_active INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY(company_id) REFERENCES companies(id) ON DELETE CASCADE
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS uq_users_company_username ON users(company_id, username);
+  `);
+  if (tableExists(db, "companies")) {
+    const companies = all("SELECT id FROM companies");
+    for (const c of companies) {
+      const existing = one("SELECT id FROM users WHERE company_id = ?", [c.id]);
+      if (!existing) {
+        const now = new Date().toISOString();
+        run(
+          "INSERT OR IGNORE INTO users (id, company_id, username, display_name, role, is_active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+          [makeId(), c.id, "admin", "Primary Administrator", "admin", 1, now, now]
+        );
+      }
+    }
+  }
+}
+
 function seedDefaults() {
   const now = new Date().toISOString();
   run("DELETE FROM companies WHERE name LIKE '%.vyp'");
@@ -1341,6 +1494,7 @@ function seedDefaults() {
     run("UPDATE companies SET is_current = 1 WHERE id = (SELECT id FROM companies ORDER BY id LIMIT 1)");
   }
   seedMasterDefaultsForAllCompanies();
+  backfillStandardUnitsAndCategoriesMetadata();
 }
 
 function seedMasterDefaultsForAllCompanies() {
@@ -1351,12 +1505,44 @@ function seedMasterDefaults(companyId) {
   if (one("SELECT value FROM company_settings WHERE company_id = ? AND key = 'master_defaults_seeded'", [companyId])) return;
   const now = new Date().toISOString();
   DEFAULT_UNITS.forEach((unit) => {
-    run("INSERT OR IGNORE INTO units (company_id, name, created_at) VALUES (?, ?, ?)", [companyId, unit, now]);
+    const meta = STANDARD_UNIT_METADATA[unit] || {};
+    run(
+      "INSERT OR IGNORE INTO units (company_id, name, short_name, code, allows_decimal_quantity, description, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      [companyId, unit, meta.short_name || null, meta.code || null, meta.allows_decimal || 0, meta.description || null, now]
+    );
   });
   DEFAULT_ITEM_CATEGORIES.forEach((category) => {
-    run("INSERT OR IGNORE INTO item_categories (company_id, name, created_at) VALUES (?, ?, ?)", [companyId, category, now]);
+    const meta = STANDARD_CATEGORY_METADATA[category] || {};
+    run(
+      "INSERT OR IGNORE INTO item_categories (company_id, name, code, description, created_at) VALUES (?, ?, ?, ?, ?)",
+      [companyId, category, meta.code || null, meta.description || null, now]
+    );
   });
   run("INSERT INTO company_settings (company_id, key, value) VALUES (?, 'master_defaults_seeded', '1')", [companyId]);
+}
+
+function backfillStandardUnitsAndCategoriesMetadata() {
+  for (const [unitName, meta] of Object.entries(STANDARD_UNIT_METADATA)) {
+    run(
+      `UPDATE units SET
+        short_name = COALESCE(NULLIF(short_name, ''), ?),
+        code = COALESCE(NULLIF(code, ''), ?),
+        description = COALESCE(NULLIF(description, ''), ?),
+        allows_decimal_quantity = CASE WHEN allows_decimal_quantity = 0 AND ? = 1 THEN 1 ELSE allows_decimal_quantity END
+       WHERE LOWER(TRIM(name)) = LOWER(?)`,
+      [meta.short_name, meta.code, meta.description, meta.allows_decimal, unitName]
+    );
+  }
+
+  for (const [catName, meta] of Object.entries(STANDARD_CATEGORY_METADATA)) {
+    run(
+      `UPDATE item_categories SET
+        code = COALESCE(NULLIF(code, ''), ?),
+        description = COALESCE(NULLIF(description, ''), ?)
+       WHERE LOWER(TRIM(name)) = LOWER(?)`,
+      [meta.code, meta.description, catName]
+    );
+  }
 }
 
 function getState() {
@@ -1615,9 +1801,24 @@ function getState() {
       [currentCompany.id],
     ),
     ledgerEntries: all(
-      "SELECT transaction_id AS transactionId, account, debit, credit, entry_date AS entryDate, narration FROM ledger_entries WHERE company_id = ? ORDER BY id DESC",
+      `SELECT id, transaction_id AS transactionId, account, debit, credit, entry_date AS entryDate,
+        narration, voucher_no AS voucherNo,
+        COALESCE(entry_type, 'auto') AS entryType
+       FROM ledger_entries WHERE company_id = ? ORDER BY entry_date DESC, id DESC`,
       [currentCompany.id],
     ),
+    eInvoiceLogs: tableExists(db, "einvoice_log") ? all(
+      `SELECT id, invoice_id AS invoiceId, irn, ack_no AS ackNo, ack_date AS ackDate,
+        qr_code AS qrCode, status, created_at AS createdAt
+       FROM einvoice_log WHERE company_id = ? ORDER BY created_at DESC`,
+      [currentCompany.id],
+    ) : [],
+    eWayBillLogs: tableExists(db, "ewaybill_log") ? all(
+      `SELECT id, invoice_id AS invoiceId, ewb_no AS ewbNo, ewb_date AS ewbDate,
+        valid_upto AS validUpto, vehicle_no AS vehicleNo, status, created_at AS createdAt
+       FROM ewaybill_log WHERE company_id = ? ORDER BY created_at DESC`,
+      [currentCompany.id],
+    ) : [],
     taxEntries: all(
       `SELECT id, source_type AS sourceType, source_id AS sourceId, document_no AS documentNo,
         document_date AS documentDate, party_id AS partyId, party_name AS partyName,
@@ -1911,10 +2112,27 @@ function defaultBusinessSettings(companyName = "testt") {
     customFields: defaultCustomFields(),
     printerType: "regular",
     thermalWidth: "80mm",
+    a4Template: "modern",
+    thermalTemplate: "retail",
     printCompanyLogo: true,
+    printBankDetails: true,
+    printUpiQr: true,
+    printGstSummary: true,
+    printTerms: true,
+    printSignature: true,
     stopSaleOnNegativeStock: false,
     defaultTaxInclusive: false,
     enableHsn: true,
+    whatsappSettings: {
+      mode: "direct",
+      autoShareOnSave: false,
+      phoneNumberId: "",
+      wabaId: "",
+      accessToken: "",
+      templateName: "invoice_notification",
+      languageCode: "en",
+      customMessageTemplate: "",
+    },
   };
 }
 
@@ -1954,6 +2172,10 @@ function getBusinessSettings(explicitCompanyId = null) {
       ...defaults.bankDetails,
       ...(saved.bankDetails || {}),
     },
+    whatsappSettings: {
+      ...defaults.whatsappSettings,
+      ...(saved.whatsappSettings || {}),
+    },
     customFields: normalizeCustomFields(saved.customFields || defaults.customFields),
   };
 }
@@ -1984,10 +2206,27 @@ function updateBusinessSettings(settings = {}) {
     customFields: normalizeCustomFields(settings.customFields ?? current.customFields),
     printerType: String(settings.printerType ?? current.printerType ?? "regular").trim(),
     thermalWidth: String(settings.thermalWidth ?? current.thermalWidth ?? "80mm").trim(),
+    a4Template: String(settings.a4Template ?? current.a4Template ?? "modern").trim(),
+    thermalTemplate: String(settings.thermalTemplate ?? current.thermalTemplate ?? "retail").trim(),
     printCompanyLogo: settings.printCompanyLogo !== undefined ? Boolean(settings.printCompanyLogo) : Boolean(current.printCompanyLogo ?? true),
+    printBankDetails: settings.printBankDetails !== undefined ? Boolean(settings.printBankDetails) : Boolean(current.printBankDetails ?? true),
+    printUpiQr: settings.printUpiQr !== undefined ? Boolean(settings.printUpiQr) : Boolean(current.printUpiQr ?? true),
+    printGstSummary: settings.printGstSummary !== undefined ? Boolean(settings.printGstSummary) : Boolean(current.printGstSummary ?? true),
+    printTerms: settings.printTerms !== undefined ? Boolean(settings.printTerms) : Boolean(current.printTerms ?? true),
+    printSignature: settings.printSignature !== undefined ? Boolean(settings.printSignature) : Boolean(current.printSignature ?? true),
     stopSaleOnNegativeStock: settings.stopSaleOnNegativeStock !== undefined ? Boolean(settings.stopSaleOnNegativeStock) : Boolean(current.stopSaleOnNegativeStock ?? false),
     defaultTaxInclusive: settings.defaultTaxInclusive !== undefined ? Boolean(settings.defaultTaxInclusive) : Boolean(current.defaultTaxInclusive ?? false),
     enableHsn: settings.enableHsn !== undefined ? Boolean(settings.enableHsn) : Boolean(current.enableHsn ?? true),
+    whatsappSettings: {
+      mode: ["direct", "cloud_api"].includes(settings.whatsappSettings?.mode) ? settings.whatsappSettings.mode : (current.whatsappSettings?.mode || "direct"),
+      autoShareOnSave: settings.whatsappSettings?.autoShareOnSave !== undefined ? Boolean(settings.whatsappSettings.autoShareOnSave) : Boolean(current.whatsappSettings?.autoShareOnSave ?? false),
+      phoneNumberId: String(settings.whatsappSettings?.phoneNumberId ?? current.whatsappSettings?.phoneNumberId ?? "").trim(),
+      wabaId: String(settings.whatsappSettings?.wabaId ?? current.whatsappSettings?.wabaId ?? "").trim(),
+      accessToken: String(settings.whatsappSettings?.accessToken ?? current.whatsappSettings?.accessToken ?? "").trim(),
+      templateName: String(settings.whatsappSettings?.templateName ?? current.whatsappSettings?.templateName ?? "invoice_notification").trim(),
+      languageCode: String(settings.whatsappSettings?.languageCode ?? current.whatsappSettings?.languageCode ?? "en").trim(),
+      customMessageTemplate: String(settings.whatsappSettings?.customMessageTemplate ?? current.whatsappSettings?.customMessageTemplate ?? "").trim(),
+    },
   };
   Object.entries(next).forEach(([key, value]) => {
     run("INSERT OR REPLACE INTO company_settings (company_id, key, value) VALUES (?, ?, ?)", [company.id, key, JSON.stringify(value)]);
@@ -2220,6 +2459,8 @@ function createParty({
     [company.id, name, type, phone, email, contactPerson, taxType, gstin, legalName, state, pan, billingAddress, shippingAddress, openingBalance, openingBalanceType, creditLimit, paymentTerms, dueDays, notes, now],
   );
   updatePartyDetails(company.id, { name, type, phone, email, contactPerson, taxType, gstin, legalName, state, pan, billingAddress, shippingAddress, openingBalance, openingBalanceType, creditLimit, paymentTerms, dueDays, notes });
+  const partyRecord = one("SELECT id FROM parties WHERE company_id = ? AND LOWER(name) = LOWER(?)", [company.id, name]);
+  recordAuditLog(company.id, "CREATE", "party", partyRecord ? partyRecord.id : name, name, { type, phone, gstin });
   persist();
   return getState();
 }
@@ -2302,6 +2543,7 @@ function updateParty({
     // Historical documents retain the party name captured when they were issued.
   }
 
+  recordAuditLog(company.id, "UPDATE", "party", id, cleanName, { type, phone, gstin });
   persist();
   return getState();
 }
@@ -2487,6 +2729,8 @@ function createItem({
       name,
     ],
   );
+  const itemRecord = one("SELECT id FROM items WHERE company_id = ? AND LOWER(name) = LOWER(?)", [company.id, name]);
+  recordAuditLog(company.id, "CREATE", "item", itemRecord ? itemRecord.id : name, name, { salePrice, purchasePrice, taxRate, unit });
   persist();
   return getState();
 }
@@ -2601,6 +2845,7 @@ function updateItemUnsafe({
     run("UPDATE transactions SET item = ? WHERE company_id = ? AND item = ?", [cleanName, company.id, existing.name]);
   }
 
+  recordAuditLog(company.id, "UPDATE", "item", id, cleanName, { salePrice, purchasePrice, taxRate, unit });
   persist();
   return getState();
 }
@@ -2667,6 +2912,17 @@ function createTransactionUnsafe(entry) {
   if (entry.type === "sale") validateSaleStock(company.id, invoiceItems);
   const invoiceTotals = calculateInvoiceTotals(invoiceItems, transaction.amount, Number(entry.received || 0), entry.meta?.roundOff === true);
   validateWalkInBalance(entry, transaction.partyId, invoiceTotals);
+
+  if (isInvoiceTransaction && transaction.invoiceNo) {
+    const existingInv = one(
+      "SELECT id FROM invoices WHERE company_id = ? AND type = ? AND invoice_no = ?",
+      [company.id, transaction.type, transaction.invoiceNo]
+    );
+    if (existingInv) {
+      const docLabel = transaction.type === "sale" ? "Invoice" : "Purchase Bill";
+      throw new Error(`${docLabel} number "${transaction.invoiceNo}" already exists. Please use a unique number.`);
+    }
+  }
   if (isInvoiceTransaction) {
     transaction.amount = invoiceTotals.total;
     transaction.status = invoiceTotals.balance <= 0 ? "paid" : "due";
@@ -2734,6 +2990,20 @@ function createTransactionUnsafe(entry) {
     recordAuditLog(company.id, 'CONVERT', 'estimate', sourceEstimateId, transaction.invoiceNo, { invoiceId: transaction.invoiceId });
   }
   updatePurchaseDefaults(company.id, entry, invoiceItems);
+  recordAuditLog(
+    company.id,
+    "CREATE",
+    isInvoiceTransaction ? "invoice" : "transaction",
+    isInvoiceTransaction ? transaction.invoiceId : transaction.id,
+    transaction.invoiceNo,
+    {
+      type: transaction.type,
+      total: transaction.amount,
+      party: transaction.party,
+      received: isInvoiceTransaction ? invoiceTotals.received : 0,
+      balance: isInvoiceTransaction ? invoiceTotals.balance : 0,
+    }
+  );
   persist();
   return getState();
 }
@@ -2869,13 +3139,14 @@ function deleteTransactionUnsafe({ transactionId, id }) {
   const company = getCurrentCompany();
   const cleanId = String(transactionId || id || "").trim();
   if (!cleanId) throw new Error("Transaction id is required.");
-  const existing = one("SELECT id, invoice_id AS invoiceId FROM transactions WHERE company_id = ? AND id = ?", [company.id, cleanId]);
+  const existing = one("SELECT id, invoice_id AS invoiceId, type, invoice_no AS invoiceNo FROM transactions WHERE company_id = ? AND id = ?", [company.id, cleanId]);
   if (!existing) throw new Error("Transaction not found.");
   if (existing.invoiceId) throw new Error("Invoice transactions must be deleted from the invoice screen.");
   run("DELETE FROM tax_entries WHERE company_id = ? AND source_type = 'expense' AND source_id = ?", [company.id, cleanId]);
   run("DELETE FROM payments WHERE company_id = ? AND (transaction_id = ? OR id = ?)", [company.id, cleanId, cleanId]);
   run("DELETE FROM ledger_entries WHERE transaction_id = ?", [cleanId]);
   run("DELETE FROM transactions WHERE company_id = ? AND id = ?", [company.id, cleanId]);
+  recordAuditLog(company.id, "DELETE", "transaction", cleanId, existing.invoiceNo || null, { type: existing.type });
   persist();
   return getState();
 }
@@ -2904,6 +3175,16 @@ function updateInvoiceUnsafe(entry) {
   validateInvoiceMasterData(company.id, { ...entry, type });
   const transactionId = existing.transactionId || entry.id || makeId();
   const invoiceNo = entry.invoiceNo || existing.invoiceNo || nextInvoiceNumber(company.id, type);
+  if (invoiceNo !== existing.invoiceNo) {
+    const dup = one(
+      "SELECT id FROM invoices WHERE company_id = ? AND type = ? AND invoice_no = ? AND id != ?",
+      [company.id, type, invoiceNo, invoiceId]
+    );
+    if (dup) {
+      const docLabel = type === "sale" ? "Invoice" : "Purchase Bill";
+      throw new Error(`${docLabel} number "${invoiceNo}" is already in use by another invoice. Please choose a unique number.`);
+    }
+  }
   const transactionDate = entry.date || now;
   const metaJson = normalizeMetaJson(entry.meta ?? entry.metaJson ?? {});
   const taxContext = invoiceTaxContext(company.id, entry);
@@ -3042,6 +3323,20 @@ function updateInvoiceUnsafe(entry) {
     createInitialPayment(company.id, transaction, invoiceTotals.received, entry.paymentMethod || "Cash", now);
   }
   updatePurchaseDefaults(company.id, { ...entry, type }, invoiceItems);
+  recordAuditLog(
+    company.id,
+    "UPDATE",
+    "invoice",
+    invoiceId,
+    invoiceNo,
+    {
+      type,
+      total: invoiceTotals.total,
+      party: entry.party || "Cash",
+      received: requestedReceived,
+      balance: invoiceTotals.balance,
+    }
+  );
   persist();
   return getState();
 }
@@ -3067,6 +3362,15 @@ function createEstimateUnsafe(entry) {
   const docType = normalizeDocumentType(entry.documentType || entry.type);
   const estimateId = entry.estimateId || entry.quoteId || entry.id || makeId();
   const quoteNo = entry.quoteNo || entry.invoiceNo || nextInvoiceNumber(company.id, docType);
+  if (quoteNo) {
+    const dup = one(
+      "SELECT id FROM estimates WHERE company_id = ? AND document_type = ? AND quote_no = ?",
+      [company.id, docType, quoteNo]
+    );
+    if (dup) {
+      throw new Error(`Document number "${quoteNo}" already exists for ${docType.replace('_', ' ')}. Please use a unique number.`);
+    }
+  }
   const quoteDate = entry.date || entry.quoteDate || now;
   const metaJson = normalizeMetaJson(entry.meta ?? entry.metaJson ?? {});
   const taxContext = invoiceTaxContext(company.id, entry);
@@ -3139,6 +3443,15 @@ function updateEstimateUnsafe(entry) {
 
   const docType = normalizeDocumentType(entry.documentType || entry.type || existing.documentType);
   const quoteNo = entry.quoteNo || entry.invoiceNo || existing.quoteNo || nextInvoiceNumber(company.id, docType);
+  if (quoteNo !== existing.quoteNo) {
+    const dup = one(
+      "SELECT id FROM estimates WHERE company_id = ? AND document_type = ? AND quote_no = ? AND id != ?",
+      [company.id, docType, quoteNo, estimateId]
+    );
+    if (dup) {
+      throw new Error(`Document number "${quoteNo}" already exists for ${docType.replace('_', ' ')}. Please use a unique number.`);
+    }
+  }
   const quoteDate = entry.date || entry.quoteDate || now;
   const metaJson = normalizeMetaJson(entry.meta ?? entry.metaJson ?? {});
   const taxContext = invoiceTaxContext(company.id, entry);
@@ -3296,9 +3609,14 @@ function createCreditNoteUnsafe(entry) {
   const taxContext = invoiceTaxContext(company.id, { ...entry, type: "sale" });
   const creditItems = normalizeInvoiceItems(company.id, "sale", entry.items || [], taxContext);
   const totals = calculateInvoiceTotals(creditItems, Number(entry.amount || 0), Number(entry.received || entry.adjusted || 0));
+  const creditNo = entry.creditNo || entry.invoiceNo || nextInvoiceNumber(company.id, "credit_note");
+  const dupCn = one("SELECT id FROM credit_notes WHERE company_id = ? AND credit_no = ?", [company.id, creditNo]);
+  if (dupCn) {
+    throw new Error(`Credit Note number "${creditNo}" already exists. Please use a unique number.`);
+  }
   const creditNote = {
     id: creditNoteId,
-    creditNo: entry.creditNo || entry.invoiceNo || nextInvoiceNumber(company.id, "credit_note"),
+    creditNo,
     originalInvoiceId: entry.originalInvoiceId || null,
     originalInvoiceNo: entry.originalInvoiceNo || "",
     party: entry.party || "",
@@ -3752,6 +4070,10 @@ function createDebitNoteUnsafe(entry) {
     }
   }
   const debitNo = entry.debitNo || (!originalPurchaseNo && entry.invoiceNo ? entry.invoiceNo : "") || nextInvoiceNumber(company.id, "debit_note", docDate);
+  const dupDn = one("SELECT id FROM debit_notes WHERE company_id = ? AND debit_no = ?", [company.id, debitNo]);
+  if (dupDn) {
+    throw new Error(`Debit Note number "${debitNo}" already exists. Please use a unique number.`);
+  }
   const debitNote = {
     id: debitNoteId,
     debitNo,
@@ -4929,7 +5251,7 @@ function setInvoiceStatusUnsafe({ invoiceId, status = "", notes = "" }) {
   const cleanStatus = String(status || "").trim().toLowerCase();
   if (!cleanStatus) throw new Error("Status is required.");
   const invoice = one(
-    "SELECT id, transaction_id AS transactionId, type, status, received, notes FROM invoices WHERE company_id = ? AND id = ?",
+    "SELECT id, transaction_id AS transactionId, invoice_no AS invoiceNo, type, status, received, notes FROM invoices WHERE company_id = ? AND id = ?",
     [company.id, String(invoiceId || "").trim()],
   );
   if (!invoice) throw new Error("Invoice not found.");
@@ -4949,6 +5271,14 @@ function setInvoiceStatusUnsafe({ invoiceId, status = "", notes = "" }) {
     run("UPDATE invoices SET status = ?, notes = ? WHERE company_id = ? AND id = ?", [cleanStatus, nextNotes, company.id, invoice.id]);
     run("UPDATE transactions SET status = ?, notes = ? WHERE company_id = ? AND id = ?", [cleanStatus, nextNotes, company.id, invoice.transactionId]);
   }
+  recordAuditLog(
+    company.id,
+    cleanStatus === "cancelled" ? "CANCEL" : "STATUS_CHANGE",
+    "invoice",
+    invoice.id,
+    invoice.invoiceNo,
+    { status: cleanStatus, notes: nextNotes }
+  );
   persist();
   return getState();
 }
@@ -4960,7 +5290,7 @@ function deleteInvoice(payload) {
 function deleteInvoiceUnsafe({ invoiceId }) {
   const company = getCurrentCompany();
   const invoice = one(
-    "SELECT id, transaction_id AS transactionId, type, received FROM invoices WHERE company_id = ? AND id = ?",
+    "SELECT id, transaction_id AS transactionId, invoice_no AS invoiceNo, type, received FROM invoices WHERE company_id = ? AND id = ?",
     [company.id, String(invoiceId || "").trim()],
   );
   if (!invoice) throw new Error("Invoice not found.");
@@ -4973,6 +5303,14 @@ function deleteInvoiceUnsafe({ invoiceId }) {
   run("DELETE FROM transactions WHERE company_id = ? AND id = ?", [company.id, invoice.transactionId]);
   run("DELETE FROM tax_entries WHERE company_id = ? AND source_type = ? AND source_id = ?", [company.id, invoice.type, invoice.id]);
   run("DELETE FROM invoices WHERE company_id = ? AND id = ?", [company.id, invoice.id]);
+  recordAuditLog(
+    company.id,
+    "DELETE",
+    "invoice",
+    invoice.id,
+    invoice.invoiceNo,
+    { type: invoice.type }
+  );
   persist();
   return getState();
 }
@@ -5653,7 +5991,17 @@ function resolveItemId(companyId, { name, unit = "", salePrice = 0, purchasePric
   return one("SELECT id FROM items WHERE company_id = ? AND name = ?", [companyId, cleanName])?.id || null;
 }
 
-function nextInvoiceNumber(companyId, type, docDate = new Date()) {
+function nextInvoiceNumber(companyIdOrType, maybeType, docDate = new Date()) {
+  let companyId;
+  let type;
+  if (typeof companyIdOrType === "string" && (!maybeType || maybeType instanceof Date)) {
+    type = companyIdOrType;
+    if (maybeType instanceof Date) docDate = maybeType;
+    companyId = getCurrentCompany()?.id || 1;
+  } else {
+    companyId = companyIdOrType || getCurrentCompany()?.id || 1;
+    type = maybeType;
+  }
   const settings = getBusinessSettings();
   const prefix = type === "sale" && settings.invoicePrefix
     ? settings.invoicePrefix
@@ -5925,6 +6273,126 @@ function backupTo(targetPath) {
   };
 }
 
+async function previewBackup(sourcePath) {
+  if (!fs.existsSync(sourcePath)) {
+    throw new Error(`Backup file not found at ${sourcePath}`);
+  }
+
+  const stats = fs.statSync(sourcePath);
+  if (stats.size < 16) {
+    throw new Error("Invalid backup file: file is too small to be a SQLite database.");
+  }
+
+  const sourceBytes = fs.readFileSync(sourcePath);
+  const header = sourceBytes.subarray(0, 16).toString("utf8");
+  if (!header.startsWith("SQLite format 3")) {
+    throw new Error("Invalid backup file: file does not have a valid SQLite database header.");
+  }
+
+  if (!SQL) {
+    SQL = await initSqlJs();
+  }
+
+  let candidateDb;
+  try {
+    candidateDb = new SQL.Database(sourceBytes);
+  } catch (err) {
+    throw new Error("Failed to read backup database: " + err.message);
+  }
+
+  try {
+    const integrityRows = queryRows(candidateDb, "PRAGMA integrity_check");
+    const integrity = integrityRows.map((row) => String(row.integrity_check || Object.values(row)[0] || ""));
+    const isIntegrityOk = integrity.length === 1 && integrity[0].toLowerCase() === "ok";
+
+    let schemaVersion = 0;
+    if (tableExists(candidateDb, "schema_migrations")) {
+      const verRow = queryRows(candidateDb, "SELECT COALESCE(MAX(version), 0) AS ver FROM schema_migrations")[0];
+      schemaVersion = Number(verRow?.ver || 0);
+    }
+
+    let companies = [];
+    if (tableExists(candidateDb, "companies")) {
+      companies = queryRows(candidateDb, "SELECT id, name, email FROM companies ORDER BY id ASC");
+    }
+    const companyNames = companies.map((c) => c.name);
+
+    let transactionCount = 0;
+    let invoiceCount = 0;
+    let partyCount = 0;
+    let itemCount = 0;
+    let paymentCount = 0;
+    let totalSales = 0;
+    let totalPurchases = 0;
+    let dateRange = { from: null, to: null };
+
+    if (tableExists(candidateDb, "transactions")) {
+      const txStats = queryRows(candidateDb, `
+        SELECT 
+          COUNT(*) as cnt,
+          MIN(transaction_date) as minDate,
+          MAX(transaction_date) as maxDate,
+          SUM(CASE WHEN type = 'sale' THEN amount ELSE 0 END) as sales,
+          SUM(CASE WHEN type = 'purchase' THEN amount ELSE 0 END) as purchases
+        FROM transactions
+      `)[0];
+      if (txStats) {
+        transactionCount = Number(txStats.cnt || 0);
+        totalSales = Number(txStats.sales || 0);
+        totalPurchases = Number(txStats.purchases || 0);
+        dateRange = { from: txStats.minDate || null, to: txStats.maxDate || null };
+      }
+    }
+
+    if (tableExists(candidateDb, "invoices")) {
+      const invRow = queryRows(candidateDb, "SELECT COUNT(*) as cnt FROM invoices")[0];
+      invoiceCount = Number(invRow?.cnt || 0);
+    }
+
+    if (tableExists(candidateDb, "parties")) {
+      const pRow = queryRows(candidateDb, "SELECT COUNT(*) as cnt FROM parties")[0];
+      partyCount = Number(pRow?.cnt || 0);
+    }
+
+    if (tableExists(candidateDb, "items")) {
+      const iRow = queryRows(candidateDb, "SELECT COUNT(*) as cnt FROM items")[0];
+      itemCount = Number(iRow?.cnt || 0);
+    }
+
+    if (tableExists(candidateDb, "payments")) {
+      const payRow = queryRows(candidateDb, "SELECT COUNT(*) as cnt FROM payments")[0];
+      paymentCount = Number(payRow?.cnt || 0);
+    }
+
+    try { candidateDb.close(); } catch (_) {}
+
+    return {
+      valid: isIntegrityOk,
+      schemaVersion,
+      targetVersion: SCHEMA_VERSION,
+      isCompatible: schemaVersion <= SCHEMA_VERSION,
+      integrity: isIntegrityOk ? "ok" : integrity.join(", "),
+      companies: companyNames,
+      companyCount: companies.length,
+      primaryCompany: companyNames[0] || "Unknown",
+      transactionCount,
+      invoiceCount,
+      partyCount,
+      itemCount,
+      paymentCount,
+      totalSales,
+      totalPurchases,
+      dateRange,
+      fileSizeBytes: stats.size,
+      filePath: sourcePath,
+      filename: path.basename(sourcePath),
+    };
+  } catch (err) {
+    try { candidateDb.close(); } catch (_) {}
+    throw new Error("Failed to inspect backup database: " + err.message);
+  }
+}
+
 async function restoreBackup(sourcePath, options = {}) {
   if (!fs.existsSync(sourcePath)) {
     throw new Error(`Backup file not found at ${sourcePath}`);
@@ -5999,6 +6467,7 @@ async function restoreBackup(sourcePath, options = {}) {
   seedDefaults();
   ensureDebitNoteSchema();
   ensureLocalSyncIdentity();
+  ensureUsersSchema();
 
   recordAuditLog(
     getCurrentCompany()?.id,
@@ -6018,6 +6487,102 @@ async function restoreBackup(sourcePath, options = {}) {
   };
 }
 
+function getUsers(explicitCompanyId = null) {
+  const company = explicitCompanyId ? { id: explicitCompanyId } : getCurrentCompany();
+  if (!company?.id) return [];
+  ensureUsersSchema();
+  return all(
+    "SELECT id, company_id AS companyId, username, display_name AS displayName, role, is_active AS isActive, created_at AS createdAt, updated_at AS updatedAt FROM users WHERE company_id = ? ORDER BY username ASC",
+    [company.id]
+  );
+}
+
+function createUser(payload = {}) {
+  const company = getCurrentCompany();
+  if (!company?.id) throw new Error("No active company found.");
+  ensureUsersSchema();
+  const username = String(payload.username || "").trim().toLowerCase();
+  if (!username) throw new Error("Username is required.");
+  const displayName = String(payload.displayName || payload.name || username).trim();
+  const role = String(payload.role || "viewer").trim().toLowerCase();
+  const validRoles = ["admin", "accountant", "cashier", "viewer"];
+  if (!validRoles.includes(role)) {
+    throw new Error(`Invalid role '${role}'. Allowed roles: ${validRoles.join(", ")}`);
+  }
+  const existing = one("SELECT id FROM users WHERE company_id = ? AND username = ?", [company.id, username]);
+  if (existing) {
+    throw new Error(`User '${username}' already exists.`);
+  }
+  const id = payload.id || makeId();
+  const now = new Date().toISOString();
+  run(
+    "INSERT INTO users (id, company_id, username, display_name, role, pin_hash, is_active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    [id, company.id, username, displayName, role, payload.pinHash || null, payload.isActive !== false ? 1 : 0, now, now]
+  );
+  recordAuditLog(company.id, "CREATE", "user", id, username, { role, displayName });
+  persist();
+  return getUsers(company.id);
+}
+
+function updateUser(payload = {}) {
+  const company = getCurrentCompany();
+  if (!company?.id) throw new Error("No active company found.");
+  ensureUsersSchema();
+  const id = String(payload.id || "").trim();
+  if (!id) throw new Error("User ID is required.");
+  const existing = one("SELECT id, username, role FROM users WHERE company_id = ? AND id = ?", [company.id, id]);
+  if (!existing) throw new Error("User not found.");
+
+  const username = payload.username ? String(payload.username).trim().toLowerCase() : existing.username;
+  if (username !== existing.username) {
+    const dup = one("SELECT id FROM users WHERE company_id = ? AND username = ? AND id != ?", [company.id, username, id]);
+    if (dup) throw new Error(`Username '${username}' is already taken.`);
+  }
+
+  const role = payload.role ? String(payload.role).trim().toLowerCase() : existing.role;
+  const validRoles = ["admin", "accountant", "cashier", "viewer"];
+  if (role && !validRoles.includes(role)) {
+    throw new Error(`Invalid role '${role}'. Allowed roles: ${validRoles.join(", ")}`);
+  }
+
+  const displayName = payload.displayName !== undefined ? String(payload.displayName).trim() : null;
+  const isActive = payload.isActive !== undefined ? (payload.isActive ? 1 : 0) : null;
+  const pinHash = payload.pinHash !== undefined ? payload.pinHash : null;
+  const now = new Date().toISOString();
+
+  run(
+    `UPDATE users SET 
+      username = ?, 
+      display_name = COALESCE(?, display_name), 
+      role = ?, 
+      is_active = COALESCE(?, is_active), 
+      pin_hash = COALESCE(?, pin_hash), 
+      updated_at = ? 
+    WHERE company_id = ? AND id = ?`,
+    [username, displayName, role, isActive, pinHash, now, company.id, id]
+  );
+  recordAuditLog(company.id, "UPDATE", "user", id, username, { role, displayName, isActive });
+  persist();
+  return getUsers(company.id);
+}
+
+function deleteUser(payload = {}) {
+  const company = getCurrentCompany();
+  if (!company?.id) throw new Error("No active company found.");
+  ensureUsersSchema();
+  const id = typeof payload === "string" ? payload : String(payload.id || "").trim();
+  if (!id) throw new Error("User ID is required.");
+  const existing = one("SELECT id, username, role FROM users WHERE company_id = ? AND id = ?", [company.id, id]);
+  if (!existing) throw new Error("User not found.");
+  if (existing.username === "admin") {
+    throw new Error("Cannot delete primary admin user.");
+  }
+  run("DELETE FROM users WHERE company_id = ? AND id = ?", [company.id, id]);
+  recordAuditLog(company.id, "DELETE", "user", id, existing.username);
+  persist();
+  return getUsers(company.id);
+}
+
 function getMigrationInfo() {
   return {
     targetVersion: SCHEMA_VERSION,
@@ -6032,6 +6597,53 @@ function makeId() {
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
+// ── Journal Voucher — Manual Double-Entry Posting ─────────────────────────────
+function saveJournalVoucher(payload) {
+  const company = getCurrentCompany();
+  const now = new Date().toISOString();
+  const lines = payload.lines || [];
+
+  if (!lines.length) throw new Error("Journal voucher must have at least one line.");
+
+  const totalDebit = lines.reduce((s, l) => s + Number(l.debit || 0), 0);
+  const totalCredit = lines.reduce((s, l) => s + Number(l.credit || 0), 0);
+  if (Math.abs(totalDebit - totalCredit) > 0.01) {
+    throw new Error(`Journal voucher does not balance. Debits: ${totalDebit.toFixed(2)}, Credits: ${totalCredit.toFixed(2)}`);
+  }
+
+  const voucherId = randomUUID();
+  const voucherNo = payload.voucherNo || `JV-${Date.now()}`;
+  const entryDate = payload.entryDate || now.slice(0, 10);
+  const narration = payload.narration || "";
+
+  // Insert a transaction stub so ledger_entries FK is satisfied
+  run(
+    `INSERT INTO transactions
+      (id, company_id, invoice_id, invoice_no, type, party, party_id, item, amount,
+       payment_type, status, notes, meta_json, transaction_date, created_at, updated_at)
+     VALUES (?, ?, NULL, ?, 'journal_voucher', 'Manual Entry', NULL, '', 0, 'journal', 'posted', ?, '{}', ?, ?, ?)`,
+    [voucherId, company.id, voucherNo, narration, entryDate, now, now]
+  );
+
+  for (const line of lines) {
+    run(
+      `INSERT INTO ledger_entries
+        (company_id, transaction_id, account, debit, credit, entry_date, narration, voucher_no, entry_type)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'journal')`,
+      [
+        company.id, voucherId,
+        String(line.account || ""),
+        Number(line.debit || 0),
+        Number(line.credit || 0),
+        entryDate, narration, voucherNo,
+      ]
+    );
+  }
+
+  persist();
+  return getState();
+}
+
 module.exports = {
   initDatabase,
   getDatabasePath,
@@ -6039,7 +6651,12 @@ module.exports = {
   validateDatabase,
   captureBusinessSnapshot,
   backupTo,
+  previewBackup,
   restoreBackup,
+  getUsers,
+  createUser,
+  updateUser,
+  deleteUser,
   recordAuditLog,
   getState,
   setCurrentCompany,
@@ -6101,4 +6718,6 @@ module.exports = {
   nextInvoiceNumber,
   currentFinancialYear,
   getAuditTrail,
+  saveJournalVoucher,
+  getCurrentCompany,
 };

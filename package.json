@@ -4,9 +4,11 @@
   "description": "GI Billing desktop app",
   "main": "main.js",
   "scripts": {
-    "start": "node_modules\\electron\\dist\\electron.exe .",
-    "test": "node tests/sale-foundation.test.js && node tests/invoice-readiness.test.js && node tests/phase0-migrations.test.js && node tests/phase1-data-integrity.test.js && node tests/database-diagnostic.test.js && node tests/sync-foundation.test.js && node tests/sync-service.test.js && node tests/database-recovery-and-restore.test.js && node tests/accounting-and-party-integrity.test.js && node tests/real-world-business-lifecycle.test.js && node tests/debit-note-and-fy.test.js && node tests/phase1-production-accounting.test.js && node tests/phase1-runtime-integrity-audit.js",
+    "start": "electron .",
+    "test": "node tests/sale-foundation.test.js && node tests/invoice-readiness.test.js && node tests/phase0-migrations.test.js && node tests/phase1-data-integrity.test.js && node tests/database-diagnostic.test.js && node tests/sync-foundation.test.js && node tests/sync-service.test.js && node tests/database-recovery-and-restore.test.js && node tests/accounting-and-party-integrity.test.js && node tests/real-world-business-lifecycle.test.js && node tests/debit-note-and-fy.test.js && node tests/phase1-production-accounting.test.js && node tests/phase1-runtime-integrity-audit.js && node tests/phase2-business-workflows.test.js && node tests/daily-operations-readiness.test.js",
+    "test:daily-readiness": "node tests/daily-operations-readiness.test.js",
     "test:phase1": "node tests/phase1-production-accounting.test.js",
+    "test:phase2": "node tests/phase2-business-workflows.test.js",
     "test:purchase-prices": "node tests/purchase-prices.test.js",
     "test:phase1-audit": "node tests/phase1-runtime-integrity-audit.js",
     "test:business-lifecycle": "node tests/real-world-business-lifecycle.test.js",
@@ -22,6 +24,8 @@
     "audit:migration-readiness": "node migration-readiness.js",
     "test:smoke": "electron tests/electron-smoke.js",
     "capture:ui": "electron tests/capture-ui.js",
+    "dev": "electron .",
+    "build": "npx electron-builder",
     "dist": "npx electron-builder"
   },
   "build": {
@@ -60,6 +64,7 @@
     "electron-builder": "^26.15.3"
   },
   "dependencies": {
+    "qrcode": "^1.5.4",
     "sql.js": "^1.14.1"
   }
 }

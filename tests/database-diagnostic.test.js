@@ -90,7 +90,7 @@ async function testValidDatabaseAndReadOnlyGuarantee() {
     const diagnostic = await inspectDatabasePath(file);
     assert.equal(diagnostic.valid, true);
     assert.equal(diagnostic.expectedSchemaDetected, true);
-    assert.equal(diagnostic.schemaVersion, 8);
+    assert.equal(diagnostic.schemaVersion, 9);
     assert.equal(diagnostic.unchanged, true);
 
     const audit = await analyzeDatabaseFile(file);
@@ -101,7 +101,7 @@ async function testValidDatabaseAndReadOnlyGuarantee() {
     assert.equal(readiness.gates.integrityPass, true);
     assert.equal(readiness.gates.preservationPass, true);
     assert.equal(readiness.ready, true);
-    assert.equal(database.getMigrationInfo().targetVersion, 8, "units and categories migration should be current");
+    assert.equal(database.getMigrationInfo().targetVersion, 9, "current target migration should be 9");
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

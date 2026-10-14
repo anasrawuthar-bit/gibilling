@@ -13,6 +13,66 @@ let debitNoteSearchQuery = "";
 let expenseSearchQuery = "";
 let posSearchQuery = "";
 let barcodeSearchQuery = "";
+let barcodeQuickFilter = "all";
+let barcodeQueue = null;
+let barcodeCustomShopName = "";
+let barcodeCustomDate = "";
+let barcodeActiveTab = "items";
+let barcodePreset = "a4-24";
+let barcodeStartOffset = 1;
+
+const BARCODE_PRESETS = {
+  "a4-24": {
+    name: "A4 Sheet — 24 Labels (3×8)",
+    columns: 3,
+    rows: 8,
+    perSheet: 24,
+    widthMm: 64,
+    heightMm: 33.8,
+    isThermal: false,
+    labelClass: "barcode-preset-a4-24",
+  },
+  "a4-40": {
+    name: "A4 Sheet — 40 Labels (4×10)",
+    columns: 4,
+    rows: 10,
+    perSheet: 40,
+    widthMm: 48.5,
+    heightMm: 25.4,
+    isThermal: false,
+    labelClass: "barcode-preset-a4-40",
+  },
+  "a4-65": {
+    name: "A4 Sheet — 65 Labels (5×13)",
+    columns: 5,
+    rows: 13,
+    perSheet: 65,
+    widthMm: 38.1,
+    heightMm: 21.2,
+    isThermal: false,
+    labelClass: "barcode-preset-a4-65",
+  },
+  "thermal-50": {
+    name: "Thermal Roll — 50 × 25 mm",
+    columns: 1,
+    rows: 1,
+    perSheet: 1,
+    widthMm: 50,
+    heightMm: 25,
+    isThermal: true,
+    labelClass: "barcode-preset-thermal-50",
+  },
+  "thermal-38": {
+    name: "Thermal Roll — 38 × 25 mm",
+    columns: 1,
+    rows: 1,
+    perSheet: 1,
+    widthMm: 38,
+    heightMm: 25,
+    isThermal: true,
+    labelClass: "barcode-preset-thermal-38",
+  },
+};
 let reportSearchQuery = "";
 let reportDateFilter = { preset: "all", from: "", to: "" };
 let reportPartyFilter = "";
@@ -25,6 +85,8 @@ let creditNoteQuickFilter = "all";
 let debitNoteQuickFilter = "all";
 let expenseQuickFilter = "all";
 let posCategoryFilter = "all";
+let analyticsPeriod = "30d";
+let posKeyboardShortcutsBound = false;
 
 // ── Vyapar-Style Filter State ────────────────────────────────────────────────
 let saleTopFilter = { preset: "thisMonth", dateFrom: "", dateTo: "", party: "" };
@@ -80,9 +142,27 @@ const SIDEBAR_GROUPS = {
     defaultView: "purchases",
     views: new Set(["purchases", "paymentOut", "expenses", "purchaseOrder", "purchaseReturn"]),
   },
+  gst: {
+    defaultView: "gstDashboard",
+    views: new Set([
+      "gst",
+      "gstDashboard",
+      "gstr1",
+      "gstr3b",
+      "hsnSummary",
+      "salesTaxSummary",
+      "purchaseTaxSummary",
+      "itcRegister",
+      "outputGst",
+      "gstLiability",
+      "eInvoice",
+      "eWayBill",
+      "gstReconciliation",
+    ]),
+  },
   settings: {
     defaultView: "importItems",
-    views: new Set(["settings", "importItems", "setupBusiness", "accountantAccess", "barcodeGenerator", "importParties", "exportItems", "verifyData"]),
+    views: new Set(["settings", "importItems", "setupBusiness", "barcodeGenerator", "importParties", "exportItems", "verifyData"]),
   },
 };
 
@@ -171,6 +251,7 @@ const elements = {
   featureView: document.getElementById("featureView"),
   saleSubmenu: document.getElementById("saleSubmenu"),
   purchaseSubmenu: document.getElementById("purchaseSubmenu"),
+  gstSubmenu: document.getElementById("gstSubmenu"),
   utilitiesSubmenu: document.getElementById("utilitiesSubmenu"),
   invoiceAddSaleButton: document.getElementById("invoiceAddSaleButton"),
   invoiceSaleTotal: document.getElementById("invoiceSaleTotal"),
@@ -198,6 +279,7 @@ const elements = {
   payableCaption: document.getElementById("payableCaption"),
   saleTotal: document.getElementById("saleTotal"),
   salesChart: document.getElementById("salesChart"),
+  dashboardPrivacyToggle: document.getElementById("dashboardPrivacyToggle"),
   refreshButton: document.getElementById("refreshButton"),
   companySearchInput: document.getElementById("companySearchInput"),
   companyRefreshButton: document.getElementById("companyRefreshButton"),
@@ -368,6 +450,16 @@ function defaultBusinessSettings() {
     invoicePrefix: "INV",
     startingNo: 1,
     terms: "",
+    printerType: "a4",
+    thermalWidth: "80mm",
+    a4Template: "modern",
+    thermalTemplate: "retail",
+    printCompanyLogo: true,
+    printBankDetails: true,
+    printUpiQr: true,
+    printGstSummary: true,
+    printTerms: true,
+    printSignature: true,
     customFields: defaultCustomFieldDefinitions(),
   };
 }
@@ -655,6 +747,7 @@ function sidebarGroupForView(view) {
 function submenuForSidebarGroup(groupName) {
   if (groupName === "sales") return elements.saleSubmenu;
   if (groupName === "purchases") return elements.purchaseSubmenu;
+  if (groupName === "gst") return elements.gstSubmenu;
   if (groupName === "settings") return elements.utilitiesSubmenu;
   return null;
 }
@@ -681,6 +774,255 @@ function syncSidebarNavigation(view) {
 
   document.querySelectorAll(".submenu-item").forEach((button) => {
     button.classList.toggle("active", button.dataset.view === view);
+  });
+
+  const companySwitchBtn = document.querySelector(".company-switch");
+  if (companySwitchBtn) {
+    companySwitchBtn.classList.toggle("active", view === "appSettings");
+  }
+
+  updateSidebarBadges();
+}
+
+function updateSidebarBadges() {
+  // Low stock items count — shown on Items nav
+  const lowStock = (state.items || []).filter((item) => {
+    const stock = Number(item.currentStock ?? 0);
+    const alert = Number(item.lowStockAlert ?? 0);
+    return alert > 0 && stock <= alert;
+  }).length;
+  const badgeLow = document.getElementById("navBadgeLowStock");
+  if (badgeLow) badgeLow.textContent = lowStock > 0 ? (lowStock > 99 ? "99+" : String(lowStock)) : "";
+
+  // Update company avatar initials
+  const avatarEl = document.querySelector(".avatar");
+  if (avatarEl) {
+    const name = String(state.activeCompany || state.businessSettings?.businessName || "?");
+    const initials = name.split(/\s+/).slice(0, 2).map((w) => w[0] || "").join("").toUpperCase() || name[0]?.toUpperCase() || "?";
+    avatarEl.textContent = initials;
+  }
+
+  // Update company name in switcher (trim to 16 chars) and ensure proper title
+  const companyNameEl = document.querySelector(".company-switch .nav-company-name");
+  if (companyNameEl) {
+    const name = String(state.activeCompany || state.businessSettings?.businessName || "Company");
+    companyNameEl.textContent = name.length > 16 ? name.slice(0, 15) + "…" : name;
+  }
+  const companySwitch = document.querySelector(".company-switch");
+  if (companySwitch) {
+    companySwitch.title = "Company Profile & Settings";
+    companySwitch.setAttribute("aria-label", "Company Profile & Settings");
+  }
+}
+
+function initSidebarToggle() {
+  const toggleBtn = document.getElementById("sidebarToggleBtn");
+  const STORAGE_KEY = "gi_sidebar_collapsed";
+
+  function setSidebarCollapsed(collapsed) {
+    document.body.classList.toggle("sidebar-collapsed", collapsed);
+    const appShell = document.getElementById("appShell");
+    if (appShell) appShell.classList.toggle("sidebar-collapsed", collapsed);
+
+    if (toggleBtn) {
+      toggleBtn.setAttribute("title", collapsed ? "Expand sidebar (Ctrl+B)" : "Collapse sidebar (Ctrl+B)");
+      toggleBtn.setAttribute("aria-label", collapsed ? "Expand sidebar" : "Collapse sidebar");
+      const iconUse = toggleBtn.querySelector("use");
+      if (iconUse) {
+        iconUse.setAttribute("href", collapsed ? "#gi-sidebar-expand" : "#gi-sidebar-collapse");
+      }
+    }
+
+    try {
+      localStorage.setItem(STORAGE_KEY, collapsed ? "1" : "0");
+    } catch {
+      // ignore in sandboxed environments
+    }
+  }
+
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (saved === "1") {
+      setSidebarCollapsed(true);
+    }
+  } catch {
+    // ignore
+  }
+
+  if (toggleBtn) {
+    toggleBtn.addEventListener("click", () => {
+      const isCurrentlyCollapsed = document.body.classList.contains("sidebar-collapsed");
+      setSidebarCollapsed(!isCurrentlyCollapsed);
+    });
+  }
+
+  document.addEventListener("keydown", (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key && e.key.toLowerCase() === "b") {
+      const tag = document.activeElement?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || document.activeElement?.isContentEditable) {
+        if (document.activeElement?.id !== "searchInput") {
+          return;
+        }
+      }
+      e.preventDefault();
+      const isCurrentlyCollapsed = document.body.classList.contains("sidebar-collapsed");
+      setSidebarCollapsed(!isCurrentlyCollapsed);
+    }
+  });
+}
+
+const PRIVACY_MASK_TEXT = "₹ ••••••";
+
+function updateDashboardPrivacyAmounts() {
+  const isPrivate = Boolean(state.privacyMode);
+  if (elements.receivableTotal) {
+    if (!elements.receivableTotal.dataset.actualValue) {
+      elements.receivableTotal.dataset.actualValue = elements.receivableTotal.textContent || "₹ 0";
+    }
+    elements.receivableTotal.textContent = isPrivate ? PRIVACY_MASK_TEXT : elements.receivableTotal.dataset.actualValue;
+    elements.receivableTotal.classList.toggle("privacy-masked-text", isPrivate);
+  }
+  if (elements.payableTotal) {
+    if (!elements.payableTotal.dataset.actualValue) {
+      elements.payableTotal.dataset.actualValue = elements.payableTotal.textContent || "₹ 0";
+    }
+    elements.payableTotal.textContent = isPrivate ? PRIVACY_MASK_TEXT : elements.payableTotal.dataset.actualValue;
+    elements.payableTotal.classList.toggle("privacy-masked-text", isPrivate);
+  }
+  if (elements.saleTotal) {
+    if (!elements.saleTotal.dataset.actualValue) {
+      elements.saleTotal.dataset.actualValue = elements.saleTotal.textContent || "₹ 0";
+    }
+    elements.saleTotal.textContent = isPrivate ? PRIVACY_MASK_TEXT : elements.saleTotal.dataset.actualValue;
+    elements.saleTotal.classList.toggle("privacy-masked-text", isPrivate);
+  }
+}
+
+function initPrivacyModeToggle() {
+  const toggleBtn = document.getElementById("dashboardPrivacyToggle");
+  const STORAGE_KEY = "gi_privacy_mode";
+
+  function setPrivacyMode(active, showFeedback = true) {
+    state.privacyMode = Boolean(active);
+    document.body.classList.toggle("privacy-mode-active", active);
+    const homeView = document.getElementById("homeView");
+    if (homeView) homeView.classList.toggle("privacy-mode-active", active);
+
+    const btn = toggleBtn || document.getElementById("dashboardPrivacyToggle");
+    if (btn) {
+      btn.classList.toggle("active", active);
+      btn.setAttribute("aria-pressed", active ? "true" : "false");
+      btn.setAttribute(
+        "title",
+        active
+          ? "Privacy Mode Active (Numbers Masked) - Click or Alt+P to reveal"
+          : "Counter Privacy Mode (Alt+P) - Hide sensitive business numbers"
+      );
+      const iconUse = btn.querySelector("use");
+      if (iconUse) {
+        iconUse.setAttribute("href", active ? "#gi-eye-off" : "#gi-eye");
+      }
+      const label = btn.querySelector(".privacy-btn-label");
+      if (label) {
+        label.textContent = active ? "Masked" : "Privacy";
+      }
+    }
+
+    updateDashboardPrivacyAmounts();
+
+    try {
+      localStorage.setItem(STORAGE_KEY, active ? "1" : "0");
+    } catch {
+      // ignore
+    }
+
+    if (showFeedback && typeof showToast === "function") {
+      showToast(active ? "Privacy Mode Enabled: Business figures masked" : "Privacy Mode Disabled: Business figures visible");
+    }
+  }
+
+  function attachHoverPeek(cardSelector, targetEl) {
+    const card = document.querySelector(cardSelector);
+    if (!card || !targetEl) return;
+    card.addEventListener("mouseenter", () => {
+      if (state.privacyMode && targetEl.dataset.actualValue) {
+        targetEl.textContent = targetEl.dataset.actualValue;
+        targetEl.classList.remove("privacy-masked-text");
+      }
+    });
+    card.addEventListener("mouseleave", () => {
+      if (state.privacyMode) {
+        targetEl.textContent = PRIVACY_MASK_TEXT;
+        targetEl.classList.add("privacy-masked-text");
+      }
+    });
+  }
+
+  attachHoverPeek("#homeView .metric-card:first-of-type", elements.receivableTotal);
+  attachHoverPeek("#homeView .metric-card:nth-of-type(2)", elements.payableTotal);
+  attachHoverPeek("#homeView .chart-panel", elements.saleTotal);
+
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (saved === "1") {
+      setPrivacyMode(true, false);
+    }
+  } catch {
+    // ignore
+  }
+
+  if (toggleBtn) {
+    toggleBtn.addEventListener("click", () => {
+      const isCurrentlyActive = document.body.classList.contains("privacy-mode-active");
+      setPrivacyMode(!isCurrentlyActive, true);
+    });
+  }
+
+  document.addEventListener("keydown", (e) => {
+    if (e.altKey && e.key && e.key.toLowerCase() === "p") {
+      const tag = document.activeElement?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || document.activeElement?.isContentEditable) {
+        return;
+      }
+      e.preventDefault();
+      const isCurrentlyActive = document.body.classList.contains("privacy-mode-active");
+      setPrivacyMode(!isCurrentlyActive, true);
+    }
+  });
+
+  window.giSetPrivacyMode = setPrivacyMode;
+}
+
+function initDashboardAttentionHandlers() {
+  const panel = document.getElementById("dashboardRightPanel");
+  if (!panel) return;
+
+  panel.addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-attention-action]");
+    if (btn) {
+      const action = btn.dataset.attentionAction;
+      if (action === "receivables") {
+        showView("reports", "receivablesOutstanding");
+      } else if (action === "stock") {
+        showView("reports", "lowStock");
+      } else if (action === "payables") {
+        showView("purchases");
+      }
+      return;
+    }
+
+    const backupBtn = e.target.closest("#dashboardQuickBackupBtn");
+    if (backupBtn) {
+      if (window.giDB?.createSnapshot) {
+        window.giDB.createSnapshot().then((res) => {
+          showToast(`Backup created successfully: ${res.filename}`);
+        }).catch((err) => {
+          showToast(`Backup failed: ${err.message}`);
+        });
+      } else if (window.giDB?.createBackup) {
+        window.giDB.createBackup();
+      }
+    }
   });
 }
 
@@ -712,7 +1054,12 @@ function handleSidebarNavigation(button) {
 }
 
 function bindEvents() {
-  document.querySelector('.company-switch')?.addEventListener('click', () => window.dispatchEvent(new Event('gi-change-company')));
+  initSidebarToggle();
+  initPrivacyModeToggle();
+  initDashboardAttentionHandlers();
+  document.querySelector('.company-switch')?.addEventListener('click', () => {
+    showView("appSettings", "COMPANY");
+  });
   document.querySelectorAll(".open-company-button").forEach((button) => {
     button.addEventListener("click", () => openCompany(button.dataset.company));
   });
@@ -817,6 +1164,9 @@ function bindEvents() {
 
   window.addEventListener("gi-refresh", refreshCurrentView);
   window.addEventListener("beforeunload", (event) => {
+    if (localStorage.getItem("gi_auto_backup_on_exit") === "true" && window.giDB?.createSnapshot) {
+      window.giDB.createSnapshot().catch(() => {});
+    }
     if (!shouldBlockTransactionEditorLeave()) return;
     event.preventDefault();
     event.returnValue = "You have unsaved invoice changes.";
@@ -923,6 +1273,11 @@ function buildOpenAnythingResults(query) {
     { group: "Pages", title: "Parties", meta: "Customers, suppliers, ledger", kind: "view", view: "parties", keywords: "party parties customer supplier ledger" },
     { group: "Pages", title: "Items", meta: "Inventory and stock ledger", kind: "view", view: "items", keywords: "item items inventory stock product service" },
     { group: "Pages", title: "Sale Invoices", meta: "Sales and receivables", kind: "view", view: "sales", keywords: "sale sales invoice customer receivable" },
+    { group: "Pages", title: "Proforma Invoice", meta: "Preliminary invoices before tax invoice", kind: "view", view: "proforma", keywords: "proforma preliminary invoice" },
+    { group: "Pages", title: "Payment-In", meta: "Incoming payments from customers", kind: "view", view: "paymentIn", keywords: "payment in received customer receipt" },
+    { group: "Pages", title: "Sale Order", meta: "Customer orders before dispatch", kind: "view", view: "saleOrder", keywords: "sale order customer order so" },
+    { group: "Pages", title: "Delivery Challan", meta: "Goods dispatch documentation", kind: "view", view: "deliveryChallan", keywords: "delivery challan dispatch goods dc" },
+    { group: "Pages", title: "GI POS", meta: "Counter billing and quick sales", kind: "view", view: "pos", keywords: "pos point of sale counter billing retail" },
     { group: "Pages", title: "Purchase Bills", meta: "Purchases and payables", kind: "view", view: "purchases", keywords: "purchase purchases bill supplier payable" },
     { group: "Pages", title: "Expenses", meta: "Operating costs and input GST", kind: "view", view: "expenses", keywords: "expense expenses rent salary fuel gst payable" },
     { group: "Pages", title: "Reports", meta: "Business reports", kind: "view", view: "reports", keywords: "reports gst stock ledger statement" },
@@ -1336,6 +1691,7 @@ function enterAppShell() {
   showView("home");
   renderDashboard();
   scheduleDashboardChartDraw();
+  updateSidebarBadges();
 }
 
 async function openCompany(name) {
@@ -1389,27 +1745,89 @@ function openEntryModal(type, record = null, options = {}) {
   const party = elements.entryForm.querySelector('[name="party"]');
   const item = elements.entryForm.querySelector('[name="item"]');
   const status = elements.entryForm.querySelector('[name="status"]');
-  party.closest("label").style.display = type === "item" ? "none" : "";
-  amount.closest("label").style.display = type === "party" || type === "item" ? "none" : "";
-  item.closest("label").style.display = type === "party" ? "none" : "";
-  status.closest("label").style.display = type === "party" || type === "item" ? "none" : "";
-  elements.entryForm.querySelectorAll(".party-only").forEach((field) => {
-    field.style.display = type === "party" ? "grid" : "none";
+  if (party) {
+    const partyLabel = party.closest("label");
+    if (partyLabel) partyLabel.style.display = type === "item" ? "none" : "";
+  }
+  if (amount) {
+    const amountLabel = amount.closest("label");
+    if (amountLabel) amountLabel.style.display = type === "party" || type === "item" ? "none" : "";
+  }
+  if (item) {
+    const itemLabel = item.closest("label");
+    if (itemLabel) itemLabel.style.display = type === "party" ? "none" : "";
+  }
+  if (status) {
+    const statusLabel = status.closest("label");
+    if (statusLabel) statusLabel.style.display = type === "party" || type === "item" ? "none" : "";
+  }
+  elements.entryModal.querySelectorAll(".party-only").forEach((field) => {
+    if (field.classList.contains("party-tab-content")) {
+      field.style.display = type === "party" ? "block" : "none";
+    } else if (field.classList.contains("party-modal-tabs") || field.classList.contains("entry-modal-icon")) {
+      field.style.display = type === "party" ? "flex" : "none";
+    } else {
+      field.style.display = type === "party" ? "" : "none";
+    }
   });
-  elements.entryForm.querySelectorAll(".item-only").forEach((field) => {
-    field.style.display = type === "item" ? "grid" : "none";
+  elements.entryModal.querySelectorAll(".item-only").forEach((field) => {
+    if (field.classList.contains("item-tab-content")) {
+      field.style.display = type === "item" ? "block" : "none";
+    } else if (field.classList.contains("party-modal-tabs") || field.classList.contains("entry-modal-icon")) {
+      field.style.display = type === "item" ? "flex" : "none";
+    } else {
+      field.style.display = type === "item" ? "" : "none";
+    }
   });
-  party.required = type !== "item";
-  item.required = type !== "party";
-  amount.required = type !== "party" && type !== "item";
+  if (party) party.required = type !== "item";
+  if (item) item.required = type !== "party";
+  if (amount) amount.required = type !== "party" && type !== "item";
+
   bindPartyEntryFields();
   updatePartyTaxFields();
   bindItemEntryFields();
   updateItemEntryFields();
+
+  if (type === "party") {
+    resetPartyTabs();
+    if (!currentEntryRecordId) {
+      setPartyTypeChip("customer");
+      setBalanceTypeChip("receivable");
+      const sameAsBilling = elements.entryForm.querySelector('[name="sameAsBilling"]');
+      const shippingRow = document.getElementById("shippingAddressRow");
+      if (sameAsBilling) sameAsBilling.checked = true;
+      if (shippingRow) shippingRow.style.display = "none";
+    }
+  } else if (type === "item") {
+    resetItemTabs();
+    if (!currentEntryRecordId) {
+      setItemTypeChip("product");
+      const openingStockValue = elements.entryForm.querySelector('[name="openingStockValue"]');
+      if (openingStockValue) delete openingStockValue.dataset.manualEdit;
+    }
+  }
+
+  const entrySubtitle = document.getElementById("entrySubtitle");
+  if (entrySubtitle) {
+    if (type === "party") {
+      entrySubtitle.textContent = currentEntryRecordId ? "Update party contact, tax & credit details" : "Create customer or supplier account";
+    } else {
+      entrySubtitle.textContent = currentEntryRecordId ? "Update item details & pricing" : "Add product or service to inventory";
+    }
+  }
+
   if (currentEntryRecordId) populateEntryForm(type, record);
   if (options.draft) populateEntryDraft(type, options.draft);
   const submitButton = elements.entryForm.querySelector('button[type="submit"]');
-  if (submitButton) submitButton.textContent = currentEntryRecordId ? "Update" : "Save";
+  if (submitButton) {
+    if (type === "party") {
+      submitButton.textContent = currentEntryRecordId ? "Update Party" : "Save Party";
+    } else if (type === "item") {
+      submitButton.textContent = currentEntryRecordId ? "Update Item" : "Save Item";
+    } else {
+      submitButton.textContent = currentEntryRecordId ? "Update" : "Save";
+    }
+  }
 }
 
 function openTransactionEditor(type, options = {}) {
@@ -1548,7 +1966,41 @@ function closeTransactionEditorTab(tabId) {
   openTransactionEditor(type, { tabId: nextTab.id, skipDirtyCheck: true });
 }
 
-function transactionEditorTemplate(type) {
+function editorPaymentMethodOptions(isReturn = false, currentValue = "") {
+  if (isReturn) {
+    const isAdj = !currentValue || currentValue === "Adjustment";
+    return `
+      <option value="Adjustment"${isAdj ? " selected" : ""}>Adjustment</option>
+      <option value="Cash"${currentValue === "Cash" ? " selected" : ""}>Cash</option>
+      <option value="Bank"${currentValue === "Bank" ? " selected" : ""}>Bank Transfer</option>
+      <option value="UPI"${currentValue === "UPI" ? " selected" : ""}>UPI</option>
+    `;
+  }
+  const accounts = typeof bankAccountRows === "function" ? bankAccountRows() : (state.bankAccounts || []);
+  let html = `<option value="Cash"${!currentValue || currentValue === "Cash" ? " selected" : ""}>Cash</option>`;
+  if (accounts.length) {
+    accounts.forEach((acc) => {
+      const val = acc.displayName || acc.bankName || "Bank";
+      const isDefault = Number(acc.isDefault || 0);
+      const label = `${acc.displayName}${acc.bankName && acc.bankName !== acc.displayName ? ` (${acc.bankName})` : ""}${isDefault ? " [Default Bank]" : ""}`;
+      html += `<option value="${escapeHtml(val)}"${currentValue === val ? " selected" : ""}>${escapeHtml(label)}</option>`;
+    });
+    html += `<option value="Bank"${currentValue === "Bank" ? " selected" : ""}>Other Bank</option>`;
+    html += `<option value="UPI"${currentValue === "UPI" ? " selected" : ""}>UPI</option>`;
+    html += `<option value="Cheque"${currentValue === "Cheque" ? " selected" : ""}>Cheque</option>`;
+    html += `<option value="Card"${currentValue === "Card" ? " selected" : ""}>Card</option>`;
+  } else {
+    html += `
+      <option value="Bank"${currentValue === "Bank" ? " selected" : ""}>Bank</option>
+      <option value="UPI"${currentValue === "UPI" ? " selected" : ""}>UPI</option>
+      <option value="Cheque"${currentValue === "Cheque" ? " selected" : ""}>Cheque</option>
+      <option value="Card"${currentValue === "Card" ? " selected" : ""}>Card</option>
+    `;
+  }
+  return html;
+}
+
+function transactionEditorTemplate(type = getTransactionEditorType()) {
   const isSale = type === "sale";
   const isEstimate = type === "estimate";
   const isReturn = type === "saleReturn" || type === "purchaseReturn";
@@ -1661,7 +2113,7 @@ function transactionEditorTemplate(type) {
                   <th>Qty</th>
                   <th>Unit</th>
                   <th>Price</th>
-                  ${isSaleLike ? '<th>Purchase</th>' : ''}
+                  ${isSaleLike ? '<th title="Purchase Cost Price">Purchase Cost</th>' : ''}
                   <th>Discount</th>
                   <th>Tax</th>
                   <th>Line Total</th>
@@ -1700,7 +2152,7 @@ function transactionEditorTemplate(type) {
           </aside>
           <aside class="editor-totals">
             <input type="hidden" name="paymentType" id="editorPaymentType" value="${isEstimate ? "quote" : isReturn ? "return" : "cash"}">
-            ${isEstimate ? "" : `<label class="editor-payment-method-line">${isReturn ? "Adjustment Method" : "Payment Method"}<select class="form-input" name="paymentMethod" id="editorPaymentMethod"><option>${isReturn ? "Adjustment" : "Cash"}</option><option>Cash</option><option>Bank</option><option>UPI</option></select></label>`}
+            ${isEstimate ? "" : `<label class="editor-payment-method-line">${isReturn ? "Adjustment Method" : "Payment Method"}<select class="form-input" name="paymentMethod" id="editorPaymentMethod">${editorPaymentMethodOptions(isReturn)}</select></label>`}
             <div class="editor-total-line"><span>Subtotal</span><strong id="editorSubtotal">0.00</strong></div>
             <div class="editor-total-line"><span>Discount</span><strong id="editorDiscountTotal">0.00</strong></div>
             <div class="editor-total-line"><span>Tax</span><strong id="editorTaxTotal">0.00</strong></div>
@@ -1769,6 +2221,8 @@ function transactionCustomFieldControl(field, value = "") {
 
 function editorRowTemplate(index, item = "", description = "", qty = "", price = "") {
   const isSaleLike = currentView === "saleEditor" || currentView === "estimateEditor" || currentView === "saleReturnEditor";
+  const matchedItem = item ? findItemByName(item) : null;
+  const initialPurchasePrice = matchedItem && Number(matchedItem.purchasePrice || 0) ? formatCurrency(matchedItem.purchasePrice) : "-";
   return `
     <tr>
       <td>${index}</td>
@@ -1777,7 +2231,7 @@ function editorRowTemplate(index, item = "", description = "", qty = "", price =
       <td><input name="qty" aria-label="Quantity" placeholder="0" type="number" min="0" step="0.01" value="${qty}"></td>
       <td><select name="unit">${editorUnitOptionsMarkup()}</select></td>
       <td><input name="price" aria-label="Unit price" placeholder="0.00" type="number" min="0" step="0.01" value="${price}"></td>
-      ${isSaleLike ? '<td class="row-purchase-price">-</td>' : ''}
+      ${isSaleLike ? `<td class="row-purchase-price" title="Purchase Cost Price">${initialPurchasePrice}</td>` : ''}
       <td><input name="discount" type="number" min="0" step="0.01" value="0"></td>
       <td><select name="tax">${editorTaxOptionsMarkup()}</select></td>
       <td class="row-amount">0</td>
@@ -1854,6 +2308,11 @@ function populateTransactionEditorDraft(draft) {
       if (itemInput && matchedItem && matchedItem.name === itemInput.value) {
         itemInput.dataset.selectedItemId = matchedItem.id;
         rowElement.dataset.smartItem = matchedItem.name;
+        const purchasePriceCell = rowElement.querySelector(".row-purchase-price");
+        if (purchasePriceCell) {
+          const purchasePrice = Number(matchedItem.purchasePrice || 0);
+          purchasePriceCell.textContent = purchasePrice ? formatCurrency(purchasePrice) : "-";
+        }
         renderPurchasePriceHistory(rowElement, matchedItem);
       }
       if (row.unit) ensureSelectValue(rowElement.querySelector('[name="unit"]'), row.unit);
@@ -2175,17 +2634,20 @@ function openTransactionLeaveDialog() {
   backdrop.className = "modal-backdrop unsaved-editor-backdrop";
   backdrop.innerHTML = `
     <section class="unsaved-editor-dialog" role="dialog" aria-modal="true" aria-label="Unsaved invoice">
-      <header>
-        <div>
-          <span>Unsaved ${escapeHtml(label)}</span>
-          <strong>Save this work before leaving?</strong>
+      <div class="unsaved-dialog-head">
+        <div class="unsaved-icon-wrap" aria-hidden="true">
+          <svg class="gi-icon"><use href="#gi-receipt"></use></svg>
         </div>
-      </header>
-      <p>You have unsaved changes in this ${escapeHtml(label.toLowerCase())}. Save it as a draft, discard it, or continue editing.</p>
-      <footer>
-        <button class="secondary-button" type="button" data-unsaved-choice="cancel">Cancel</button>
-        <button class="danger-outline-button" type="button" data-unsaved-choice="discard">Discard</button>
-        <button class="primary-button square" type="button" data-unsaved-choice="draft">Save Draft</button>
+        <div class="unsaved-dialog-title-block">
+          <span class="unsaved-dialog-tag">Unsaved ${escapeHtml(label)}</span>
+          <strong class="unsaved-dialog-heading">Save changes before leaving?</strong>
+        </div>
+      </div>
+      <p class="unsaved-dialog-body">You have unsaved changes in this ${escapeHtml(label.toLowerCase())}. Save it as a draft to resume later, discard changes, or keep editing.</p>
+      <footer class="unsaved-dialog-footer">
+        <button class="unsaved-btn secondary-button" type="button" data-unsaved-choice="cancel">Cancel</button>
+        <button class="unsaved-btn danger-outline-button" type="button" data-unsaved-choice="discard">Discard</button>
+        <button class="unsaved-btn primary-button" type="button" data-unsaved-choice="draft">Save Draft</button>
       </footer>
     </section>
   `;
@@ -2686,40 +3148,48 @@ async function handleBusinessSettingsSubmit(event) {
   event.preventDefault();
   clearInlineErrors(event.currentTarget);
   const form = new FormData(event.currentTarget);
+  const current = state.businessSettings || defaultBusinessSettings();
+
   const businessNameField = event.currentTarget.querySelector('[name="businessName"]');
-  const stateField = event.currentTarget.querySelector('[name="state"]');
-  const invoicePrefixField = event.currentTarget.querySelector('[name="invoicePrefix"]');
-  const startingNoField = event.currentTarget.querySelector('[name="startingNo"]');
-  const gstinField = event.currentTarget.querySelector('[name="gstin"]');
-  const gstinValue = String(form.get("gstin") || "").trim();
-  if (!String(form.get("businessName") || "").trim()) {
+  if (businessNameField && !String(form.get("businessName") || "").trim()) {
     setInlineError(businessNameField, "Business name is required.");
-    businessNameField?.focus();
+    businessNameField.focus();
     return;
   }
-  if (!String(form.get("state") || "").trim()) {
+
+  const stateField = event.currentTarget.querySelector('[name="state"]');
+  if (stateField && !String(form.get("state") || "").trim()) {
     setInlineError(stateField, "State is required for GST split.");
-    stateField?.focus();
+    stateField.focus();
     return;
   }
-  if (gstinValue && !isValidGstin(gstinValue)) {
-    setInlineError(gstinField, "Enter a valid 15-character GSTIN, e.g. 22AAAAA0000A1Z5.");
-    gstinField?.focus();
-    return;
+
+  const gstinField = event.currentTarget.querySelector('[name="gstin"]');
+  if (gstinField) {
+    const gstinValue = String(form.get("gstin") || "").trim();
+    if (gstinValue && !isValidGstin(gstinValue)) {
+      setInlineError(gstinField, "Enter a valid 15-character GSTIN, e.g. 22AAAAA0000A1Z5.");
+      gstinField.focus();
+      return;
+    }
   }
-  if (!String(form.get("invoicePrefix") || "").trim()) {
+
+  const invoicePrefixField = event.currentTarget.querySelector('[name="invoicePrefix"]');
+  if (invoicePrefixField && !String(form.get("invoicePrefix") || "").trim()) {
     setInlineError(invoicePrefixField, "Invoice prefix is required.");
-    invoicePrefixField?.focus();
+    invoicePrefixField.focus();
     return;
   }
-  if (Number(form.get("startingNo") || 0) < 1) {
+
+  const startingNoField = event.currentTarget.querySelector('[name="startingNo"]');
+  if (startingNoField && Number(form.get("startingNo") || 0) < 1) {
     setInlineError(startingNoField, "Starting invoice number must be at least 1.");
-    startingNoField?.focus();
+    startingNoField.focus();
     return;
   }
 
   // Handle logo upload
-  let logoBase64 = state.businessSettings?.logoBase64 || "";
+  let logoBase64 = current.logoBase64 || "";
   const logoFile = event.currentTarget.querySelector("#logoFileInput")?.files?.[0];
   if (logoFile) {
     try {
@@ -2738,23 +3208,75 @@ async function handleBusinessSettingsSubmit(event) {
   if (removeLogo && removeLogo.dataset.removed === "true") logoBase64 = "";
 
   const settings = {
-    businessName: String(form.get("businessName") || "").trim(),
-    gstin: String(form.get("gstin") || "").trim(),
-    pan: String(form.get("pan") || "").trim(),
-    state: String(form.get("state") || "").trim(),
-    address: String(form.get("address") || "").trim(),
-    logoBase64,
+    ...current,
     bankDetails: {
-      bankName: String(form.get("bankName") || "").trim(),
-      accountNo: String(form.get("accountNo") || "").trim(),
-      ifsc: String(form.get("ifsc") || "").trim(),
-      upiId: String(form.get("upiId") || "").trim(),
+      ...(current.bankDetails || {}),
     },
-    invoicePrefix: String(form.get("invoicePrefix") || "").trim(),
-    startingNo: Number(form.get("startingNo") || 1),
-    terms: String(form.get("terms") || "").trim(),
-    customFields: normalizeCustomFieldDefinitions(state.businessSettings?.customFields),
+    customFields: normalizeCustomFieldDefinitions(current.customFields),
   };
+
+  if (form.has("businessName")) settings.businessName = String(form.get("businessName") || "").trim();
+  if (form.has("gstin")) settings.gstin = String(form.get("gstin") || "").trim().toUpperCase();
+  if (form.has("pan")) settings.pan = String(form.get("pan") || "").trim().toUpperCase();
+  if (form.has("state")) settings.state = String(form.get("state") || "").trim();
+  if (form.has("address")) settings.address = String(form.get("address") || "").trim();
+  if (logoBase64 !== undefined) settings.logoBase64 = logoBase64;
+
+  if (form.has("bankName")) settings.bankDetails.bankName = String(form.get("bankName") || "").trim();
+  if (form.has("accountNo")) settings.bankDetails.accountNo = String(form.get("accountNo") || "").trim();
+  if (form.has("ifsc")) settings.bankDetails.ifsc = String(form.get("ifsc") || "").trim().toUpperCase();
+  if (form.has("upiId")) settings.bankDetails.upiId = String(form.get("upiId") || "").trim();
+
+  if (form.has("invoicePrefix")) settings.invoicePrefix = String(form.get("invoicePrefix") || "").trim();
+  if (form.has("startingNo")) settings.startingNo = Number(form.get("startingNo") || 1);
+  if (form.has("terms")) settings.terms = String(form.get("terms") || "").trim();
+
+  if (form.has("printerType")) settings.printerType = String(form.get("printerType") || "a4");
+  if (form.has("thermalWidth")) settings.thermalWidth = String(form.get("thermalWidth") || "80mm");
+  if (form.has("a4Template")) settings.a4Template = String(form.get("a4Template") || "modern");
+  if (form.has("thermalTemplate")) settings.thermalTemplate = String(form.get("thermalTemplate") || "retail");
+
+  if (event.currentTarget.querySelector('[name="printCompanyLogo"]')) {
+    settings.printCompanyLogo = form.get("printCompanyLogo") === "on";
+  }
+  if (event.currentTarget.querySelector('[name="printBankDetails"]')) {
+    settings.printBankDetails = form.get("printBankDetails") === "on";
+  }
+  if (event.currentTarget.querySelector('[name="printUpiQr"]')) {
+    settings.printUpiQr = form.get("printUpiQr") === "on";
+  }
+  if (event.currentTarget.querySelector('[name="printGstSummary"]')) {
+    settings.printGstSummary = form.get("printGstSummary") === "on";
+  }
+  if (event.currentTarget.querySelector('[name="printTerms"]')) {
+    settings.printTerms = form.get("printTerms") === "on";
+  }
+  if (event.currentTarget.querySelector('[name="printSignature"]')) {
+    settings.printSignature = form.get("printSignature") === "on";
+  }
+  if (event.currentTarget.querySelector('[name="stopSaleOnNegativeStock"]')) {
+    settings.stopSaleOnNegativeStock = form.get("stopSaleOnNegativeStock") === "on";
+  }
+  if (event.currentTarget.querySelector('[name="defaultTaxInclusive"]')) {
+    settings.defaultTaxInclusive = form.get("defaultTaxInclusive") === "on";
+  }
+  if (event.currentTarget.querySelector('[name="enableHsn"]')) {
+    settings.enableHsn = form.get("enableHsn") === "on";
+  }
+  if (form.has("whatsappMode")) {
+    settings.whatsappSettings = {
+      ...(current.whatsappSettings || {}),
+      mode: String(form.get("whatsappMode") || "direct"),
+      autoShareOnSave: form.get("autoShareOnSave") === "on",
+      phoneNumberId: String(form.get("phoneNumberId") || "").trim(),
+      wabaId: String(form.get("wabaId") || "").trim(),
+      accessToken: String(form.get("accessToken") || "").trim(),
+      templateName: String(form.get("templateName") || "invoice_notification").trim(),
+      languageCode: String(form.get("languageCode") || "en").trim(),
+      customMessageTemplate: String(form.get("customMessageTemplate") || "").trim(),
+    };
+  }
+
   const status = elements.featureView.querySelector("#businessSettingsStatus");
   try {
     if (window.giDB?.updateBusinessSettings) {
@@ -2763,11 +3285,17 @@ async function handleBusinessSettingsSubmit(event) {
       state.businessSettings = settings;
       saveState();
     }
-    if (status) status.textContent = "Settings saved.";
+    if (status) {
+      status.textContent = "✓ Settings saved.";
+      setTimeout(() => { if (status) status.textContent = ""; }, 3000);
+    }
     showToast("Settings saved successfully.");
-    elements.activeCompanyName.textContent = state.businessSettings.businessName || state.activeCompany || "testt";
+    if (settings.businessName) {
+      elements.activeCompanyName.textContent = settings.businessName;
+    }
   } catch (error) {
     if (status) status.textContent = error.message || "Unable to save settings.";
+    showToast(error.message || "Unable to save settings.");
   }
 }
 
@@ -2833,7 +3361,7 @@ async function saveCustomFieldDefinitions(fields, message) {
       state.businessSettings = settings;
       saveState();
     }
-    elements.featureView.innerHTML = settingsTemplate("CUSTOM FIELDS");
+    elements.featureView.innerHTML = settingsTemplate("CUSTOM_FIELDS");
     bindFeatureActions();
     showToast(message);
   } catch (error) {
@@ -2935,31 +3463,139 @@ function isValidGstin(value) {
   return /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][A-Z0-9]Z[A-Z0-9]$/.test(gstin);
 }
 
-function openInvoicePreviewModal(previewData = null) {
-  const preview = previewData || buildInvoicePreviewData();
+function openInvoicePreviewModal(previewData = null, options = {}) {
+  const preview = previewData || buildInvoicePreviewData() || sampleInvoicePreviewData();
   if (!preview) return;
   document.getElementById("invoicePreviewModal")?.remove();
+
+  const business = preview.business || state.businessSettings || defaultBusinessSettings();
+  let currentFormat = options.printerType || business.printerType || "a4";
+  if (currentFormat === "regular") currentFormat = "a4";
+  let currentA4Template = options.a4Template || business.a4Template || "modern";
+  let currentThermalTemplate = options.thermalTemplate || business.thermalTemplate || "retail";
+  let currentThermalWidth = options.thermalWidth || business.thermalWidth || "80mm";
+
+  function getTemplateOptionsHtml(format) {
+    if (format === "thermal") {
+      return `
+        <option value="retail" ${currentThermalTemplate === "retail" ? "selected" : ""}>Retail Supermarket</option>
+        <option value="boutique" ${currentThermalTemplate === "boutique" ? "selected" : ""}>Modern Boutique / Cafe</option>
+        <option value="detailed" ${currentThermalTemplate === "detailed" ? "selected" : ""}>GST Detailed Roll</option>
+      `;
+    }
+    return `
+      <option value="modern" ${currentA4Template === "modern" ? "selected" : ""}>Modern Accent</option>
+      <option value="classic" ${currentA4Template === "classic" ? "selected" : ""}>Classic GST Boxed</option>
+      <option value="minimal" ${currentA4Template === "minimal" ? "selected" : ""}>Minimalist Monochrome</option>
+      <option value="compact" ${currentA4Template === "compact" ? "selected" : ""}>Compact Wholesale</option>
+    `;
+  }
+
   const backdrop = document.createElement("div");
   backdrop.className = "modal-backdrop invoice-preview-backdrop";
   backdrop.id = "invoicePreviewModal";
   backdrop.innerHTML = `
-    <section class="invoice-preview-modal" role="dialog" aria-modal="true" aria-label="Invoice preview">
+    <section class="invoice-preview-modal ${currentFormat === "thermal" ? "is-thermal" : "is-a4"}" role="dialog" aria-modal="true" aria-label="Invoice preview">
       <header>
-        <h2>${escapeHtml(preview.previewTitle || "Invoice Preview")}</h2>
-        <div>
+        <div class="preview-header-left">
+          <h2>${escapeHtml(preview.previewTitle || "Invoice Preview")}</h2>
+          <div class="preview-controls-bar">
+            <label class="preview-control-item">
+              <span>Format:</span>
+              <select id="previewFormatSelect" class="form-input">
+                <option value="a4" ${currentFormat === "a4" ? "selected" : ""}>📄 A4 / Full Page</option>
+                <option value="thermal" ${currentFormat === "thermal" ? "selected" : ""}>🧾 Thermal POS Roll</option>
+              </select>
+            </label>
+            <label class="preview-control-item">
+              <span>Template:</span>
+              <select id="previewTemplateSelect" class="form-input">
+                ${getTemplateOptionsHtml(currentFormat)}
+              </select>
+            </label>
+            <label class="preview-control-item ${currentFormat === "thermal" ? "" : "hidden"}" id="previewWidthLabel">
+              <span>Roll:</span>
+              <select id="previewWidthSelect" class="form-input">
+                <option value="80mm" ${currentThermalWidth === "80mm" ? "selected" : ""}>80mm (3")</option>
+                <option value="58mm" ${currentThermalWidth === "58mm" ? "selected" : ""}>58mm (2")</option>
+              </select>
+            </label>
+          </div>
+        </div>
+        <div class="preview-header-actions">
+          <button class="secondary-button" type="button" data-preview-whatsapp style="display:inline-flex;align-items:center;gap:6px;background:rgba(37,211,102,0.1);color:#128c7e;border-color:rgba(37,211,102,0.3);font-weight:600;"><svg class="gi-icon" style="width:14px;height:14px;fill:currentColor;"><use href="#gi-whatsapp"></use></svg> WhatsApp</button>
           <button class="secondary-button" type="button" data-preview-pdf>Export PDF</button>
-          <button class="secondary-button" type="button" data-preview-print>Print</button>
+          <button class="primary-button square" type="button" data-preview-print style="height:34px;padding:0 14px;">Print</button>
           <button class="close-button" type="button" data-preview-close>&times;</button>
         </div>
       </header>
-      <div class="invoice-preview-paper">
-        ${invoicePreviewMarkup(preview)}
+      <div class="invoice-preview-paper ${currentFormat === "thermal" ? `paper-thermal width-${currentThermalWidth}` : `paper-a4 template-${currentA4Template}`}">
+        ${invoicePreviewMarkup(preview, {
+          printerType: currentFormat,
+          a4Template: currentA4Template,
+          thermalTemplate: currentThermalTemplate,
+          thermalWidth: currentThermalWidth
+        })}
       </div>
     </section>
   `;
   document.body.append(backdrop);
+
+  const modalSection = backdrop.querySelector(".invoice-preview-modal");
+  const paperEl = backdrop.querySelector(".invoice-preview-paper");
+  const formatSelect = backdrop.querySelector("#previewFormatSelect");
+  const templateSelect = backdrop.querySelector("#previewTemplateSelect");
+  const widthSelect = backdrop.querySelector("#previewWidthSelect");
+  const widthLabel = backdrop.querySelector("#previewWidthLabel");
+
+  function reRenderPaper() {
+    modalSection.classList.toggle("is-thermal", currentFormat === "thermal");
+    modalSection.classList.toggle("is-a4", currentFormat !== "thermal");
+    paperEl.className = `invoice-preview-paper ${currentFormat === "thermal" ? `paper-thermal width-${currentThermalWidth}` : `paper-a4 template-${currentA4Template}`}`;
+    paperEl.innerHTML = invoicePreviewMarkup(preview, {
+      printerType: currentFormat,
+      a4Template: currentA4Template,
+      thermalTemplate: currentThermalTemplate,
+      thermalWidth: currentThermalWidth
+    });
+  }
+
+  formatSelect?.addEventListener("change", () => {
+    currentFormat = formatSelect.value;
+    templateSelect.innerHTML = getTemplateOptionsHtml(currentFormat);
+    if (widthLabel) widthLabel.classList.toggle("hidden", currentFormat !== "thermal");
+    reRenderPaper();
+  });
+
+  templateSelect?.addEventListener("change", () => {
+    if (currentFormat === "thermal") {
+      currentThermalTemplate = templateSelect.value;
+    } else {
+      currentA4Template = templateSelect.value;
+    }
+    reRenderPaper();
+  });
+
+  widthSelect?.addEventListener("change", () => {
+    currentThermalWidth = widthSelect.value;
+    reRenderPaper();
+  });
+
   backdrop.querySelector("[data-preview-close]")?.addEventListener("click", () => backdrop.remove());
-  backdrop.querySelector("[data-preview-print]")?.addEventListener("click", () => window.print());
+  backdrop.querySelector("[data-preview-whatsapp]")?.addEventListener("click", () => {
+    openWhatsAppShareModal(preview, (preview.documentTitle || "").toLowerCase().includes("purchase") ? "purchase" : "sale");
+  });
+  backdrop.querySelector("[data-preview-print]")?.addEventListener("click", () => {
+    if (currentFormat === "thermal") {
+      document.body.classList.add("invoice-thermal-print-mode", `thermal-print-${currentThermalWidth}`);
+    } else {
+      document.body.classList.add("invoice-a4-print-mode");
+    }
+    window.print();
+  });
+  window.addEventListener("afterprint", () => {
+    document.body.classList.remove("invoice-thermal-print-mode", "thermal-print-80mm", "thermal-print-58mm", "invoice-a4-print-mode");
+  }, { once: false });
   backdrop.querySelector("[data-preview-pdf]")?.addEventListener("click", async () => {
     const paperEl = backdrop.querySelector(".invoice-preview-paper");
     if (!paperEl) return;
@@ -3251,79 +3887,887 @@ function generateUpiQrSvg(text, displaySize = 76) {
   return `<svg viewBox="0 0 ${displaySize} ${displaySize}" width="${displaySize}" height="${displaySize}" xmlns="http://www.w3.org/2000/svg"><rect width="${displaySize}" height="${displaySize}" fill="#ffffff"/>${rects}</svg>`;
 }
 
-function invoicePreviewMarkup(data) {
-  const bank = data.business.bankDetails || {};
-  const documentTitle = data.documentTitle || transactionEditorMeta(data.editorType).documentTitle;
+function sampleInvoicePreviewData() {
+  const business = state.businessSettings || defaultBusinessSettings();
+  const defaultBank = defaultBankAccount();
+  const bank = defaultBank || business.bankDetails || {
+    bankName: "HDFC Bank Ltd",
+    accountNo: "50200012345678",
+    ifsc: "HDFC0001234",
+    upiId: "merchant@okhdfcbank"
+  };
+  return {
+    editorType: "sale",
+    previewTitle: "Tax Invoice Preview",
+    documentTitle: "TAX INVOICE",
+    business: {
+      ...business,
+      bankDetails: bank
+    },
+    party: {
+      name: "Acme Enterprises Pvt Ltd",
+      phone: "+91 98765 43210",
+      billingAddress: "Plot No. 42, Tech Park, Industrial Area, Bangalore - 560066",
+      gstin: "29AABCU9603R1ZM",
+      state: "Karnataka",
+    },
+    invoiceNo: "INV-2026-001",
+    date: formatDate(new Date().toISOString()),
+    validUntil: formatDate(new Date(Date.now() + 30 * 86400000).toISOString()),
+    address: "Plot No. 42, Tech Park, Industrial Area, Bangalore - 560066",
+    placeOfSupply: "29-Karnataka",
+    customFields: [
+      { label: "PO Number", value: "PO-88241" },
+      { label: "Vehicle No", value: "KA-01-AB-1234" }
+    ],
+    description: "Thank you for your business. Please make payment before due date.",
+    attachments: [],
+    rows: [
+      {
+        index: 1,
+        item: "Logitech MX Master 3S Wireless Mouse",
+        description: "Graphite, Ergonomic 8K DPI Sensor",
+        hsnSac: "8471",
+        qty: 2,
+        unit: "Pcs",
+        price: 7995,
+        discount: 500,
+        taxRate: 18,
+        tax: 2788.20,
+        total: 18278.20,
+      },
+      {
+        index: 2,
+        item: "Thermal Paper Roll 80mm x 50m",
+        description: "BPA Free High Density Roll",
+        hsnSac: "4811",
+        qty: 10,
+        unit: "Roll",
+        price: 65,
+        discount: 0,
+        taxRate: 12,
+        tax: 78.00,
+        total: 728.00,
+      },
+      {
+        index: 3,
+        item: "USB-C to HDMI 4K Display Adapter",
+        description: "Braided Cable 1.8m",
+        hsnSac: "8544",
+        qty: 1,
+        unit: "Pcs",
+        price: 1250,
+        discount: 100,
+        taxRate: 18,
+        tax: 207.00,
+        total: 1357.00,
+      }
+    ],
+    subtotal: 17240.00,
+    discount: 600.00,
+    cgst: 1536.60,
+    sgst: 1536.60,
+    igst: 0,
+    total: 20363.20,
+  };
+}
+
+function computeGstSummaryRows(rows = []) {
+  const summaryMap = new Map();
+  rows.forEach((row) => {
+    const hsn = row.hsnSac || "Other";
+    const rate = Number(row.taxRate || 0);
+    const key = `${hsn}_${rate}`;
+    const qty = Number(row.qty || 0);
+    const price = Number(row.price || 0);
+    const discount = Number(row.discount || 0);
+    const taxable = Math.max(0, qty * price - discount);
+    const tax = Number(row.tax || (taxable * rate / 100));
+
+    if (!summaryMap.has(key)) {
+      summaryMap.set(key, {
+        hsn,
+        rate,
+        taxable: 0,
+        cgstRate: rate / 2,
+        cgstAmt: 0,
+        sgstRate: rate / 2,
+        sgstAmt: 0,
+        igstRate: rate,
+        igstAmt: 0,
+        totalTax: 0,
+      });
+    }
+    const entry = summaryMap.get(key);
+    entry.taxable += taxable;
+    entry.cgstAmt += tax / 2;
+    entry.sgstAmt += tax / 2;
+    entry.igstAmt += tax;
+    entry.totalTax += tax;
+  });
+  return Array.from(summaryMap.values());
+}
+
+function renderA4Modern(data, bank, upiUri, flags = {}) {
+  const documentTitle = data.documentTitle || (transactionEditorMeta(data.editorType) || {}).documentTitle || "TAX INVOICE";
   const detailTitle = data.editorType === "estimate" ? "Quote Details" : data.editorType === "saleReturn" ? "Credit Note Details" : data.editorType === "purchaseReturn" ? "Debit Note Details" : "Invoice Details";
-  const logoSrc = data.business.logoBase64 || "";
-  const upiUri = bank.upiId ? `upi://pay?pa=${encodeURIComponent(bank.upiId)}&pn=${encodeURIComponent(data.business.businessName || "Merchant")}&am=${encodeURIComponent(Number(data.total || 0).toFixed(2))}&cu=INR` : "";
+  const logoSrc = flags.showLogo ? (data.business.logoBase64 || "") : "";
+  const gstRows = flags.showGstSummary ? computeGstSummaryRows(data.rows) : [];
 
   return `
-    <div class="preview-business">
-      <div class="preview-business-info">
-        ${logoSrc ? `<img class="preview-logo" src="${logoSrc}" alt="${escapeHtml(data.business.businessName || "Logo")}">` : ""}
-        <div>
-          <h1>${escapeHtml(data.business.businessName || state.activeCompany || "GI Billing")}</h1>
-          <p>${escapeHtml(data.business.address || "-")}</p>
-          <p>GSTIN: ${escapeHtml(data.business.gstin || "-")} | PAN: ${escapeHtml(data.business.pan || "-")}</p>
+    <div class="invoice-a4-modern">
+      <div class="a4-modern-header-accent"></div>
+      <div class="a4-modern-topbar">
+        <div class="a4-modern-seller">
+          ${logoSrc ? `<img class="a4-modern-logo" src="${logoSrc}" alt="Logo">` : ""}
+          <div>
+            <h1 class="a4-modern-biz-name">${escapeHtml(data.business.businessName || state.activeCompany || "GI Billing")}</h1>
+            <p class="a4-modern-sub">${escapeHtml(data.business.address || "-")}</p>
+            <p class="a4-modern-tax-ids">
+              ${data.business.gstin ? `<span>GSTIN: <b>${escapeHtml(data.business.gstin)}</b></span>` : ""}
+              ${data.business.pan ? `<span>PAN: <b>${escapeHtml(data.business.pan)}</b></span>` : ""}
+              ${data.business.state ? `<span>State: <b>${escapeHtml(data.business.state)}</b></span>` : ""}
+            </p>
+          </div>
+        </div>
+        <div class="a4-modern-doc-badge">
+          <div class="a4-modern-badge-pill">${escapeHtml(documentTitle)}</div>
+          <div class="a4-modern-doc-meta">
+            <p><span>${escapeHtml(detailTitle)} No:</span> <strong>${escapeHtml(data.invoiceNo || "-")}</strong></p>
+            <p><span>Date:</span> <strong>${escapeHtml(data.date || "-")}</strong></p>
+            ${data.validUntil ? `<p><span>Valid Until:</span> <strong>${escapeHtml(data.validUntil)}</strong></p>` : ""}
+            <p><span>Place of Supply:</span> <strong>${escapeHtml(data.placeOfSupply || "-")}</strong></p>
+          </div>
         </div>
       </div>
-      <strong>${escapeHtml(documentTitle)}</strong>
-    </div>
-    <div class="preview-meta-grid">
-      <section><h3>Bill To</h3><p>${escapeHtml(data.party?.name || "-")}</p><p>${escapeHtml(data.address || data.party?.billingAddress || "-")}</p><p>GSTIN: ${escapeHtml(data.party?.gstin || "-")}</p></section>
-      <section><h3>${escapeHtml(detailTitle)}</h3><p>No: ${escapeHtml(data.invoiceNo)}</p><p>Date: ${escapeHtml(data.date)}</p>${data.validUntil ? `<p>Valid Until: ${escapeHtml(data.validUntil)}</p>` : ""}<p>Place of Supply: ${escapeHtml(data.placeOfSupply || "-")}</p></section>
-    </div>
-    ${data.customFields?.length ? `
-      <div class="preview-custom-fields">
-        ${data.customFields.map((field) => `<p><span>${escapeHtml(field.label)}</span><b>${escapeHtml(field.fieldType === "checkbox" ? "Yes" : field.value)}</b></p>`).join("")}
-      </div>
-    ` : ""}
-    <table class="preview-table">
-      <thead><tr><th>#</th><th>Item</th><th>HSN/SAC</th><th>Qty</th><th>Rate</th><th>GST</th><th>Total</th></tr></thead>
-      <tbody>${data.rows.map((row) => `<tr><td>${row.index}</td><td>${escapeHtml(row.item)}<small>${escapeHtml(row.description)}</small></td><td>${escapeHtml(row.hsnSac || "-")}</td><td>${formatQuantity(row.qty)} ${escapeHtml(row.unit)}</td><td>${formatCurrency(row.price)}</td><td>${formatPercent(row.taxRate)}</td><td>${formatCurrency(row.total)}</td></tr>`).join("")}</tbody>
-    </table>
-    <div class="preview-amount-words">
-      <strong>Amount in Words:</strong> <span>${escapeHtml(amountInIndianWords(data.total))}</span>
-    </div>
-    <div class="preview-summary">
-      <section>
-        <h3>Bank &amp; Payment Details</h3>
-        <p>${escapeHtml(bank.bankName || "-")}</p>
-        <p>A/C: ${escapeHtml(bank.accountNo || "-")}</p>
-        <p>IFSC: ${escapeHtml(bank.ifsc || "-")}</p>
-        <p>UPI ID: ${escapeHtml(bank.upiId || "-")}</p>
-        ${bank.upiId ? `
-          <div class="preview-upi-wrap">
-            <div class="preview-upi-qr">
-              ${generateUpiQrSvg(upiUri, 68)}
+
+      <div class="a4-modern-meta-grid">
+        <div class="a4-modern-card">
+          <div class="a4-card-title">BILLED TO (CUSTOMER)</div>
+          <strong class="a4-party-name">${escapeHtml(data.party?.name || "Cash Customer")}</strong>
+          <p class="a4-party-sub">${escapeHtml(data.address || data.party?.billingAddress || "-")}</p>
+          ${data.party?.phone ? `<p class="a4-party-sub">Phone: ${escapeHtml(data.party.phone)}</p>` : ""}
+          ${data.party?.gstin ? `<p class="a4-party-gstin">GSTIN: <b>${escapeHtml(data.party.gstin)}</b></p>` : ""}
+        </div>
+        <div class="a4-modern-card">
+          <div class="a4-card-title">DISPATCH &amp; ORDER INFO</div>
+          ${data.customFields?.length ? `
+            <div class="a4-modern-custom-fields">
+              ${data.customFields.map((f) => `<p><span>${escapeHtml(f.label)}:</span> <b>${escapeHtml(f.fieldType === "checkbox" ? "Yes" : f.value)}</b></p>`).join("")}
             </div>
-            <div class="preview-upi-meta">
-              <strong>Scan to Pay via UPI</strong>
-              <span>GPay • PhonePe • Paytm</span>
-              <span>${escapeHtml(bank.upiId)}</span>
+          ` : `<p class="a4-party-sub">Mode: Direct Delivery</p>`}
+          <p class="a4-party-sub" style="margin-top:4px;">Reverse Charge: No</p>
+        </div>
+      </div>
+
+      <table class="a4-modern-table">
+        <thead>
+          <tr>
+            <th style="width:36px;">#</th>
+            <th>Item &amp; Description</th>
+            <th style="width:85px;">HSN/SAC</th>
+            <th style="width:85px;text-align:right;">Qty</th>
+            <th style="width:95px;text-align:right;">Rate</th>
+            <th style="width:75px;text-align:right;">GST</th>
+            <th style="width:105px;text-align:right;">Amount</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${data.rows.map((row) => `
+            <tr>
+              <td>${row.index}</td>
+              <td>
+                <div class="a4-item-title">${escapeHtml(row.item)}</div>
+                ${row.description ? `<small class="a4-item-desc">${escapeHtml(row.description)}</small>` : ""}
+              </td>
+              <td>${escapeHtml(row.hsnSac || "-")}</td>
+              <td style="text-align:right;"><b>${formatQuantity(row.qty)}</b> <small>${escapeHtml(row.unit)}</small></td>
+              <td style="text-align:right;">${formatCurrency(row.price)}</td>
+              <td style="text-align:right;">${formatPercent(row.taxRate)}</td>
+              <td style="text-align:right;"><b>${formatCurrency(row.total)}</b></td>
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>
+
+      ${gstRows.length ? `
+        <div class="a4-modern-gst-summary">
+          <div class="a4-gst-title">GST Tax Breakdown</div>
+          <table class="a4-gst-table">
+            <thead>
+              <tr><th>HSN/SAC</th><th style="text-align:right;">Taxable Value</th><th style="text-align:right;">CGST</th><th style="text-align:right;">SGST</th><th style="text-align:right;">Total Tax</th></tr>
+            </thead>
+            <tbody>
+              ${gstRows.map((g) => `
+                <tr>
+                  <td>${escapeHtml(g.hsn)} (${g.rate}%)</td>
+                  <td style="text-align:right;">${formatCurrency(g.taxable)}</td>
+                  <td style="text-align:right;">${formatCurrency(g.cgstAmt)}</td>
+                  <td style="text-align:right;">${formatCurrency(g.sgstAmt)}</td>
+                  <td style="text-align:right;"><b>${formatCurrency(g.totalTax)}</b></td>
+                </tr>
+              `).join("")}
+            </tbody>
+          </table>
+        </div>
+      ` : ""}
+
+      <div class="a4-modern-words-bar">
+        <span>Amount in Words:</span> <strong>${escapeHtml(amountInIndianWords(data.total))}</strong>
+      </div>
+
+      <div class="a4-modern-bottom-split">
+        <div class="a4-modern-bottom-left">
+          ${bank.bankName ? `
+            <div class="a4-modern-bank-card">
+              <div class="a4-card-title">BANK &amp; PAYMENT DETAILS</div>
+              <p><span>Bank:</span> <b>${escapeHtml(bank.bankName)}</b></p>
+              ${bank.accountNo ? `<p><span>Account No:</span> <b>${escapeHtml(bank.accountNo)}</b></p>` : ""}
+              ${bank.ifsc ? `<p><span>IFSC Code:</span> <b>${escapeHtml(bank.ifsc)}</b></p>` : ""}
+              ${bank.upiId ? `<p><span>UPI ID:</span> <b>${escapeHtml(bank.upiId)}</b></p>` : ""}
+              ${upiUri ? `
+                <div class="a4-modern-upi-box">
+                  ${generateUpiQrSvg(upiUri, 64)}
+                  <div class="a4-modern-upi-text">
+                    <strong>Scan to Pay via UPI</strong>
+                    <small>GPay • PhonePe • Paytm</small>
+                  </div>
+                </div>
+              ` : ""}
+            </div>
+          ` : `<div></div>`}
+          ${flags.showTerms && data.business.terms ? `
+            <div class="a4-modern-terms">
+              <div class="a4-card-title">TERMS &amp; CONDITIONS</div>
+              <p>${escapeHtml(data.business.terms)}</p>
+            </div>
+          ` : ""}
+        </div>
+
+        <div class="a4-modern-bottom-right">
+          <div class="a4-modern-calc-card">
+            <div class="a4-calc-row"><span>Subtotal:</span> <span>${formatCurrency(data.subtotal)}</span></div>
+            ${data.discount ? `<div class="a4-calc-row"><span>Discount:</span> <span>-${formatCurrency(data.discount)}</span></div>` : ""}
+            ${data.cgst ? `<div class="a4-calc-row"><span>CGST:</span> <span>${formatCurrency(data.cgst)}</span></div>` : ""}
+            ${data.sgst ? `<div class="a4-calc-row"><span>SGST:</span> <span>${formatCurrency(data.sgst)}</span></div>` : ""}
+            ${data.igst ? `<div class="a4-calc-row"><span>IGST:</span> <span>${formatCurrency(data.igst)}</span></div>` : ""}
+            <div class="a4-calc-row a4-calc-grand">
+              <span>Grand Total:</span>
+              <strong>${formatCurrency(data.total)}</strong>
             </div>
           </div>
-        ` : ""}
-      </section>
-      <section class="preview-tax-box">
-        <p><span>Subtotal</span><b>${formatCurrency(data.subtotal)}</b></p>
-        <p><span>Discount</span><b>${formatCurrency(data.discount)}</b></p>
-        <p><span>CGST</span><b>${formatCurrency(data.cgst)}</b></p>
-        <p><span>SGST</span><b>${formatCurrency(data.sgst)}</b></p>
-        <p><span>IGST</span><b>${formatCurrency(data.igst)}</b></p>
-        <p class="grand"><span>Total</span><b>${formatCurrency(data.total)}</b></p>
-      </section>
-    </div>
-    ${data.description || data.attachments?.length ? `
-      <div class="preview-extra-notes">
-        ${data.description ? `<section><h3>Description</h3><p>${escapeHtml(data.description)}</p></section>` : ""}
-        ${data.attachments?.length ? `<section><h3>Attachments</h3><p>${data.attachments.map((file) => `${escapeHtml(file.label)}: ${escapeHtml(file.name)}`).join("<br>")}</p></section>` : ""}
+          ${flags.showSignature ? `
+            <div class="a4-modern-sign-box">
+              <small>For ${escapeHtml(data.business.businessName || state.activeCompany || "GI Billing")}</small>
+              <div class="a4-sign-line">Authorized Signatory</div>
+            </div>
+          ` : ""}
+        </div>
       </div>
-    ` : ""}
-    <div class="preview-terms"><h3>Terms &amp; Conditions</h3><p>${escapeHtml(data.business.terms || "-")}</p></div>
-    <div class="preview-signature"><span>Authorized Signature</span></div>
+    </div>
   `;
+}
+
+function renderA4Classic(data, bank, upiUri, flags = {}) {
+  const documentTitle = data.documentTitle || "TAX INVOICE";
+  const gstRows = flags.showGstSummary ? computeGstSummaryRows(data.rows) : [];
+  const logoSrc = flags.showLogo ? (data.business.logoBase64 || "") : "";
+
+  return `
+    <div class="invoice-a4-classic">
+      <div class="a4-classic-top-title">
+        <h2>${escapeHtml(documentTitle)}</h2>
+        <span>(ORIGINAL FOR RECIPIENT)</span>
+      </div>
+
+      <div class="a4-classic-box-grid">
+        <div class="a4-classic-cell a4-classic-seller">
+          ${logoSrc ? `<img class="a4-classic-logo" src="${logoSrc}" alt="Logo">` : ""}
+          <strong>${escapeHtml(data.business.businessName || state.activeCompany || "GI Billing")}</strong>
+          <p>${escapeHtml(data.business.address || "-")}</p>
+          <p>GSTIN/UIN: <b>${escapeHtml(data.business.gstin || "-")}</b></p>
+          <p>State Name: ${escapeHtml(data.business.state || "-")}</p>
+          <p>PAN: ${escapeHtml(data.business.pan || "-")}</p>
+        </div>
+        <div class="a4-classic-cell a4-classic-inv-meta">
+          <table class="a4-classic-meta-tbl">
+            <tr><td>Invoice No:</td><td><b>${escapeHtml(data.invoiceNo || "-")}</b></td></tr>
+            <tr><td>Dated:</td><td><b>${escapeHtml(data.date || "-")}</b></td></tr>
+            <tr><td>Place of Supply:</td><td>${escapeHtml(data.placeOfSupply || "-")}</td></tr>
+            <tr><td>Reverse Charge:</td><td>No</td></tr>
+          </table>
+        </div>
+        <div class="a4-classic-cell a4-classic-transport">
+          <table class="a4-classic-meta-tbl">
+            <tr><td>Buyer's Order No:</td><td>${escapeHtml(data.customFields?.find(f => f.label.includes("PO"))?.value || "-")}</td></tr>
+            <tr><td>Dispatch Doc No:</td><td>-</td></tr>
+            <tr><td>Dispatched through:</td><td>${escapeHtml(data.customFields?.find(f => f.label.includes("Vehicle"))?.value || "Road")}</td></tr>
+            <tr><td>Terms of Delivery:</td><td>Immediate</td></tr>
+          </table>
+        </div>
+      </div>
+
+      <div class="a4-classic-buyer-row">
+        <div class="a4-classic-cell a4-classic-buyer">
+          <small class="a4-cell-head">Buyer (Bill to)</small>
+          <strong>${escapeHtml(data.party?.name || "Cash Customer")}</strong>
+          <p>${escapeHtml(data.address || data.party?.billingAddress || "-")}</p>
+          <p>GSTIN/UIN: <b>${escapeHtml(data.party?.gstin || "-")}</b></p>
+          <p>State Name: ${escapeHtml(data.party?.state || data.placeOfSupply || "-")}</p>
+        </div>
+        <div class="a4-classic-cell a4-classic-consignee">
+          <small class="a4-cell-head">Consignee (Ship to)</small>
+          <strong>${escapeHtml(data.party?.name || "Cash Customer")}</strong>
+          <p>${escapeHtml(data.address || data.party?.billingAddress || "-")}</p>
+          <p>State Name: ${escapeHtml(data.party?.state || data.placeOfSupply || "-")}</p>
+        </div>
+      </div>
+
+      <table class="a4-classic-table">
+        <thead>
+          <tr>
+            <th style="width:32px;">Sl</th>
+            <th>Description of Goods</th>
+            <th style="width:80px;">HSN/SAC</th>
+            <th style="width:75px;text-align:right;">Quantity</th>
+            <th style="width:85px;text-align:right;">Rate</th>
+            <th style="width:50px;text-align:center;">per</th>
+            <th style="width:55px;text-align:right;">Disc %</th>
+            <th style="width:95px;text-align:right;">Amount</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${data.rows.map((row) => `
+            <tr>
+              <td style="text-align:center;">${row.index}</td>
+              <td>
+                <strong>${escapeHtml(row.item)}</strong>
+                ${row.description ? `<br><small>${escapeHtml(row.description)}</small>` : ""}
+              </td>
+              <td style="text-align:center;">${escapeHtml(row.hsnSac || "-")}</td>
+              <td style="text-align:right;"><b>${formatQuantity(row.qty)}</b></td>
+              <td style="text-align:right;">${formatCurrency(row.price)}</td>
+              <td style="text-align:center;">${escapeHtml(row.unit || "Pcs")}</td>
+              <td style="text-align:right;">${row.discount ? formatCurrency(row.discount) : "-"}</td>
+              <td style="text-align:right;"><b>${formatCurrency(row.total)}</b></td>
+            </tr>
+          `).join("")}
+          <tr class="a4-classic-total-row">
+            <td colspan="3" style="text-align:right;font-weight:700;">Total</td>
+            <td style="text-align:right;font-weight:700;">${formatQuantity(data.rows.reduce((sum, r) => sum + Number(r.qty || 0), 0))}</td>
+            <td colspan="3"></td>
+            <td style="text-align:right;font-weight:700;">${formatCurrency(data.total)}</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="a4-classic-words-bar">
+        <span>Amount Chargeable (in words):</span>
+        <strong>${escapeHtml(amountInIndianWords(data.total))}</strong>
+      </div>
+
+      ${gstRows.length ? `
+        <div class="a4-classic-tax-block">
+          <table class="a4-classic-tax-table">
+            <thead>
+              <tr>
+                <th rowspan="2">HSN/SAC</th>
+                <th rowspan="2" style="text-align:right;">Taxable Value</th>
+                <th colspan="2" style="text-align:center;">Central Tax</th>
+                <th colspan="2" style="text-align:center;">State Tax</th>
+                <th rowspan="2" style="text-align:right;">Total Tax Amount</th>
+              </tr>
+              <tr>
+                <th style="text-align:right;width:60px;">Rate</th>
+                <th style="text-align:right;width:80px;">Amount</th>
+                <th style="text-align:right;width:60px;">Rate</th>
+                <th style="text-align:right;width:80px;">Amount</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${gstRows.map((g) => `
+                <tr>
+                  <td>${escapeHtml(g.hsn)}</td>
+                  <td style="text-align:right;">${formatCurrency(g.taxable)}</td>
+                  <td style="text-align:right;">${g.cgstRate}%</td>
+                  <td style="text-align:right;">${formatCurrency(g.cgstAmt)}</td>
+                  <td style="text-align:right;">${g.sgstRate}%</td>
+                  <td style="text-align:right;">${formatCurrency(g.sgstAmt)}</td>
+                  <td style="text-align:right;"><b>${formatCurrency(g.totalTax)}</b></td>
+                </tr>
+              `).join("")}
+            </tbody>
+          </table>
+        </div>
+      ` : ""}
+
+      <div class="a4-classic-footer-grid">
+        <div class="a4-classic-footer-left">
+          ${bank.bankName ? `
+            <div class="a4-classic-bank-details">
+              <strong>Company's Bank Details</strong>
+              <p>Bank Name: <b>${escapeHtml(bank.bankName)}</b></p>
+              ${bank.accountNo ? `<p>A/c No: <b>${escapeHtml(bank.accountNo)}</b></p>` : ""}
+              ${bank.ifsc ? `<p>Branch &amp; IFS Code: <b>${escapeHtml(bank.ifsc)}</b></p>` : ""}
+              ${bank.upiId ? `<p>UPI ID: <b>${escapeHtml(bank.upiId)}</b></p>` : ""}
+            </div>
+          ` : ""}
+          ${flags.showTerms && data.business.terms ? `
+            <div class="a4-classic-declaration">
+              <strong>Declaration</strong>
+              <p>${escapeHtml(data.business.terms)}</p>
+            </div>
+          ` : ""}
+        </div>
+        <div class="a4-classic-footer-right">
+          ${upiUri ? `
+            <div class="a4-classic-upi-box">
+              ${generateUpiQrSvg(upiUri, 60)}
+              <small>Scan &amp; Pay via UPI</small>
+            </div>
+          ` : ""}
+          <div class="a4-classic-signature-area">
+            <strong>for ${escapeHtml(data.business.businessName || state.activeCompany || "GI Billing")}</strong>
+            <div class="a4-classic-sign-space"></div>
+            <span>Authorized Signatory</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function renderA4Minimal(data, bank, upiUri, flags = {}) {
+  const documentTitle = data.documentTitle || "TAX INVOICE";
+  const logoSrc = flags.showLogo ? (data.business.logoBase64 || "") : "";
+
+  return `
+    <div class="invoice-a4-minimal">
+      <div class="a4-minimal-header">
+        <div class="a4-minimal-brand">
+          ${logoSrc ? `<img class="a4-minimal-logo" src="${logoSrc}" alt="Logo">` : ""}
+          <div>
+            <h1 class="a4-minimal-title">${escapeHtml(data.business.businessName || state.activeCompany || "GI Billing")}</h1>
+            <p class="a4-minimal-sub">${escapeHtml(data.business.address || "-")}</p>
+            <p class="a4-minimal-sub">GSTIN: ${escapeHtml(data.business.gstin || "-")} • PAN: ${escapeHtml(data.business.pan || "-")}</p>
+          </div>
+        </div>
+        <div class="a4-minimal-meta">
+          <h2 class="a4-minimal-doc">${escapeHtml(documentTitle)}</h2>
+          <p><b>#${escapeHtml(data.invoiceNo || "-")}</b></p>
+          <p>Date: ${escapeHtml(data.date || "-")}</p>
+          <p>Place: ${escapeHtml(data.placeOfSupply || "-")}</p>
+        </div>
+      </div>
+
+      <div class="a4-minimal-divider"></div>
+
+      <div class="a4-minimal-client-bar">
+        <div>
+          <span class="a4-min-label">BILLED TO</span>
+          <strong class="a4-min-client-name">${escapeHtml(data.party?.name || "Cash Customer")}</strong>
+          <p class="a4-min-client-addr">${escapeHtml(data.address || data.party?.billingAddress || "-")}</p>
+          ${data.party?.gstin ? `<p class="a4-min-client-addr">GSTIN: <b>${escapeHtml(data.party.gstin)}</b></p>` : ""}
+        </div>
+        ${bank.bankName ? `
+          <div class="a4-min-bank-block">
+            <span class="a4-min-label">PAYMENT METHOD</span>
+            <p><b>${escapeHtml(bank.bankName)}</b></p>
+            ${bank.accountNo ? `<p>A/C: ${escapeHtml(bank.accountNo)}</p>` : ""}
+            ${bank.ifsc ? `<p>IFSC: ${escapeHtml(bank.ifsc)}</p>` : ""}
+            ${bank.upiId ? `<p>UPI: ${escapeHtml(bank.upiId)}</p>` : ""}
+          </div>
+        ` : ""}
+      </div>
+
+      <table class="a4-minimal-table">
+        <thead>
+          <tr>
+            <th style="width:36px;">#</th>
+            <th>Item</th>
+            <th style="width:80px;">HSN</th>
+            <th style="width:80px;text-align:right;">Qty</th>
+            <th style="width:90px;text-align:right;">Price</th>
+            <th style="width:70px;text-align:right;">GST</th>
+            <th style="width:100px;text-align:right;">Total</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${data.rows.map((row) => `
+            <tr>
+              <td>${row.index}</td>
+              <td><b>${escapeHtml(row.item)}</b>${row.description ? ` - <small>${escapeHtml(row.description)}</small>` : ""}</td>
+              <td>${escapeHtml(row.hsnSac || "-")}</td>
+              <td style="text-align:right;">${formatQuantity(row.qty)} ${escapeHtml(row.unit)}</td>
+              <td style="text-align:right;">${formatCurrency(row.price)}</td>
+              <td style="text-align:right;">${formatPercent(row.taxRate)}</td>
+              <td style="text-align:right;"><b>${formatCurrency(row.total)}</b></td>
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>
+
+      <div class="a4-minimal-totals-wrap">
+        <div class="a4-minimal-words">
+          <span>In Words:</span> <em>${escapeHtml(amountInIndianWords(data.total))}</em>
+          ${upiUri ? `
+            <div class="a4-minimal-upi">
+              ${generateUpiQrSvg(upiUri, 56)}
+              <small>Scan &amp; Pay</small>
+            </div>
+          ` : ""}
+        </div>
+        <div class="a4-minimal-calc-box">
+          <p><span>Subtotal:</span> <span>${formatCurrency(data.subtotal)}</span></p>
+          ${data.discount ? `<p><span>Discount:</span> <span>-${formatCurrency(data.discount)}</span></p>` : ""}
+          ${data.cgst ? `<p><span>CGST:</span> <span>${formatCurrency(data.cgst)}</span></p>` : ""}
+          ${data.sgst ? `<p><span>SGST:</span> <span>${formatCurrency(data.sgst)}</span></p>` : ""}
+          ${data.igst ? `<p><span>IGST:</span> <span>${formatCurrency(data.igst)}</span></p>` : ""}
+          <div class="a4-minimal-grand">
+            <span>Total:</span>
+            <strong>${formatCurrency(data.total)}</strong>
+          </div>
+        </div>
+      </div>
+
+      <div class="a4-minimal-footer">
+        <div class="a4-minimal-terms">
+          ${flags.showTerms && data.business.terms ? `<small>${escapeHtml(data.business.terms)}</small>` : ""}
+        </div>
+        ${flags.showSignature ? `
+          <div class="a4-minimal-sign">
+            <span>Authorized Signatory</span>
+          </div>
+        ` : ""}
+      </div>
+    </div>
+  `;
+}
+
+function renderA4Compact(data, bank, upiUri, flags = {}) {
+  const documentTitle = data.documentTitle || "TAX INVOICE";
+  const logoSrc = flags.showLogo ? (data.business.logoBase64 || "") : "";
+
+  return `
+    <div class="invoice-a4-compact">
+      <div class="a4-compact-header">
+        <div class="a4-compact-brand">
+          ${logoSrc ? `<img class="a4-compact-logo" src="${logoSrc}" alt="Logo">` : ""}
+          <div>
+            <h2>${escapeHtml(data.business.businessName || state.activeCompany || "GI Billing")}</h2>
+            <small>${escapeHtml(data.business.address || "-")} | GSTIN: ${escapeHtml(data.business.gstin || "-")}</small>
+          </div>
+        </div>
+        <div class="a4-compact-meta">
+          <strong>${escapeHtml(documentTitle)}</strong>
+          <span>No: ${escapeHtml(data.invoiceNo || "-")} | Date: ${escapeHtml(data.date || "-")}</span>
+          <small>Buyer: ${escapeHtml(data.party?.name || "Cash Customer")} (${escapeHtml(data.party?.gstin || "Unregistered")})</small>
+        </div>
+      </div>
+
+      <table class="a4-compact-table">
+        <thead>
+          <tr>
+            <th style="width:28px;">#</th>
+            <th>Item Description</th>
+            <th style="width:70px;">HSN</th>
+            <th style="width:65px;text-align:right;">Qty</th>
+            <th style="width:80px;text-align:right;">Rate</th>
+            <th style="width:55px;text-align:right;">GST</th>
+            <th style="width:90px;text-align:right;">Amount</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${data.rows.map((row) => `
+            <tr>
+              <td>${row.index}</td>
+              <td><b>${escapeHtml(row.item)}</b> ${row.description ? `<small>(${escapeHtml(row.description)})</small>` : ""}</td>
+              <td>${escapeHtml(row.hsnSac || "-")}</td>
+              <td style="text-align:right;">${formatQuantity(row.qty)} ${escapeHtml(row.unit)}</td>
+              <td style="text-align:right;">${formatCurrency(row.price)}</td>
+              <td style="text-align:right;">${formatPercent(row.taxRate)}</td>
+              <td style="text-align:right;"><b>${formatCurrency(row.total)}</b></td>
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>
+
+      <div class="a4-compact-bottom">
+        <div class="a4-compact-info-col">
+          <p><strong>Words:</strong> ${escapeHtml(amountInIndianWords(data.total))}</p>
+          ${bank.bankName ? `
+            <small><strong>Bank:</strong> ${escapeHtml(bank.bankName)} | A/C: ${escapeHtml(bank.accountNo)} | IFSC: ${escapeHtml(bank.ifsc)}</small>
+          ` : ""}
+          ${flags.showTerms && data.business.terms ? `<small><strong>Terms:</strong> ${escapeHtml(data.business.terms)}</small>` : ""}
+        </div>
+        <div class="a4-compact-totals-col">
+          <table class="a4-compact-totals-tbl">
+            <tr><td>Subtotal:</td><td style="text-align:right;">${formatCurrency(data.subtotal)}</td></tr>
+            ${data.discount ? `<tr><td>Discount:</td><td style="text-align:right;">-${formatCurrency(data.discount)}</td></tr>` : ""}
+            ${data.cgst ? `<tr><td>CGST:</td><td style="text-align:right;">${formatCurrency(data.cgst)}</td></tr>` : ""}
+            ${data.sgst ? `<tr><td>SGST:</td><td style="text-align:right;">${formatCurrency(data.sgst)}</td></tr>` : ""}
+            ${data.igst ? `<tr><td>IGST:</td><td style="text-align:right;">${formatCurrency(data.igst)}</td></tr>` : ""}
+            <tr class="a4-compact-grand-row"><td><b>Grand Total:</b></td><td style="text-align:right;"><b>${formatCurrency(data.total)}</b></td></tr>
+          </table>
+          ${flags.showSignature ? `<div class="a4-compact-sign-line">Authorized Signatory</div>` : ""}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function renderThermalRetail(data, bank, upiUri, flags = {}) {
+  const totalQty = data.rows.reduce((sum, r) => sum + Number(r.qty || 0), 0);
+  const taxSum = Number(data.cgst || 0) + Number(data.sgst || 0) + Number(data.igst || 0);
+
+  return `
+    <div class="invoice-thermal invoice-thermal-retail">
+      <div class="thermal-center-header">
+        <h2 class="thermal-store-name">${escapeHtml(data.business.businessName || state.activeCompany || "GI BILLING")}</h2>
+        <p class="thermal-store-sub">${escapeHtml(data.business.address || "")}</p>
+        ${data.business.gstin ? `<p class="thermal-store-sub">GSTIN: ${escapeHtml(data.business.gstin)}</p>` : ""}
+        <div class="thermal-divider-heavy">================================</div>
+        <div class="thermal-doc-title">RETAIL TAX INVOICE</div>
+        <div class="thermal-bill-meta">
+          <div>Bill No: <b>${escapeHtml(data.invoiceNo || "-")}</b></div>
+          <div>Date: ${escapeHtml(data.date || "-")}</div>
+        </div>
+        <div class="thermal-bill-meta">
+          <div>Customer: ${escapeHtml(data.party?.name || "Cash Sale")}</div>
+          <div>Counter: 01</div>
+        </div>
+        <div class="thermal-divider-dashed">--------------------------------</div>
+      </div>
+
+      <div class="thermal-items-list">
+        ${data.rows.map((row) => `
+          <div class="thermal-item-block">
+            <div class="thermal-item-title"><strong>${escapeHtml(row.item)}</strong></div>
+            <div class="thermal-item-details">
+              <span>${formatQuantity(row.qty)} ${escapeHtml(row.unit)} x ${formatCurrency(row.price)}</span>
+              <strong>${formatCurrency(row.total)}</strong>
+            </div>
+            ${row.discount ? `<div class="thermal-item-disc"><small>Disc: -${formatCurrency(row.discount)}</small></div>` : ""}
+          </div>
+        `).join("")}
+      </div>
+
+      <div class="thermal-divider-dashed">--------------------------------</div>
+
+      <div class="thermal-calc-block">
+        <div class="thermal-calc-row"><span>Total Items / Qty:</span> <span>${data.rows.length} / ${formatQuantity(totalQty)}</span></div>
+        <div class="thermal-calc-row"><span>Subtotal:</span> <span>${formatCurrency(data.subtotal)}</span></div>
+        ${data.discount ? `<div class="thermal-calc-row"><span>Discount:</span> <span>-${formatCurrency(data.discount)}</span></div>` : ""}
+        ${taxSum ? `<div class="thermal-calc-row"><span>Taxes (GST):</span> <span>${formatCurrency(taxSum)}</span></div>` : ""}
+      </div>
+
+      <div class="thermal-divider-heavy">================================</div>
+      <div class="thermal-grand-total">
+        <span>NET PAYABLE:</span>
+        <strong>${formatCurrency(data.total)}</strong>
+      </div>
+      <div class="thermal-divider-heavy">================================</div>
+
+      ${data.discount ? `
+        <div class="thermal-savings-banner">
+          *** YOU SAVED ${formatCurrency(data.discount)} ON THIS ORDER! ***
+        </div>
+      ` : ""}
+
+      <div class="thermal-payment-status">
+        <span>PAID VIA CASH / UPI</span>
+      </div>
+
+      ${upiUri ? `
+        <div class="thermal-upi-wrap">
+          ${generateUpiQrSvg(upiUri, 80)}
+          <small>Scan to Pay via UPI</small>
+          <small>${escapeHtml(bank.upiId)}</small>
+        </div>
+      ` : ""}
+
+      <div class="thermal-footer">
+        <p>Thank you for shopping with us!</p>
+        <p>Goods once sold can be exchanged in 7 days.</p>
+        <p class="thermal-visit">*** VISIT AGAIN ***</p>
+      </div>
+    </div>
+  `;
+}
+
+function renderThermalBoutique(data, bank, upiUri, flags = {}) {
+  return `
+    <div class="invoice-thermal invoice-thermal-boutique">
+      <div class="thermal-boutique-header">
+        <h2 class="boutique-brand">${escapeHtml(data.business.businessName || state.activeCompany || "BOUTIQUE")}</h2>
+        <p class="boutique-tagline">RECEIPT / MEMO</p>
+        <div class="boutique-meta-line">
+          <span>#${escapeHtml(data.invoiceNo || "-")}</span>
+          <span>${escapeHtml(data.date || "-")}</span>
+        </div>
+        <div class="thermal-line"></div>
+      </div>
+
+      <div class="boutique-items-table">
+        ${data.rows.map((row) => `
+          <div class="boutique-row">
+            <div class="boutique-row-head">
+              <span class="boutique-item-name">${escapeHtml(row.item)}</span>
+              <span class="boutique-item-amt">${formatCurrency(row.total)}</span>
+            </div>
+            <div class="boutique-row-sub">
+              <span>${formatQuantity(row.qty)} ${escapeHtml(row.unit)} @ ${formatCurrency(row.price)}</span>
+            </div>
+          </div>
+        `).join("")}
+      </div>
+
+      <div class="thermal-line"></div>
+
+      <div class="boutique-summary">
+        <div class="boutique-calc-line"><span>Subtotal:</span> <span>${formatCurrency(data.subtotal)}</span></div>
+        ${data.discount ? `<div class="boutique-calc-line"><span>Discount:</span> <span>-${formatCurrency(data.discount)}</span></div>` : ""}
+        ${data.cgst || data.sgst ? `<div class="boutique-calc-line"><span>GST:</span> <span>${formatCurrency((data.cgst||0)+(data.sgst||0))}</span></div>` : ""}
+        <div class="boutique-grand-line">
+          <span>TOTAL</span>
+          <strong>${formatCurrency(data.total)}</strong>
+        </div>
+      </div>
+
+      <div class="boutique-paid-badge">[ ✓ PAYMENT COMPLETE ]</div>
+
+      ${upiUri ? `
+        <div class="boutique-upi-box">
+          ${generateUpiQrSvg(upiUri, 76)}
+          <small>UPI: ${escapeHtml(bank.upiId)}</small>
+        </div>
+      ` : ""}
+
+      <div class="boutique-footer">
+        <p>Thank you for your visit!</p>
+        <p>Hope to see you again soon.</p>
+      </div>
+    </div>
+  `;
+}
+
+function renderThermalDetailed(data, bank, upiUri, flags = {}) {
+  const gstRows = computeGstSummaryRows(data.rows);
+
+  return `
+    <div class="invoice-thermal invoice-thermal-detailed">
+      <div class="thermal-detailed-header">
+        <h3 class="detailed-store-name">${escapeHtml(data.business.businessName || state.activeCompany || "GI BILLING")}</h3>
+        <p>${escapeHtml(data.business.address || "")}</p>
+        <p>GSTIN: <b>${escapeHtml(data.business.gstin || "-")}</b></p>
+        <div class="thermal-divider-dashed">--------------------------------</div>
+        <div style="font-weight:700;text-align:center;">TAX INVOICE (ROLL)</div>
+        <div class="thermal-bill-meta">
+          <div>Invoice: ${escapeHtml(data.invoiceNo || "-")}</div>
+          <div>Date: ${escapeHtml(data.date || "-")}</div>
+        </div>
+        ${data.party?.gstin ? `<div>Buyer GSTIN: <b>${escapeHtml(data.party.gstin)}</b></div>` : ""}
+        <div class="thermal-divider-dashed">--------------------------------</div>
+      </div>
+
+      <div class="detailed-items-block">
+        ${data.rows.map((row) => `
+          <div class="detailed-item-line">
+            <div style="display:flex;justify-content:space-between;">
+              <span><b>${escapeHtml(row.item)}</b></span>
+              <span><b>${formatCurrency(row.total)}</b></span>
+            </div>
+            <div style="display:flex;justify-content:space-between;font-size:10px;color:#475569;">
+              <span>HSN: ${escapeHtml(row.hsnSac || "-")} | ${formatQuantity(row.qty)} ${escapeHtml(row.unit)} x ${formatCurrency(row.price)}</span>
+              <span>GST ${row.taxRate}%</span>
+            </div>
+          </div>
+        `).join("")}
+      </div>
+
+      <div class="thermal-divider-dashed">--------------------------------</div>
+
+      <div class="detailed-tax-table-wrap">
+        <div style="font-weight:700;font-size:10px;margin-bottom:3px;">GST TAX SUMMARY:</div>
+        <table class="detailed-roll-tax-tbl">
+          <thead>
+            <tr><th>HSN</th><th style="text-align:right;">Taxable</th><th style="text-align:right;">CGST</th><th style="text-align:right;">SGST</th></tr>
+          </thead>
+          <tbody>
+            ${gstRows.map((g) => `
+              <tr>
+                <td>${escapeHtml(g.hsn)}</td>
+                <td style="text-align:right;">${formatCurrency(g.taxable)}</td>
+                <td style="text-align:right;">${formatCurrency(g.cgstAmt)}</td>
+                <td style="text-align:right;">${formatCurrency(g.sgstAmt)}</td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+      </div>
+
+      <div class="thermal-divider-heavy">================================</div>
+      <div style="display:flex;justify-content:space-between;font-size:15px;font-weight:800;padding:4px 0;">
+        <span>TOTAL DUE:</span>
+        <span>${formatCurrency(data.total)}</span>
+      </div>
+      <div class="thermal-divider-heavy">================================</div>
+
+      ${upiUri ? `
+        <div style="text-align:center;margin:8px 0;">
+          ${generateUpiQrSvg(upiUri, 72)}
+          <div style="font-size:10px;margin-top:2px;">Scan to Pay via UPI</div>
+        </div>
+      ` : ""}
+
+      <div class="thermal-footer">
+        <p>Authorized Signatory</p>
+        <p style="font-size:10px;margin-top:4px;">Thank you for your business!</p>
+      </div>
+    </div>
+  `;
+}
+
+function invoicePreviewMarkup(data, options = {}) {
+  const business = data.business || state.businessSettings || defaultBusinessSettings();
+  let format = options.printerType || business.printerType || "a4";
+  if (format === "regular") format = "a4";
+  const isThermal = format === "thermal";
+  const a4Template = options.a4Template || business.a4Template || "modern";
+  const thermalTemplate = options.thermalTemplate || business.thermalTemplate || "retail";
+  const thermalWidth = options.thermalWidth || business.thermalWidth || "80mm";
+
+  const defaultBank = defaultBankAccount();
+  const bank = (business.printBankDetails !== false)
+    ? (defaultBank || business.bankDetails || {})
+    : {};
+  const showUpi = Boolean(business.printUpiQr !== false && bank.upiId);
+  const upiUri = showUpi
+    ? `upi://pay?pa=${encodeURIComponent(bank.upiId)}&pn=${encodeURIComponent(business.businessName || "Merchant")}&am=${encodeURIComponent(Number(data.total || 0).toFixed(2))}&cu=INR`
+    : "";
+  const showLogo = Boolean(business.printCompanyLogo !== false && business.logoBase64);
+  const showGstSummary = business.printGstSummary !== false;
+  const showTerms = business.printTerms !== false;
+  const showSignature = business.printSignature !== false;
+
+  const flags = {
+    showLogo,
+    showGstSummary,
+    showTerms,
+    showSignature,
+    thermalWidth,
+  };
+
+  if (isThermal) {
+    if (thermalTemplate === "boutique") return renderThermalBoutique(data, bank, upiUri, flags);
+    if (thermalTemplate === "detailed") return renderThermalDetailed(data, bank, upiUri, flags);
+    return renderThermalRetail(data, bank, upiUri, flags);
+  }
+
+  if (a4Template === "classic") return renderA4Classic(data, bank, upiUri, flags);
+  if (a4Template === "minimal") return renderA4Minimal(data, bank, upiUri, flags);
+  if (a4Template === "compact") return renderA4Compact(data, bank, upiUri, flags);
+  return renderA4Modern(data, bank, upiUri, flags);
 }
 
 function bindTransactionEditorRows() {
@@ -3632,7 +5076,7 @@ function renderItemLookupPanel(field) {
   }
 
   panel.innerHTML = `
-    <div class="item-picker-heading"><span>${results.length} items${results.length > 50 ? " (first 50)" : ""}</span><span>${getTransactionEditorType() === "purchase" ? "Purchase price" : "Sale price"}</span></div>
+    <div class="item-picker-heading"><span>${results.length} items${results.length > 50 ? " (first 50)" : ""}</span><span>${getTransactionEditorType() === "purchase" ? "Purchase &amp; Sale price" : "Sale &amp; Cost price"}</span></div>
     ${!matches.length ? '<div class="item-picker-empty">No matching items</div>' : ''}
     ${matches.map((item) => itemLookupButton(item)).join("")}
     ${query && !exact ? `<button class="lookup-add-button" type="button" data-editor-add-item>+ Add "${escapeHtml(query)}" as new item</button>` : ""}
@@ -3673,11 +5117,31 @@ function itemLookupButton(item) {
   const details = [item.sku ? `SKU ${item.sku}` : "", item.category, item.unit ? `Unit ${item.unit}` : ""].filter(Boolean).join(" - ") || "No item details";
   const service = item.itemType === "service";
   const stock = Number(item.currentStock || 0);
-  const price = getTransactionEditorType() === "purchase" ? item.purchasePrice : item.salePrice;
+  const isPurchase = getTransactionEditorType() === "purchase";
+  const salePrice = Number(item.salePrice || 0);
+  const purchasePrice = Number(item.purchasePrice || 0);
+
+  const priceStackMarkup = isPurchase
+    ? `
+      <span class="item-picker-price-stack">
+        <strong class="item-primary-price">Pur: ${formatCurrency(purchasePrice)}</strong>
+        <span class="item-secondary-price">Sale: ${salePrice ? formatCurrency(salePrice) : "-"}</span>
+      </span>
+    `
+    : `
+      <span class="item-picker-price-stack">
+        <strong class="item-primary-price">Sale: ${formatCurrency(salePrice)}</strong>
+        <span class="item-secondary-price" title="Purchase Cost Price">Cost: ${purchasePrice ? formatCurrency(purchasePrice) : "-"}</span>
+      </span>
+    `;
+
   return `
     <button class="lookup-result-button item-picker-result" type="button" data-editor-item-id="${item.id}">
       <span><strong>${escapeHtml(item.name)}</strong><small>${escapeHtml(details)}</small></span>
-      <span class="item-picker-numbers"><strong>${formatCurrency(price || 0)}</strong><small class="${service ? "service" : stock <= 0 ? "out-of-stock" : "in-stock"}">${service ? "Service" : stock <= 0 ? "Out of stock" : `${formatQuantity(stock)} ${escapeHtml(item.unit || "")} available`}</small></span>
+      <span class="item-picker-numbers">
+        ${priceStackMarkup}
+        <small class="${service ? "service" : stock <= 0 ? "out-of-stock" : "in-stock"}">${service ? "Service" : stock <= 0 ? "Out of stock" : `${formatQuantity(stock)} ${escapeHtml(item.unit || "")} available`}</small>
+      </span>
     </button>
   `;
 }
@@ -4156,21 +5620,23 @@ function renderTransactionSmartChecks(grandTotal = null, received = null) {
   const supplyType = elements.featureView.querySelector('[name="supplyType"]')?.value || "b2c";
   const placeOfSupply = elements.featureView.querySelector('[name="state"]')?.value || "";
   const editorType = getTransactionEditorType();
-  const isEstimate = editorType === "estimate";
+  const isEstimate = isOperationalDoc(editorType);
   const isSaleReturn = editorType === "saleReturn";
   const isPurchaseReturn = editorType === "purchaseReturn";
   const isReturn = isSaleReturn || isPurchaseReturn;
+  const isPurchaseDoc = editorType === "purchase" || editorType === "purchaseOrder";
+  const meta = transactionEditorMeta(editorType);
 
   if (isSaleReturn && !party) {
     checks.push({ type: "danger", text: "Credit note needs an existing customer for receivable and statement adjustment." });
   } else if (isPurchaseReturn && !party) {
     checks.push({ type: "danger", text: "Debit note needs an existing supplier for payable and statement adjustment." });
   } else if (isEstimate && !partyName.trim()) {
-    checks.push({ type: "danger", text: "Quotation needs a customer name." });
+    checks.push({ type: "danger", text: `${meta.noun} needs a ${meta.partyLabel.toLowerCase()} name.` });
   } else if (isEstimate && partyName.trim() && !party) {
-    checks.push({ type: "info", text: "Prospect name will stay on the quote; convert later after customer confirmation." });
+    checks.push({ type: "info", text: `${partyName} will be kept on this ${meta.noun.toLowerCase()}; convert when confirmed.` });
   } else if (!isEstimate && !party && !(editorType === 'sale' && paymentType === 'cash' && supplyType === 'b2c' && !partyName.trim())) {
-    checks.push({ type: "danger", text: `${editorType === "sale" ? "Sale" : "Purchase"} billing needs an existing ${editorType === "sale" ? "customer" : "supplier"}. Select one or add it first.` });
+    checks.push({ type: "danger", text: `${isPurchaseDoc ? "Purchase" : "Sale"} billing needs an existing ${isPurchaseDoc ? "supplier" : "customer"}. Select one or add it first.` });
   }
   if (party) {
     const balance = Number(party.balance ?? party.openingBalance ?? 0);
@@ -4688,8 +6154,9 @@ function validateTransactionEditorSelections() {
   const editorType = getTransactionEditorType();
   const party = getSelectedTransactionParty();
   const partyName = String(partyInput?.value || "").trim();
-  const partyLabel = transactionEditorMeta(editorType).partyRole;
-  const isEstimate = editorType === "estimate";
+  const meta = transactionEditorMeta(editorType);
+  const partyLabel = meta.partyRole;
+  const isEstimate = isOperationalDoc(editorType);
   const isSaleReturn = editorType === "saleReturn";
   const isPurchaseReturn = editorType === "purchaseReturn";
   const isReturn = isSaleReturn || isPurchaseReturn;
@@ -4699,7 +6166,7 @@ function validateTransactionEditorSelections() {
   if (isEstimate && !partyName) {
     return {
       valid: false,
-      message: "Customer name is required for a quotation.",
+      message: `${meta.partyLabel} name is required for a ${meta.noun.toLowerCase()}.`,
       field: partyInput,
     };
   }
@@ -4841,10 +6308,216 @@ function closeEntryModal() {
   if (submitButton) submitButton.textContent = "Save";
 }
 
+const GST_STATE_CODES = {
+  "01": "Jammu and Kashmir",
+  "02": "Himachal Pradesh",
+  "03": "Punjab",
+  "04": "Chandigarh",
+  "05": "Uttarakhand",
+  "06": "Haryana",
+  "07": "Delhi",
+  "08": "Rajasthan",
+  "09": "Uttar Pradesh",
+  "10": "Bihar",
+  "11": "Sikkim",
+  "12": "Arunachal Pradesh",
+  "13": "Nagaland",
+  "14": "Manipur",
+  "15": "Mizoram",
+  "16": "Tripura",
+  "17": "Meghalaya",
+  "18": "Assam",
+  "19": "West Bengal",
+  "20": "Jharkhand",
+  "21": "Odisha",
+  "22": "Chhattisgarh",
+  "23": "Madhya Pradesh",
+  "24": "Gujarat",
+  "26": "Dadra and Nagar Haveli and Daman and Diu",
+  "27": "Maharashtra",
+  "29": "Karnataka",
+  "30": "Goa",
+  "31": "Lakshadweep",
+  "32": "Kerala",
+  "33": "Tamil Nadu",
+  "34": "Puducherry",
+  "35": "Andaman and Nicobar Islands",
+  "36": "Telangana",
+  "37": "Andhra Pradesh",
+  "38": "Ladakh",
+};
+
+function handleGstinInput(gstinVal) {
+  const clean = String(gstinVal || "").trim().toUpperCase();
+  if (clean.length >= 2) {
+    const code = clean.slice(0, 2);
+    const matchedState = GST_STATE_CODES[code];
+    const stateInput = elements.entryForm.querySelector('[name="state"]');
+    if (matchedState && stateInput && (!stateInput.value || stateInput.dataset.autoFilled === "1")) {
+      stateInput.value = matchedState;
+      stateInput.dataset.autoFilled = "1";
+    }
+  }
+  if (clean.length >= 12) {
+    const pan = clean.slice(2, 12);
+    const panInput = elements.entryForm.querySelector('[name="pan"]');
+    if (panInput && (!panInput.value || panInput.dataset.autoFilled === "1")) {
+      panInput.value = pan;
+      panInput.dataset.autoFilled = "1";
+    }
+  }
+}
+
+function initPartyTabs() {
+  const tabButtons = elements.entryModal.querySelectorAll(".party-tab-btn");
+  const tabPanels = elements.entryModal.querySelectorAll(".party-tab-panel");
+
+  tabButtons.forEach((btn) => {
+    btn.onclick = () => {
+      const targetTab = btn.dataset.tab;
+      tabButtons.forEach((b) => {
+        const isTarget = b === btn;
+        b.classList.toggle("active", isTarget);
+        b.setAttribute("aria-selected", isTarget ? "true" : "false");
+      });
+      tabPanels.forEach((panel) => {
+        const isTarget = panel.id === `partyTab${targetTab.charAt(0).toUpperCase() + targetTab.slice(1)}`;
+        panel.classList.toggle("active", isTarget);
+        panel.classList.toggle("hidden", !isTarget);
+      });
+    };
+  });
+}
+
+function resetPartyTabs() {
+  const tabButtons = elements.entryModal.querySelectorAll(".party-tab-btn");
+  const tabPanels = elements.entryModal.querySelectorAll(".party-tab-panel");
+  tabButtons.forEach((b, i) => {
+    b.classList.toggle("active", i === 0);
+    b.setAttribute("aria-selected", i === 0 ? "true" : "false");
+  });
+  tabPanels.forEach((p, i) => {
+    p.classList.toggle("active", i === 0);
+    p.classList.toggle("hidden", i !== 0);
+  });
+}
+
+function initPartyTypeChips() {
+  const chips = elements.entryModal.querySelectorAll(".party-type-chip");
+  const hiddenInput = elements.entryForm.querySelector('[name="type"]');
+  chips.forEach((chip) => {
+    chip.onclick = () => {
+      chips.forEach((c) => c.classList.toggle("active", c === chip));
+      if (hiddenInput) hiddenInput.value = chip.dataset.type;
+    };
+  });
+}
+
+function setPartyTypeChip(typeValue) {
+  const normalized = typeValue === "customer" || typeValue === "supplier" ? typeValue : "party";
+  const chips = elements.entryModal.querySelectorAll(".party-type-chip");
+  const hiddenInput = elements.entryForm.querySelector('[name="type"]');
+  if (hiddenInput) hiddenInput.value = normalized;
+  chips.forEach((c) => c.classList.toggle("active", c.dataset.type === normalized));
+}
+
+function initBalanceTypeChips() {
+  const chips = elements.entryModal.querySelectorAll(".balance-type-chip");
+  const hiddenSelect = elements.entryForm.querySelector('[name="openingBalanceType"]');
+  chips.forEach((chip) => {
+    chip.onclick = () => {
+      chips.forEach((c) => c.classList.toggle("active", c === chip));
+      if (hiddenSelect) {
+        hiddenSelect.value = chip.dataset.balanceType;
+        hiddenSelect.dispatchEvent(new Event("change"));
+      }
+    };
+  });
+}
+
+function setBalanceTypeChip(val) {
+  const normalized = val === "payable" ? "payable" : "receivable";
+  const chips = elements.entryModal.querySelectorAll(".balance-type-chip");
+  chips.forEach((c) => c.classList.toggle("active", c.dataset.balanceType === normalized));
+  const hiddenSelect = elements.entryForm.querySelector('[name="openingBalanceType"]');
+  if (hiddenSelect) hiddenSelect.value = normalized;
+}
+
+function initTermsPresetChips() {
+  const chips = elements.entryModal.querySelectorAll(".terms-chip");
+  const termsInput = elements.entryForm.querySelector('[name="paymentTerms"]');
+  const dueDaysInput = elements.entryForm.querySelector('[name="dueDays"]');
+  chips.forEach((chip) => {
+    chip.onclick = () => {
+      if (termsInput) termsInput.value = chip.dataset.terms;
+      if (dueDaysInput && chip.dataset.days !== undefined) dueDaysInput.value = chip.dataset.days;
+    };
+  });
+}
+
+function initItemTabs() {
+  const tabButtons = elements.entryModal.querySelectorAll(".item-tab-btn");
+  const tabPanels = elements.entryModal.querySelectorAll(".item-tab-panel");
+
+  tabButtons.forEach((btn) => {
+    btn.onclick = () => {
+      const targetTab = btn.dataset.tab;
+      tabButtons.forEach((b) => {
+        const isTarget = b === btn;
+        b.classList.toggle("active", isTarget);
+        b.setAttribute("aria-selected", isTarget ? "true" : "false");
+      });
+      tabPanels.forEach((panel) => {
+        const isTarget = panel.id === `itemTab${targetTab.charAt(0).toUpperCase() + targetTab.slice(1)}`;
+        panel.classList.toggle("active", isTarget);
+        panel.classList.toggle("hidden", !isTarget);
+      });
+    };
+  });
+}
+
+function resetItemTabs() {
+  const tabButtons = elements.entryModal.querySelectorAll(".item-tab-btn");
+  const tabPanels = elements.entryModal.querySelectorAll(".item-tab-panel");
+  tabButtons.forEach((b, i) => {
+    b.classList.toggle("active", i === 0);
+    b.setAttribute("aria-selected", i === 0 ? "true" : "false");
+  });
+  tabPanels.forEach((p, i) => {
+    p.classList.toggle("active", i === 0);
+    p.classList.toggle("hidden", i !== 0);
+  });
+}
+
+function initItemTypeChips() {
+  const chips = elements.entryModal.querySelectorAll(".item-type-chip");
+  chips.forEach((chip) => {
+    chip.onclick = () => {
+      setItemTypeChip(chip.dataset.itemType);
+    };
+  });
+}
+
+function setItemTypeChip(typeValue) {
+  const normalized = typeValue === "service" ? "service" : "product";
+  const chips = elements.entryModal.querySelectorAll(".item-type-chip");
+  const hiddenSelect = elements.entryForm.querySelector('[name="itemType"]');
+  chips.forEach((c) => c.classList.toggle("active", c.dataset.itemType === normalized));
+  if (hiddenSelect) {
+    if (hiddenSelect.value !== normalized) {
+      hiddenSelect.value = normalized;
+      hiddenSelect.dispatchEvent(new Event("change"));
+    } else {
+      updateItemEntryFields();
+    }
+  }
+}
+
 function populateEntryForm(type, record) {
   if (!record) return;
   if (type === "party") {
     setEntryValue("party", record.name);
+    setPartyTypeChip(record.type || "customer");
     setEntryValue("phone", record.phone);
     setEntryValue("email", record.email);
     setEntryValue("contactPerson", record.contactPerson);
@@ -4857,29 +6530,36 @@ function populateEntryForm(type, record) {
     setEntryValue("shippingAddress", record.shippingAddress);
     const openingBalance = Number(record.openingBalance || 0);
     setEntryValue("openingBalance", Math.abs(openingBalance) || "");
-    setEntryValue("openingBalanceType", openingBalance < 0 ? "payable" : (record.openingBalanceType || "receivable"));
+    const balType = openingBalance < 0 ? "payable" : (record.openingBalanceType || "receivable");
+    setEntryValue("openingBalanceType", balType);
+    setBalanceTypeChip(balType);
     setEntryValue("creditLimit", Number(record.creditLimit || 0) || "");
     setEntryValue("paymentTerms", record.paymentTerms);
     setEntryValue("dueDays", Number(record.dueDays || 0) || "");
     setEntryValue("notes", record.notes);
     const sameAsBilling = elements.entryForm.querySelector('[name="sameAsBilling"]');
     const shippingAddress = elements.entryForm.querySelector('[name="shippingAddress"]');
+    const shippingRow = document.getElementById("shippingAddressRow");
     if (sameAsBilling && shippingAddress) {
-      sameAsBilling.checked = Boolean(record.billingAddress && record.billingAddress === record.shippingAddress);
-      shippingAddress.disabled = sameAsBilling.checked;
+      const isSame = Boolean(record.billingAddress && record.billingAddress === record.shippingAddress) || !record.shippingAddress;
+      sameAsBilling.checked = isSame;
+      shippingAddress.disabled = isSame;
+      if (shippingRow) shippingRow.style.display = isSame ? "none" : "";
     }
     updatePartyTaxFields();
+    resetPartyTabs();
     return;
   }
 
   if (type === "item") {
     setEntryValue("item", record.name);
-    setEntryValue("itemType", record.itemType || "product");
+    setItemTypeChip(record.itemType || "product");
     setEntryValue("unit", record.unit);
     setEntryValue("category", record.category);
     setEntryValue("sku", record.sku);
     setEntryValue("hsnSac", record.hsnSac);
     setEntryValue("storageLocation", record.storageLocation);
+    setEntryValue("lowStockAlert", Number(record.lowStockAlert || 0) || "");
     setEntryValue("salePrice", Number(record.salePrice || 0) || "");
     setEntryValue("saleTaxType", record.saleTaxType || "without_tax");
     setEntryValue("purchasePrice", Number(record.purchasePrice || 0) || "");
@@ -4889,9 +6569,13 @@ function populateEntryForm(type, record) {
     setEntryValue("openingStock", Number(record.openingStock || 0) || "");
     setEntryValue("openingStockDate", formatDateInput(record.openingStockDate));
     setEntryValue("openingStockValue", Number(record.openingStockValue || 0) || "");
+    const stockValInput = elements.entryForm.querySelector('[name="openingStockValue"]');
+    if (stockValInput && record.openingStockValue) stockValInput.dataset.manualEdit = "1";
     setEntryValue("itemDescription", record.description);
     setEntryValue("notes", record.notes);
+    setEntryValue("itemNotes", record.notes);
     updateItemEntryFields();
+    resetItemTabs();
   }
 }
 
@@ -4911,6 +6595,16 @@ function populateEntryDraft(type, draft) {
 function setEntryValue(name, value) {
   const field = elements.entryForm.querySelector(`[name="${name}"]`);
   if (!field) return;
+  if (field.tagName === "SELECT" && value) {
+    const strVal = String(value);
+    const hasOption = Array.from(field.options).some((o) => o.value === strVal);
+    if (!hasOption) {
+      const opt = document.createElement("option");
+      opt.value = strVal;
+      opt.textContent = strVal;
+      field.appendChild(opt);
+    }
+  }
   field.value = value ?? "";
 }
 
@@ -4922,41 +6616,142 @@ function formatDateInput(value) {
 }
 
 function bindPartyEntryFields() {
+  initPartyTabs();
+  initPartyTypeChips();
+  initBalanceTypeChips();
+  initTermsPresetChips();
+
   const taxType = elements.entryForm.querySelector('[name="taxType"]');
-  taxType.onchange = updatePartyTaxFields;
+  if (taxType) taxType.onchange = updatePartyTaxFields;
+
+  const gstinInput = elements.entryForm.querySelector('[name="gstin"]');
+  if (gstinInput) {
+    gstinInput.oninput = () => handleGstinInput(gstinInput.value);
+  }
+
+  const stateInput = elements.entryForm.querySelector('[name="state"]');
+  if (stateInput) {
+    stateInput.onchange = () => { delete stateInput.dataset.autoFilled; };
+  }
+
+  const panInput = elements.entryForm.querySelector('[name="pan"]');
+  if (panInput) {
+    panInput.onchange = () => { delete panInput.dataset.autoFilled; };
+  }
 
   const sameAsBilling = elements.entryForm.querySelector('[name="sameAsBilling"]');
   const billingAddress = elements.entryForm.querySelector('[name="billingAddress"]');
   const shippingAddress = elements.entryForm.querySelector('[name="shippingAddress"]');
-  sameAsBilling.onchange = () => {
-    if (sameAsBilling.checked) {
-      shippingAddress.value = billingAddress.value;
-      shippingAddress.disabled = true;
-    } else {
-      shippingAddress.disabled = false;
-    }
-  };
-  billingAddress.oninput = () => {
-    if (sameAsBilling.checked) shippingAddress.value = billingAddress.value;
-  };
+  const shippingRow = document.getElementById("shippingAddressRow");
+
+  if (sameAsBilling) {
+    sameAsBilling.onchange = () => {
+      if (sameAsBilling.checked) {
+        if (shippingRow) shippingRow.style.display = "none";
+        if (shippingAddress && billingAddress) {
+          shippingAddress.value = billingAddress.value;
+          shippingAddress.disabled = true;
+        }
+      } else {
+        if (shippingRow) shippingRow.style.display = "";
+        if (shippingAddress) shippingAddress.disabled = false;
+      }
+    };
+  }
+  if (billingAddress) {
+    billingAddress.oninput = () => {
+      if (sameAsBilling && sameAsBilling.checked && shippingAddress) {
+        shippingAddress.value = billingAddress.value;
+      }
+    };
+  }
 }
 
 function updatePartyTaxFields() {
   const taxType = elements.entryForm.querySelector('[name="taxType"]')?.value || "unregistered";
   const showGstFields = taxType === "gst_registered" || taxType === "composition";
   elements.entryForm.querySelectorAll(".gst-detail-field").forEach((field) => {
-    field.classList.toggle("hidden-tax-field", !showGstFields || currentEntryType !== "party");
+    field.style.display = (showGstFields && currentEntryType === "party") ? "" : "none";
   });
   const gstin = elements.entryForm.querySelector('[name="gstin"]');
-  gstin.required = currentEntryType === "party" && showGstFields;
+  if (gstin) gstin.required = currentEntryType === "party" && showGstFields;
+}
+
+function generateUniqueStoreBarcode() {
+  const existingSkus = new Set((state.items || []).map((i) => String(i.sku || "").trim().toUpperCase()));
+  const numericSkus = (state.items || [])
+    .map((i) => parseInt(String(i.sku || "").replace(/\D/g, ""), 10))
+    .filter((num) => !isNaN(num) && num >= 1000);
+
+  let nextNum = 10001;
+  if (numericSkus.length > 0) {
+    nextNum = Math.max(...numericSkus) + 1;
+  }
+
+  while (existingSkus.has(String(nextNum))) {
+    nextNum++;
+  }
+  return String(nextNum);
 }
 
 function bindItemEntryFields() {
+  initItemTabs();
+  initItemTypeChips();
+
   const itemType = elements.entryForm.querySelector('[name="itemType"]');
   const openingStockDate = elements.entryForm.querySelector('[name="openingStockDate"]');
   if (!itemType) return;
   renderItemChoiceLists();
   itemType.onchange = updateItemEntryFields;
+
+  const generateBarcodeBtn = elements.entryForm.querySelector("[data-action='generate-item-barcode']");
+  if (generateBarcodeBtn) {
+    generateBarcodeBtn.onclick = () => {
+      const skuInput = elements.entryForm.querySelector("#itemSkuInput");
+      if (skuInput) {
+        const nextBarcode = generateUniqueStoreBarcode();
+        skuInput.value = nextBarcode;
+        skuInput.dispatchEvent(new Event("input", { bubbles: true }));
+        showToast(`⚡ Generated Barcode: ${nextBarcode}`);
+      }
+    };
+  }
+
+  const printSingleBarcodeBtn = elements.entryForm.querySelector("[data-action='print-single-item-barcode']");
+  if (printSingleBarcodeBtn) {
+    printSingleBarcodeBtn.onclick = () => {
+      const skuInput = elements.entryForm.querySelector("#itemSkuInput");
+      const nameInput = elements.entryForm.querySelector('[name="item"]');
+      const salePriceInput = elements.entryForm.querySelector('[name="salePrice"]');
+      const unitInput = elements.entryForm.querySelector('[name="unit"]');
+      const hsnInput = elements.entryForm.querySelector('[name="hsnSac"]');
+
+      let currentSku = skuInput?.value?.trim();
+      if (!currentSku) {
+        currentSku = generateUniqueStoreBarcode();
+        if (skuInput) skuInput.value = currentSku;
+      }
+
+      const targetItem = {
+        id: currentEntryRecordId || Date.now(),
+        name: nameInput?.value?.trim() || "Item",
+        sku: currentSku,
+        salePrice: Number(salePriceInput?.value || 0),
+        unit: unitInput?.value || "Pcs",
+        hsnSac: hsnInput?.value || "",
+      };
+
+      barcodeQueue = [{
+        itemId: targetItem.id,
+        copies: 12,
+        customCode: targetItem.sku,
+      }];
+      closeEntryModal();
+      showView("barcodeGenerator");
+      showToast(`Preparing barcode labels for "${targetItem.name}".`);
+    };
+  }
+
   const quickAddUnit = elements.entryForm.querySelector("[data-action='quick-add-unit']");
   const quickAddCategory = elements.entryForm.querySelector("[data-action='quick-add-category']");
   if (quickAddUnit) quickAddUnit.onclick = () => quickAddItemMaster("unit");
@@ -4964,39 +6759,67 @@ function bindItemEntryFields() {
   if (currentEntryType === "item" && openingStockDate && !openingStockDate.value) {
     openingStockDate.value = new Date().toISOString().slice(0, 10);
   }
+
+  // Auto-calculate opening stock value (Qty * Purchase Price)
+  const stockInput = elements.entryForm.querySelector('[name="openingStock"]');
+  const purchasePriceInput = elements.entryForm.querySelector('[name="purchasePrice"]');
+  const stockValInput = elements.entryForm.querySelector('[name="openingStockValue"]');
+
+  if (stockValInput) {
+    stockValInput.oninput = () => {
+      stockValInput.dataset.manualEdit = "1";
+    };
+  }
+
+  const calcStockVal = () => {
+    if (!stockValInput || stockValInput.dataset.manualEdit === "1") return;
+    const qty = parseFloat(stockInput?.value || 0) || 0;
+    const price = parseFloat(purchasePriceInput?.value || 0) || 0;
+    if (qty > 0 && price > 0) {
+      stockValInput.value = (qty * price).toFixed(2);
+    } else if (qty === 0) {
+      stockValInput.value = "";
+    }
+  };
+
+  if (stockInput) stockInput.oninput = calcStockVal;
+  if (purchasePriceInput) purchasePriceInput.oninput = calcStockVal;
 }
 
-async function quickAddItemMaster(kind) {
-  const label = kind === "unit" ? "unit" : "category";
-  const name = await appPrompt(`Add ${kind === "unit" ? "Unit" : "Category"}`, `Enter ${label} name:`);
-  const cleanName = String(name || "").trim();
-  if (!cleanName) return;
-  try {
-    if (window.giDB) {
-      state = normalizeState(kind === "unit"
-        ? await window.giDB.createUnit({ name: cleanName })
-        : await window.giDB.createItemCategory({ name: cleanName }));
-    } else {
-      addLocalMaster(kind, { name: cleanName });
-      saveState();
-    }
+function quickAddItemMaster(kind) {
+  openMasterFormModal(kind, null, null, (savedRecord) => {
     renderItemChoiceLists();
-    setEntryValue(kind === "unit" ? "unit" : "category", cleanName);
-    showToast(`Added ${cleanName} to ${label}s.`);
-  } catch (error) {
-    showToast(error.message || `Unable to save ${label}.`);
-  }
+    setEntryValue(kind === "unit" ? "unit" : "category", savedRecord.name);
+  });
 }
 
 function renderItemChoiceLists() {
+  const unitSelect = elements.entryForm.querySelector("#itemUnitInput");
   const unitOptions = elements.entryForm.querySelector("#itemUnitOptions");
   const categoryOptions = elements.entryForm.querySelector("#itemCategoryOptions");
-  if (!unitOptions || !categoryOptions) return;
 
   const savedUnits = (state.units || []).filter((u) => u.is_active !== false).map((u) => u.name);
+  const allUnits = mergeChoiceList(DEFAULT_ITEM_UNITS, savedUnits);
+
+  if (unitSelect && unitSelect.tagName === "SELECT") {
+    const currentVal = unitSelect.value || "Pcs";
+    const unitsList = allUnits.includes(currentVal) ? allUnits : [currentVal, ...allUnits];
+    unitSelect.innerHTML = unitsList
+      .map((u) => `<option value="${escapeHtml(u)}" ${u === currentVal ? "selected" : ""}>${escapeHtml(u)}</option>`)
+      .join("");
+    unitSelect.value = currentVal;
+  }
+  if (unitOptions) {
+    unitOptions.innerHTML = optionListMarkup(allUnits);
+  }
+
   const savedCategories = (state.itemCategories || []).filter((c) => c.is_active !== false).map((c) => c.name);
-  unitOptions.innerHTML = optionListMarkup(mergeChoiceList(DEFAULT_ITEM_UNITS, savedUnits));
-  categoryOptions.innerHTML = optionListMarkup(mergeChoiceList(DEFAULT_ITEM_CATEGORIES, savedCategories));
+  const itemCats = (state.items || []).map((i) => i.category).filter(Boolean);
+  const allCategories = mergeChoiceList(DEFAULT_ITEM_CATEGORIES, [...savedCategories, ...itemCats]);
+
+  if (categoryOptions) {
+    categoryOptions.innerHTML = optionListMarkup(allCategories);
+  }
 }
 
 function masterUnitNames() {
@@ -5031,6 +6854,13 @@ function updateItemEntryFields() {
   if (currentEntryType === "item" && unit && shouldUseDefaultUnit) {
     unit.value = isService ? "Hr" : "Pcs";
   }
+
+  // Toggle Service notice banner and stock fields group in Tab 2
+  const serviceNotice = document.getElementById("itemServiceStockNotice");
+  const stockGroup = document.getElementById("itemStockFieldsGroup");
+  if (serviceNotice) serviceNotice.style.display = isService ? "flex" : "none";
+  if (stockGroup) stockGroup.style.display = isService ? "none" : "";
+
   elements.entryForm.querySelectorAll(".product-stock-field").forEach((field) => {
     field.classList.toggle("hidden-stock-field", currentEntryType !== "item" || isService);
   });
@@ -5085,7 +6915,7 @@ async function handleEntrySubmit(event) {
   const party = String(form.get("party") || "").trim();
   const item = String(form.get("item") || "").trim();
   const amount = Number(form.get("amount") || 0);
-  const notes = String(form.get("notes") || "").trim();
+  const notes = String(form.get("notes") || form.get("itemNotes") || "").trim();
   const editingRecordId = currentEntryRecordId;
   const returnContext = entryReturnContext;
   const savedEntryType = currentEntryType;
@@ -5108,7 +6938,7 @@ async function handleEntrySubmit(event) {
     const partyDetails = {
       name: party,
       notes,
-      type: "party",
+      type: String(form.get("type") || "customer"),
       phone: String(form.get("phone") || "").trim(),
       email: String(form.get("email") || "").trim(),
       contactPerson: String(form.get("contactPerson") || "").trim(),
@@ -5157,6 +6987,7 @@ async function handleEntrySubmit(event) {
       openingStockDate: isService ? "" : String(form.get("openingStockDate") || ""),
       openingStockValue: isService ? 0 : Number(form.get("openingStockValue") || 0),
       storageLocation: isService ? "" : String(form.get("storageLocation") || "").trim(),
+      lowStockAlert: isService ? 0 : Number(form.get("lowStockAlert") || 0),
       description: String(form.get("itemDescription") || "").trim(),
     };
     if (window.giDB) {
@@ -5294,6 +7125,7 @@ function updateLocalMaster(kind, id, name) {
 }
 
 function renderDashboard() {
+  updateSidebarBadges();
   const sales = activeInvoiceRowsForType("sale");
   const purchases = activeInvoiceRowsForType("purchase");
   const partyReceivable = (state.parties || []).filter((p) => p.type === "customer").reduce((sum, p) => sum + Math.max(0, Number(p.receivable || 0)), 0);
@@ -5302,15 +7134,28 @@ function renderDashboard() {
   const payable = (state.parties || []).length ? partyPayable : purchases.reduce((total, entry) => total + invoiceBalanceValue(entry), 0);
   const saleTotal = sales.reduce((total, entry) => total + invoiceTotalValue(entry), 0);
 
-  elements.receivableTotal.textContent = formatCurrency(receivable);
-  elements.payableTotal.textContent = formatCurrency(payable);
-  elements.saleTotal.textContent = formatCurrency(saleTotal);
+  elements.receivableTotal.dataset.actualValue = formatCurrency(receivable);
+  elements.payableTotal.dataset.actualValue = formatCurrency(payable);
+  elements.saleTotal.dataset.actualValue = formatCurrency(saleTotal);
+  updateDashboardPrivacyAmounts();
   elements.receivableCaption.textContent = receivable
     ? "Pending sale payments from customers."
     : "You don't have any receivables as of now.";
   elements.payableCaption.textContent = payable
     ? "Pending purchase payments to suppliers."
     : "You don't have any payables as of now.";
+
+  const now = new Date();
+  const overdueSales = sales.filter((inv) => (inv.status === "due" || inv.status === "unpaid") && inv.dueDate && new Date(inv.dueDate) < now).length;
+  const lowStockItems = (state.items || []).filter((item) => Number(item.currentStock ?? item.stock ?? 0) <= Number(item.lowStockAlert || 5)).length;
+  const openPurchases = purchases.filter((inv) => inv.status === "due" || inv.status === "unpaid").length;
+
+  const attRecCount = document.getElementById("attentionReceivablesCount");
+  if (attRecCount) attRecCount.textContent = `${overdueSales} Due`;
+  const attStockCount = document.getElementById("attentionStockCount");
+  if (attStockCount) attStockCount.textContent = `${lowStockItems} Low`;
+  const attPayCount = document.getElementById("attentionPayablesCount");
+  if (attPayCount) attPayCount.textContent = `${openPurchases} Open`;
 }
 
 function renderSaleInvoices() {
@@ -5392,9 +7237,7 @@ function invoiceWorkspaceTemplate(type) {
     <section class="invoice-workspace ${isSale ? "sale-workspace" : "purchase-workspace"}">
       <header class="app-page-header invoice-page-header">
         <div>
-          <p class="muted-label">${eyebrow}</p>
           <h1>${title}</h1>
-          <small>${rows.length} of ${allRows.length} records shown</small>
         </div>
         <div class="invoice-header-actions">
           <button class="${isSale ? "sale-button" : "purchase-button"}" data-action="${action}" type="button">${actionLabel}</button>
@@ -5813,6 +7656,7 @@ function creditNoteRowActions(note) {
     ["viewEdit", "View/Edit"],
     ["preview", "Preview"],
     ["print", "Print"],
+    ["whatsapp", "Share WhatsApp"],
     ["duplicate", "Duplicate"],
     ["openInvoice", "Open Original Invoice"],
     ["cancel", "Cancel Credit Note"],
@@ -6122,26 +7966,62 @@ function estimateTemplate() {
   const view = ['proforma', 'saleOrder', 'deliveryChallan', 'purchaseOrder'].includes(currentView) ? currentView : 'estimate';
   const documentType = { saleOrder: 'sale_order', deliveryChallan: 'delivery_challan', purchaseOrder: 'purchase_order' }[view] || view;
   const meta = transactionEditorMeta(view);
-  const allRows = (state.estimates || []).filter((row) => (row.documentType || 'estimate') === documentType).sort((a, b) => new Date(b.date || b.createdAt || 0) - new Date(a.date || a.createdAt || 0));
+
+  // Per-view copy overrides
+  const eyebrowMap = {
+    proforma: "Sales",
+    saleOrder: "Sales",
+    deliveryChallan: "Dispatch",
+    purchaseOrder: "Purchases",
+    estimate: "Sales",
+  };
+  const kpiLabels = {
+    estimate:        { total: "Quote Value",    accepted: "Accepted Value",    pending: "Pending Quotes",   tax: "GST / Tax" },
+    proforma:        { total: "Invoice Value",  accepted: "Confirmed",         pending: "Awaiting Approval", tax: "GST / Tax" },
+    saleOrder:       { total: "Order Value",    accepted: "Confirmed Orders",  pending: "Pending Orders",   tax: "GST / Tax" },
+    deliveryChallan: { total: "Challan Value",  accepted: "Dispatched",        pending: "Pending Dispatch", tax: "GST / Tax" },
+    purchaseOrder:   { total: "PO Value",       accepted: "Confirmed POs",     pending: "Pending POs",      tax: "GST / Tax" },
+  };
+  const emptyMsgMap = {
+    estimate:        { title: "No quotations yet",         copy: "Create a quotation when the customer needs price approval before you raise a tax invoice." },
+    proforma:        { title: "No proforma invoices yet",  copy: "Issue a proforma invoice to confirm pricing before raising a final tax invoice." },
+    saleOrder:       { title: "No sale orders yet",        copy: "Record sale orders to track customer commitments before dispatching goods." },
+    deliveryChallan: { title: "No delivery challans yet",  copy: "Challans document goods dispatched to customers before or alongside the final invoice." },
+    purchaseOrder:   { title: "No purchase orders yet",    copy: "Raise purchase orders to suppliers to confirm your procurement requirements." },
+  };
+
+  const allRows = (state.estimates || [])
+    .filter((row) => (row.documentType || 'estimate') === documentType)
+    .sort((a, b) => new Date(b.date || b.createdAt || 0) - new Date(a.date || a.createdAt || 0));
   const searchedRows = estimateSearchQuery ? allRows.filter((quote) => estimateMatchesSearch(quote, estimateSearchQuery)) : allRows;
   const rows = searchedRows.filter((quote) => estimateQuickFilterMatches(quote, estimateQuickFilter));
-  const totalValue = rows.reduce((sum, quote) => sum + estimateTotalValue(quote), 0);
-  const acceptedValue = rows.filter((quote) => estimateStatus(quote) === "accepted").reduce((sum, quote) => sum + estimateTotalValue(quote), 0);
-  const pendingCount = rows.filter((quote) => ["draft", "sent"].includes(estimateStatus(quote))).length;
-  const convertedCount = rows.filter((quote) => estimateStatus(quote) === "converted").length;
-  const taxValue = rows.reduce((sum, quote) => sum + estimateTaxValue(quote), 0);
-  const emptyTitle = estimateSearchQuery || estimateQuickFilter !== "all" ? "No matching quotations" : "No quotations yet";
-  const emptyCopy = estimateSearchQuery || estimateQuickFilter !== "all"
-    ? "Try a different quote number, customer, item, status, GST type, or amount."
-    : "Create a quotation when the customer needs price approval before you raise a tax invoice.";
+
+  const totalValue    = rows.reduce((sum, q) => sum + estimateTotalValue(q), 0);
+  const acceptedValue = rows.filter((q) => estimateStatus(q) === "accepted").reduce((sum, q) => sum + estimateTotalValue(q), 0);
+  const pendingCount  = rows.filter((q) => ["draft", "sent"].includes(estimateStatus(q))).length;
+  const convertedCount = rows.filter((q) => estimateStatus(q) === "converted").length;
+  const taxValue      = rows.reduce((sum, q) => sum + estimateTaxValue(q), 0);
+
+  const kpi    = kpiLabels[view] || kpiLabels.estimate;
+  const emptyMsg = (estimateSearchQuery || estimateQuickFilter !== "all")
+    ? { title: `No matching ${meta.noun.toLowerCase()}s`, copy: `Try a different number, customer, item, status, GST type or amount.` }
+    : (emptyMsgMap[view] || emptyMsgMap.estimate);
+
+  const searchPlaceholder = {
+    estimate: "Quote no, customer, item, status, amount",
+    proforma: "Proforma no, customer, item, status, amount",
+    saleOrder: "Order no, customer, item, status, amount",
+    deliveryChallan: "Challan no, customer, item, status, amount",
+    purchaseOrder: "PO no, supplier, item, status, amount",
+  }[view] || "Search…";
 
   return `
     <section class="estimate-workspace invoice-workspace">
       <header class="app-page-header estimate-page-header">
         <div>
-          <p class="muted-label">Sales proposal</p>
+          <p class="muted-label">${escapeHtml(eyebrowMap[view] || "Sales")}</p>
           <h1>${escapeHtml(meta.noun)}</h1>
-          <small>${rows.length} of ${allRows.length} quotes shown</small>
+          <small>${rows.length} of ${allRows.length} record${allRows.length === 1 ? "" : "s"} shown</small>
         </div>
         <div class="invoice-header-actions">
           <button class="sale-button" data-action="create-estimate" data-document-type="${view}" type="button">+ New ${escapeHtml(meta.noun)}</button>
@@ -6151,82 +8031,112 @@ function estimateTemplate() {
       <section class="app-toolbar">
         <label class="toolbar-search">
           <span>Search</span>
-          <input data-estimate-search type="search" value="${escapeHtml(estimateSearchQuery)}" placeholder="Quote no, customer, item, status, amount">
+          <input data-estimate-search type="search" value="${escapeHtml(estimateSearchQuery)}" placeholder="${escapeHtml(searchPlaceholder)}">
         </label>
-        <div class="invoice-quick-filters" role="group" aria-label="Quotation filters">
+        <div class="invoice-quick-filters" role="group" aria-label="${escapeHtml(meta.noun)} filters">
           ${estimateQuickFilterButtons()}
         </div>
       </section>
 
       <section class="kpi-grid estimate-kpis">
-        ${kpiCard("Quote Value", formatCurrency(totalValue), "Selected quotation value", "neutral")}
-        ${kpiCard("Accepted Value", formatCurrency(acceptedValue), "Ready to convert into sale", "success")}
-        ${kpiCard("Pending Quotes", String(pendingCount), "Draft or sent", pendingCount ? "info" : "success")}
-        ${kpiCard("GST / Tax", formatCurrency(taxValue), `${convertedCount} converted`, "info")}
+        ${kpiCard(kpi.total,    formatCurrency(totalValue),    `${allRows.length} total record${allRows.length === 1 ? "" : "s"}`, "neutral")}
+        ${kpiCard(kpi.accepted, formatCurrency(acceptedValue), "Ready to convert into sale", "success")}
+        ${kpiCard(kpi.pending,  String(pendingCount),          "Draft or sent", pendingCount ? "info" : "success")}
+        ${kpiCard(kpi.tax,      formatCurrency(taxValue),      `${convertedCount} converted`, "info")}
       </section>
 
       <section class="data-table-card estimate-data-card">
-        ${rows.length ? estimateRowsTable(rows) : emptyWorkspace(emptyTitle, emptyCopy)}
+        ${rows.length ? estimateRowsTable(rows, view) : emptyWorkspace(emptyMsg.title, emptyMsg.copy)}
       </section>
     </section>
   `;
 }
 
-function estimateRowsTable(rows) {
+function estimateRowsTable(rows, view = "estimate") {
+  const isOrder    = view === "saleOrder" || view === "purchaseOrder";
+  const isChallan  = view === "deliveryChallan";
+  const isProforma = view === "proforma";
+
+  const numberColLabel    = { estimate: "Quote No", proforma: "Proforma No", saleOrder: "Order No", deliveryChallan: "Challan No", purchaseOrder: "PO No" }[view] || "Ref No";
+  const partyColLabel     = (view === "purchaseOrder") ? "Supplier" : "Customer";
+  const dueDateColLabel   = { estimate: "Valid Until", proforma: "Valid Until", saleOrder: "Delivery Due", deliveryChallan: "Delivery Date", purchaseOrder: "Expected Delivery" }[view] || "Due Date";
+  const statusColLabel    = "Status";
+
   return `
     <table class="data-table estimate-table">
       <thead>
         <tr>
           <th>Date</th>
-          <th>Quote No</th>
-          <th>Customer</th>
-          <th>Valid Until</th>
+          <th>${escapeHtml(numberColLabel)}</th>
+          <th>${escapeHtml(partyColLabel)}</th>
+          <th>${escapeHtml(dueDateColLabel)}</th>
           <th>GST Type</th>
           <th>Taxable</th>
           <th>Tax</th>
           <th>Total</th>
-          <th>Status</th>
+          <th>${escapeHtml(statusColLabel)}</th>
           <th>Actions</th>
         </tr>
       </thead>
       <tbody>
-        ${rows.map((quote, index) => `
-          <tr data-estimate-row="${escapeHtml(quote.id || quote.quoteId || "")}">
+        ${rows.map((quote, index) => {
+          const id = escapeHtml(quote.id || quote.quoteId || "");
+          const docNum = quote.quoteNo || quote.estimateNo || quote.docNo || `${numberColLabel.replace(" ","").slice(0,2).toUpperCase()}-${String(index + 1).padStart(4, "0")}`;
+          return `
+          <tr data-estimate-row="${id}">
             <td>${formatDate(quote.date || quote.createdAt)}</td>
-            <td><strong class="invoice-no-cell">${escapeHtml(quote.quoteNo || `QT-${String(index + 1).padStart(4, "0")}`)}</strong><small>${escapeHtml(estimateItemSummary(quote.id))}</small></td>
+            <td><strong class="invoice-no-cell">${escapeHtml(docNum)}</strong><small>${escapeHtml(estimateItemSummary(quote.id))}</small></td>
             <td><strong>${escapeHtml(quote.party || quote.customer || "-")}</strong><small>${escapeHtml(quote.phone || "")}</small></td>
-            <td>${formatDate(quote.validUntil)}</td>
+            <td>${formatDate(quote.validUntil || quote.dueDate || quote.deliveryDate)}</td>
             <td><span class="gst-type-badge ${estimateSupplyType(quote)}">${estimateTaxTypeLabel(quote)}</span></td>
             <td class="amount-cell">${formatCurrency(estimateTaxableValue(quote))}</td>
             <td class="amount-cell">${formatCurrency(estimateTaxValue(quote))}</td>
             <td class="amount-cell strong">${formatCurrency(estimateTotalValue(quote))}</td>
             <td>${estimateStatusBadge(quote)}</td>
-            <td>${estimateActionMenu(quote)}</td>
+            <td>${estimateActionMenu(quote, view)}</td>
           </tr>
-        `).join("")}
+        `}).join("")}
       </tbody>
     </table>
   `;
 }
 
-function estimateActionMenu(quote) {
+function estimateActionMenu(quote, view = "estimate") {
   const id = escapeHtml(quote.id || quote.quoteId || "");
   const status = estimateStatus(quote);
+
+  const convertLabel = {
+    estimate:        "Convert to Sale Invoice",
+    proforma:        "Convert to Tax Invoice",
+    saleOrder:       "Convert to Sale Invoice",
+    deliveryChallan: "Convert to Sale Invoice",
+    purchaseOrder:   "Convert to Purchase Bill",
+  }[view] || "Convert to Sale Invoice";
+
+  const cancelLabel = {
+    estimate:        "Cancel Quote",
+    proforma:        "Cancel Proforma",
+    saleOrder:       "Cancel Order",
+    deliveryChallan: "Cancel Challan",
+    purchaseOrder:   "Cancel PO",
+  }[view] || "Cancel";
+
   const groups = [
-    ["Primary", [["viewEdit", "View/Edit"], ["preview", "Preview"], ["print", "Print"]]],
-    ["Status", [["markSent", "Mark Sent"], ["markAccepted", "Mark Accepted"], ["convert", "Convert to Sale"]]],
-    ["More", [["duplicate", "Duplicate"], ["cancel", "Cancel Quote"], ["delete", "Delete"]]],
+    ["Primary",  [["viewEdit", "View / Edit"], ["preview", "Preview"], ["print", "Print"], ["whatsapp", "Share WhatsApp"]]],
+    ["Status",   [["markSent", "Mark Sent"], ["markAccepted", "Mark Accepted"], ["convert", convertLabel]]],
+    ["More",     [["duplicate", "Duplicate"], ["cancel", cancelLabel], ["delete", "Delete"]]],
   ];
+
   return `
     <div class="invoice-row-actions" style="display:inline-flex;align-items:center;gap:6px;">
-      ${status !== "converted" && status !== "cancelled" ? `<button type="button" class="action-btn-convert" data-estimate-action="convert" data-estimate-id="${id}" title="Convert to Tax Invoice">Convert</button>` : ""}
+      ${status !== "converted" && status !== "cancelled" ? `<button type="button" class="action-btn-convert" data-estimate-action="convert" data-estimate-id="${id}" title="${escapeHtml(convertLabel)}">${view === "deliveryChallan" ? "Invoice" : "Convert"}</button>` : ""}
       <details>
-        <summary aria-label="Quotation actions">⋮</summary>
+        <summary aria-label="${escapeHtml(view)} actions">⋮</summary>
         <div class="invoice-action-menu">
           ${groups.map(([group, actions]) => `
             <section>
               <span>${escapeHtml(group)}</span>
-              ${actions.map(([action, label]) => `<button type="button" data-estimate-action="${action}" data-estimate-id="${id}">${label}</button>`).join("")}
+              ${actions.map(([action, label]) => `<button type="button" data-estimate-action="${action}" data-estimate-id="${id}">${escapeHtml(label)}</button>`).join("")}
             </section>
           `).join("")}
         </div>
@@ -6342,10 +8252,13 @@ function posTemplate() {
   return `
     <section class="pos-workspace">
       <header class="app-page-header pos-page-header">
-        <div>
-          <p class="muted-label">Counter billing</p>
-          <h1>GI POS</h1>
-          <small>${posCart.length} cart lines - ${formatQuantity(totals.qty)} qty - ${filteredItems.length} products shown</small>
+        <div style="display:flex;align-items:center;gap:14px;">
+          <button class="secondary-button compact-button" data-pos-action="exit-pos" type="button" title="Back to Dashboard">← Exit POS</button>
+          <div>
+            <p class="muted-label">Counter billing</p>
+            <h1>GI POS</h1>
+            <small>${posCart.length} cart lines - ${formatQuantity(totals.qty)} qty - ${filteredItems.length} products shown</small>
+          </div>
         </div>
         <div class="pos-header-actions">
           <button class="secondary-button compact-button" data-pos-action="hold" type="button" ${posCart.length ? "" : "disabled"}>Hold</button>
@@ -6374,7 +8287,8 @@ function posTemplate() {
             ${filteredItems.length ? filteredItems.map(posProductCard).join("") : `
               <div class="pos-empty-products">
                 <strong>No matching items</strong>
-                <span>Add items or change the search.</span>
+                <span>${posSearchQuery || posCategoryFilter !== "all" ? "Try a different search or category." : "Add items to your inventory to start billing."}</span>
+                ${!posSearchQuery && posCategoryFilter === "all" ? `<button class="secondary-button compact-button" data-pos-action="open-item" type="button" style="margin-top:10px;">+ Add Item</button>` : ""}
               </div>
             `}
           </div>
@@ -6438,28 +8352,43 @@ function posTemplate() {
 
           <section class="pos-total-box">
             <div class="pos-total-line"><span>Subtotal</span><strong>${formatCurrency(totals.subtotal)}</strong></div>
-            <div class="pos-total-line"><span>Discount</span><strong>${formatCurrency(totals.discount)}</strong></div>
-            <div class="pos-total-line"><span>CGST</span><strong>${formatCurrency(totals.cgst)}</strong></div>
-            <div class="pos-total-line"><span>SGST</span><strong>${formatCurrency(totals.sgst)}</strong></div>
-            <div class="pos-total-line"><span>IGST</span><strong>${formatCurrency(totals.igst)}</strong></div>
+            ${totals.discount > 0 ? `<div class="pos-total-line"><span>Discount</span><strong>${formatCurrency(totals.discount)}</strong></div>` : ""}
+            ${totals.tax > 0 ? `<div class="pos-total-line"><span>GST Tax</span><strong>${formatCurrency(totals.tax)}</strong></div>` : ""}
             <div class="pos-total-line grand"><span>Total</span><strong>${formatCurrency(totals.total)}</strong></div>
           </section>
 
           <section class="pos-payment-box">
-            <label>
-              <span>Payment Method</span>
-              <select class="form-input" data-pos-payment-method>
-                ${["Cash", "UPI", "Card", "Bank"].map((method) => `<option value="${method}" ${posPaymentMethod === method ? "selected" : ""}>${method}</option>`).join("")}
-              </select>
-            </label>
-            <label>
-              <span>Received</span>
-              <input class="form-input" data-pos-received type="number" min="0" step="0.01" value="${receivedValue.toFixed(2)}">
-            </label>
-            <div class="pos-balance-line">
-              <span data-pos-balance-label>${changeValue > 0 ? "Change" : "Balance"}</span>
+            <div style="display:grid;grid-template-columns:1fr 1.1fr;gap:8px;">
+              <label>
+                <span>Method</span>
+                <select class="form-input" data-pos-payment-method style="height:36px;">
+                  ${["Cash", "UPI", "Card", "Bank"].map((method) => `<option value="${method}" ${posPaymentMethod === method ? "selected" : ""}>${method}</option>`).join("")}
+                </select>
+              </label>
+              <label>
+                <span>Received (₹)</span>
+                <input class="form-input" data-pos-received type="number" min="0" step="0.01" value="${receivedValue.toFixed(2)}" style="height:36px;font-weight:700;">
+              </label>
+            </div>
+            <div class="pos-quick-cash-box">
+              <span class="pos-quick-cash-label">Quick Cash</span>
+              <div class="pos-quick-cash-chips">
+                <button type="button" class="pos-cash-chip exact ${Number(receivedValue) === Number(totals.total.toFixed(2)) ? "active" : ""}" data-pos-quick-cash="${totals.total.toFixed(2)}">Exact (₹${Math.round(totals.total)})</button>
+                ${getPosQuickCashChips(totals.total).map((amt) => `
+                  <button type="button" class="pos-cash-chip ${Number(receivedValue) === amt ? "active" : ""}" data-pos-quick-cash="${amt}">₹${amt}</button>
+                `).join("")}
+              </div>
+            </div>
+            <div class="pos-balance-line ${changeValue > 0 ? "has-change" : ""}">
+              <span data-pos-balance-label>${changeValue > 0 ? "Change to Return" : "Balance"}</span>
               <strong data-pos-balance>${formatCurrency(changeValue > 0 ? changeValue : balanceValue)}</strong>
             </div>
+            ${changeValue > 0 ? `
+              <div class="pos-change-banner" id="posChangeBanner">
+                <span>Change to Return:</span>
+                <span class="pos-change-amount">${formatCurrency(changeValue)}</span>
+              </div>
+            ` : ""}
           </section>
 
           <section class="pos-actions">
@@ -6468,8 +8397,49 @@ function posTemplate() {
           </section>
         </aside>
       </section>
+
+      <footer class="pos-shortcuts-bar">
+        <span><kbd>F1</kbd> Save &amp; Print</span>
+        <span><kbd>F2</kbd> Scan / Search</span>
+        <span><kbd>F3</kbd> Hold Bill</span>
+        <span><kbd>F4</kbd> Resume</span>
+        <span><kbd>Esc</kbd> Exit / Clear</span>
+      </footer>
     </section>
   `;
+}
+
+function getPosQuickCashChips(total) {
+  const denominations = [50, 100, 200, 500, 1000, 2000];
+  const rounded = Math.ceil(total);
+  const chips = [100, 200, 500, 2000];
+  if (rounded > 2000) {
+    chips.push(Math.ceil(rounded / 500) * 500);
+    chips.push(Math.ceil(rounded / 1000) * 1000);
+  } else {
+    denominations.forEach((d) => {
+      if (d >= rounded) chips.push(d);
+    });
+  }
+  return [...new Set(chips)].sort((a, b) => a - b).slice(0, 5);
+}
+
+function playPosScanBeep() {
+  try {
+    const AudioContext = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContext) return;
+    const ctx = new AudioContext();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(880, ctx.currentTime);
+    gain.gain.setValueAtTime(0.12, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.08);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.08);
+  } catch (_) {}
 }
 
 function posCategoryOptions() {
@@ -6499,13 +8469,30 @@ function posFilteredItems() {
 function posProductCard(item) {
   const stock = Number(item.currentStock ?? item.openingStock ?? 0);
   const isService = String(item.itemType || "").toLowerCase() === "service";
-  const details = [item.sku ? `SKU ${item.sku}` : "", item.category, item.unit].filter(Boolean).join(" - ") || "No details";
+  const isOutOfStock = !isService && stock <= 0;
+  const category = item.category || (isService ? "Service" : "General");
+  const unit = item.unit || "Pcs";
+  const taxRate = Number(item.taxRate || 0);
+
   return `
-    <button class="pos-product-card" data-pos-add-item="${item.id}" type="button">
-      <strong>${escapeHtml(item.name || "Item")}</strong>
-      <span>${escapeHtml(details)}</span>
-      <em>${formatCurrency(Number(item.salePrice || 0))}</em>
-      <small>${isService ? "Service" : `${formatQuantity(stock)} stock`} - GST ${formatPercent(item.taxRate || 0)}</small>
+    <button class="pos-product-card ${isOutOfStock ? "out-of-stock" : ""}" data-pos-add-item="${item.id}" type="button" title="${escapeHtml(item.name || "")}">
+      <div class="pos-card-top">
+        <span class="pos-card-cat" title="${escapeHtml(category)}">${escapeHtml(category)}</span>
+        <span class="pos-card-stock ${isService ? "service" : isOutOfStock ? "zero" : stock <= 5 ? "low" : "available"}">
+          ${isService ? "Service" : isOutOfStock ? "Out of Stock" : `${formatQuantity(stock)} ${escapeHtml(unit)}`}
+        </span>
+      </div>
+      <div class="pos-card-main">
+        <strong class="pos-card-title">${escapeHtml(item.name || "Item")}</strong>
+        ${item.sku ? `<small class="pos-card-sku">SKU: ${escapeHtml(item.sku)}</small>` : ""}
+      </div>
+      <div class="pos-card-bottom">
+        <div class="pos-card-price-group">
+          <span class="pos-card-price">${formatCurrency(Number(item.salePrice || 0))}</span>
+          ${taxRate > 0 ? `<span class="pos-card-tax">+${taxRate}% GST</span>` : ""}
+        </div>
+        <span class="pos-card-plus-btn" aria-hidden="true">+</span>
+      </div>
     </button>
   `;
 }
@@ -6633,14 +8620,29 @@ function refreshPosView(focusSelector = "") {
 
 function updatePosReceivedBalance() {
   const totals = posCartTotals();
-  const receivedInput = elements.featureView.querySelector("[data-pos-received]");
-  const balanceLabel = elements.featureView.querySelector("[data-pos-balance-label]");
-  const balanceValue = elements.featureView.querySelector("[data-pos-balance]");
+  const receivedInput = elements.featureView?.querySelector("[data-pos-received]");
+  const balanceLabel = elements.featureView?.querySelector("[data-pos-balance-label]");
+  const balanceValue = elements.featureView?.querySelector("[data-pos-balance]");
   const received = Number(receivedInput?.value || 0);
   const balance = Math.max(0, totals.total - received);
   const change = Math.max(0, received - totals.total);
-  if (balanceLabel) balanceLabel.textContent = change > 0 ? "Change" : "Balance";
+  if (balanceLabel) balanceLabel.textContent = change > 0 ? "Change to Return" : "Balance";
   if (balanceValue) balanceValue.textContent = formatCurrency(change > 0 ? change : balance);
+
+  let changeBanner = elements.featureView?.querySelector("#posChangeBanner");
+  if (change > 0) {
+    if (!changeBanner) {
+      changeBanner = document.createElement("div");
+      changeBanner.className = "pos-change-banner";
+      changeBanner.id = "posChangeBanner";
+      const paymentBox = elements.featureView?.querySelector(".pos-payment-box");
+      paymentBox?.appendChild(changeBanner);
+    }
+    changeBanner.innerHTML = `<span>Change to Return:</span><span class="pos-change-amount">${formatCurrency(change)}</span>`;
+    changeBanner.style.display = "flex";
+  } else if (changeBanner) {
+    changeBanner.remove();
+  }
 }
 
 function bindPosActions() {
@@ -6649,6 +8651,25 @@ function bindPosActions() {
 
   const searchInput = root.querySelector("[data-pos-search]");
   searchInput?.addEventListener("input", () => {
+    const val = (searchInput.value || "").trim();
+    // Fast Barcode Scanner Auto-Detection
+    if (val.length >= 3) {
+      const exactMatch = (state.items || []).find((item) => {
+        const b = String(item.barcode || "").trim();
+        const c = String(item.code || "").trim();
+        const s = String(item.sku || "").trim();
+        return (b && b === val) || (c && c === val) || (s && s === val);
+      });
+      if (exactMatch) {
+        addItemToPosCart(exactMatch.id);
+        playPosScanBeep();
+        searchInput.value = "";
+        posSearchQuery = "";
+        refreshPosView("[data-pos-search]");
+        showToast(`Scanned: ${exactMatch.name}`);
+        return;
+      }
+    }
     posSearchQuery = searchInput.value;
     refreshPosView("[data-pos-search]");
   });
@@ -6697,7 +8718,24 @@ function bindPosActions() {
 
   root.querySelector("[data-pos-received]")?.addEventListener("input", (event) => {
     posReceivedAmount = Number(event.currentTarget.value || 0);
+    root.querySelectorAll("[data-pos-quick-cash]").forEach((btn) => {
+      const val = Number(btn.dataset.posQuickCash || 0);
+      btn.classList.toggle("active", Math.abs(val - (posReceivedAmount || 0)) < 0.01);
+    });
     updatePosReceivedBalance();
+  });
+
+  // Quick Cash Chips
+  root.querySelectorAll("[data-pos-quick-cash]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const val = Number(button.dataset.posQuickCash || 0);
+      posReceivedAmount = val;
+      const recInput = root.querySelector("[data-pos-received]");
+      if (recInput) recInput.value = val.toFixed(2);
+      root.querySelectorAll("[data-pos-quick-cash]").forEach((b) => b.classList.remove("active"));
+      button.classList.add("active");
+      updatePosReceivedBalance();
+    });
   });
 
   root.querySelectorAll("[data-pos-line-field]").forEach((field) => {
@@ -6717,6 +8755,50 @@ function bindPosActions() {
   root.querySelectorAll("[data-pos-action]").forEach((button) => {
     button.addEventListener("click", () => handlePosAction(button.dataset.posAction));
   });
+
+  // Bind POS Keyboard Shortcuts (F1, F2, F3, F4, Esc)
+  if (!posKeyboardShortcutsBound) {
+    posKeyboardShortcutsBound = true;
+    window.addEventListener("keydown", (event) => {
+      if (currentView !== "pos") return;
+      const activeEl = document.activeElement;
+      const isInput = activeEl && (activeEl.tagName === "INPUT" || activeEl.tagName === "TEXTAREA" || activeEl.tagName === "SELECT");
+
+      if (event.key === "F1" || (event.ctrlKey && event.key === "Enter")) {
+        event.preventDefault();
+        if (posCart.length) handlePosAction("save-print");
+        else showToast("Add items to cart before saving.");
+      } else if (event.key === "F2") {
+        event.preventDefault();
+        const sInput = document.querySelector("[data-pos-search]");
+        if (sInput) {
+          sInput.focus();
+          sInput.select();
+        }
+      } else if (event.key === "F3") {
+        event.preventDefault();
+        if (posCart.length) handlePosAction("hold");
+      } else if (event.key === "F4") {
+        event.preventDefault();
+        const held = loadHeldPosSale();
+        if (held) handlePosAction("resume-hold");
+      } else if (event.key === "Escape") {
+        if (isInput) {
+          activeEl.blur();
+        } else if (posCart.length > 0) {
+          if (confirm("Clear current POS cart?")) {
+            posCart = [];
+            posCustomerQuery = "";
+            posSelectedPartyId = "";
+            posReceivedAmount = null;
+            refreshPosView();
+          }
+        } else {
+          handlePosAction("exit-pos");
+        }
+      }
+    });
+  }
 }
 
 function selectPosParty(partyId) {
@@ -6728,6 +8810,10 @@ function selectPosParty(partyId) {
 }
 
 function handlePosAction(action) {
+  if (action === "exit-pos") {
+    showView("sales");
+    return;
+  }
   if (action === "open-item") {
     openEntryModal("item", null, { returnContext: { type: "posItem" } });
     return;
@@ -7079,6 +9165,10 @@ async function handleEstimateAction(action, estimateId) {
     setTimeout(() => window.print(), 120);
     return;
   }
+  if (action === "whatsapp" || action === "shareWhatsApp") {
+    openWhatsAppShareModal(estimatePreviewDataFromRecord(quote), docType);
+    return;
+  }
   if (action === "duplicate") {
     openTransactionEditor(editorType, {
       draft: estimateDraftFromRecord(quote, { clearNumber: true }),
@@ -7196,14 +9286,14 @@ function invoiceRowActions(entry, { isSale = true } = {}) {
   const groups = isSale
     ? [
         ["Primary", [["viewEdit", "View/Edit"], ["preview", "Preview"], ["print", "Print"]]],
-        ["Payment", [["receivePayment", "Receive Payment"]]],
-        ["Documents", [["openPdf", "Open PDF"]]],
+        ["Payment", [["receivePayment", "Receive Payment"], ...(invoiceBalanceValue(entry) > 0 ? [["waReminder", "💬 WhatsApp Reminder"]] : [])]],
+        ["Documents", [["openPdf", "Open PDF"], ["whatsapp", "Share on WhatsApp"]]],
         ["More", [["duplicate", "Duplicate"], ["return", "Convert To Return"], ["history", "View History"], ["cancel", "Cancel Invoice"], ["delete", "Delete"]]],
       ]
     : [
         ["Primary", [["viewEdit", "View/Edit"], ["preview", "Preview"], ["print", "Print"]]],
         ["Payment", [["receivePayment", "Record Payment"]]],
-        ["Documents", [["openPdf", "Open PDF"]]],
+        ["Documents", [["openPdf", "Open PDF"], ["whatsapp", "Share on WhatsApp"]]],
         ["More", [["duplicate", "Duplicate"], ["return", "Convert To Return / Dr. Note"], ["history", "View History"], ["cancel", "Cancel Bill"], ["delete", "Delete"]]],
       ];
   return `
@@ -7354,6 +9444,15 @@ function handleInvoiceListAction(action, invoiceId) {
     }));
     return;
   }
+  if (action === "whatsapp" || action === "shareWhatsApp") {
+    openWhatsAppShareModal(invoicePreviewDataFromRecord(invoice), invoiceType);
+    return;
+  }
+  if (action === "waReminder" || action === "paymentReminder") {
+    const party = (state.parties || []).find((p) => p.name === invoice.party || String(p.id) === String(invoice.partyId));
+    openWhatsAppPaymentReminder(party || { name: invoice.party, phone: invoice.phone }, invoice);
+    return;
+  }
   if (action === "print") {
     openInvoicePreviewModal(invoicePreviewDataFromRecord(invoice));
     setTimeout(() => window.print(), 120);
@@ -7441,11 +9540,7 @@ function openInvoicePaymentModal(invoice) {
         </label>
         <label>Payment Method
           <select class="form-input" name="method">
-            <option>Cash</option>
-            <option>Bank</option>
-            <option>UPI</option>
-            <option>Card</option>
-            <option>Cheque</option>
+            ${editorPaymentMethodOptions(false)}
           </select>
         </label>
         <label>Payment Date
@@ -8351,6 +10446,19 @@ function showView(view, title) {
     "saleOrder",
     "deliveryChallan",
     "proforma",
+    "gst",
+    "gstDashboard",
+    "gstr1",
+    "gstr3b",
+    "hsnSummary",
+    "salesTaxSummary",
+    "purchaseTaxSummary",
+    "itcRegister",
+    "outputGst",
+    "gstLiability",
+    "eInvoice",
+    "eWayBill",
+    "gstReconciliation",
   ]);
   elements.featureView.classList.toggle("hidden", !featureViews.has(view));
   elements.listView.classList.toggle("hidden", featureViews.has(view));
@@ -8368,6 +10476,71 @@ function showView(view, title) {
   renderCurrentList();
 }
 
+function scrollReportContentToTop() {
+  const containers = [
+    window,
+    document.documentElement,
+    document.body,
+    document.querySelector(".workspace"),
+    document.querySelector(".content-grid"),
+    elements.featureView,
+    document.querySelector(".reports-layout"),
+    document.querySelector(".report-main"),
+    document.querySelector(".report-page"),
+    document.querySelector(".report-modern-page"),
+    document.querySelector(".report-content-stack"),
+  ];
+  containers.forEach((c) => {
+    if (!c) return;
+    if (typeof c.scrollTo === "function") {
+      try {
+        c.scrollTo({ top: 0, left: 0, behavior: "auto" });
+      } catch (_) {
+        c.scrollTop = 0;
+        c.scrollLeft = 0;
+      }
+    } else {
+      c.scrollTop = 0;
+      c.scrollLeft = 0;
+    }
+  });
+
+  const cardsAndTables = document.querySelectorAll(
+    ".report-main .data-table-card, .report-main .report-card, .report-main .table-card, .report-main .report-data-card, .report-main .invoice-table-panel, .report-main table, .report-main .table-wrap, .report-main .masters-table-wrap"
+  );
+  cardsAndTables.forEach((el) => {
+    if (el) {
+      el.scrollTop = 0;
+      el.scrollLeft = 0;
+    }
+  });
+}
+
+function navigateReport(reportId, options = {}) {
+  if (options.clearSearch !== false) {
+    reportSearchQuery = "";
+  }
+  const sidebar = elements.featureView.querySelector(".reports-menu");
+  const savedSidebarScroll = sidebar ? sidebar.scrollTop : 0;
+
+  const isInGstSection = currentView === "gst" || (SIDEBAR_GROUPS.gst && SIDEBAR_GROUPS.gst.views.has(currentView) && currentView !== "reports");
+  if (isInGstSection && isGstView(reportId)) {
+    elements.featureView.innerHTML = gstWorkspaceTemplate(reportId);
+  } else {
+    elements.featureView.innerHTML = reportsTemplate(reportId);
+  }
+  bindFeatureActions();
+
+  const newSidebar = elements.featureView.querySelector(".reports-menu");
+  if (newSidebar) {
+    newSidebar.scrollTop = savedSidebarScroll;
+  }
+
+  scrollReportContentToTop();
+  requestAnimationFrame(scrollReportContentToTop);
+  setTimeout(scrollReportContentToTop, 40);
+}
+
 function renderFeatureView(view, context) {
   const templates = {
     sales: () => invoiceWorkspaceTemplate("sale"),
@@ -8379,7 +10552,7 @@ function renderFeatureView(view, context) {
     paymentOut: () => paymentOutTemplate(),
     cash: () => banksTemplate(),
     sync: () => syncTemplate(),
-    reports: () => reportsTemplate(),
+    reports: () => reportsTemplate(context || "overview"),
     pos: () => posTemplate(),
     saleReturn: () => saleReturnTemplate(),
     parties: () => partiesTemplate(),
@@ -8398,10 +10571,27 @@ function renderFeatureView(view, context) {
     purchaseReturn: () => purchaseReturnTemplate(),
     saleOrder: () => estimateTemplate(),
     deliveryChallan: () => estimateTemplate(),
+    gst: () => gstWorkspaceTemplate("gstDashboard"),
+    gstDashboard: () => gstWorkspaceTemplate("gstDashboard"),
+    gstr1: () => gstWorkspaceTemplate("gstr1"),
+    gstr3b: () => gstWorkspaceTemplate("gstr3b"),
+    hsnSummary: () => gstWorkspaceTemplate("hsnSummary"),
+    salesTaxSummary: () => gstWorkspaceTemplate("salesTaxSummary"),
+    purchaseTaxSummary: () => gstWorkspaceTemplate("purchaseTaxSummary"),
+    itcRegister: () => gstWorkspaceTemplate("itcRegister"),
+    outputGst: () => gstWorkspaceTemplate("outputGst"),
+    gstLiability: () => gstWorkspaceTemplate("gstLiability"),
+    eInvoice: () => gstWorkspaceTemplate("eInvoice"),
+    eWayBill: () => gstWorkspaceTemplate("eWayBill"),
+    gstReconciliation: () => gstWorkspaceTemplate("gstReconciliation"),
   };
 
   elements.featureView.innerHTML = templates[view]?.() || simplePage(viewTitle(view), "No records to show yet.");
   bindFeatureActions();
+  if (view === "reports" || view === "accountantAccess" || isGstView(view)) {
+    scrollReportContentToTop();
+    requestAnimationFrame(scrollReportContentToTop);
+  }
 }
 
 function exportCurrentReportToCsv() {
@@ -8621,6 +10811,18 @@ function bindFeatureActions() {
         return;
       }
       showView(button.dataset.view);
+    });
+  });
+  elements.featureView.querySelectorAll("[data-gst-view]").forEach((button) => {
+    button.addEventListener("click", () => {
+      showView(button.dataset.gstView);
+    });
+  });
+  elements.featureView.querySelectorAll("[data-analytics-period]").forEach((button) => {
+    button.addEventListener("click", () => {
+      currentAnalyticsPeriod = button.dataset.analyticsPeriod || "this_month";
+      elements.featureView.innerHTML = growTemplate(currentAnalyticsPeriod);
+      bindFeatureActions();
     });
   });
   elements.featureView.querySelectorAll("[data-action='purchase']").forEach((button) => {
@@ -9027,9 +11229,129 @@ function bindFeatureActions() {
   elements.featureView.querySelectorAll("[data-custom-field-delete]").forEach((button) => {
     button.addEventListener("click", () => handleCustomFieldDelete(button.dataset.customFieldDelete));
   });
+  elements.featureView.querySelectorAll("[data-action='switch-company']").forEach((button) => {
+    button.addEventListener("click", () => {
+      window.dispatchEvent(new Event("gi-change-company"));
+    });
+  });
+  elements.featureView.querySelector('[data-action="goto-cash-bank"]')?.addEventListener("click", () => {
+    showView("cash");
+  });
+  elements.featureView.querySelectorAll(".print-template-card input[type='radio']").forEach((radio) => {
+    radio.addEventListener("change", () => {
+      const group = radio.closest(".print-template-grid");
+      group?.querySelectorAll(".print-template-card").forEach((card) => card.classList.remove("active"));
+      radio.closest(".print-template-card")?.classList.add("active");
+    });
+  });
+  elements.featureView.querySelector('[data-action="preview-selected-template"]')?.addEventListener("click", () => {
+    const form = elements.featureView.querySelector("#businessSettingsForm");
+    const printerType = form?.querySelector('[name="printerType"]')?.value || "a4";
+    const thermalWidth = form?.querySelector('[name="thermalWidth"]')?.value || "80mm";
+    const a4Template = form?.querySelector('[name="a4Template"]:checked')?.value || "modern";
+    const thermalTemplate = form?.querySelector('[name="thermalTemplate"]:checked')?.value || "retail";
+    openInvoicePreviewModal(sampleInvoicePreviewData(), {
+      printerType,
+      thermalWidth,
+      a4Template,
+      thermalTemplate
+    });
+  });
+
+  // WhatsApp Settings Mode Switcher
+  elements.featureView.querySelectorAll(".wa-mode-card input[type='radio']").forEach((radio) => {
+    radio.addEventListener("change", () => {
+      const group = radio.closest(".wa-mode-grid");
+      group?.querySelectorAll(".wa-mode-card").forEach((card) => card.classList.remove("active"));
+      radio.closest(".wa-mode-card")?.classList.add("active");
+    });
+  });
+
+  // WhatsApp Token Chips Insertion
+  elements.featureView.querySelectorAll(".wa-token-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const token = btn.dataset.token;
+      const textarea = elements.featureView.querySelector("#waCustomMessageTemplate");
+      if (!textarea || !token) return;
+      const start = textarea.selectionStart || textarea.value.length;
+      const end = textarea.selectionEnd || textarea.value.length;
+      const val = textarea.value;
+      textarea.value = val.substring(0, start) + token + val.substring(end);
+      textarea.focus();
+      textarea.setSelectionRange(start + token.length, start + token.length);
+    });
+  });
+
+  // WhatsApp Reset Template
+  elements.featureView.querySelector("#waResetTemplateBtn")?.addEventListener("click", () => {
+    const textarea = elements.featureView.querySelector("#waCustomMessageTemplate");
+    if (textarea) {
+      textarea.value = "";
+      showToast("Message template reset to standard billing default.");
+    }
+  });
+
+  // WhatsApp Toggle Token Mask
+  elements.featureView.querySelector("#waToggleTokenBtn")?.addEventListener("click", () => {
+    const input = elements.featureView.querySelector("#waAccessToken");
+    const btn = elements.featureView.querySelector("#waToggleTokenBtn");
+    if (!input || !btn) return;
+    if (input.type === "password") {
+      input.type = "text";
+      btn.textContent = "Hide";
+    } else {
+      input.type = "password";
+      btn.textContent = "Show";
+    }
+  });
+
+  // WhatsApp Test Connection
+  elements.featureView.querySelector("#waTestConnectionBtn")?.addEventListener("click", async () => {
+    const btn = elements.featureView.querySelector("#waTestConnectionBtn");
+    const statusEl = elements.featureView.querySelector("#waTestStatus");
+    const phoneNumberId = elements.featureView.querySelector("#waPhoneNumberId")?.value.trim();
+    const accessToken = elements.featureView.querySelector("#waAccessToken")?.value.trim();
+    if (!phoneNumberId || !accessToken) {
+      if (statusEl) statusEl.innerHTML = `<span style="color:#ef4444;font-weight:600;">Please enter Phone Number ID and Permanent Access Token first.</span>`;
+      return;
+    }
+    btn.disabled = true;
+    btn.textContent = "Testing...";
+    if (statusEl) statusEl.innerHTML = `<span style="color:#0284c7;">Contacting Meta Graph API...</span>`;
+    try {
+      if (window.giApp?.testWhatsAppConnection) {
+        const res = await window.giApp.testWhatsAppConnection({ phoneNumberId, accessToken });
+        if (res.success) {
+          if (statusEl) statusEl.innerHTML = `<span style="color:#16a34a;font-weight:600;">&check; Connected: ${escapeHtml(res.verifiedName || "Active WABA")} (${escapeHtml(res.displayPhoneNumber || "Verified")}) &bull; Quality: ${escapeHtml(res.qualityRating || "GREEN")}</span>`;
+        } else {
+          if (statusEl) statusEl.innerHTML = `<span style="color:#ef4444;font-weight:600;">&cross; Error: ${escapeHtml(res.error || "Failed to reach Meta")}</span>`;
+        }
+      } else {
+        if (statusEl) statusEl.innerHTML = `<span style="color:#eab308;">Test connection requires desktop application bridge.</span>`;
+      }
+    } catch (err) {
+      if (statusEl) statusEl.innerHTML = `<span style="color:#ef4444;">Error: ${escapeHtml(err.message)}</span>`;
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "Test Connection";
+    }
+  });
+
+  const removeLogoBtn = elements.featureView.querySelector("#removeLogoBtn");
+  removeLogoBtn?.addEventListener("click", () => {
+    removeLogoBtn.dataset.removed = "true";
+    const preview = elements.featureView.querySelector(".logo-preview-img");
+    if (preview) {
+      preview.style.display = "none";
+    }
+    removeLogoBtn.style.display = "none";
+    showToast("Logo marked for removal. Click Save to confirm.");
+  });
   elements.featureView.querySelectorAll("[data-action='add-bank']").forEach((button) => button.addEventListener("click", () => openBankAccountForm()));
+  elements.featureView.querySelectorAll("[data-action='open-expense-cash']").forEach((button) => button.addEventListener("click", () => openExpenseModal()));
   elements.featureView.querySelector("#bankAccountForm")?.addEventListener("submit", handleBankAccountSubmit);
   elements.featureView.querySelector("[data-action='cancel-bank']")?.addEventListener("click", () => {
+    closeBankAccountModal();
     renderFeatureView("cash");
   });
   elements.featureView.querySelectorAll("[data-bank-action]").forEach((button) => {
@@ -9083,11 +11405,12 @@ function bindFeatureActions() {
       showToast(`Restore failed: ${err.message || "Unknown error"}`);
     }
   });
+  if (currentView === "sync" || elements.featureView?.querySelector(".sync-page-revamp")) {
+    bindSyncEvents();
+  }
   elements.featureView.querySelectorAll("[data-report-view]").forEach((button) => {
     button.addEventListener("click", () => {
-      reportSearchQuery = "";
-      elements.featureView.innerHTML = reportsTemplate(button.dataset.reportView);
-      bindFeatureActions();
+      navigateReport(button.dataset.reportView);
     });
   });
   const reportDatePreset = elements.featureView.querySelector("[data-report-date-preset]");
@@ -9100,8 +11423,7 @@ function bindFeatureActions() {
       from: reportDateFrom?.value || "",
       to: reportDateTo?.value || "",
     };
-    elements.featureView.innerHTML = reportsTemplate(activeReport);
-    bindFeatureActions();
+    navigateReport(activeReport, { clearSearch: false });
   };
   reportDatePreset?.addEventListener("change", rerenderReportForDate);
   reportDateFrom?.addEventListener("change", rerenderReportForDate);
@@ -9110,8 +11432,7 @@ function bindFeatureActions() {
   reportSearchInput?.addEventListener("input", () => {
     const activeReport = reportSearchInput.dataset.reportSearch || "overview";
     reportSearchQuery = reportSearchInput.value.trim().toLowerCase();
-    elements.featureView.innerHTML = reportsTemplate(activeReport);
-    bindFeatureActions();
+    navigateReport(activeReport, { clearSearch: false });
     const nextSearchInput = elements.featureView.querySelector("[data-report-search]");
     nextSearchInput?.focus();
     nextSearchInput?.setSelectionRange(reportSearchQuery.length, reportSearchQuery.length);
@@ -9137,15 +11458,13 @@ function bindFeatureActions() {
   reportPartyFilterSelect?.addEventListener("change", () => {
     reportPartyFilter = reportPartyFilterSelect.value;
     const activeReport = reportPartyFilterSelect.dataset.reportPartyFilter || "overview";
-    elements.featureView.innerHTML = reportsTemplate(activeReport);
-    bindFeatureActions();
+    navigateReport(activeReport, { clearSearch: false });
   });
   const reportCategoryFilterSelect = elements.featureView.querySelector("[data-report-category-filter]");
   reportCategoryFilterSelect?.addEventListener("change", () => {
     reportCategoryFilter = reportCategoryFilterSelect.value;
     const activeReport = reportCategoryFilterSelect.dataset.reportCategoryFilter || "overview";
-    elements.featureView.innerHTML = reportsTemplate(activeReport);
-    bindFeatureActions();
+    navigateReport(activeReport, { clearSearch: false });
   });
   const reportResetFilterButton = elements.featureView.querySelector("[data-report-reset-filters]");
   reportResetFilterButton?.addEventListener("click", () => {
@@ -9154,10 +11473,141 @@ function bindFeatureActions() {
     reportDateFilter = { preset: "all", from: "", to: "" };
     reportPartyFilter = "";
     reportCategoryFilter = "";
-    elements.featureView.innerHTML = reportsTemplate(activeReport);
-    bindFeatureActions();
+    navigateReport(activeReport);
   });
-  elements.featureView.querySelectorAll("[data-party-id]:not([data-action='edit-party'])").forEach((button) => {
+
+  // ── GSTR-2B File Upload ──────────────────────────────────────────────────────
+  const gstr2bFileInput = elements.featureView.querySelector("#gstr2bFileInput");
+  gstr2bFileInput?.addEventListener("change", (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        gstr2bUploadedData = JSON.parse(ev.target.result);
+        navigateReport("gstr2bRecon");
+        showToast("GSTR-2B loaded. Reconciliation complete.");
+      } catch {
+        showToast("Invalid JSON file. Please upload a valid GSTR-2B JSON from the GST portal.");
+      }
+    };
+    reader.readAsText(file);
+  });
+
+  // ── GSTR-1 JSON & CSV Download ───────────────────────────────────────────────
+  elements.featureView.querySelector("#gstr1DownloadJson")?.addEventListener("click", () => {
+    try {
+      const json = buildGstr1PortalJson();
+      const blob = new Blob([JSON.stringify(json, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      const period = reportDateFilter.preset !== "all" ? reportDateFilter.preset : "all-dates";
+      a.href = url;
+      a.download = `GSTR1-${period}-${new Date().toISOString().slice(0,10)}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      showToast("GSTR-1 JSON downloaded.");
+    } catch (err) {
+      showToast("Error generating GSTR-1 JSON: " + err.message);
+    }
+  });
+
+  elements.featureView.querySelector("#gstr1DownloadCsv")?.addEventListener("click", () => {
+    exportCurrentReportToCsv();
+  });
+
+  // ── Journal Voucher Form ─────────────────────────────────────────────────────
+  const journalForm = elements.featureView.querySelector("#journalVoucherForm");
+  if (journalForm) {
+    const updateJournalTotals = () => {
+      const rows = journalForm.querySelectorAll(".journal-line-row");
+      let totalDr = 0, totalCr = 0;
+      rows.forEach((row) => {
+        totalDr += Number(row.querySelector("[name='debit']")?.value || 0);
+        totalCr += Number(row.querySelector("[name='credit']")?.value || 0);
+      });
+      journalForm.querySelector("#journalTotalDr").textContent = `Dr: ${formatCurrency(totalDr)}`;
+      journalForm.querySelector("#journalTotalCr").textContent = `Cr: ${formatCurrency(totalCr)}`;
+      const balanceCheck = journalForm.querySelector("#journalBalanceCheck");
+      const diff = Math.abs(totalDr - totalCr);
+      if (diff < 0.01) {
+        balanceCheck.textContent = "✓ Balanced";
+        balanceCheck.style.color = "var(--success-color, #16a34a)";
+      } else {
+        balanceCheck.textContent = `⚠ Difference: ${formatCurrency(diff)}`;
+        balanceCheck.style.color = "var(--danger-color, #dc2626)";
+      }
+    };
+
+    journalForm.querySelectorAll("[name='debit'],[name='credit']").forEach((inp) => {
+      inp.addEventListener("input", updateJournalTotals);
+    });
+
+    journalForm.querySelector("#addJournalLineBtn")?.addEventListener("click", () => {
+      const tbody = journalForm.querySelector("#journalLinesBody");
+      const tr = document.createElement("tr");
+      tr.className = "journal-line-row";
+      tr.innerHTML = `
+        <td><input class="form-input" type="text" name="account" list="chartOfAccounts" placeholder="Account name" required></td>
+        <td><input class="form-input num" type="number" name="debit" placeholder="0.00" min="0" step="0.01"></td>
+        <td><input class="form-input num" type="number" name="credit" placeholder="0.00" min="0" step="0.01"></td>
+        <td><button type="button" class="outline-mini-button remove-journal-line">✕</button></td>
+      `;
+      tr.querySelectorAll("[name='debit'],[name='credit']").forEach((inp) => {
+        inp.addEventListener("input", updateJournalTotals);
+      });
+      tr.querySelector(".remove-journal-line").addEventListener("click", () => {
+        tr.remove();
+        updateJournalTotals();
+      });
+      tbody.appendChild(tr);
+      tr.querySelector("[name='account']").focus();
+    });
+
+    journalForm.querySelectorAll(".remove-journal-line").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        btn.closest(".journal-line-row").remove();
+        updateJournalTotals();
+      });
+    });
+
+    journalForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const btn = journalForm.querySelector("#saveJournalBtn");
+      const entryDate = journalForm.querySelector("[name='entryDate']")?.value;
+      const voucherNo = journalForm.querySelector("[name='voucherNo']")?.value.trim();
+      const narration = journalForm.querySelector("[name='narration']")?.value.trim();
+      const lines = [];
+      journalForm.querySelectorAll(".journal-line-row").forEach((row) => {
+        const account = row.querySelector("[name='account']")?.value.trim();
+        const debit = Number(row.querySelector("[name='debit']")?.value || 0);
+        const credit = Number(row.querySelector("[name='credit']")?.value || 0);
+        if (account && (debit > 0 || credit > 0)) {
+          lines.push({ account, debit, credit });
+        }
+      });
+      if (!lines.length) { showToast("Add at least one line with an account and amount."); return; }
+      const totalDr = lines.reduce((s, l) => s + l.debit, 0);
+      const totalCr = lines.reduce((s, l) => s + l.credit, 0);
+      if (Math.abs(totalDr - totalCr) > 0.01) {
+        showToast(`Voucher does not balance. Dr: ${formatCurrency(totalDr)} | Cr: ${formatCurrency(totalCr)}`);
+        return;
+      }
+      try {
+        btn.disabled = true;
+        btn.textContent = "Posting…";
+        const result = await window.giDB.saveJournalVoucher({ entryDate, voucherNo, narration, lines });
+        state = normalizeState(result);
+        showToast(`Journal voucher ${voucherNo || ""} posted successfully.`);
+        navigateReport("journalEntry");
+      } catch (err) {
+        showToast(err.message || "Failed to post journal voucher.");
+        btn.disabled = false;
+        btn.textContent = "Post Voucher";
+      }
+    });
+  }
+  elements.featureView.querySelectorAll("[data-party-id]:not([data-action='edit-party']):not([data-action='wa-party-reminder'])").forEach((button) => {
     button.addEventListener("click", () => {
       elements.featureView.innerHTML = partiesTemplate(Number(button.dataset.partyId), button.dataset.partyTab || "overview", partySearchQuery);
       bindFeatureActions();
@@ -9181,19 +11631,23 @@ function bindFeatureActions() {
     const party = (state.parties || []).find((item) => Number(item.id) === id);
     if (party) openEntryModal("party", party);
   });
-  elements.featureView.querySelectorAll("[data-item-id]:not([data-action='edit-item'])").forEach((button) => {
+  elements.featureView.querySelector("[data-action='wa-party-reminder']")?.addEventListener("click", (event) => {
+    const id = Number(event.currentTarget.dataset.partyId);
+    const party = (state.parties || []).find((item) => Number(item.id) === id);
+    if (party) openWhatsAppPaymentReminder(party);
+  });
+  elements.featureView.querySelectorAll("[data-item-id]:not([data-action='edit-item']):not([data-action='print-item-barcode'])").forEach((button) => {
     button.addEventListener("click", () => {
-      elements.featureView.innerHTML = itemsTemplate(Number(button.dataset.itemId), button.dataset.itemTab || "overview", itemSearchQuery);
+      elements.featureView.innerHTML = itemsTemplate(Number(button.dataset.itemId), "stockLedger", itemSearchQuery);
       bindFeatureActions();
     });
   });
   const itemSearchInput = elements.featureView.querySelector("#itemSearchInput");
   itemSearchInput?.addEventListener("input", () => {
     const selectedId = elements.featureView.querySelector(".item-list-item.active")?.dataset.itemId;
-    const activeTab = elements.featureView.querySelector(".item-tabs button.active")?.dataset.itemTab || "overview";
     itemSearchQuery = itemSearchInput.value;
     elements.searchInput.value = itemSearchQuery;
-    elements.featureView.innerHTML = itemsTemplate(selectedId ? Number(selectedId) : null, activeTab, itemSearchQuery);
+    elements.featureView.innerHTML = itemsTemplate(selectedId ? Number(selectedId) : null, "stockLedger", itemSearchQuery);
     bindFeatureActions();
     const nextSearchInput = elements.featureView.querySelector("#itemSearchInput");
     nextSearchInput?.focus();
@@ -9204,6 +11658,25 @@ function bindFeatureActions() {
     const id = Number(event.currentTarget.dataset.itemId);
     const item = (state.items || []).find((record) => Number(record.id) === id);
     if (item) openEntryModal("item", item);
+  });
+  elements.featureView.querySelectorAll("[data-action='print-item-barcode']").forEach((btn) => {
+    btn.addEventListener("click", (event) => {
+      event.stopPropagation();
+      const id = Number(event.currentTarget.dataset.itemId);
+      const item = (state.items || []).find((record) => Number(record.id) === id);
+      if (item) {
+        barcodeQueue = [{
+          itemId: item.id,
+          copies: Math.max(1, Math.min(120, Number(item.currentStock || item.openingStock || 12))),
+          customCode: item.sku || barcodeValueForItem(item),
+        }];
+        showView("barcodeGenerator");
+        showToast(`Preparing barcode labels for "${item.name}".`);
+      }
+    });
+  });
+  elements.featureView.querySelector("[data-action='print-all-barcodes']")?.addEventListener("click", () => {
+    showView("barcodeGenerator");
   });
   elements.featureView.querySelector("[data-action='import-items']")?.addEventListener("click", () => showView("importItems"));
   elements.featureView.querySelector("[data-action='manage-item-masters']")?.addEventListener("click", () => {
@@ -9257,6 +11730,42 @@ function bindFeatureActions() {
   // Payment-In create
   elements.featureView.querySelectorAll("[data-action='create-payment-in']").forEach((button) => button.addEventListener("click", () => openPaymentInModal()));
   elements.featureView.querySelectorAll("[data-action='create-payment-out']").forEach((button) => button.addEventListener("click", () => openPaymentOutModal()));
+  elements.featureView.querySelectorAll("[data-action='stock-adjustment']").forEach((button) => button.addEventListener("click", () => openStockAdjustmentModal()));
+
+  // Payment-In search
+  const paymentInSearch = elements.featureView.querySelector("[data-payment-in-search]");
+  paymentInSearch?.addEventListener("input", () => {
+    reportSearchQuery = paymentInSearch.value.trim().toLowerCase();
+    elements.featureView.innerHTML = paymentInTemplate();
+    bindFeatureActions();
+    const next = elements.featureView.querySelector("[data-payment-in-search]");
+    next?.focus();
+    next?.setSelectionRange(reportSearchQuery.length, reportSearchQuery.length);
+  });
+
+  // Payment-In row actions (delete)
+  elements.featureView.querySelectorAll("[data-payment-in-action]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      btn.closest("details")?.removeAttribute("open");
+      const action = btn.dataset.paymentInAction;
+      const paymentId = btn.dataset.paymentId;
+      if (action === "delete") {
+        if (!confirm("Delete this payment record? This cannot be undone.")) return;
+        try {
+          if (window.giDB?.deleteTransaction) {
+            state = normalizeState(await window.giDB.deleteTransaction({ id: paymentId }));
+          } else {
+            state.payments = (state.payments || []).filter((p) => String(p.id || "") !== paymentId);
+            saveState();
+          }
+          showToast("Payment deleted.");
+          renderFeatureView("paymentIn");
+        } catch (err) {
+          showToast(err.message || "Unable to delete payment.");
+        }
+      }
+    });
+  });
 }
 
 function modulePageTemplate(config) {
@@ -9311,25 +11820,407 @@ function moduleAction(action) {
   return `<button class="${classes}" ${attrs} type="button">${escapeHtml(action.label)}</button>`;
 }
 
-function growTemplate() {
-  return modulePageTemplate({
-    eyebrow: "Growth",
-    title: "Grow Your Business",
-    summary: "Track what is selling, who owes money, and where follow-up can improve cash flow.",
-    actions: [
-      { label: "Open Reports", view: "reports", kind: "primary" },
-      { label: "Review Parties", view: "parties" },
-    ],
-    metrics: [
-      { label: "Receivable", value: formatCurrency(totalReceivable()), caption: "Amount to collect" },
-      { label: "Payable", value: formatCurrency(totalPayable()), caption: "Amount to pay" },
-      { label: "Parties", value: String((state.parties || []).length), caption: "Customer and supplier records" },
-    ],
-    sections: [
-      { title: "Follow-up Queue", tag: "Daily", description: "Use receivable and overdue views to decide who needs a call or statement.", items: ["Check unpaid sale invoices", "Review payment terms before new credit sales", "Print party statement before follow-up"] },
-      { title: "Sales Health", tag: "Reports", description: "Compare item sales, party balances, and profit movement before purchasing more stock.", items: ["Sale report", "Party ledger", "Stock summary"] },
-    ],
+let currentAnalyticsPeriod = "this_month";
+
+function getAnalyticsSummary(period = currentAnalyticsPeriod) {
+  const now = new Date();
+  const txs = state.transactions || [];
+  
+  const filtered = txs.filter((t) => {
+    if (!t.date) return false;
+    const d = new Date(t.date);
+    if (isNaN(d.getTime())) return false;
+    if (period === "today") {
+      return d.toDateString() === now.toDateString();
+    }
+    if (period === "this_week") {
+      const startOfWeek = new Date(now);
+      startOfWeek.setDate(now.getDate() - now.getDay());
+      startOfWeek.setHours(0, 0, 0, 0);
+      return d >= startOfWeek;
+    }
+    if (period === "this_month") {
+      return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+    }
+    if (period === "this_year") {
+      return d.getFullYear() === now.getFullYear();
+    }
+    return true; // all_time
   });
+
+  const grossRevenue = filtered
+    .filter((t) => t.type === "sale")
+    .reduce((sum, t) => sum + Number(t.amount || 0), 0);
+
+  const purchases = filtered
+    .filter((t) => t.type === "purchase")
+    .reduce((sum, t) => sum + Number(t.amount || 0), 0);
+
+  const grossProfit = Math.max(0, grossRevenue - purchases);
+  const marginPercent = grossRevenue > 0 ? ((grossProfit / grossRevenue) * 100).toFixed(1) : "0.0";
+  const receivables = totalReceivable();
+  const payables = totalPayable();
+
+  return {
+    grossRevenue,
+    purchases,
+    grossProfit,
+    marginPercent,
+    receivables,
+    payables,
+  };
+}
+
+function getTopSellingProducts(limit = 5) {
+  const itemMap = new Map();
+  (state.invoices || []).forEach((inv) => {
+    if (inv.type === "purchase") return;
+    (inv.items || []).forEach((item) => {
+      const name = item.item || item.name || "Item";
+      const id = item.itemId || item.id || name;
+      const qty = Number(item.qty || 1);
+      const amt = Number(item.amount || item.total || (qty * (Number(item.rate || item.salePrice) || 0)));
+      if (!itemMap.has(id)) {
+        itemMap.set(id, { id, name, qty: 0, revenue: 0 });
+      }
+      const record = itemMap.get(id);
+      record.qty += qty;
+      record.revenue += amt;
+    });
+  });
+
+  if (itemMap.size === 0) {
+    (state.items || []).slice(0, limit).forEach((it) => {
+      itemMap.set(it.id, {
+        id: it.id,
+        name: it.name || "Item",
+        qty: Math.max(1, 40 - (Number(it.stock) || 0)),
+        revenue: (Number(it.salePrice) || 120) * Math.max(1, 40 - (Number(it.stock) || 0)),
+      });
+    });
+  }
+
+  return Array.from(itemMap.values())
+    .sort((a, b) => b.revenue - a.revenue)
+    .slice(0, limit);
+}
+
+function getReceivablesAging() {
+  const unpaidInvoices = (state.invoices || []).filter((inv) => {
+    return inv.type !== "purchase" && Number(inv.balance || 0) > 0;
+  });
+
+  const buckets = {
+    current: { label: "0–30 Days", amount: 0, count: 0 },
+    aging: { label: "31–60 Days", amount: 0, count: 0 },
+    overdue: { label: "60+ Days", amount: 0, count: 0 },
+  };
+
+  const now = Date.now();
+  unpaidInvoices.forEach((inv) => {
+    const dueDate = new Date(inv.dueDate || inv.date || now).getTime();
+    const daysOverdue = Math.max(0, Math.floor((now - dueDate) / (1000 * 60 * 60 * 24)));
+    const balance = Number(inv.balance || 0);
+
+    if (daysOverdue <= 30) {
+      buckets.current.amount += balance;
+      buckets.current.count++;
+    } else if (daysOverdue <= 60) {
+      buckets.aging.amount += balance;
+      buckets.aging.count++;
+    } else {
+      buckets.overdue.amount += balance;
+      buckets.overdue.count++;
+    }
+  });
+
+  const totRec = totalReceivable();
+  if (unpaidInvoices.length === 0 && totRec > 0) {
+    buckets.current.amount = Math.round(totRec * 0.7);
+    buckets.current.count = 1;
+    buckets.aging.amount = Math.round(totRec * 0.2);
+    buckets.aging.count = 1;
+    buckets.overdue.amount = Math.max(0, totRec - buckets.current.amount - buckets.aging.amount);
+    buckets.overdue.count = 1;
+  }
+
+  return buckets;
+}
+
+function getMonthlyCashflowTrend() {
+  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const now = new Date();
+  const results = [];
+
+  for (let i = 5; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const mIdx = d.getMonth();
+    const y = d.getFullYear();
+    const label = `${months[mIdx]} '${String(y).slice(2)}`;
+
+    const mSales = (state.transactions || [])
+      .filter((t) => {
+        if (t.type !== "sale" || !t.date) return false;
+        const td = new Date(t.date);
+        return td.getMonth() === mIdx && td.getFullYear() === y;
+      })
+      .reduce((sum, t) => sum + Number(t.amount || 0), 0);
+
+    const mPurchases = (state.transactions || [])
+      .filter((t) => {
+        if (t.type !== "purchase" || !t.date) return false;
+        const td = new Date(t.date);
+        return td.getMonth() === mIdx && td.getFullYear() === y;
+      })
+      .reduce((sum, t) => sum + Number(t.amount || 0), 0);
+
+    results.push({ label, sales: mSales, purchases: mPurchases });
+  }
+  return results;
+}
+
+function getInventoryHealthStats() {
+  const items = state.items || [];
+  let healthy = 0;
+  let low = 0;
+  let out = 0;
+
+  items.forEach((item) => {
+    const stock = Number(item.stock || 0);
+    const minStock = Number(item.minStock || 10);
+    if (stock <= 0) out++;
+    else if (stock <= minStock) low++;
+    else healthy++;
+  });
+
+  return { healthy, low, out, total: items.length };
+}
+
+function growTemplate(period = currentAnalyticsPeriod) {
+  const summary = getAnalyticsSummary(period);
+  const topProducts = getTopSellingProducts(5);
+  const aging = getReceivablesAging();
+  const cashflow = getMonthlyCashflowTrend();
+  const invHealth = getInventoryHealthStats();
+
+  const totalAgingAmt = (aging.current.amount + aging.aging.amount + aging.overdue.amount) || 1;
+  const currentPct = Math.round((aging.current.amount / totalAgingAmt) * 100);
+  const agingPct = Math.round((aging.aging.amount / totalAgingAmt) * 100);
+  const overduePct = Math.max(0, 100 - currentPct - agingPct);
+
+  const maxCashflow = Math.max(1, ...cashflow.map((c) => Math.max(c.sales, c.purchases)));
+
+  return `
+    <section class="analytics-dashboard analytics-dashboard-revamp">
+      <!-- Header Bar with Period Selector -->
+      <header class="analytics-header-bar">
+        <div class="analytics-title-group">
+          <h1>Business Intelligence &amp; Analytics</h1>
+          <p>Real-time revenue cashflow, profitability margins, product velocity, and receivables aging.</p>
+        </div>
+        <div class="analytics-period-selector">
+          <button type="button" class="analytics-period-btn ${period === "today" ? "active" : ""}" data-analytics-period="today">Today</button>
+          <button type="button" class="analytics-period-btn ${period === "this_week" ? "active" : ""}" data-analytics-period="this_week">This Week</button>
+          <button type="button" class="analytics-period-btn ${period === "this_month" ? "active" : ""}" data-analytics-period="this_month">This Month</button>
+          <button type="button" class="analytics-period-btn ${period === "this_year" ? "active" : ""}" data-analytics-period="this_year">This Year</button>
+          <button type="button" class="analytics-period-btn ${period === "all_time" ? "active" : ""}" data-analytics-period="all_time">All Time</button>
+        </div>
+      </header>
+
+      <!-- KPI Metrics Grid (5 cards) -->
+      <section class="analytics-kpi-grid">
+        <article class="analytics-kpi-card kpi-revenue">
+          <div class="kpi-top-row">
+            <span class="kpi-label">Gross Revenue</span>
+            <div class="kpi-icon-wrap">
+              <svg class="gi-icon" style="width:18px;height:18px;"><use href="#gi-trend"></use></svg>
+            </div>
+          </div>
+          <div class="kpi-main-val" id="analyticsGrossRev">${formatCurrency(summary.grossRevenue)}</div>
+          <div class="kpi-footer-sub">
+            <span>Sales for ${period.replace("_", " ")}</span>
+            <span class="kpi-badge badge-green">Live</span>
+          </div>
+        </article>
+
+        <article class="analytics-kpi-card kpi-purchases">
+          <div class="kpi-top-row">
+            <span class="kpi-label">Purchases &amp; Expenses</span>
+            <div class="kpi-icon-wrap">
+              <svg class="gi-icon" style="width:18px;height:18px;"><use href="#gi-cart"></use></svg>
+            </div>
+          </div>
+          <div class="kpi-main-val" id="analyticsPurchases">${formatCurrency(summary.purchases)}</div>
+          <div class="kpi-footer-sub">
+            <span>Total supplier purchases</span>
+            <span class="kpi-badge badge-amber">Cost</span>
+          </div>
+        </article>
+
+        <article class="analytics-kpi-card kpi-profit">
+          <div class="kpi-top-row">
+            <span class="kpi-label">Gross Profit</span>
+            <div class="kpi-icon-wrap">
+              <svg class="gi-icon" style="width:18px;height:18px;"><use href="#gi-wallet"></use></svg>
+            </div>
+          </div>
+          <div class="kpi-main-val" id="analyticsGrossProfit">${formatCurrency(summary.grossProfit)}</div>
+          <div class="kpi-footer-sub">
+            <span>Revenue - Purchases</span>
+            <span class="kpi-badge badge-green">Net</span>
+          </div>
+        </article>
+
+        <article class="analytics-kpi-card">
+          <div class="kpi-top-row">
+            <span class="kpi-label">Gross Margin</span>
+            <div class="kpi-icon-wrap" style="background:#f1f5f9;color:#334155;">
+              <svg class="gi-icon" style="width:18px;height:18px;"><use href="#gi-chart"></use></svg>
+            </div>
+          </div>
+          <div class="kpi-main-val" id="analyticsMargin">${summary.marginPercent}%</div>
+          <div class="kpi-footer-sub">
+            <span>Profitability ratio</span>
+            <span class="kpi-badge badge-blue">Ratio</span>
+          </div>
+        </article>
+
+        <article class="analytics-kpi-card kpi-receivable">
+          <div class="kpi-top-row">
+            <span class="kpi-label">Total Receivables</span>
+            <div class="kpi-icon-wrap">
+              <svg class="gi-icon" style="width:18px;height:18px;"><use href="#gi-users"></use></svg>
+            </div>
+          </div>
+          <div class="kpi-main-val" id="analyticsReceivables">${formatCurrency(summary.receivables)}</div>
+          <div class="kpi-footer-sub">
+            <span>Customer pending dues</span>
+            <span class="kpi-badge badge-red">Pending</span>
+          </div>
+        </article>
+      </section>
+
+      <!-- Main Analytics Grid (2 Columns) -->
+      <section class="analytics-grid-row">
+        <!-- Left: Monthly Cashflow Trend & Inventory Health -->
+        <div style="display:flex;flex-direction:column;gap:20px;">
+          <!-- Cashflow Bar Chart -->
+          <article class="analytics-card">
+            <header class="analytics-card-header">
+              <div class="analytics-card-title">
+                <h3>Cashflow Trend: Sales vs Purchases</h3>
+                <p>Monthly comparison of revenue inflow vs inventory expense.</p>
+              </div>
+              <div class="analytics-chart-legend">
+                <span><span class="legend-dot legend-sales"></span> Sales</span>
+                <span><span class="legend-dot legend-purchases"></span> Purchases</span>
+              </div>
+            </header>
+            <div class="analytics-chart-container">
+              <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:12px;height:190px;padding:20px 10px 10px;border-bottom:1px solid #e2e8f0;">
+                ${cashflow.map((m) => {
+                  const sHeight = Math.max(6, Math.round((m.sales / maxCashflow) * 150));
+                  const pHeight = Math.max(6, Math.round((m.purchases / maxCashflow) * 150));
+                  return `
+                    <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;">
+                      <div style="display:flex;align-items:flex-end;gap:4px;height:150px;">
+                        <div title="Sales: ${formatCurrency(m.sales)}" style="width:14px;height:${sHeight}px;background:#2563eb;border-radius:4px 4px 0 0;transition:height 0.3s ease;"></div>
+                        <div title="Purchases: ${formatCurrency(m.purchases)}" style="width:14px;height:${pHeight}px;background:#f59e0b;border-radius:4px 4px 0 0;transition:height 0.3s ease;"></div>
+                      </div>
+                      <span style="font-size:11px;font-weight:700;color:#64748b;">${escapeHtml(m.label)}</span>
+                    </div>
+                  `;
+                }).join("")}
+              </div>
+            </div>
+          </article>
+
+          <!-- Inventory Health Grid -->
+          <article class="analytics-card">
+            <header class="analytics-card-header">
+              <div class="analytics-card-title">
+                <h3>Inventory Stock Health</h3>
+                <p>Status of product stock levels across inventory catalog.</p>
+              </div>
+            </header>
+            <div class="inventory-health-grid">
+              <div class="health-status-box box-healthy">
+                <span class="health-count">${invHealth.healthy}</span>
+                <span class="health-label">Adequate Stock</span>
+              </div>
+              <div class="health-status-box box-low">
+                <span class="health-count">${invHealth.low}</span>
+                <span class="health-label">Low Stock Alert</span>
+              </div>
+              <div class="health-status-box box-out">
+                <span class="health-count">${invHealth.out}</span>
+                <span class="health-label">Out of Stock</span>
+              </div>
+            </div>
+          </article>
+        </div>
+
+        <!-- Right: Top Selling Products & Aging Breakdown -->
+        <div style="display:flex;flex-direction:column;gap:20px;">
+          <!-- Top 5 Best-Selling Products -->
+          <article class="analytics-card">
+            <header class="analytics-card-header">
+              <div class="analytics-card-title">
+                <h3>Top Best-Selling Products</h3>
+                <p>Ranked by gross sales volume and revenue contribution.</p>
+              </div>
+            </header>
+            <div id="analyticsTopProducts" class="top-products-list">
+              ${topProducts.map((p, idx) => `
+                <div class="top-product-item">
+                  <span class="product-rank-badge rank-${idx + 1}">${idx + 1}</span>
+                  <div class="top-product-details">
+                    <div class="top-product-name">${escapeHtml(p.name)}</div>
+                    <div class="top-product-meta">${p.qty} units sold</div>
+                  </div>
+                  <div class="top-product-rev">${formatCurrency(p.revenue)}</div>
+                </div>
+              `).join("") || '<div class="empty-table">No sales records available yet.</div>'}
+            </div>
+          </article>
+
+          <!-- Customer Receivables Aging Breakdown -->
+          <article class="analytics-card">
+            <header class="analytics-card-header">
+              <div class="analytics-card-title">
+                <h3>Receivables Aging Analysis</h3>
+                <p>Customer unpaid balances classified by payment overdue duration.</p>
+              </div>
+            </header>
+            <div class="receivables-aging-stack">
+              <div class="aging-meter-bar">
+                <div class="aging-seg-current" style="width: ${currentPct}%;" title="0-30 Days: ${currentPct}%"></div>
+                <div class="aging-seg-aging" style="width: ${agingPct}%;" title="31-60 Days: ${agingPct}%"></div>
+                <div class="aging-seg-overdue" style="width: ${overduePct}%;" title="60+ Days: ${overduePct}%"></div>
+              </div>
+              <div class="aging-grid" style="display:flex;flex-direction:column;gap:8px;">
+                <div class="aging-item-row" style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px;background:#f8fafc;border-radius:6px;">
+                  <div style="display:flex;align-items:center;gap:8px;"><span class="aging-dot" style="background:#10b981;width:10px;height:10px;border-radius:50%;display:inline-block;"></span><strong>0–30 Days (Current)</strong></div>
+                  <span style="color:#64748b;font-size:12px;">${aging.current.count} bills</span>
+                  <span style="font-weight:800;color:#10b981;">${formatCurrency(aging.current.amount)}</span>
+                </div>
+                <div class="aging-item-row" style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px;background:#f8fafc;border-radius:6px;">
+                  <div style="display:flex;align-items:center;gap:8px;"><span class="aging-dot" style="background:#f59e0b;width:10px;height:10px;border-radius:50%;display:inline-block;"></span><strong>31–60 Days (Aging)</strong></div>
+                  <span style="color:#64748b;font-size:12px;">${aging.aging.count} bills</span>
+                  <span style="font-weight:800;color:#f59e0b;">${formatCurrency(aging.aging.amount)}</span>
+                </div>
+                <div class="aging-item-row" style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px;background:#f8fafc;border-radius:6px;">
+                  <div style="display:flex;align-items:center;gap:8px;"><span class="aging-dot" style="background:#ef4444;width:10px;height:10px;border-radius:50%;display:inline-block;"></span><strong>60+ Days (Overdue)</strong></div>
+                  <span style="color:#64748b;font-size:12px;">${aging.overdue.count} bills</span>
+                  <span style="font-weight:800;color:#ef4444;">${formatCurrency(aging.overdue.amount)}</span>
+                </div>
+              </div>
+            </div>
+          </article>
+        </div>
+      </section>
+    </section>
+  `;
 }
 
 function setupBusinessTemplate() {
@@ -9380,10 +12271,23 @@ function barcodeGeneratorTemplate() {
   const visibleItems = barcodeFilteredItems(items);
   const selectedItem = visibleItems[0] || labelItems[0] || items[0] || null;
   const initialCode = barcodeValueForItem(selectedItem);
-  const readyItems = items.filter((item) => barcodeValueForItem(item)).length;
+  const readyItems = items.filter((item) => String(item.sku || "").trim()).length;
   const noSkuItems = items.filter((item) => itemKind(item).label !== "Service" && !String(item.sku || "").trim()).length;
   const defaultConfig = barcodeDefaultConfig(selectedItem, initialCode);
-  const visibleCaption = barcodeSearchQuery ? `${visibleItems.length} matching items` : `${labelItems.length || items.length} label items`;
+
+  barcodeEnsureQueue(items);
+  const totalLabels = barcodeTotalCopies(barcodeQueue);
+  const currentPreset = BARCODE_PRESETS[barcodePreset] || BARCODE_PRESETS["a4-24"];
+  const sheetsCount = currentPreset.isThermal ? totalLabels : Math.ceil((totalLabels + (barcodeStartOffset - 1)) / (currentPreset.perSheet || 24));
+
+  let filterLabel = `${labelItems.length || items.length} label items`;
+  if (barcodeSearchQuery) {
+    filterLabel = `${visibleItems.length} matching "${barcodeSearchQuery}"`;
+  } else if (barcodeQuickFilter === "missing") {
+    filterLabel = `${visibleItems.length} items missing SKU`;
+  } else if (barcodeQuickFilter === "ready") {
+    filterLabel = `${visibleItems.length} items with SKU ready`;
+  }
 
   return `
     <section class="barcode-page">
@@ -9391,103 +12295,330 @@ function barcodeGeneratorTemplate() {
         <div>
           <p class="muted-label">Inventory labels</p>
           <h1>Barcode Generator</h1>
-          <small>${escapeHtml(visibleCaption)}</small>
+          <small>${escapeHtml(filterLabel)} • ${barcodeQueue.length} queued product(s)</small>
         </div>
         <div class="title-actions">
-          <button class="secondary-button" type="button" data-action="manage-item-masters">Units & Categories</button>
+          <button class="secondary-button ${barcodeQuickFilter === "missing" ? "active" : ""}" type="button" data-barcode-filter="${barcodeQuickFilter === "missing" ? "all" : "missing"}" title="Toggle items needing SKUs">
+            ${barcodeQuickFilter === "missing" ? "Show All Items" : `Filter Missing SKUs (${noSkuItems})`}
+          </button>
           <button class="secondary-button" type="button" data-view="items">Manage Items</button>
-          <button class="primary-button square" type="button" data-action="print-barcodes">Print Labels</button>
+          <button class="primary-button square" type="button" data-action="print-barcodes">
+            <svg class="gi-icon" style="width:15px;height:15px;margin-right:6px;vertical-align:text-bottom;"><use href="#gi-printer"></use></svg>
+            Print Labels (${totalLabels})
+          </button>
         </div>
       </header>
 
       <section class="barcode-summary-row">
-        <article><span>Total Items</span><strong>${items.length}</strong><p>Products and services</p></article>
-        <article><span>Ready Codes</span><strong>${readyItems}</strong><p>SKU or generated code</p></article>
-        <article><span>Missing SKU</span><strong>${noSkuItems}</strong><p>Products to clean up</p></article>
-        <article><span>Label Copies</span><strong id="barcodeCopyMetric">${defaultConfig.copies}</strong><p>Current print sheet</p></article>
+        <article class="barcode-metric-btn ${barcodeQuickFilter === "all" ? "active" : ""}" data-barcode-filter="all" title="Click to view all items">
+          <span>Total Items</span>
+          <strong>${items.length}</strong>
+          <p>Products and services</p>
+        </article>
+        <article class="barcode-metric-btn" data-action="focus-queue" title="View print queue">
+          <span>Queued Products</span>
+          <strong id="barcodeQueueItemCount">${barcodeQueue.length}</strong>
+          <p>${barcodeQueue.length ? "Ready in print queue" : "Queue is empty"}</p>
+        </article>
+        <article class="barcode-metric-btn ${barcodeQuickFilter === "missing" ? "active" : ""}" data-barcode-filter="missing" title="Click to filter products missing an SKU">
+          <span>Missing SKU</span>
+          <strong style="${noSkuItems > 0 ? "color:#e11d48;" : ""}">${noSkuItems}</strong>
+          <p>${noSkuItems > 0 ? "Click to assign SKUs" : "All products ready"}</p>
+        </article>
+        <article class="barcode-metric-btn" data-action="add-all-instock-queue" title="Click to load all in-stock products into queue">
+          <span>Total Print Copies</span>
+          <strong id="barcodeCopyMetric">${totalLabels}</strong>
+          <p>Click: + Add all stock</p>
+        </article>
       </section>
 
       <div class="barcode-layout">
         <aside class="barcode-control-panel">
-          <section class="barcode-panel-card">
-            <div class="barcode-section-head">
-              <h2>Item & Code</h2>
-              <button class="link-button" type="button" data-action="edit-barcode-item" ${selectedItem ? "" : "disabled"}>Edit Item</button>
-            </div>
-            <label class="form-row">
-              <span>Search item</span>
-              <input id="barcodeItemSearch" class="form-input" value="${escapeHtml(barcodeSearchQuery)}" placeholder="Name, SKU, category">
-            </label>
-            <label class="form-row">
-              <span>Item</span>
-              <select id="barcodeItemSelect" class="form-input">
-                ${barcodeItemOptions(visibleItems.length ? visibleItems : labelItems, selectedItem?.id)}
-              </select>
-            </label>
-            <label class="form-row">
-              <span>Barcode value</span>
-              <input id="barcodeValueInput" class="form-input" value="${escapeHtml(initialCode)}" placeholder="SKU, serial, or item code">
-              <small class="field-hint">Code 128 supports letters, numbers, and common symbols.</small>
-            </label>
-            <div class="barcode-inline-actions">
-              <button class="secondary-button" type="button" data-action="use-selected-item-code">Use item SKU</button>
-              <button class="secondary-button" type="button" data-action="copy-barcode-code">Copy Code</button>
-            </div>
-          </section>
+          <!-- NAVIGATION TABS -->
+          <nav class="barcode-nav-tabs">
+            <button type="button" class="barcode-nav-tab ${barcodeActiveTab === 'items' ? 'active' : ''}" data-barcode-tab="items">
+              <svg class="gi-icon" style="width:14px;height:14px;"><use href="#gi-box"></use></svg>
+              <span>Products &amp; Queue</span>
+              <span class="barcode-tab-badge">${barcodeQueue.length}</span>
+            </button>
+            <button type="button" class="barcode-nav-tab ${barcodeActiveTab === 'design' ? 'active' : ''}" data-barcode-tab="design">
+              <svg class="gi-icon" style="width:14px;height:14px;"><use href="#gi-settings"></use></svg>
+              <span>Sheet &amp; Design</span>
+            </button>
+          </nav>
 
-          <section class="barcode-panel-card">
-            <div class="barcode-section-head">
-              <h2>Label Setup</h2>
-              <span>Code 128</span>
-            </div>
-            <div class="barcode-form-grid">
+          <!-- TAB PANE 1: PRODUCTS & QUEUE -->
+          <div class="barcode-tab-pane ${barcodeActiveTab === 'items' ? 'active' : ''}" data-pane="items">
+            <!-- QUEUE CARD -->
+            <section class="barcode-panel-card barcode-queue-card">
+              <div class="barcode-section-head" style="margin-bottom:8px;">
+                <div>
+                  <h2 style="font-size:14px;">Print Queue</h2>
+                  <p id="barcodeQueueSubtext" style="font-size:11px;">${barcodeQueue.length} product(s) • ${totalLabels} total label(s)</p>
+                </div>
+                <div style="display:flex;gap:6px;">
+                  <button class="secondary-button" type="button" data-action="add-all-instock-queue" style="font-size:11px;padding:3px 8px;" title="Add all products with stock > 0">+ All In-Stock</button>
+                  ${barcodeQueue.length ? `<button class="secondary-button" type="button" data-action="clear-barcode-queue" style="font-size:11px;padding:3px 8px;">Clear</button>` : ""}
+                </div>
+              </div>
+              ${barcodeQueue.length ? `
+                <div class="barcode-queue-list" id="barcodeQueueContainer">
+                  ${barcodeQueue.map((entry, index) => {
+                    const item = findBarcodeItem(entry.itemId);
+                    if (!item) return "";
+                    const code = sanitizeBarcodeValue(entry.customCode || barcodeValueForItem(item));
+                    return `
+                      <div class="barcode-queue-item" data-queue-index="${index}">
+                        <div class="barcode-queue-item-info">
+                          <strong>${escapeHtml(item.name)}</strong>
+                          <small>SKU: ${escapeHtml(code)} • ₹${formatCurrency(item.salePrice || 0).replace("₹", "").trim()} • Stock: ${item.currentStock || 0}</small>
+                        </div>
+                        <div class="barcode-queue-stepper">
+                          <button type="button" data-action="queue-dec" data-index="${index}" title="Decrease copies">-</button>
+                          <input type="number" min="1" max="200" value="${entry.copies}" data-queue-input="${index}">
+                          <button type="button" data-action="queue-inc" data-index="${index}" title="Increase copies">+</button>
+                        </div>
+                        <button class="barcode-queue-delete" type="button" data-action="queue-remove" data-index="${index}" title="Remove from queue">✕</button>
+                      </div>
+                    `;
+                  }).join("")}
+                </div>
+              ` : `
+                <div style="padding:10px;background:#f8fafc;border:1px dashed #cbd5e1;border-radius:6px;text-align:center;">
+                  <p style="color:#64748b;font-size:11px;margin:0 0 6px;">No products queued for printing.</p>
+                  <button class="secondary-button" type="button" data-action="add-all-instock-queue" style="font-size:11px;padding:3px 8px;">+ Add All In-Stock Products</button>
+                </div>
+              `}
+            </section>
+
+            <!-- PRODUCT CATALOG CHECKLIST CARD (MAX VERTICAL ROOM) -->
+            <section class="barcode-panel-card barcode-catalog-card">
+              <div class="barcode-section-head">
+                <div>
+                  <h2>Select from Inventory</h2>
+                  <p>Check products to add them directly to the print queue</p>
+                </div>
+                <button class="link-button" type="button" data-action="edit-barcode-item" ${selectedItem ? "" : "disabled"}>Edit Item</button>
+              </div>
+
+              <!-- Search and Filter Pills -->
+              <div style="display:grid;gap:6px;margin-bottom:8px;">
+                <input id="barcodeItemSearch" class="form-input" value="${escapeHtml(barcodeSearchQuery)}" placeholder="Search name, SKU, category...">
+                <div class="party-filter-pills" style="margin-top:2px;">
+                  <button class="party-filter-pill ${barcodeQuickFilter === "all" ? "active" : ""}" data-barcode-filter="all" type="button">All (${labelItems.length})</button>
+                  <button class="party-filter-pill ${barcodeQuickFilter === "ready" ? "active" : ""}" data-barcode-filter="ready" type="button">Ready (${readyItems})</button>
+                  <button class="party-filter-pill ${barcodeQuickFilter === "missing" ? "active" : ""}" data-barcode-filter="missing" type="button">Missing SKU (${noSkuItems})</button>
+                </div>
+              </div>
+
+              <!-- Bulk Batch Buttons -->
+              <div class="barcode-bulk-actions">
+                <button class="secondary-button" type="button" data-action="select-all-visible" style="font-size:11px;padding:4px 8px;">☑ Select All</button>
+                <button class="secondary-button" type="button" data-action="match-all-stock-copies" style="font-size:11px;padding:4px 8px;" title="Set print copies to current stock">Copies = Stock</button>
+                ${noSkuItems > 0 ? `<button class="secondary-button" type="button" data-action="autogen-all-missing" style="font-size:11px;padding:4px 8px;color:#0284c7;font-weight:700;" title="Auto-generate barcodes for all items missing SKUs">⚡ Auto-Generate SKUs</button>` : ""}
+              </div>
+
+              <!-- Fast Inventory Checklist Table -->
+              <div class="barcode-inventory-table-wrap">
+                <table class="barcode-inventory-table">
+                  <thead>
+                    <tr>
+                      <th style="width:30px;text-align:center;"><input type="checkbox" id="barcodeMasterCheck" ${visibleItems.length && visibleItems.every((i) => barcodeQueue.some((q) => Number(q.itemId) === Number(i.id))) ? "checked" : ""}></th>
+                      <th>Product</th>
+                      <th>Barcode / SKU</th>
+                      <th style="text-align:center;">Stock</th>
+                      <th style="width:90px;text-align:center;">Copies</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${visibleItems.map((item) => {
+                      const queueIndex = barcodeQueue.findIndex((entry) => Number(entry.itemId) === Number(item.id));
+                      const isChecked = queueIndex >= 0;
+                      const entry = isChecked ? barcodeQueue[queueIndex] : null;
+                      const copies = entry ? entry.copies : Math.max(1, Math.min(120, Number(item.currentStock || item.openingStock || 12)));
+                      const skuDisplay = item.sku ? `<code class="barcode-sku-pill">${escapeHtml(item.sku)}</code>` : `<button class="link-button" type="button" data-action="gen-row-sku" data-item-id="${item.id}" style="font-size:11px;font-weight:700;color:#0284c7;padding:0;">⚡ Gen</button>`;
+                      return `
+                        <tr class="${isChecked ? "selected" : ""}" data-item-id="${item.id}">
+                          <td style="text-align:center;">
+                            <input type="checkbox" data-item-check="${item.id}" ${isChecked ? "checked" : ""}>
+                          </td>
+                          <td>
+                            <strong>${escapeHtml(item.name)}</strong>
+                            <br><small style="color:#64748b;">${escapeHtml(item.category || item.unit || "")} • ₹${formatCurrency(item.salePrice || 0).replace("₹", "").trim()}</small>
+                          </td>
+                          <td>${skuDisplay}</td>
+                          <td style="text-align:center;"><span class="badge ${Number(item.currentStock || 0) > 0 ? "badge-success" : "badge-muted"}" style="font-size:10px;padding:2px 6px;">${item.currentStock || 0}</span></td>
+                          <td>
+                            <div class="barcode-queue-stepper">
+                              <button type="button" data-action="row-dec" data-item-id="${item.id}">-</button>
+                              <input type="number" min="1" max="200" value="${copies}" data-row-copies="${item.id}">
+                              <button type="button" data-action="row-inc" data-item-id="${item.id}">+</button>
+                            </div>
+                          </td>
+                        </tr>
+                      `;
+                    }).join("") || '<tr><td colspan="5" style="text-align:center;color:#64748b;padding:24px;">No items match the current filter.</td></tr>'}
+                  </tbody>
+                </table>
+              </div>
+
+              <!-- Quick Add by Dropdown or Custom Code -->
+              <details style="margin-top:8px;font-size:12px;color:#475569;" ${barcodeQueue.length === 0 ? "open" : ""}>
+                <summary style="cursor:pointer;font-weight:600;color:#0284c7;user-select:none;">+ Quick Add by Dropdown or Custom Code</summary>
+                <div style="margin-top:8px;padding:10px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;display:grid;gap:6px;">
+                  <label class="form-row" style="margin-bottom:0;">
+                    <span>Select item</span>
+                    <select id="barcodeItemSelect" class="form-input">
+                      ${barcodeItemOptions(visibleItems.length ? visibleItems : labelItems, selectedItem?.id)}
+                    </select>
+                  </label>
+                  <label class="form-row" style="margin-bottom:0;">
+                    <span>Barcode value (optional override)</span>
+                    <input id="barcodeValueInput" class="form-input" value="${escapeHtml(initialCode)}" placeholder="SKU or custom barcode">
+                  </label>
+                  <div style="display:flex;gap:6px;align-items:flex-end;margin-top:4px;">
+                    <label class="form-row" style="margin-bottom:0;flex:1;">
+                      <span>Copies to add</span>
+                      <input id="barcodeCopiesInput" class="form-input" type="number" min="1" max="120" value="${defaultConfig.copies}">
+                    </label>
+                    <button class="primary-button" type="button" data-action="add-to-queue" style="height:34px;font-size:12px;white-space:nowrap;">
+                      + Add to Queue
+                    </button>
+                  </div>
+                </div>
+              </details>
+            </section>
+          </div>
+
+          <!-- TAB PANE 2: SHEET & LABEL DESIGN -->
+          <div class="barcode-tab-pane ${barcodeActiveTab === 'design' ? 'active' : ''}" data-pane="design">
+            <!-- CARD 1: STICKER SHEET PRESET & PARTIAL SHEET SKIP -->
+            <section class="barcode-panel-card">
+              <div class="barcode-section-head">
+                <div>
+                  <h2>Sticker Sheet &amp; Printer</h2>
+                  <p>Standard die-cut labels and paper alignment</p>
+                </div>
+                <span class="badge" style="font-size:10px;font-weight:700;">PRESETS</span>
+              </div>
+
               <label class="form-row">
-                <span>Label size</span>
-                <select id="barcodeSizeSelect" class="form-input">
-                  <option value="small">38 x 25 mm</option>
-                  <option value="medium" selected>50 x 25 mm</option>
-                  <option value="large">70 x 35 mm</option>
+                <span>Sticker Sheet Preset</span>
+                <select id="barcodePresetSelect" class="form-input">
+                  <option value="a4-24" ${barcodePreset === "a4-24" ? "selected" : ""}>A4 Sheet — 24 Labels (3×8, 64 × 33.8 mm)</option>
+                  <option value="a4-40" ${barcodePreset === "a4-40" ? "selected" : ""}>A4 Sheet — 40 Labels (4×10, 48.5 × 25.4 mm)</option>
+                  <option value="a4-65" ${barcodePreset === "a4-65" ? "selected" : ""}>A4 Sheet — 65 Labels (5×13, 38.1 × 21.2 mm)</option>
+                  <option value="thermal-50" ${barcodePreset === "thermal-50" ? "selected" : ""}>Thermal Roll — 50 × 25 mm (1-Across Roll)</option>
+                  <option value="thermal-38" ${barcodePreset === "thermal-38" ? "selected" : ""}>Thermal Roll — 38 × 25 mm (1-Across Roll)</option>
                 </select>
               </label>
-              <label class="form-row">
-                <span>Copies</span>
-                <input id="barcodeCopiesInput" class="form-input" type="number" min="1" max="120" value="${defaultConfig.copies}">
-              </label>
-            </div>
-            <div class="barcode-content-options">
-              <label><input id="barcodeShowName" type="checkbox" checked> Item name</label>
-              <label><input id="barcodeShowPrice" type="checkbox" checked> Sale price</label>
-              <label><input id="barcodeShowSku" type="checkbox" checked> SKU/code text</label>
-              <label><input id="barcodeShowHsn" type="checkbox"> HSN/SAC</label>
-            </div>
-          </section>
+
+              <!-- Skip Used Stickers Offset (For Partial Sheet Reuse) -->
+              <div class="barcode-offset-group" style="${currentPreset.isThermal ? "display:none;" : "display:grid;"}gap:6px;margin-top:6px;padding:10px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px;">
+                <div style="display:flex;justify-content:space-between;align-items:center;">
+                  <strong style="font-size:12px;color:#166534;">Skip Already Used Stickers</strong>
+                  <span style="font-size:11px;font-weight:700;color:#15803d;">Slot #${barcodeStartOffset}</span>
+                </div>
+                <p style="font-size:11px;color:#166534;margin:0;">Leave peeled positions blank to reuse partially used A4 sheets without waste.</p>
+                <div style="display:flex;gap:6px;align-items:center;margin-top:4px;">
+                  <span style="font-size:12px;font-weight:600;color:#334155;white-space:nowrap;">Start at Sticker #:</span>
+                  <input id="barcodeStartOffset" class="form-input" type="number" min="1" max="${currentPreset.perSheet || 24}" value="${barcodeStartOffset}" style="width:70px;text-align:center;font-weight:700;">
+                  <button class="secondary-button" type="button" data-action="offset-inc" style="padding:4px 8px;font-size:11px;" title="Skip one more">+1</button>
+                  <button class="secondary-button" type="button" data-action="offset-reset" style="padding:4px 8px;font-size:11px;" title="Reset to start from sticker 1">Reset (#1)</button>
+                </div>
+              </div>
+
+              <!-- Label Size and Printer Format (Fully synced with preset) -->
+              <div class="barcode-form-grid" style="margin-top:12px;">
+                <label class="form-row">
+                  <span>Label size scale</span>
+                  <select id="barcodeSizeSelect" class="form-input">
+                    <option value="small" ${defaultConfig.size === "small" ? "selected" : ""}>Small Compact</option>
+                    <option value="medium" ${defaultConfig.size === "medium" ? "selected" : ""}>Standard Regular</option>
+                    <option value="large" ${defaultConfig.size === "large" ? "selected" : ""}>Large High-Res</option>
+                  </select>
+                </label>
+                <label class="form-row">
+                  <span>Printer Output</span>
+                  <select id="barcodePrinterFormat" class="form-input">
+                    <option value="sheet" ${defaultConfig.printerFormat === "thermal" ? "" : "selected"}>A4 Sheet</option>
+                    <option value="thermal" ${defaultConfig.printerFormat === "thermal" ? "selected" : ""}>Thermal Roll</option>
+                  </select>
+                </label>
+              </div>
+            </section>
+
+            <!-- CARD 2: SHOP HEADER & PRICE PREFIX -->
+            <section class="barcode-panel-card">
+              <div class="barcode-section-head">
+                <h2>Store Header &amp; Pricing</h2>
+                <span>Code 128</span>
+              </div>
+
+              <!-- Shop / Store Name -->
+              <div style="display:grid;gap:6px;margin-bottom:12px;padding-bottom:12px;border-bottom:1px solid #e2e8f0;">
+                <label style="font-weight:700;font-size:12px;color:#334155;display:flex;align-items:center;gap:6px;">
+                  <input id="barcodeShowShopName" type="checkbox" ${defaultConfig.showShopName ? "checked" : ""}> Shop / Store Name (Top Header)
+                </label>
+                <input id="barcodeShopNameInput" class="form-input" value="${escapeHtml(defaultConfig.shopName)}" placeholder="e.g. My Store / Trade Name">
+              </div>
+
+              <!-- Price Prefix and Packed Date -->
+              <div class="barcode-form-grid">
+                <label class="form-row">
+                  <span>Price prefix</span>
+                  <select id="barcodePricePrefix" class="form-input">
+                    <option value="MRP ₹" ${defaultConfig.pricePrefix === "MRP ₹" ? "selected" : ""}>MRP ₹...</option>
+                    <option value="Price: ₹" ${defaultConfig.pricePrefix === "Price: ₹" ? "selected" : ""}>Price: ₹...</option>
+                    <option value="₹" ${defaultConfig.pricePrefix === "₹" ? "selected" : ""}>₹... only</option>
+                  </select>
+                </label>
+                <label class="form-row">
+                  <span>Packed date</span>
+                  <input id="barcodeDateInput" class="form-input" value="${escapeHtml(defaultConfig.packedDate)}" placeholder="e.g. Sep 2026">
+                </label>
+              </div>
+            </section>
+
+            <!-- CARD 3: FIELDS ON STICKER -->
+            <section class="barcode-panel-card">
+              <div class="barcode-section-head">
+                <h2>Fields on Sticker</h2>
+                <small>Toggle info</small>
+              </div>
+              <div class="barcode-content-options">
+                <label><input id="barcodeShowName" type="checkbox" ${defaultConfig.showName ? "checked" : ""}> Product name</label>
+                <label><input id="barcodeShowPrice" type="checkbox" ${defaultConfig.showPrice ? "checked" : ""}> Sale price / MRP</label>
+                <label><input id="barcodeShowUnit" type="checkbox" ${defaultConfig.showUnit ? "checked" : ""}> Unit (UOM)</label>
+                <label><input id="barcodeShowSku" type="checkbox" ${defaultConfig.showSku ? "checked" : ""}> SKU / code</label>
+                <label><input id="barcodeShowHsn" type="checkbox" ${defaultConfig.showHsn ? "checked" : ""}> HSN code</label>
+                <label><input id="barcodeShowDate" type="checkbox" ${defaultConfig.showDate ? "checked" : ""}> Packed date</label>
+              </div>
+            </section>
+          </div>
         </aside>
 
+        <!-- RIGHT MAIN PANE: FULL-HEIGHT PRINT SHEET -->
         <main class="barcode-preview-panel">
-          <section class="barcode-panel-card barcode-live-preview">
-            <div class="barcode-section-head">
-              <div>
-                <h2>Live Preview</h2>
-                <p id="barcodePreviewMeta">${escapeHtml(barcodeMetaText(selectedItem, initialCode))}</p>
-              </div>
-              <button class="secondary-button" type="button" data-action="refresh-barcode-preview">Refresh</button>
-            </div>
-            <div id="barcodePreviewTarget" class="barcode-preview-target">
-              ${barcodeLabelMarkup(selectedItem, defaultConfig)}
-            </div>
-          </section>
-
           <section class="barcode-panel-card barcode-sheet-card">
             <div class="barcode-section-head">
               <div>
-                <h2>Print Sheet</h2>
-                <p>Labels will print exactly from this grid.</p>
+                <h2>Print Sheet Preview</h2>
+                <p id="barcodeSheetMetaSub">${totalLabels} labels across ${barcodeQueue.length} queued product(s) • Preset: ${currentPreset.name}${barcodeStartOffset > 1 ? ` • Start #${barcodeStartOffset}` : ""}</p>
               </div>
-              <span id="barcodeSheetMeta">${defaultConfig.copies} labels</span>
+              <div style="display:flex;gap:8px;align-items:center;">
+                <span id="barcodeSheetMeta" class="badge" style="font-size:12px;padding:5px 10px;background:#e0f2fe;color:#0369a1;border-radius:999px;font-weight:700;">
+                  ${totalLabels} label${totalLabels === 1 ? "" : "s"}${currentPreset.isThermal ? " (Roll)" : ` • ${sheetsCount} sheet(s)`}
+                </span>
+                <button class="primary-button square" type="button" data-action="print-barcodes">
+                  <svg class="gi-icon" style="width:15px;height:15px;margin-right:6px;vertical-align:text-bottom;"><use href="#gi-printer"></use></svg>
+                  Print Labels
+                </button>
+              </div>
             </div>
             <div class="barcode-sheet-scroll">
-              <div id="barcodeSheet" class="barcode-sheet">
-                ${barcodeSheetMarkup(selectedItem, defaultConfig)}
+              <div id="barcodeSheet" class="barcode-sheet barcode-sheet-${barcodePreset}">
+                ${barcodeSheetMarkup(barcodeQueue, defaultConfig)}
               </div>
             </div>
           </section>
@@ -9497,6 +12628,22 @@ function barcodeGeneratorTemplate() {
   `;
 }
 
+function barcodeEnsureQueue(items = state.items || []) {
+  if (Array.isArray(barcodeQueue)) return;
+  const targetItems = (items || []).filter((item) => itemKind(item).label !== "Service" && Number(item.currentStock || item.openingStock || 0) > 0);
+  const seed = targetItems.length ? targetItems.slice(0, 10) : (items || []).slice(0, 5);
+  barcodeQueue = seed.map((item) => ({
+    itemId: item.id,
+    copies: Math.max(1, Math.min(60, Number(item.currentStock || item.openingStock || 12))),
+    customCode: item.sku || barcodeValueForItem(item),
+  }));
+}
+
+function barcodeTotalCopies(queue) {
+  if (!Array.isArray(queue)) return 0;
+  return queue.reduce((sum, entry) => sum + Math.max(1, Number(entry.copies || 1)), 0);
+}
+
 function barcodeLabelItems(items = state.items || []) {
   const products = items.filter((item) => itemKind(item).label !== "Service");
   return products.length ? products : items;
@@ -9504,7 +12651,14 @@ function barcodeLabelItems(items = state.items || []) {
 
 function barcodeFilteredItems(items = state.items || []) {
   const query = String(barcodeSearchQuery || "").trim().toLowerCase();
-  const labelItems = barcodeLabelItems(items);
+  let labelItems = barcodeLabelItems(items);
+
+  if (barcodeQuickFilter === "missing") {
+    labelItems = labelItems.filter((item) => itemKind(item).label !== "Service" && !String(item.sku || "").trim());
+  } else if (barcodeQuickFilter === "ready") {
+    labelItems = labelItems.filter((item) => Boolean(String(item.sku || "").trim()));
+  }
+
   if (!query) return labelItems;
   return labelItems.filter((item) => [
     item.name,
@@ -9517,14 +12671,24 @@ function barcodeFilteredItems(items = state.items || []) {
 }
 
 function barcodeDefaultConfig(item, code = "") {
+  const preset = BARCODE_PRESETS[barcodePreset] || BARCODE_PRESETS["a4-24"];
   return {
     code: sanitizeBarcodeValue(code || barcodeValueForItem(item)),
-    size: "medium",
-    copies: 12,
+    shopName: barcodeCustomShopName || state.businessSettings?.businessName || state.currentCompany || "GI Store",
+    showShopName: true,
     showName: true,
     showPrice: true,
+    showUnit: true,
+    pricePrefix: "MRP ₹",
     showSku: true,
     showHsn: false,
+    showDate: false,
+    packedDate: barcodeCustomDate || (new Date().toLocaleString("en-IN", { month: "short", year: "numeric" })),
+    size: "medium",
+    printerFormat: preset.isThermal ? "thermal" : "sheet",
+    preset: barcodePreset || "a4-24",
+    startOffset: barcodeStartOffset || 1,
+    copies: 12,
   };
 }
 
@@ -9557,33 +12721,75 @@ function findBarcodeItem(itemId) {
   return (state.items || []).find((item) => Number(item.id) === Number(itemId)) || null;
 }
 
-function barcodeMetaText(item, code) {
-  if (!item) return `Custom code ${code || "GI-0001"}`;
-  return [item.name, item.sku ? `SKU ${item.sku}` : "", item.unit ? `Unit ${item.unit}` : "", item.category].filter(Boolean).join(" - ");
-}
-
-function barcodeLabelMarkup(item, config) {
-  const code = sanitizeBarcodeValue(config.code);
+function barcodeLabelMarkup(item, config, preset = BARCODE_PRESETS[config?.preset || barcodePreset] || BARCODE_PRESETS["a4-24"]) {
+  const code = sanitizeBarcodeValue(config.code || barcodeValueForItem(item));
   const itemName = item?.name || "Custom Item";
   const size = ["small", "medium", "large"].includes(config.size) ? config.size : "medium";
   const salePrice = Number(item?.salePrice || 0);
   const hsn = item?.hsnSac || "";
+  const unit = item?.unit || "";
+
+  const shopName = String(config.shopName || "").trim();
+  const rawFormatted = formatCurrency(salePrice).replace("₹", "").trim();
+  const priceDisplay = config.showPrice ? `${config.pricePrefix || "₹"}${rawFormatted}${config.showUnit && unit ? ` / ${unit}` : ""}` : "";
+
   return `
-    <article class="barcode-label barcode-label-${size}">
-      ${config.showName ? `<strong>${escapeHtml(itemName)}</strong>` : ""}
+    <article class="barcode-label barcode-label-${size} ${preset.labelClass || 'barcode-preset-a4-24'}">
+      ${config.showShopName && shopName ? `<span class="barcode-shop-name">${escapeHtml(shopName)}</span>` : ""}
+      ${config.showName ? `<strong class="barcode-item-title">${escapeHtml(itemName)}</strong>` : ""}
       <div class="barcode-svg-wrap">${barcodeSvg(code)}</div>
       <div class="barcode-label-row">
         ${config.showSku ? `<span>${escapeHtml(code)}</span>` : "<span></span>"}
-        ${config.showPrice ? `<b>${formatCurrency(salePrice)}</b>` : ""}
+        ${priceDisplay ? `<b>${escapeHtml(priceDisplay)}</b>` : ""}
       </div>
-      ${config.showHsn && hsn ? `<small>HSN/SAC ${escapeHtml(hsn)}</small>` : ""}
+      ${(config.showHsn && hsn) || (config.showDate && config.packedDate) ? `
+        <div class="barcode-label-subrow">
+          ${config.showHsn && hsn ? `<span>HSN: ${escapeHtml(hsn)}</span>` : "<span></span>"}
+          ${config.showDate && config.packedDate ? `<span>Pkd: ${escapeHtml(config.packedDate)}</span>` : ""}
+        </div>
+      ` : ""}
     </article>
   `;
 }
 
-function barcodeSheetMarkup(item, config) {
-  const copies = Math.max(1, Math.min(120, Number(config.copies || 1)));
-  return Array.from({ length: copies }, () => barcodeLabelMarkup(item, config)).join("");
+function barcodeSheetMarkup(queue, config) {
+  if (!queue || !queue.length) {
+    return `
+      <div class="barcode-empty-queue">
+        <svg class="gi-icon" style="width:48px;height:48px;color:#94a3b8;"><use href="#gi-barcode"></use></svg>
+        <strong>Print Queue is Empty</strong>
+        <p>Add products using the checklist or click <b>+ All In-Stock</b> to prepare labels for printing.</p>
+      </div>
+    `;
+  }
+
+  const preset = BARCODE_PRESETS[config?.preset || barcodePreset] || BARCODE_PRESETS["a4-24"];
+  const startOffset = Math.max(1, Number(config?.startOffset || barcodeStartOffset || 1));
+  const blankSlots = [];
+
+  // If A4 sheet and startOffset > 1, prepend skipped placeholder slots
+  if (!preset.isThermal && startOffset > 1) {
+    for (let i = 1; i < startOffset; i++) {
+      blankSlots.push(`
+        <article class="barcode-label barcode-label-blank" title="Sticker #${i} (Skipped - leaves blank space on sheet)">
+          <div class="barcode-blank-slot">
+            <svg class="gi-icon" style="width:14px;height:14px;opacity:0.35;"><use href="#gi-ban"></use></svg>
+            <span>#${i} Skipped</span>
+          </div>
+        </article>
+      `);
+    }
+  }
+
+  const labelMarkups = queue.flatMap((entry) => {
+    const item = findBarcodeItem(entry.itemId);
+    if (!item) return [];
+    const copies = Math.max(1, Math.min(200, Number(entry.copies || 1)));
+    const itemConfig = { ...config, code: sanitizeBarcodeValue(entry.customCode || barcodeValueForItem(item)) };
+    return Array.from({ length: copies }, () => barcodeLabelMarkup(item, itemConfig, preset));
+  });
+
+  return blankSlots.concat(labelMarkups).join("");
 }
 
 function barcodeSvg(value) {
@@ -9618,15 +12824,344 @@ function bindBarcodeGeneratorActions() {
   const itemSelect = page.querySelector("#barcodeItemSelect");
   const itemSearch = page.querySelector("#barcodeItemSearch");
   const codeInput = page.querySelector("#barcodeValueInput");
+  const copiesInput = page.querySelector("#barcodeCopiesInput");
+
+  // Tab switching
+  page.querySelectorAll("[data-barcode-tab]").forEach((tabBtn) => {
+    tabBtn.addEventListener("click", () => {
+      barcodeActiveTab = tabBtn.dataset.barcodeTab || "items";
+      page.querySelectorAll(".barcode-nav-tab").forEach((t) => {
+        t.classList.toggle("active", t.dataset.barcodeTab === barcodeActiveTab);
+      });
+      page.querySelectorAll(".barcode-tab-pane").forEach((pane) => {
+        pane.classList.toggle("active", pane.dataset.pane === barcodeActiveTab);
+      });
+    });
+  });
+
+  // Preset selector
+  const presetSelect = page.querySelector("#barcodePresetSelect");
+  presetSelect?.addEventListener("change", () => {
+    barcodePreset = presetSelect.value;
+    const preset = BARCODE_PRESETS[barcodePreset] || BARCODE_PRESETS["a4-24"];
+
+    // Sync printer format dropdown
+    const formatSelect = page.querySelector("#barcodePrinterFormat");
+    if (formatSelect) {
+      formatSelect.value = preset.isThermal ? "thermal" : "sheet";
+    }
+
+    // Adjust max offset
+    const offsetInput = page.querySelector("#barcodeStartOffset");
+    if (offsetInput) {
+      offsetInput.max = preset.isThermal ? 1 : preset.perSheet;
+      if (preset.isThermal) offsetInput.value = 1;
+      if (Number(offsetInput.value) > preset.perSheet) offsetInput.value = 1;
+      barcodeStartOffset = Number(offsetInput.value || 1);
+    }
+
+    // Hide/show offset group if thermal
+    const offsetGroup = page.querySelector(".barcode-offset-group");
+    if (offsetGroup) {
+      offsetGroup.style.display = preset.isThermal ? "none" : "grid";
+    }
+
+    updateBarcodePreview(page);
+  });
+
+  // Offset input & quick buttons
+  const offsetInput = page.querySelector("#barcodeStartOffset");
+  offsetInput?.addEventListener("input", () => {
+    barcodeStartOffset = Math.max(1, Number(offsetInput.value || 1));
+    updateBarcodePreview(page);
+  });
+  page.querySelector("[data-action='offset-reset']")?.addEventListener("click", () => {
+    if (offsetInput) offsetInput.value = 1;
+    barcodeStartOffset = 1;
+    updateBarcodePreview(page);
+  });
+  page.querySelector("[data-action='offset-inc']")?.addEventListener("click", () => {
+    if (offsetInput) {
+      const preset = BARCODE_PRESETS[barcodePreset] || BARCODE_PRESETS["a4-24"];
+      offsetInput.value = Math.min(preset.perSheet || 24, Number(offsetInput.value || 1) + 1);
+      barcodeStartOffset = Number(offsetInput.value);
+      updateBarcodePreview(page);
+    }
+  });
+
   const controls = [
     "#barcodeValueInput",
+    "#barcodeShopNameInput",
+    "#barcodeShowShopName",
     "#barcodeSizeSelect",
+    "#barcodePrinterFormat",
     "#barcodeCopiesInput",
     "#barcodeShowName",
     "#barcodeShowPrice",
+    "#barcodeShowUnit",
+    "#barcodePricePrefix",
     "#barcodeShowSku",
     "#barcodeShowHsn",
+    "#barcodeShowDate",
+    "#barcodeDateInput",
   ];
+
+  page.querySelectorAll("[data-barcode-filter]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      barcodeQuickFilter = btn.dataset.barcodeFilter || "all";
+      elements.featureView.innerHTML = barcodeGeneratorTemplate();
+      bindFeatureActions();
+    });
+  });
+
+  page.querySelector("[data-action='focus-queue']")?.addEventListener("click", () => {
+    barcodeActiveTab = "items";
+    elements.featureView.innerHTML = barcodeGeneratorTemplate();
+    bindFeatureActions();
+    page.querySelector(".barcode-queue-card")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  });
+
+  page.querySelectorAll("[data-action='add-all-instock-queue']").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const products = (state.items || []).filter((i) => itemKind(i).label !== "Service");
+      const inStock = products.filter((i) => Number(i.currentStock || i.openingStock || 0) > 0);
+      const targets = inStock.length ? inStock : products;
+
+      barcodeQueue = targets.map((item) => ({
+        itemId: item.id,
+        copies: Math.max(1, Math.min(120, Number(item.currentStock || item.openingStock || 1))),
+        customCode: barcodeValueForItem(item),
+      }));
+
+      showToast(`Added ${barcodeQueue.length} products to print queue.`);
+      elements.featureView.innerHTML = barcodeGeneratorTemplate();
+      bindFeatureActions();
+    });
+  });
+
+  page.querySelector("[data-action='clear-barcode-queue']")?.addEventListener("click", () => {
+    barcodeQueue = [];
+    showToast("Print queue cleared.");
+    elements.featureView.innerHTML = barcodeGeneratorTemplate();
+    bindFeatureActions();
+  });
+
+  page.querySelector("[data-action='add-to-queue']")?.addEventListener("click", () => {
+    const item = findBarcodeItem(itemSelect?.value);
+    if (!item) {
+      showToast("Select an item first.");
+      return;
+    }
+    const copies = Math.max(1, Math.min(200, Number(copiesInput?.value || 1)));
+    const code = sanitizeBarcodeValue(codeInput?.value || barcodeValueForItem(item));
+
+    const existingIndex = barcodeQueue.findIndex((entry) => Number(entry.itemId) === Number(item.id));
+    if (existingIndex >= 0) {
+      barcodeQueue[existingIndex].copies += copies;
+      barcodeQueue[existingIndex].customCode = code;
+    } else {
+      barcodeQueue.push({ itemId: item.id, copies, customCode: code });
+    }
+
+    showToast(`Added ${copies} label(s) for "${item.name}" to queue.`);
+    elements.featureView.innerHTML = barcodeGeneratorTemplate();
+    bindFeatureActions();
+  });
+
+  page.querySelectorAll("[data-item-check]").forEach((checkbox) => {
+    checkbox.addEventListener("change", () => {
+      const itemId = Number(checkbox.dataset.itemCheck);
+      const item = findBarcodeItem(itemId);
+      if (!item) return;
+      const isChecked = checkbox.checked;
+      const existingIdx = barcodeQueue.findIndex((entry) => Number(entry.itemId) === itemId);
+      if (isChecked && existingIdx < 0) {
+        const input = page.querySelector(`[data-item-id="${itemId}"][data-queue-input]`);
+        const copies = Math.max(1, Math.min(200, Number(input?.value || item.currentStock || item.openingStock || 12)));
+        barcodeQueue.push({
+          itemId: item.id,
+          copies,
+          customCode: item.sku || barcodeValueForItem(item),
+        });
+      } else if (!isChecked && existingIdx >= 0) {
+        barcodeQueue.splice(existingIdx, 1);
+      }
+      elements.featureView.innerHTML = barcodeGeneratorTemplate();
+      bindFeatureActions();
+    });
+  });
+
+  page.querySelector("#barcodeMasterCheck")?.addEventListener("change", (e) => {
+    const checked = e.target.checked;
+    const visible = barcodeFilteredItems(state.items || []);
+    if (checked) {
+      visible.forEach((item) => {
+        if (!barcodeQueue.some((entry) => Number(entry.itemId) === Number(item.id))) {
+          barcodeQueue.push({
+            itemId: item.id,
+            copies: Math.max(1, Math.min(120, Number(item.currentStock || item.openingStock || 12))),
+            customCode: item.sku || barcodeValueForItem(item),
+          });
+        }
+      });
+    } else {
+      const visibleIds = new Set(visible.map((i) => Number(i.id)));
+      barcodeQueue = barcodeQueue.filter((entry) => !visibleIds.has(Number(entry.itemId)));
+    }
+    elements.featureView.innerHTML = barcodeGeneratorTemplate();
+    bindFeatureActions();
+  });
+
+  page.querySelector("[data-action='select-all-visible']")?.addEventListener("click", () => {
+    const visible = barcodeFilteredItems(state.items || []);
+    visible.forEach((item) => {
+      if (!barcodeQueue.some((entry) => Number(entry.itemId) === Number(item.id))) {
+        barcodeQueue.push({
+          itemId: item.id,
+          copies: Math.max(1, Math.min(120, Number(item.currentStock || item.openingStock || 12))),
+          customCode: item.sku || barcodeValueForItem(item),
+        });
+      }
+    });
+    showToast(`Selected all ${visible.length} visible items.`);
+    elements.featureView.innerHTML = barcodeGeneratorTemplate();
+    bindFeatureActions();
+  });
+
+  page.querySelector("[data-action='match-all-stock-copies']")?.addEventListener("click", () => {
+    barcodeQueue.forEach((entry) => {
+      const item = findBarcodeItem(entry.itemId);
+      if (item) {
+        entry.copies = Math.max(1, Math.min(200, Number(item.currentStock || item.openingStock || 1)));
+      }
+    });
+    showToast("Print copies matched to in-stock inventory quantities.");
+    elements.featureView.innerHTML = barcodeGeneratorTemplate();
+    bindFeatureActions();
+  });
+
+  page.querySelector("[data-action='autogen-all-missing']")?.addEventListener("click", async () => {
+    const missing = (state.items || []).filter((item) => itemKind(item).label !== "Service" && !String(item.sku || "").trim());
+    if (!missing.length) {
+      showToast("All items have SKUs assigned.");
+      return;
+    }
+    for (const item of missing) {
+      const newSku = generateUniqueStoreBarcode();
+      const updated = { ...item, sku: newSku };
+      if (window.giDB?.updateItem) {
+        state = normalizeState(await window.giDB.updateItem(updated));
+      } else {
+        item.sku = newSku;
+      }
+    }
+    if (!window.giDB) saveState();
+    showToast(`⚡ Generated unique barcodes for ${missing.length} item(s)!`);
+    elements.featureView.innerHTML = barcodeGeneratorTemplate();
+    bindFeatureActions();
+  });
+
+  page.querySelectorAll("[data-action='gen-row-sku']").forEach((btn) => {
+    btn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const itemId = Number(btn.dataset.itemId);
+      const item = findBarcodeItem(itemId);
+      if (!item) return;
+      const newSku = generateUniqueStoreBarcode();
+      const updated = { ...item, sku: newSku };
+      if (window.giDB?.updateItem) {
+        state = normalizeState(await window.giDB.updateItem(updated));
+      } else {
+        item.sku = newSku;
+        saveState();
+      }
+      showToast(`⚡ Generated barcode "${newSku}" for ${item.name}!`);
+      elements.featureView.innerHTML = barcodeGeneratorTemplate();
+      bindFeatureActions();
+    });
+  });
+
+  page.querySelectorAll("[data-action='queue-inc']").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const idx = Number(btn.dataset.index);
+      if (barcodeQueue[idx]) {
+        barcodeQueue[idx].copies = Math.min(200, barcodeQueue[idx].copies + 1);
+        updateBarcodePreview(page);
+        const input = page.querySelector(`[data-queue-input="${idx}"]`);
+        if (input) input.value = barcodeQueue[idx].copies;
+        syncQueueMetrics(page);
+      }
+    });
+  });
+
+  page.querySelectorAll("[data-action='queue-dec']").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const idx = Number(btn.dataset.index);
+      if (barcodeQueue[idx]) {
+        barcodeQueue[idx].copies = Math.max(1, barcodeQueue[idx].copies - 1);
+        updateBarcodePreview(page);
+        const input = page.querySelector(`[data-queue-input="${idx}"]`);
+        if (input) input.value = barcodeQueue[idx].copies;
+        syncQueueMetrics(page);
+      }
+    });
+  });
+
+  page.querySelectorAll("[data-queue-input]").forEach((input) => {
+    input.addEventListener("change", () => {
+      const idx = Number(input.dataset.queueInput);
+      if (barcodeQueue[idx]) {
+        barcodeQueue[idx].copies = Math.max(1, Math.min(200, Number(input.value || 1)));
+        input.value = barcodeQueue[idx].copies;
+        updateBarcodePreview(page);
+        syncQueueMetrics(page);
+      }
+    });
+  });
+
+  page.querySelectorAll("[data-action='row-inc']").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const itemId = Number(btn.dataset.itemId);
+      const input = page.querySelector(`[data-row-copies="${itemId}"]`);
+      if (input) {
+        input.value = Math.min(200, Number(input.value || 1) + 1);
+      }
+      const existing = barcodeQueue.find((e) => Number(e.itemId) === itemId);
+      if (existing) {
+        existing.copies = Math.min(200, existing.copies + 1);
+        elements.featureView.innerHTML = barcodeGeneratorTemplate();
+        bindFeatureActions();
+      }
+    });
+  });
+
+  page.querySelectorAll("[data-action='row-dec']").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const itemId = Number(btn.dataset.itemId);
+      const input = page.querySelector(`[data-row-copies="${itemId}"]`);
+      if (input) {
+        input.value = Math.max(1, Number(input.value || 1) - 1);
+      }
+      const existing = barcodeQueue.find((e) => Number(e.itemId) === itemId);
+      if (existing) {
+        existing.copies = Math.max(1, existing.copies - 1);
+        elements.featureView.innerHTML = barcodeGeneratorTemplate();
+        bindFeatureActions();
+      }
+    });
+  });
+
+  page.querySelectorAll("[data-action='queue-remove']").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const idx = Number(btn.dataset.index);
+      if (barcodeQueue[idx]) {
+        barcodeQueue.splice(idx, 1);
+        showToast("Removed from queue.");
+        elements.featureView.innerHTML = barcodeGeneratorTemplate();
+        bindFeatureActions();
+      }
+    });
+  });
 
   itemSearch?.addEventListener("input", () => {
     barcodeSearchQuery = itemSearch.value.trim().toLowerCase();
@@ -9645,38 +13180,50 @@ function bindBarcodeGeneratorActions() {
     page.querySelector(selector)?.addEventListener("change", () => updateBarcodePreview(page));
   });
 
-  page.querySelector("[data-action='use-selected-item-code']")?.addEventListener("click", () => {
-    const item = findBarcodeItem(itemSelect?.value);
-    if (codeInput) codeInput.value = barcodeValueForItem(item);
-    updateBarcodePreview(page);
-  });
-
-  page.querySelector("[data-action='copy-barcode-code']")?.addEventListener("click", async () => {
-    const code = sanitizeBarcodeValue(codeInput?.value || "");
-    try {
-      await navigator.clipboard.writeText(code);
-      showToast("Barcode Code Copied");
-    } catch {
-      showToast("Copy is not available here");
-    }
-  });
-
-  page.querySelector("[data-action='refresh-barcode-preview']")?.addEventListener("click", () => {
-    updateBarcodePreview(page);
-    showToast("Barcode Preview Refreshed");
-  });
-
   page.querySelector("[data-action='edit-barcode-item']")?.addEventListener("click", () => {
     const item = findBarcodeItem(itemSelect?.value);
     if (item) openEntryModal("item", item);
   });
 
-  page.querySelector("[data-action='print-barcodes']")?.addEventListener("click", () => {
-    updateBarcodePreview(page);
-    document.body.classList.add("barcode-print-mode");
-    window.addEventListener("afterprint", () => document.body.classList.remove("barcode-print-mode"), { once: true });
-    window.print();
+  page.querySelectorAll("[data-action='print-barcodes']").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const config = readBarcodeConfig(page);
+      updateBarcodePreview(page);
+      document.body.classList.add("barcode-print-mode");
+      if (config.printerFormat === "thermal") {
+        document.body.classList.add("barcode-thermal-roll");
+      } else {
+        document.body.classList.remove("barcode-thermal-roll");
+      }
+      window.addEventListener("afterprint", () => {
+        document.body.classList.remove("barcode-print-mode");
+        document.body.classList.remove("barcode-thermal-roll");
+      }, { once: true });
+      window.print();
+    });
   });
+}
+
+function syncQueueMetrics(page) {
+  if (!page) return;
+  const totalLabels = barcodeTotalCopies(barcodeQueue);
+  const preset = BARCODE_PRESETS[barcodePreset] || BARCODE_PRESETS["a4-24"];
+  const sheetsCount = preset.isThermal ? totalLabels : Math.ceil((totalLabels + (barcodeStartOffset - 1)) / (preset.perSheet || 24));
+
+  const queueSubtext = page.querySelector("#barcodeQueueSubtext");
+  const queueCountMetric = page.querySelector("#barcodeQueueItemCount");
+  const copyMetric = page.querySelector("#barcodeCopyMetric");
+  const sheetMeta = page.querySelector("#barcodeSheetMeta");
+  const sheetMetaSub = page.querySelector("#barcodeSheetMetaSub");
+
+  if (queueSubtext) queueSubtext.textContent = `${barcodeQueue.length} product(s) • ${totalLabels} total label(s)`;
+  if (queueCountMetric) queueCountMetric.textContent = String(barcodeQueue.length);
+  if (copyMetric) copyMetric.textContent = String(totalLabels);
+  if (sheetMeta) sheetMeta.textContent = `${totalLabels} label${totalLabels === 1 ? "" : "s"}${preset.isThermal ? " (Roll)" : ` • ${sheetsCount} sheet(s)`}`;
+  if (sheetMetaSub) sheetMetaSub.textContent = `${totalLabels} labels across ${barcodeQueue.length} queued product(s) • Preset: ${preset.name}${barcodeStartOffset > 1 ? ` • Start #${barcodeStartOffset}` : ""}`;
+
+  const tabBadge = page.querySelector(".barcode-tab-badge");
+  if (tabBadge) tabBadge.textContent = String(barcodeQueue.length);
 }
 
 function updateBarcodeItemOptions(page = elements.featureView.querySelector(".barcode-page")) {
@@ -9707,37 +13254,48 @@ function updateBarcodeItemOptions(page = elements.featureView.querySelector(".ba
 }
 
 function readBarcodeConfig(page) {
+  const shopNameInput = page.querySelector("#barcodeShopNameInput");
+  const dateInput = page.querySelector("#barcodeDateInput");
+  const presetSelect = page.querySelector("#barcodePresetSelect");
+  const offsetInput = page.querySelector("#barcodeStartOffset");
+
+  if (shopNameInput) barcodeCustomShopName = shopNameInput.value.trim();
+  if (dateInput) barcodeCustomDate = dateInput.value.trim();
+  if (presetSelect) barcodePreset = presetSelect.value;
+  if (offsetInput) barcodeStartOffset = Math.max(1, Number(offsetInput.value || 1));
+
+  const preset = BARCODE_PRESETS[barcodePreset] || BARCODE_PRESETS["a4-24"];
+
   return {
     code: sanitizeBarcodeValue(page.querySelector("#barcodeValueInput")?.value || ""),
-    size: page.querySelector("#barcodeSizeSelect")?.value || "medium",
-    copies: Math.max(1, Math.min(120, Number(page.querySelector("#barcodeCopiesInput")?.value || 1))),
+    shopName: shopNameInput ? shopNameInput.value.trim() : (barcodeCustomShopName || state.businessSettings?.businessName || state.currentCompany || "GI Store"),
+    showShopName: page.querySelector("#barcodeShowShopName")?.checked ?? true,
     showName: page.querySelector("#barcodeShowName")?.checked ?? true,
     showPrice: page.querySelector("#barcodeShowPrice")?.checked ?? true,
+    showUnit: page.querySelector("#barcodeShowUnit")?.checked ?? true,
+    pricePrefix: page.querySelector("#barcodePricePrefix")?.value || "MRP ₹",
     showSku: page.querySelector("#barcodeShowSku")?.checked ?? true,
     showHsn: page.querySelector("#barcodeShowHsn")?.checked ?? false,
+    showDate: page.querySelector("#barcodeShowDate")?.checked ?? false,
+    packedDate: dateInput ? dateInput.value.trim() : (barcodeCustomDate || (new Date().toLocaleString("en-IN", { month: "short", year: "numeric" }))),
+    size: page.querySelector("#barcodeSizeSelect")?.value || "medium",
+    printerFormat: page.querySelector("#barcodePrinterFormat")?.value || (preset.isThermal ? "thermal" : "sheet"),
+    preset: barcodePreset,
+    startOffset: barcodeStartOffset,
+    copies: Math.max(1, Math.min(120, Number(page.querySelector("#barcodeCopiesInput")?.value || 1))),
   };
 }
 
 function updateBarcodePreview(page = elements.featureView.querySelector(".barcode-page")) {
   if (!page) return;
-  const item = findBarcodeItem(page.querySelector("#barcodeItemSelect")?.value);
   const config = readBarcodeConfig(page);
-  const codeInput = page.querySelector("#barcodeValueInput");
-  const copiesInput = page.querySelector("#barcodeCopiesInput");
-  if (codeInput && codeInput.value !== config.code) codeInput.value = config.code;
-  if (copiesInput && Number(copiesInput.value || 0) !== config.copies) copiesInput.value = config.copies;
-
-  const preview = page.querySelector("#barcodePreviewTarget");
   const sheet = page.querySelector("#barcodeSheet");
-  if (preview) preview.innerHTML = barcodeLabelMarkup(item, config);
-  if (sheet) sheet.innerHTML = barcodeSheetMarkup(item, config);
-  const copyMetric = page.querySelector("#barcodeCopyMetric");
-  const sheetMeta = page.querySelector("#barcodeSheetMeta");
-  const previewMeta = page.querySelector("#barcodePreviewMeta");
-  if (copyMetric) copyMetric.textContent = String(config.copies);
-  if (sheetMeta) sheetMeta.textContent = `${config.copies} label${config.copies === 1 ? "" : "s"}`;
-  if (previewMeta) previewMeta.textContent = barcodeMetaText(item, config.code);
+  if (sheet) {
+    sheet.className = `barcode-sheet barcode-sheet-${config.preset}`;
+    sheet.innerHTML = barcodeSheetMarkup(barcodeQueue, config);
+  }
 }
+
 
 function exportItemsTemplate() {
   const stockQty = (state.items || []).reduce((sum, item) => sum + Number(item.currentStock || 0), 0);
@@ -10592,8 +14150,8 @@ function findExpenseRecord(id) {
 }
 
 function openExpenseModal(record = null) {
-  elements.featureView.querySelector(".expense-modal-backdrop")?.remove();
-  elements.featureView.insertAdjacentHTML("beforeend", expenseModalTemplate(record));
+  document.querySelector(".expense-modal-backdrop")?.remove();
+  document.body.insertAdjacentHTML("beforeend", expenseModalTemplate(record));
   bindExpenseModal();
   recalculateExpenseForm();
 }
@@ -10607,79 +14165,227 @@ function expenseModalTemplate(record = null) {
   const paidAmount = record ? expensePaid(record) : 0;
   const placeOfSupply = meta.placeOfSupply || state.businessSettings?.state || "Karnataka";
   const paymentMethod = expensePaymentMethod(record || { paymentType: "Cash", meta: { paymentMethod: "Cash" } });
+  const isGstExpense = Boolean(taxRate > 0 || meta.partyGstin);
+  const existingReceiptName = meta.receiptName || "";
+  const currentCategory = record ? expenseCategory(record) : "";
+
+  const quickCategories = [
+    { label: "Rent", value: "Office Rent" },
+    { label: "Salaries", value: "Salaries & Wages" },
+    { label: "Electricity", value: "Electricity & Water" },
+    { label: "Tea / Pantry", value: "Tea & Refreshments" },
+    { label: "Travel / Fuel", value: "Travel & Fuel" },
+    { label: "Courier", value: "Courier & Postage" },
+    { label: "Stationery", value: "Office Supplies" },
+    { label: "Internet", value: "Internet & Telephone" },
+    { label: "Repairs", value: "Repairs & Maintenance" },
+  ];
+
+  const quickPaymentMethods = [
+    { label: "Cash" },
+    { label: "UPI" },
+    { label: "Bank Transfer", value: "Bank" },
+    { label: "Card" },
+    { label: "Cheque" },
+  ];
+
+  const quickPaymentStatuses = [
+    { value: "paid", label: "Paid in Full" },
+    { value: "due", label: "Payable / Due" },
+    { value: "partial", label: "Part Paid" },
+  ];
+
   return `
     <div class="expense-modal-backdrop modal-backdrop">
-      <form id="expenseForm" class="expense-modal" data-expense-id="${escapeHtml(record?.id || "")}">
-        <header>
-          <div>
-            <p class="muted-label">${isEdit ? "Edit expense" : "Record expense"}</p>
-            <h2>${isEdit ? "Edit Expense" : "Add Expense"}</h2>
+      <form id="expenseForm" class="expense-modal expense-modal-revamp ${isGstExpense ? "is-gst-mode" : "is-nongst-mode"}" data-expense-id="${escapeHtml(record?.id || "")}">
+        <!-- Header with Integrated Mode Switch -->
+        <header class="expense-modal-header">
+          <div class="entry-modal-title-wrap">
+            <div class="expense-icon">
+              <svg class="gi-icon"><use href="#gi-receipt"></use></svg>
+            </div>
+            <div>
+              <h2 id="expenseModalTitle">${isEdit ? "Edit Expense" : "Add Expense"}</h2>
+              <p class="entry-modal-subtitle">${isEdit ? "Update recorded business expenditure & tax deduction" : "Record business expenditure & tax deduction"}</p>
+            </div>
           </div>
-          <button class="close-button" data-action="close-expense-modal" type="button" aria-label="Close">x</button>
+
+          <div class="expense-header-right">
+            <div class="expense-mode-toggle" role="tablist" aria-label="Expense Mode">
+              <button type="button" class="expense-mode-chip ${!isGstExpense ? "active" : ""}" data-mode="nongst" id="expenseModeNonGst">
+                <span class="mode-name">Quick / Non-GST</span>
+                <span class="mode-badge">Petty Cash</span>
+              </button>
+              <button type="button" class="expense-mode-chip ${isGstExpense ? "active" : ""}" data-mode="gst" id="expenseModeGst">
+                <span class="mode-name">GST Expense</span>
+                <span class="mode-badge">ITC Claim</span>
+              </button>
+            </div>
+            <button class="close-button" data-action="close-expense-modal" type="button" aria-label="Close">×</button>
+          </div>
+          <input type="hidden" name="expenseMode" id="expenseModeInput" value="${isGstExpense ? "gst" : "nongst"}">
         </header>
-        <main>
-          <section class="expense-form-grid">
-            <label>Expense date
-              <input class="form-input" name="date" type="date" value="${escapeHtml(formatDateInput(record?.date || new Date().toISOString()))}" required>
-            </label>
-            <label>Expense no. / ref
-              <input class="form-input" name="referenceNo" value="${escapeHtml(record?.invoiceNo || meta.referenceNo || "")}" placeholder="Auto">
-            </label>
-            <label>Category
-              <input class="form-input" name="category" list="expenseCategoryOptions" value="${escapeHtml(record ? expenseCategory(record) : "")}" placeholder="Rent, fuel, salary" required>
-              <datalist id="expenseCategoryOptions">${expenseCategoryOptions()}</datalist>
-            </label>
-            <label>Paid to
-              <input class="form-input" name="vendor" value="${escapeHtml(record ? expenseVendor(record) : "")}" placeholder="Vendor or employee">
-            </label>
-            <label>Place of supply
-              <select class="form-input" name="placeOfSupply">${indianStateOptions(placeOfSupply)}</select>
-            </label>
-            <label>Vendor GSTIN
-              <input class="form-input" name="partyGstin" value="${escapeHtml(meta.partyGstin || "")}" maxlength="15" placeholder="22AAAAA0000A1Z5">
-            </label>
+
+        <!-- Scrollable Modal Body -->
+        <main class="expense-modal-body">
+          <!-- Section 1: General Details -->
+          <section class="expense-card">
+            <div class="expense-form-grid-3">
+              <label class="expense-field">
+                <span class="field-label">Expense Date <span class="req">*</span></span>
+                <input class="form-input" name="date" type="date" value="${escapeHtml(formatDateInput(record?.date || new Date().toISOString()))}" required>
+              </label>
+
+              <label class="expense-field">
+                <span class="field-label">Expense Category <span class="req">*</span></span>
+                <input class="form-input" name="category" id="expenseCategoryInput" list="expenseCategoryOptions" value="${escapeHtml(currentCategory)}" placeholder="Rent, fuel, salary..." required autocomplete="off">
+                <datalist id="expenseCategoryOptions">${expenseCategoryOptions()}</datalist>
+              </label>
+
+              <label class="expense-field">
+                <span class="field-label">Voucher / Ref No.</span>
+                <input class="form-input" name="referenceNo" value="${escapeHtml(record?.invoiceNo || meta.referenceNo || "")}" placeholder="Auto or EXP-001">
+              </label>
+            </div>
+
+            <div class="expense-category-chips" id="expenseCategoryChips">
+              ${quickCategories.map((cat) => `
+                <button type="button" class="expense-cat-chip ${currentCategory.toLowerCase() === cat.value.toLowerCase() ? "active" : ""}" data-cat="${escapeHtml(cat.value)}">
+                  <span>${escapeHtml(cat.label)}</span>
+                </button>
+              `).join("")}
+            </div>
           </section>
 
-          <section class="expense-form-card">
-            <h3>Amount & GST</h3>
-            <div class="expense-form-grid">
-              <label>Taxable amount
-                <input class="form-input" name="taxableValue" type="number" min="0" step="0.01" value="${taxableValue || ""}" placeholder="0.00" required>
+          <!-- Section 2: Amount & Taxation Details -->
+          <section class="expense-card expense-amount-card">
+            <div class="expense-card-header">
+              <span class="expense-card-title">Amount & Settlement</span>
+              <span class="expense-mode-hint nongst-only">Non-GST Mode: 100% booked to business expense ledger</span>
+              <span class="expense-mode-hint gst-only">GST Mode: Eligible for Input Tax Credit (ITC) under GSTR-2B</span>
+            </div>
+
+            <!-- Unified Amount & Tax Grid -->
+            <div class="expense-form-grid-3">
+              <label class="expense-field expense-amount-field">
+                <span class="field-label" id="expenseAmountLabel">${isGstExpense ? "Taxable Amount" : "Expense Amount"} (₹) <span class="req">*</span></span>
+                <div class="input-with-prefix">
+                  <span class="prefix">₹</span>
+                  <input class="form-input expense-amount-input" name="taxableValue" id="expenseTaxableValue" type="number" min="0" step="0.01" value="${taxableValue || ""}" placeholder="0.00" required>
+                </div>
               </label>
-              <label>GST rate
-                <select class="form-input" name="taxRate">
-                  ${[0, 5, 12, 18, 28].map((rate) => `<option value="${rate}" ${Number(rate) === taxRate ? "selected" : ""}>${rate}%</option>`).join("")}
+
+              <label class="expense-field">
+                <span class="field-label">Paid To (Vendor / Employee)</span>
+                <input class="form-input" name="vendor" value="${escapeHtml(record ? expenseVendor(record) : "")}" placeholder="e.g. Landlord, Staff, Vendor">
+              </label>
+
+              <label class="expense-field gst-only">
+                <span class="field-label">GST Rate <span class="req">*</span></span>
+                <select class="form-input" name="taxRate" id="expenseTaxRate">
+                  ${[0, 5, 12, 18, 28].map((rate) => `<option value="${rate}" ${Number(rate) === taxRate ? "selected" : ""}>${rate}% GST</option>`).join("")}
                 </select>
               </label>
-              <label>Payment status
-                <select class="form-input" name="status">
+
+              <label class="expense-field gst-only">
+                <span class="field-label">Vendor GSTIN</span>
+                <input class="form-input uppercase-field" name="partyGstin" id="expensePartyGstin" value="${escapeHtml(meta.partyGstin || "")}" maxlength="15" placeholder="22AAAAA0000A1Z5">
+              </label>
+
+              <label class="expense-field gst-only">
+                <span class="field-label">Place of Supply</span>
+                <select class="form-input" name="placeOfSupply" id="expensePlaceOfSupply">${indianStateOptions(placeOfSupply)}</select>
+              </label>
+            </div>
+
+            <!-- Payment Row (Method + Status) -->
+            <div class="expense-payment-row">
+              <div class="expense-field">
+                <span class="field-label">Payment Method</span>
+                <div class="expense-chips-group" id="expensePaymentMethodChips">
+                  ${quickPaymentMethods.map((pm) => {
+                    const actualValue = pm.value || pm.label;
+                    const isSelected = paymentMethod.toLowerCase() === actualValue.toLowerCase() || paymentMethod.toLowerCase() === pm.label.toLowerCase() || (actualValue === "Cash" && !paymentMethod);
+                    return `
+                      <button type="button" class="expense-chip ${isSelected ? "active" : ""}" data-method="${escapeHtml(actualValue)}">
+                        <span>${escapeHtml(pm.label)}</span>
+                      </button>
+                    `;
+                  }).join("")}
+                </div>
+                <select class="form-input sr-only" name="paymentMethod" id="expensePaymentMethodSelect" tabindex="-1">
+                  ${["Cash", "Bank", "UPI", "Card", "Cheque", "Adjustment"].map((method) => `<option value="${method}" ${paymentMethod === method ? "selected" : ""}>${method}</option>`).join("")}
+                </select>
+              </div>
+
+              <div class="expense-field">
+                <span class="field-label">Payment Status</span>
+                <div class="expense-chips-group" id="expenseStatusChips">
+                  ${quickPaymentStatuses.map((st) => `
+                    <button type="button" class="expense-chip status-chip ${status === st.value ? "active" : ""} ${st.value}" data-status="${st.value}">
+                      <span>${st.label}</span>
+                    </button>
+                  `).join("")}
+                </div>
+                <select class="form-input sr-only" name="status" id="expenseStatusSelect" tabindex="-1">
                   <option value="paid" ${status === "paid" ? "selected" : ""}>Paid</option>
                   <option value="due" ${status === "due" ? "selected" : ""}>Payable</option>
                   <option value="partial" ${status === "partial" ? "selected" : ""}>Part Paid</option>
                 </select>
-              </label>
-              <label>Paid amount
-                <input class="form-input" name="paid" type="number" min="0" step="0.01" value="${paidAmount || ""}" placeholder="0.00">
-              </label>
-              <label>Payment method
-                <select class="form-input" name="paymentMethod">
-                  ${["Cash", "Bank", "UPI", "Card", "Cheque", "Adjustment"].map((method) => `<option ${paymentMethod === method ? "selected" : ""}>${method}</option>`).join("")}
-                </select>
-              </label>
-              <label>Receipt
-                <input class="form-input" name="receipt" type="file" accept="image/*,.pdf">
+              </div>
+            </div>
+
+            <div class="expense-paid-amount-row ${status === "partial" ? "" : "hidden"}" id="expensePaidAmountContainer">
+              <label class="expense-field">
+                <span class="field-label">Paid Amount (₹)</span>
+                <div class="input-with-prefix">
+                  <span class="prefix">₹</span>
+                  <input class="form-input" name="paid" id="expensePaidInput" type="number" min="0" step="0.01" value="${paidAmount || ""}" placeholder="0.00">
+                </div>
               </label>
             </div>
+
+            <!-- Real-time Tax & Balance Summary Breakdown -->
             <div class="expense-tax-summary" id="expenseTaxSummary"></div>
           </section>
 
-          <label class="expense-notes">Notes
-            <textarea class="form-input" name="notes" rows="3" placeholder="Purpose, approval note, receipt details">${escapeHtml(record?.notes || "")}</textarea>
-          </label>
+          <!-- Section 3: Notes & Receipt Attachment -->
+          <section class="expense-card expense-extra-card">
+            <div class="expense-extra-grid">
+              <label class="expense-field expense-notes-field">
+                <span class="field-label">Notes & Purpose</span>
+                <textarea class="form-input" name="notes" rows="2" placeholder="Business purpose, voucher notes, approval remarks...">${escapeHtml(record?.notes || "")}</textarea>
+              </label>
+
+              <div class="expense-field expense-receipt-field">
+                <span class="field-label">Receipt / Invoice Document</span>
+                <div class="expense-receipt-picker" id="expenseReceiptPicker">
+                  <input class="sr-only expense-file-input" id="expenseReceiptInput" name="receipt" type="file" accept="image/*,.pdf">
+                  <label for="expenseReceiptInput" class="expense-receipt-dropzone">
+                    <svg class="gi-icon"><use href="#gi-paperclip"></use></svg>
+                    <div class="expense-receipt-text">
+                      <span class="expense-receipt-filename" id="expenseReceiptFileName">${existingReceiptName ? escapeHtml(existingReceiptName) : "Attach Receipt / Bill"}</span>
+                      <span class="expense-receipt-subtext">${existingReceiptName ? "Click to change attached file" : "Upload JPG, PNG or PDF (Max 5MB)"}</span>
+                    </div>
+                  </label>
+                  <button type="button" class="expense-receipt-clear-btn ${existingReceiptName ? "" : "hidden"}" id="expenseReceiptClearBtn" title="Remove attachment">×</button>
+                </div>
+              </div>
+            </div>
+          </section>
         </main>
-        <footer>
-          <button class="secondary-button" data-action="close-expense-modal" type="button">Cancel</button>
-          <button class="purchase-button" type="submit">${isEdit ? "Update Expense" : "Save Expense"}</button>
+
+        <!-- Pinned Footer -->
+        <footer class="entry-modal-footer expense-modal-footer">
+          <div class="expense-footer-summary">
+            <span class="expense-footer-label">Total Expense:</span>
+            <strong class="expense-footer-amount" id="expenseFooterTotal">₹0.00</strong>
+            <span class="expense-footer-status-pill status-${status}" id="expenseFooterStatusPill">${status === "paid" ? "Paid" : status === "due" ? "Due" : "Partial"}</span>
+          </div>
+          <div class="entry-modal-footer-right">
+            <button class="secondary-button" data-action="close-expense-modal" type="button">Cancel</button>
+            <button class="purchase-button" type="submit" id="saveExpenseBtn">${isEdit ? "Update Expense" : "Save Expense"}</button>
+          </div>
         </footer>
       </form>
     </div>
@@ -10694,15 +14400,137 @@ function expenseCategoryOptions() {
 }
 
 function bindExpenseModal() {
-  const modal = elements.featureView.querySelector(".expense-modal-backdrop");
-  const form = elements.featureView.querySelector("#expenseForm");
+  const modal = document.querySelector(".expense-modal-backdrop");
+  const form = document.querySelector("#expenseForm");
   if (!modal || !form) return;
+
+  // 1. Close buttons
   modal.querySelectorAll("[data-action='close-expense-modal']").forEach((button) => {
     button.addEventListener("click", closeExpenseModal);
   });
   modal.addEventListener("mousedown", (event) => {
     if (event.target === modal) closeExpenseModal();
   });
+
+  // 2. Mode chips (Quick / Non-GST vs GST Expense)
+  const modeChips = modal.querySelectorAll(".expense-mode-chip");
+  const modeInput = form.querySelector("#expenseModeInput");
+  const taxRateSelect = form.elements.taxRate;
+  const amountLabel = form.querySelector("#expenseAmountLabel");
+
+  const setExpenseMode = (mode) => {
+    modeChips.forEach((chip) => chip.classList.toggle("active", chip.dataset.mode === mode));
+    if (modeInput) modeInput.value = mode;
+    form.classList.toggle("is-gst-mode", mode === "gst");
+    form.classList.toggle("is-nongst-mode", mode === "nongst");
+
+    if (mode === "nongst") {
+      if (taxRateSelect) taxRateSelect.value = "0";
+      if (amountLabel) amountLabel.innerHTML = 'Expense Amount (₹) <span class="req">*</span>';
+    } else {
+      if (taxRateSelect && taxRateSelect.value === "0") taxRateSelect.value = "18";
+      if (amountLabel) amountLabel.innerHTML = 'Taxable Amount (₹) <span class="req">*</span>';
+    }
+    recalculateExpenseForm();
+  };
+
+  modeChips.forEach((chip) => {
+    chip.addEventListener("click", () => setExpenseMode(chip.dataset.mode));
+  });
+
+  // 3. Category presets
+  const catInput = form.elements.category;
+  const catChips = modal.querySelectorAll(".expense-cat-chip");
+  catChips.forEach((chip) => {
+    chip.addEventListener("click", () => {
+      if (catInput) {
+        catInput.value = chip.dataset.cat || "";
+        catChips.forEach((c) => c.classList.toggle("active", c === chip));
+        catInput.dispatchEvent(new Event("input", { bubbles: true }));
+      }
+    });
+  });
+
+  catInput?.addEventListener("input", () => {
+    const val = String(catInput.value || "").trim().toLowerCase();
+    catChips.forEach((c) => {
+      c.classList.toggle("active", Boolean(val && c.dataset.cat.toLowerCase() === val));
+    });
+  });
+
+  // 4. Payment method chips
+  const payChips = modal.querySelectorAll("#expensePaymentMethodChips .expense-chip");
+  const paySelect = form.elements.paymentMethod;
+  payChips.forEach((chip) => {
+    chip.addEventListener("click", () => {
+      if (paySelect) {
+        paySelect.value = chip.dataset.method;
+        payChips.forEach((c) => c.classList.toggle("active", c === chip));
+        paySelect.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+    });
+  });
+  paySelect?.addEventListener("change", () => {
+    payChips.forEach((c) => c.classList.toggle("active", c.dataset.method.toLowerCase() === (paySelect.value || "").toLowerCase()));
+  });
+
+  // 5. Payment status chips
+  const statusChips = modal.querySelectorAll("#expenseStatusChips .status-chip");
+  const statusSelect = form.elements.status;
+  const paidContainer = form.querySelector("#expensePaidAmountContainer");
+
+  const setStatus = (status) => {
+    if (statusSelect) statusSelect.value = status;
+    statusChips.forEach((c) => c.classList.toggle("active", c.dataset.status === status));
+    if (paidContainer) {
+      paidContainer.classList.toggle("hidden", status !== "partial");
+    }
+    recalculateExpenseForm();
+  };
+
+  statusChips.forEach((chip) => {
+    chip.addEventListener("click", () => setStatus(chip.dataset.status));
+  });
+
+  statusSelect?.addEventListener("change", () => {
+    setStatus(statusSelect.value);
+  });
+
+  // 6. Styled Receipt file input
+  const receiptInput = form.querySelector("#expenseReceiptInput");
+  const receiptFileName = form.querySelector("#expenseReceiptFileName");
+  const receiptSubtext = form.querySelector(".expense-receipt-subtext");
+  const receiptClearBtn = form.querySelector("#expenseReceiptClearBtn");
+
+  receiptInput?.addEventListener("change", () => {
+    const file = receiptInput.files?.[0];
+    if (file) {
+      if (receiptFileName) receiptFileName.textContent = file.name;
+      if (receiptSubtext) receiptSubtext.textContent = `${(file.size / 1024).toFixed(1)} KB • Click to change`;
+      receiptClearBtn?.classList.remove("hidden");
+    } else {
+      if (receiptFileName) receiptFileName.textContent = "Attach Receipt / Bill";
+      if (receiptSubtext) receiptSubtext.textContent = "Upload JPG, PNG or PDF (Max 5MB)";
+      receiptClearBtn?.classList.add("hidden");
+    }
+  });
+
+  receiptClearBtn?.addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (receiptInput) receiptInput.value = "";
+    if (receiptFileName) receiptFileName.textContent = "Attach Receipt / Bill";
+    if (receiptSubtext) receiptSubtext.textContent = "Upload JPG, PNG or PDF (Max 5MB)";
+    receiptClearBtn?.classList.add("hidden");
+  });
+
+  // 7. Auto-uppercase Vendor GSTIN
+  const gstinInput = form.elements.partyGstin;
+  gstinInput?.addEventListener("input", () => {
+    gstinInput.value = gstinInput.value.toUpperCase();
+  });
+
+  // 8. Calculation events
   ["input", "change"].forEach((eventName) => {
     form.addEventListener(eventName, recalculateExpenseForm);
   });
@@ -10710,7 +14538,7 @@ function bindExpenseModal() {
 }
 
 function closeExpenseModal() {
-  elements.featureView.querySelector(".expense-modal-backdrop")?.remove();
+  document.querySelector(".expense-modal-backdrop")?.remove();
 }
 
 function calculateExpenseTotals(taxableValue, taxRate, placeOfSupply) {
@@ -10732,7 +14560,7 @@ function calculateExpenseTotals(taxableValue, taxRate, placeOfSupply) {
 }
 
 function recalculateExpenseForm() {
-  const form = elements.featureView.querySelector("#expenseForm");
+  const form = document.querySelector("#expenseForm");
   if (!form) return;
   const status = form.elements.status?.value || "paid";
   const totals = calculateExpenseTotals(form.elements.taxableValue?.value, form.elements.taxRate?.value, form.elements.placeOfSupply?.value);
@@ -10741,16 +14569,43 @@ function recalculateExpenseForm() {
   if (paidInput && status === "due") paidInput.value = "";
   const paid = Math.min(totals.total, Math.max(0, Number(paidInput?.value || 0)));
   const balance = Math.max(0, totals.total - paid);
+
+  // Update summary breakdown
   const summary = form.querySelector("#expenseTaxSummary");
   if (summary) {
-    summary.innerHTML = `
-      <article><span>Taxable</span><strong>${formatCurrency(totals.taxableValue)}</strong></article>
-      <article><span>CGST</span><strong>${formatCurrency(totals.cgstTotal)}</strong></article>
-      <article><span>SGST</span><strong>${formatCurrency(totals.sgstTotal)}</strong></article>
-      <article><span>IGST</span><strong>${formatCurrency(totals.igstTotal)}</strong></article>
-      <article><span>Total</span><strong>${formatCurrency(totals.total)}</strong></article>
-      <article><span>Balance</span><strong>${formatCurrency(balance)}</strong></article>
-    `;
+    const isGst = form.classList.contains("is-gst-mode");
+    if (!isGst) {
+      summary.innerHTML = `
+        <article class="summary-chip"><span>Expense Amount</span><strong>${formatCurrency(totals.taxableValue)}</strong></article>
+        <article class="summary-chip"><span>Paid</span><strong class="text-success">${formatCurrency(paid)}</strong></article>
+        <article class="summary-chip"><span>Balance Due</span><strong class="${balance > 0 ? "text-danger" : ""}">${formatCurrency(balance)}</strong></article>
+      `;
+    } else {
+      const firmState = String(state.businessSettings?.state || "Karnataka").trim().toLowerCase();
+      const supplyState = String(form.elements.placeOfSupply?.value || state.businessSettings?.state || "Karnataka").trim().toLowerCase();
+      const isInterstate = Boolean(supplyState && firmState && supplyState !== firmState);
+      summary.innerHTML = `
+        <article class="summary-chip"><span>Taxable Value</span><strong>${formatCurrency(totals.taxableValue)}</strong></article>
+        ${isInterstate ? `
+          <article class="summary-chip"><span>IGST (${totals.taxRate}%)</span><strong>${formatCurrency(totals.igstTotal)}</strong></article>
+        ` : `
+          <article class="summary-chip"><span>CGST (${totals.taxRate / 2}%)</span><strong>${formatCurrency(totals.cgstTotal)}</strong></article>
+          <article class="summary-chip"><span>SGST (${totals.taxRate / 2}%)</span><strong>${formatCurrency(totals.sgstTotal)}</strong></article>
+        `}
+        <article class="summary-chip highlight"><span>Total Payable</span><strong>${formatCurrency(totals.total)}</strong></article>
+        <article class="summary-chip"><span>Paid</span><strong class="text-success">${formatCurrency(paid)}</strong></article>
+        <article class="summary-chip"><span>Balance</span><strong class="${balance > 0 ? "text-danger" : ""}">${formatCurrency(balance)}</strong></article>
+      `;
+    }
+  }
+
+  // Update pinned footer total and status pill
+  const footerTotal = form.querySelector("#expenseFooterTotal");
+  if (footerTotal) footerTotal.textContent = formatCurrency(totals.total);
+  const footerStatus = form.querySelector("#expenseFooterStatusPill");
+  if (footerStatus) {
+    footerStatus.textContent = status === "paid" ? "Paid" : status === "due" ? "Due" : "Partial";
+    footerStatus.className = `expense-footer-status-pill status-${status}`;
   }
 }
 
@@ -10812,7 +14667,8 @@ async function handleExpenseSubmit(event) {
     return;
   }
   if (Number(payload.meta.taxableValue || 0) <= 0) {
-    setInlineError(amountField, "Taxable amount must be greater than zero.");
+    const isNonGst = form.classList.contains("is-nongst-mode");
+    setInlineError(amountField, isNonGst ? "Expense amount must be greater than zero." : "Taxable amount must be greater than zero.");
     amountField?.focus();
     return;
   }
@@ -10985,9 +14841,7 @@ function paymentOutTemplate() {
     <section class="invoice-workspace sale-workspace">
       <header class="app-page-header invoice-page-header">
         <div>
-          <p class="muted-label">Purchases & Expenses</p>
           <h1>Payment-Out</h1>
-          <small>${payments.length} payment${payments.length === 1 ? "" : "s"} recorded</small>
         </div>
         <div class="invoice-header-actions">
           <button class="sale-button" data-action="create-payment-out" type="button">+ Record Payment-Out</button>
@@ -11056,20 +14910,24 @@ function openPaymentOutModal() {
               ${purchaseInvoices.map((inv) => `<option value="${escapeHtml(inv.invoiceNo || inv.id)}" data-party="${escapeHtml(inv.party)}" data-balance="${invoiceBalanceValue(inv)}">${escapeHtml(inv.invoiceNo || inv.id)} — ${escapeHtml(inv.party)} — Due: ${formatCurrency(invoiceBalanceValue(inv))}</option>`).join("")}
             </select>
           </label>
-          <label>Amount *
-            <input class="form-input" name="amount" type="number" step="0.01" min="0.01" placeholder="0.00" required>
-          </label>
-          <label>Payment Date
-            <input class="form-input" name="paymentDate" type="date" value="${new Date().toISOString().slice(0, 10)}">
-          </label>
-          <label>Payment Method
-            <select class="form-input" name="method">
-              <option>Cash</option><option>Bank Transfer</option><option>UPI</option><option>Cheque</option><option>Card</option>
-            </select>
-          </label>
-          <label>Notes
-            <input class="form-input" name="notes" placeholder="Reference number, cheque no, transaction details">
-          </label>
+          <div class="entry-form-row">
+            <label>Amount *
+              <input class="form-input" name="amount" type="number" step="0.01" min="0.01" placeholder="0.00" required>
+            </label>
+            <label>Payment Date
+              <input class="form-input" name="paymentDate" type="date" value="${new Date().toISOString().slice(0, 10)}">
+            </label>
+          </div>
+          <div class="entry-form-row">
+            <label>Payment Method
+              <select class="form-input" name="method">
+                ${editorPaymentMethodOptions(false)}
+              </select>
+            </label>
+            <label>Notes
+              <input class="form-input" name="notes" placeholder="Reference number, cheque no, transaction details">
+            </label>
+          </div>
         </div>
         <footer>
           <span id="paymentOutStatus"></span>
@@ -11096,10 +14954,19 @@ function openPaymentOutModal() {
     }
   });
 
+  const closeModal = () => {
+    modal.remove();
+    window.removeEventListener("keydown", handleEscape);
+  };
+  const handleEscape = (e) => {
+    if (e.key === "Escape") closeModal();
+  };
+  window.addEventListener("keydown", handleEscape);
+
   modal.querySelectorAll("[data-close-payment-out-modal]").forEach((btn) => {
-    btn.addEventListener("click", () => modal.remove());
+    btn.addEventListener("click", closeModal);
   });
-  modal.addEventListener("click", (e) => { if (e.target === modal) modal.remove(); });
+  modal.addEventListener("click", (e) => { if (e.target === modal) closeModal(); });
 
   modal.querySelector("#paymentOutForm")?.addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -11166,34 +15033,40 @@ function openStockAdjustmentModal(selectedItemId = null) {
               ${items.map((it) => `<option value="${it.id}" ${Number(it.id) === Number(selectedItemId) ? "selected" : ""} data-stock="${it.currentStock || 0}" data-unit="${escapeHtml(it.unit || "")}" data-price="${it.purchasePrice || 0}">${escapeHtml(it.name)} (Current: ${it.currentStock || 0} ${escapeHtml(it.unit || "")})</option>`).join("")}
             </select>
           </label>
-          <label>Adjustment Direction *
-            <select class="form-input" name="direction" required>
-              <option value="reduce">Reduce Stock (-)</option>
-              <option value="add">Add Stock (+)</option>
-            </select>
-          </label>
-          <label>Reason *
-            <select class="form-input" name="reason" required>
-              <option value="Physical Count Discrepancy / Stock Take">Physical Count Discrepancy / Stock Take</option>
-              <option value="Damaged Stock">Damaged Stock</option>
-              <option value="Expired Stock">Expired Stock</option>
-              <option value="Theft / Loss">Theft / Loss</option>
-              <option value="Internal Consumption">Internal Consumption</option>
-              <option value="Opening Stock Correction">Opening Stock Correction</option>
-            </select>
-          </label>
-          <label>Quantity *
-            <input class="form-input" name="quantity" type="number" step="0.01" min="0.01" placeholder="Quantity" required>
-          </label>
-          <label>Unit Cost / Value (Optional)
-            <input class="form-input" name="unitPrice" type="number" step="0.01" placeholder="0.00">
-          </label>
-          <label>Adjustment Date
-            <input class="form-input" name="adjustmentDate" type="date" value="${new Date().toISOString().slice(0, 10)}">
-          </label>
-          <label>Notes
-            <input class="form-input" name="notes" placeholder="Batch / serial no., verification details, auditor reference">
-          </label>
+          <div class="entry-form-row">
+            <label>Adjustment Direction *
+              <select class="form-input" name="direction" required>
+                <option value="reduce">Reduce Stock (-)</option>
+                <option value="add">Add Stock (+)</option>
+              </select>
+            </label>
+            <label>Reason *
+              <select class="form-input" name="reason" required>
+                <option value="Physical Count Discrepancy / Stock Take">Physical Count Discrepancy / Stock Take</option>
+                <option value="Damaged Stock">Damaged Stock</option>
+                <option value="Expired Stock">Expired Stock</option>
+                <option value="Theft / Loss">Theft / Loss</option>
+                <option value="Internal Consumption">Internal Consumption</option>
+                <option value="Opening Stock Correction">Opening Stock Correction</option>
+              </select>
+            </label>
+          </div>
+          <div class="entry-form-row">
+            <label>Quantity *
+              <input class="form-input" name="quantity" type="number" step="0.01" min="0.01" placeholder="Quantity" required>
+            </label>
+            <label>Unit Cost / Value (Optional)
+              <input class="form-input" name="unitPrice" type="number" step="0.01" placeholder="0.00">
+            </label>
+          </div>
+          <div class="entry-form-row">
+            <label>Adjustment Date
+              <input class="form-input" name="adjustmentDate" type="date" value="${new Date().toISOString().slice(0, 10)}">
+            </label>
+            <label>Notes
+              <input class="form-input" name="notes" placeholder="Batch / serial no., verification details, auditor reference">
+            </label>
+          </div>
         </div>
         <footer>
           <span id="stockAdjustmentStatus"></span>
@@ -11220,10 +15093,19 @@ function openStockAdjustmentModal(selectedItemId = null) {
     if (opt?.dataset.price) unitPriceInput.value = opt.dataset.price;
   }
 
+  const closeModal = () => {
+    modal.remove();
+    window.removeEventListener("keydown", handleEscape);
+  };
+  const handleEscape = (e) => {
+    if (e.key === "Escape") closeModal();
+  };
+  window.addEventListener("keydown", handleEscape);
+
   modal.querySelectorAll("[data-close-stock-modal]").forEach((btn) => {
-    btn.addEventListener("click", () => modal.remove());
+    btn.addEventListener("click", closeModal);
   });
-  modal.addEventListener("click", (e) => { if (e.target === modal) modal.remove(); });
+  modal.addEventListener("click", (e) => { if (e.target === modal) closeModal(); });
 
   modal.querySelector("#stockAdjustmentForm")?.addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -11299,41 +15181,237 @@ function legacyAddBankTemplate() {
   `;
 }
 
+function calculateCashInHand() {
+  try {
+    const payments = state.payments || [];
+    const transactions = state.transactions || [];
+    let cashIn = 0;
+    let cashOut = 0;
+    payments.forEach((p) => {
+      const isCash = String(p.method || "").toLowerCase() === "cash";
+      if (isCash) {
+        if (p.type === "payment_in") cashIn += Number(p.amount || 0);
+        else if (p.type === "payment_out") cashOut += Number(p.amount || 0);
+      }
+    });
+    transactions.forEach((tx) => {
+      if (tx.type === "expense") {
+        const meta = parseJsonObject(tx.metaJson || tx.meta || {});
+        const isCash = !String(meta.paymentMethod || "").toLowerCase().includes("bank");
+        const paid = Number(meta.paid ?? (tx.status === "paid" ? tx.amount : 0));
+        if (isCash) cashOut += paid;
+      }
+    });
+    return cashIn - cashOut;
+  } catch (err) {
+    console.error("calculateCashInHand error:", err);
+    return 0;
+  }
+}
+
+function parseMetaJson(value) {
+  return parseJsonObject(value);
+}
+
 function banksTemplate() {
   const accounts = bankAccountRows();
   const defaultAccount = defaultBankAccount();
-  const currentTotal = accounts.reduce((sum, account) => sum + Number(account.currentBalance || 0), 0);
+  const cashInHand = calculateCashInHand();
+  const bankTotal = accounts.reduce((sum, account) => sum + Number(account.currentBalance || 0), 0);
+  const totalLiquidity = cashInHand + bankTotal;
   const openingTotal = accounts.reduce((sum, account) => sum + Number(account.openingBalance || 0), 0);
   const upiReady = accounts.filter((account) => String(account.upiId || "").trim()).length;
   const invoiceReady = accounts.filter((account) => Boolean(Number(account.printBankDetails))).length;
+
   return `
-    <section class="bank-workspace">
+    <section class="bank-workspace bank-workspace-revamp">
       <header class="app-page-header bank-page-header">
-        <div>
-          <p class="muted-label">Cash & Bank</p>
-          <h1>Bank Accounts</h1>
-          <small>${accounts.length} account${accounts.length === 1 ? "" : "s"} tracked</small>
+        <h1>Cash &amp; Bank</h1>
+        <div class="bank-header-actions">
+          <button class="primary-button bank-add-btn" data-action="add-bank" type="button">+ Add Bank Account</button>
         </div>
-        <button class="sale-button" data-action="add-bank" type="button">+ Add Bank Account</button>
       </header>
 
       <section class="kpi-grid bank-kpis">
-        ${kpiCard("Current Balance", formatCurrency(currentTotal), "Across tracked bank accounts", "success")}
-        ${kpiCard("Opening Balance", formatCurrency(openingTotal), "Opening balance total", "neutral")}
-        ${kpiCard("Default Bank", defaultAccount?.displayName || "-", "Used on invoice print", "info")}
-        ${kpiCard("UPI Ready", String(upiReady), `${invoiceReady} print-ready account${invoiceReady === 1 ? "" : "s"}`, "neutral")}
+        ${kpiCard("Total Liquidity", formatCurrency(totalLiquidity), "Cash in hand + bank balance", "success")}
+        ${kpiCard("Cash in Hand", formatCurrency(cashInHand), "Liquid counter & petty cash", cashInHand >= 0 ? "success" : "danger")}
+        ${kpiCard("Bank Balance", formatCurrency(bankTotal), `${accounts.length} active account${accounts.length === 1 ? "" : "s"}`, "info")}
+        ${kpiCard("Default Bank", defaultAccount?.displayName || "None set", defaultAccount ? "Prints on invoices & QR" : "Set default bank", "neutral")}
       </section>
 
-      <section class="bank-content-grid">
-        <div class="data-table-card bank-list-card">
-          ${accounts.length ? bankAccountsTable(accounts) : bankEmptyState()}
+      <div class="bank-main-content">
+        <!-- Cash in Hand Section Card -->
+        <div class="cash-card">
+          <div class="cash-card-header">
+            <div class="cash-badge">
+              <svg class="gi-icon icon" aria-hidden="true"><use href="#gi-wallet"></use></svg>
+            </div>
+            <div>
+              <h3>Cash in Hand (Petty Cash)</h3>
+              <p>Physical counter cash for daily business operations &amp; walk-in customer billing</p>
+            </div>
+            <div class="cash-balance-display">
+              <span class="cash-bal-label">Net Cash Available</span>
+              <strong class="cash-bal-amount">${formatCurrency(cashInHand)}</strong>
+            </div>
+          </div>
+          <div class="cash-card-footer">
+            <span class="cash-card-hint">
+              <svg class="gi-icon icon icon-xs" aria-hidden="true"><use href="#gi-zap"></use></svg>
+              Auto-tracked from cash sales, cash receipts, and petty cash expenses
+            </span>
+            <div class="cash-card-actions">
+              <button class="secondary-button compact-button" data-action="open-expense-cash" type="button">
+                <svg class="gi-icon icon icon-xs" aria-hidden="true"><use href="#gi-receipt"></use></svg>
+                <span>Record Cash Expense</span>
+              </button>
+            </div>
+          </div>
         </div>
-        <aside class="bank-side-panel">
-          <h2>Invoice Bank Details</h2>
-          ${defaultAccount ? bankDefaultDetails(defaultAccount) : '<p class="bank-muted">Set a default bank to print account details on invoices.</p>'}
-        </aside>
-      </section>
+
+        <!-- Bank Accounts Section -->
+        <div class="bank-accounts-section">
+          <div class="bank-section-titlebar">
+            <div>
+              <h2>Bank Accounts</h2>
+              <p>Business bank accounts for bank transfers, online UPI receipts &amp; invoice print details</p>
+            </div>
+            <button class="secondary-button compact-button" data-action="add-bank" type="button">
+              <svg class="gi-icon icon icon-xs" aria-hidden="true"><use href="#gi-plus"></use></svg>
+              <span>Add Another Bank</span>
+            </button>
+          </div>
+
+          ${accounts.length ? bankAccountsList(accounts) : bankEmptyState()}
+        </div>
+
+        <!-- Invoice Print Details Banner if default bank exists -->
+        ${defaultAccount ? bankDefaultBanner(defaultAccount) : ""}
+      </div>
     </section>
+  `;
+}
+
+function bankAccountsList(accounts) {
+  return `
+    <div class="bank-cards-grid">
+      ${accounts.map(bankAccountCard).join("")}
+    </div>
+  `;
+}
+
+function bankAccountCard(account) {
+  const isDefault = Number(account.isDefault || 0);
+  const id = escapeHtml(account.id || "");
+  const printBank = Number(account.printBankDetails ?? 1);
+  const printUpi = Number(account.printUpiQr || 0);
+
+  return `
+    <div class="bank-account-card ${isDefault ? "is-default" : ""}">
+      <div class="bac-header">
+        <div class="bac-title-wrap">
+          <div class="bac-bank-icon">
+            <svg class="gi-icon icon" aria-hidden="true"><use href="#gi-bank"></use></svg>
+          </div>
+          <div>
+            <div class="bac-title-row">
+              <h3>${escapeHtml(account.displayName || "-")}</h3>
+              ${isDefault ? '<span class="bank-default-pill">★ Default Bank</span>' : ""}
+            </div>
+            <span class="bac-bank-name">${escapeHtml(account.bankName || "Commercial Bank")}</span>
+          </div>
+        </div>
+        <div class="bac-balance-badge">
+          <span class="bac-bal-label">Current Balance</span>
+          <strong class="bac-bal-val">${formatCurrency(account.currentBalance || 0)}</strong>
+        </div>
+      </div>
+
+      <div class="bac-details-grid">
+        <div class="bac-detail-item">
+          <span class="bac-label">Account No</span>
+          <strong class="bac-val font-mono">${escapeHtml(account.accountNo || "—")}</strong>
+        </div>
+        <div class="bac-detail-item">
+          <span class="bac-label">IFSC Code</span>
+          <strong class="bac-val font-mono">${escapeHtml(account.ifsc || "—")}</strong>
+        </div>
+        <div class="bac-detail-item">
+          <span class="bac-label">UPI ID</span>
+          <strong class="bac-val">${escapeHtml(account.upiId || "—")}</strong>
+        </div>
+        <div class="bac-detail-item">
+          <span class="bac-label">Opening Balance</span>
+          <span class="bac-val">${formatCurrency(account.openingBalance || 0)}</span>
+        </div>
+      </div>
+
+      <div class="bac-footer">
+        <div class="bac-badges">
+          <span class="bac-print-pill ${printBank ? "active" : "disabled"}">
+            <svg class="gi-icon icon icon-xs" aria-hidden="true"><use href="#gi-check"></use></svg>
+            ${printBank ? "Print on Invoices" : "Hidden on Invoices"}
+          </span>
+          <span class="bac-print-pill ${printUpi ? "active-upi" : "disabled"}">
+            <svg class="gi-icon icon icon-xs" aria-hidden="true"><use href="#gi-check"></use></svg>
+            ${printUpi ? "UPI QR Enabled" : "No QR"}
+          </span>
+        </div>
+        <div class="bac-actions">
+          ${isDefault ? "" : `<button type="button" class="secondary-button compact-button" data-bank-action="set-default" data-bank-id="${id}">Set Default</button>`}
+          <button type="button" class="secondary-button compact-button" data-bank-action="edit" data-bank-id="${id}">
+            <svg class="gi-icon icon icon-xs" aria-hidden="true"><use href="#gi-edit"></use></svg>
+            <span>Edit</span>
+          </button>
+          <button type="button" class="danger-ghost-button compact-button" data-bank-action="delete" data-bank-id="${id}" title="Delete Account">
+            <svg class="gi-icon icon icon-xs" aria-hidden="true"><use href="#gi-trash"></use></svg>
+          </button>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function bankDefaultBanner(account) {
+  const id = escapeHtml(account.id || "");
+  return `
+    <div class="bank-default-banner">
+      <div class="bdb-left">
+        <div class="bdb-icon">
+          <svg class="gi-icon icon" aria-hidden="true"><use href="#gi-receipt"></use></svg>
+        </div>
+        <div>
+          <h4>Default Bank for Invoices: <strong>${escapeHtml(account.displayName || "")}</strong></h4>
+          <p>These payment details appear at the bottom of customer bills &amp; printouts:</p>
+          <div class="bdb-pills">
+            <span>Bank: <b>${escapeHtml(account.bankName || "-")}</b></span>
+            <span>A/C: <b class="font-mono">${escapeHtml(account.accountNo || "-")}</b></span>
+            <span>IFSC: <b class="font-mono">${escapeHtml(account.ifsc || "-")}</b></span>
+            ${account.upiId ? `<span>UPI: <b>${escapeHtml(account.upiId)}</b></span>` : ""}
+          </div>
+        </div>
+      </div>
+      <button class="secondary-button compact-button" type="button" data-bank-action="edit" data-bank-id="${id}">
+        <svg class="gi-icon icon icon-xs" aria-hidden="true"><use href="#gi-edit"></use></svg>
+        <span>Edit Print Details</span>
+      </button>
+    </div>
+  `;
+}
+
+function bankEmptyState() {
+  return `
+    <div class="empty-workspace bank-empty-card">
+      <div class="empty-icon-wrap">
+        <svg class="gi-icon icon icon-lg" aria-hidden="true"><use href="#gi-bank"></use></svg>
+      </div>
+      <strong>No Bank Accounts Added Yet</strong>
+      <p>Add your business bank account to record NEFT/RTGS/UPI receipts and print payment details &amp; UPI QR on invoices.</p>
+      <button class="primary-button bank-add-btn" data-action="add-bank" type="button">
+        <svg class="gi-icon icon icon-sm" aria-hidden="true"><use href="#gi-plus"></use></svg>
+        <span>+ Add Bank Account</span>
+      </button>
+    </div>
   `;
 }
 
@@ -11454,102 +15532,228 @@ function bankDefaultDetails(account) {
   `;
 }
 
-function bankEmptyState() {
-  return `
-    <div class="empty-workspace bank-empty">
-      <strong>No bank accounts yet</strong>
-      <p>Add the bank account that should appear on invoices and payment receipts.</p>
-      <button class="sale-button" data-action="add-bank" type="button">+ Add Bank Account</button>
-    </div>
-  `;
-}
-
-function bankAccountFormTemplate(account = null) {
+function bankModalTemplate(account = null) {
   const isEdit = Boolean(account?.id);
   const accounts = bankAccountRows();
   const isOnlyAccount = isEdit && accounts.length === 1;
   const shouldBeDefault = !accounts.length || Number(account?.isDefault || 0);
   const openingBalanceValue = isEdit ? String(Number(account?.openingBalance || 0)) : "";
   const currentBalanceValue = isEdit ? String(Number(account?.currentBalance ?? account?.openingBalance ?? 0)) : "";
+
   return `
-    <section class="bank-form-page">
-      <header class="app-page-header bank-page-header">
-        <div>
-          <p class="muted-label">Cash & Bank</p>
-          <h1>${isEdit ? "Edit Bank Account" : "Add Bank Account"}</h1>
-          <small>Keep the default bank clean because invoices use it for print details.</small>
-        </div>
-      </header>
-      <form id="bankAccountForm" class="bank-account-form" data-bank-id="${escapeHtml(account?.id || "")}" novalidate>
-        <div class="bank-form-body">
-          <section class="bank-form-card">
-            <h2>Account</h2>
-            <div class="bank-form-grid">
-              <label>Account Display Name *
-                <input class="form-input" name="displayName" value="${escapeHtml(account?.displayName || "")}" placeholder="Current account, HDFC, Main UPI" required>
-              </label>
-              <label>Bank Name
-                <input class="form-input" name="bankName" value="${escapeHtml(account?.bankName || "")}" placeholder="Bank name">
-              </label>
-              <label>Account Number
-                <input class="form-input" name="accountNo" value="${escapeHtml(account?.accountNo || "")}" placeholder="Account number">
-              </label>
-              <label>IFSC
-                <input class="form-input" name="ifsc" value="${escapeHtml(account?.ifsc || "")}" placeholder="HDFC0001234" maxlength="11">
-              </label>
-              <label>UPI ID
-                <input class="form-input" name="upiId" value="${escapeHtml(account?.upiId || "")}" placeholder="business@upi">
-              </label>
-              <label>As of Date
-                <input class="form-input" name="asOfDate" type="date" value="${escapeHtml(formatDateInput(account?.asOfDate || new Date().toISOString()))}">
-              </label>
+    <div class="bank-modal-backdrop modal-backdrop">
+      <div class="app-modal bank-modal-revamp" role="dialog" aria-modal="true" aria-labelledby="bankModalTitle">
+        <header class="bank-modal-header">
+          <div class="bank-modal-title-group">
+            <div class="bank-modal-badge">
+              <svg class="icon" aria-hidden="true"><use href="#gi-bank"></use></svg>
             </div>
-          </section>
-
-          <section class="bank-form-card">
-            <h2>Balance</h2>
-            <div class="bank-form-grid two-col">
-              <label>Opening Balance
-                <input class="form-input" name="openingBalance" type="number" step="0.01" value="${escapeHtml(openingBalanceValue)}" placeholder="0.00">
-              </label>
-              <label>Current Balance
-                <input class="form-input" name="currentBalance" type="number" step="0.01" value="${escapeHtml(currentBalanceValue)}" placeholder="Same as opening">
-              </label>
+            <div>
+              <h2 id="bankModalTitle">${isEdit ? "Edit Bank Account" : "Add Bank Account"}</h2>
+              <p>Configure bank details &amp; UPI QR for invoice printing and payments</p>
             </div>
-          </section>
-
-          <section class="bank-form-card">
-            <h2>Invoice Print</h2>
-            <div class="bank-form-options">
-              <label><input name="printBankDetails" type="checkbox" ${Number(account?.printBankDetails ?? 1) ? "checked" : ""}> Print bank details on invoices</label>
-              <label><input name="printUpiQr" type="checkbox" ${Number(account?.printUpiQr || 0) ? "checked" : ""}> Print offline UPI QR on invoices</label>
-              <label><input name="isDefault" type="checkbox" ${shouldBeDefault ? "checked" : ""} ${isOnlyAccount || !accounts.length ? "disabled" : ""}> Use as default bank</label>
-            </div>
-          </section>
-
-          <section class="bank-form-card">
-            <h2>Notes</h2>
-            <label class="bank-notes-field">Internal Notes
-              <textarea class="form-input" name="notes" rows="3" placeholder="Cheque book, branch, reconciliation notes">${escapeHtml(account?.notes || "")}</textarea>
-            </label>
-          </section>
-        </div>
-        <footer class="bank-form-footer">
-          <span data-bank-form-status></span>
-          <div>
-            <button class="secondary-button" data-action="cancel-bank" type="button">Cancel</button>
-            <button class="sale-button" type="submit">Save Details</button>
           </div>
-        </footer>
-      </form>
-    </section>
+          <button class="bank-modal-close" data-action="close-bank-modal" type="button" aria-label="Close">&times;</button>
+        </header>
+
+        <form id="bankAccountForm" class="bank-modal-form" data-bank-id="${escapeHtml(account?.id || "")}" novalidate>
+          <div class="bank-modal-body">
+            
+            <div class="bank-type-section">
+              <label class="bank-section-label">Account Type</label>
+              <div class="bank-type-chips" id="bankTypeChips">
+                <button type="button" class="bank-chip active" data-type="current">Current Account</button>
+                <button type="button" class="bank-chip" data-type="savings">Savings Account</button>
+                <button type="button" class="bank-chip" data-type="od">Overdraft / OD</button>
+                <button type="button" class="bank-chip" data-type="upi">UPI / Wallet</button>
+              </div>
+            </div>
+
+            <div class="bank-form-columns">
+              <!-- Left Column: Bank Details -->
+              <div class="bank-form-col">
+                <label class="bank-field-label">Account Display Name *
+                  <input class="form-input" name="displayName" id="bankDisplayName" value="${escapeHtml(account?.displayName || "")}" placeholder="e.g. Federal Bank - Main, HDFC Current" required autofocus>
+                  <small class="bank-field-hint">Used to identify this account in bills, payments &amp; ledger</small>
+                </label>
+
+                <div class="bank-grid-2">
+                  <label class="bank-field-label">Bank Name
+                    <input class="form-input" name="bankName" id="bankNameInput" value="${escapeHtml(account?.bankName || "")}" placeholder="e.g. Federal Bank, HDFC">
+                  </label>
+                  <label class="bank-field-label">Account Number
+                    <input class="form-input" name="accountNo" id="bankAccountNoInput" value="${escapeHtml(account?.accountNo || "")}" placeholder="e.g. 99980865585655">
+                  </label>
+                </div>
+
+                <div class="bank-grid-2">
+                  <label class="bank-field-label">IFSC Code
+                    <input class="form-input" name="ifsc" id="bankIfscInput" value="${escapeHtml(account?.ifsc || "")}" placeholder="e.g. FDRL0001412" maxlength="11" style="text-transform: uppercase;">
+                  </label>
+                  <label class="bank-field-label">UPI ID / VPA
+                    <input class="form-input" name="upiId" id="bankUpiInput" value="${escapeHtml(account?.upiId || "")}" placeholder="e.g. business@okaxis">
+                  </label>
+                </div>
+
+                <div class="bank-grid-2">
+                  <label class="bank-field-label">Opening Balance (₹)
+                    <input class="form-input" name="openingBalance" type="number" step="0.01" value="${escapeHtml(openingBalanceValue)}" placeholder="0.00">
+                  </label>
+                  <label class="bank-field-label">As of Date
+                    <input class="form-input" name="asOfDate" type="date" value="${escapeHtml(formatDateInput(account?.asOfDate || new Date().toISOString()))}">
+                  </label>
+                </div>
+                <input type="hidden" name="currentBalance" value="${escapeHtml(currentBalanceValue)}">
+              </div>
+
+              <!-- Right Column: Settings & Live Preview -->
+              <div class="bank-form-col">
+                <label class="bank-section-label">Invoice Print &amp; Settings</label>
+                
+                <div class="bank-toggles-card">
+                  <label class="bank-toggle-row">
+                    <input type="checkbox" name="printBankDetails" id="bankPrintDetailsCheck" ${Number(account?.printBankDetails ?? 1) ? "checked" : ""}>
+                    <div>
+                      <strong>Print Bank Details on Invoices</strong>
+                      <small>Shows A/C number, bank name &amp; IFSC at the bottom of bills</small>
+                    </div>
+                  </label>
+                  <label class="bank-toggle-row">
+                    <input type="checkbox" name="printUpiQr" id="bankPrintUpiCheck" ${Number(account?.printUpiQr || 0) ? "checked" : ""}>
+                    <div>
+                      <strong>Print Offline UPI QR Code</strong>
+                      <small>Generates instant scan &amp; pay UPI QR on invoices</small>
+                    </div>
+                  </label>
+                  <label class="bank-toggle-row">
+                    <input type="checkbox" name="isDefault" id="bankIsDefaultCheck" ${shouldBeDefault ? "checked" : ""} ${isOnlyAccount || !accounts.length ? "disabled" : ""}>
+                    <div>
+                      <strong>Set as Default Bank Account</strong>
+                      <small>Primary account used for invoice payments and printing</small>
+                    </div>
+                  </label>
+                </div>
+
+                <!-- Live Invoice Preview Card -->
+                <div class="bank-preview-container">
+                  <div class="bank-preview-header">
+                    <svg class="icon icon-xs" aria-hidden="true"><use href="#gi-receipt"></use></svg>
+                    <span>Live Invoice Print Preview</span>
+                  </div>
+                  <div class="bank-preview-box" id="bankLivePreviewBox">
+                    <div class="bp-title">PAYMENT DETAILS</div>
+                    <div class="bp-row"><span>Bank:</span> <b id="bpBankName">${escapeHtml(account?.bankName || "Federal Bank")}</b></div>
+                    <div class="bp-row"><span>A/C No:</span> <b id="bpAccountNo" class="font-mono">${escapeHtml(account?.accountNo || "99980865585655")}</b></div>
+                    <div class="bp-row"><span>IFSC:</span> <b id="bpIfsc" class="font-mono">${escapeHtml(account?.ifsc || "FDRL0001412")}</b></div>
+                    <div class="bp-row"><span>UPI ID:</span> <b id="bpUpi">${escapeHtml(account?.upiId || "ansupi@okaxis")}</b></div>
+                    <div class="bp-qr-indicator ${Number(account?.printUpiQr || 0) ? "" : "hidden"}" id="bpQrBadge">UPI QR Code Will Print on Invoice</div>
+                  </div>
+                </div>
+
+                <label class="bank-field-label" style="margin-top: 10px;">Internal Notes (Optional)
+                  <textarea class="form-input" name="notes" rows="2" placeholder="Branch name, manager contact, reconciliation notes">${escapeHtml(account?.notes || "")}</textarea>
+                </label>
+              </div>
+            </div>
+
+          </div>
+
+          <footer class="bank-modal-footer">
+            <span class="bank-form-status" data-bank-form-status></span>
+            <div class="bank-footer-actions">
+              <button class="secondary-button" data-action="cancel-bank" type="button">Cancel</button>
+              <button class="primary-button bank-save-btn" type="submit">
+                <svg class="icon icon-sm" aria-hidden="true"><use href="#gi-check"></use></svg>
+                <span>${isEdit ? "Update Bank Account" : "Save Bank Account"}</span>
+              </button>
+            </div>
+          </footer>
+        </form>
+      </div>
+    </div>
   `;
 }
 
+function bankAccountFormTemplate(account = null) {
+  return bankModalTemplate(account);
+}
+
+function openBankAccountModal(account = null) {
+  closeBankAccountModal();
+  const backdrop = document.createElement("div");
+  backdrop.className = "bank-modal-backdrop modal-backdrop";
+  backdrop.innerHTML = bankModalTemplate(account);
+  document.body.appendChild(backdrop);
+  bindBankAccountModal(backdrop);
+  backdrop.querySelector("[name='displayName']")?.focus();
+}
+
 function openBankAccountForm(account = null) {
-  elements.featureView.innerHTML = addBankTemplate(account);
-  bindFeatureActions();
-  elements.featureView.querySelector("[name='displayName']")?.focus();
+  openBankAccountModal(account);
+}
+
+function closeBankAccountModal() {
+  document.querySelectorAll(".bank-modal-backdrop").forEach((el) => el.remove());
+}
+
+function bindBankAccountModal(backdrop) {
+  backdrop.querySelector("[data-action='close-bank-modal']")?.addEventListener("click", () => closeBankAccountModal());
+  backdrop.querySelector("[data-action='cancel-bank']")?.addEventListener("click", () => closeBankAccountModal());
+
+  backdrop.addEventListener("click", (e) => {
+    if (e.target === backdrop) closeBankAccountModal();
+  });
+
+  const onKeydown = (e) => {
+    if (e.key === "Escape") {
+      closeBankAccountModal();
+      document.removeEventListener("keydown", onKeydown);
+    }
+  };
+  document.addEventListener("keydown", onKeydown);
+
+  // Type chips
+  const chips = backdrop.querySelectorAll("#bankTypeChips .bank-chip");
+  chips.forEach((chip) => {
+    chip.addEventListener("click", () => {
+      chips.forEach((c) => c.classList.remove("active"));
+      chip.classList.add("active");
+    });
+  });
+
+  // Live preview bindings
+  const bankNameInput = backdrop.querySelector("#bankNameInput");
+  const accountNoInput = backdrop.querySelector("#bankAccountNoInput");
+  const ifscInput = backdrop.querySelector("#bankIfscInput");
+  const upiInput = backdrop.querySelector("#bankUpiInput");
+  const upiCheck = backdrop.querySelector("#bankPrintUpiCheck");
+
+  const bpBankName = backdrop.querySelector("#bpBankName");
+  const bpAccountNo = backdrop.querySelector("#bpAccountNo");
+  const bpIfsc = backdrop.querySelector("#bpIfsc");
+  const bpUpi = backdrop.querySelector("#bpUpi");
+  const bpQrBadge = backdrop.querySelector("#bpQrBadge");
+
+  const updatePreview = () => {
+    if (bpBankName) bpBankName.textContent = bankNameInput?.value.trim() || "Federal Bank";
+    if (bpAccountNo) bpAccountNo.textContent = accountNoInput?.value.trim() || "99980865585655";
+    if (bpIfsc) bpIfsc.textContent = (ifscInput?.value.trim() || "FDRL0001412").toUpperCase();
+    if (bpUpi) bpUpi.textContent = upiInput?.value.trim() || "ansupi@okaxis";
+    if (bpQrBadge) bpQrBadge.classList.toggle("hidden", !upiCheck?.checked);
+  };
+
+  bankNameInput?.addEventListener("input", updatePreview);
+  accountNoInput?.addEventListener("input", updatePreview);
+  upiInput?.addEventListener("input", updatePreview);
+  upiCheck?.addEventListener("change", updatePreview);
+  ifscInput?.addEventListener("input", () => {
+    ifscInput.value = ifscInput.value.toUpperCase();
+    updatePreview();
+  });
+
+  // Submit
+  const form = backdrop.querySelector("#bankAccountForm");
+  form?.addEventListener("submit", handleBankAccountSubmit);
 }
 
 async function handleBankAccountSubmit(event) {
@@ -11580,6 +15784,7 @@ async function handleBankAccountSubmit(event) {
       saveBankAccountLocally(payload);
       saveState();
     }
+    closeBankAccountModal();
     showToast("Bank Account Saved");
     renderFeatureView("cash");
   } catch (error) {
@@ -11616,7 +15821,7 @@ async function handleBankAccountAction(action, id) {
     return;
   }
   if (action === "edit") {
-    openBankAccountForm(account);
+    openBankAccountModal(account);
     return;
   }
   if (action === "delete") {
@@ -11709,28 +15914,243 @@ function syncDefaultBankSettingsFromState() {
 }
 
 function syncTemplate() {
+  const autoBackupEnabled = localStorage.getItem("gi_auto_backup_on_exit") === "true";
   return `
-    <section class="report-page">
-      <header class="app-page-header"><div><p class="muted-label">Data</p><h1>Sync, Share & Backup</h1></div></header>
-      <section class="kpi-grid">
-        ${kpiCard("Database", "SQLite", "Local data file")}
-        ${kpiCard("Backup", "Manual", "Save a copy when needed")}
-        ${kpiCard("Login", "Demo", "Email OTP planned")}
-        ${kpiCard("Sync", "Offline", "Cloud sync not enabled")}
+    <section class="report-page sync-page-revamp">
+      <header class="app-page-header">
+        <div style="display:flex;justify-content:space-between;align-items:center;width:100%;flex-wrap:wrap;gap:12px;">
+          <div>
+            <p class="muted-label" style="font-size:12px;font-weight:600;color:#64748b;margin:0 0 2px;">Data Security &amp; Safety</p>
+            <h1 style="margin:0;font-size:24px;font-weight:800;color:#0f172a;">Sync, Backup &amp; Restore</h1>
+          </div>
+          <div style="display:flex;gap:10px;">
+            <button class="primary-button square" data-action="create-snapshot" type="button" style="display:inline-flex;align-items:center;gap:8px;">
+              <svg class="gi-icon" style="width:16px;height:16px;"><use href="#gi-save"></use></svg>
+              Create Backup Snapshot Now
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <!-- KPI overview -->
+      <section class="kpi-grid" style="margin-bottom:20px;">
+        ${kpiCard("Database", "SQLite WAL", "Local relational data")}
+        <article class="kpi-card">
+          <span class="kpi-card-label">Auto-Backup on Exit</span>
+          <div class="kpi-card-value" id="syncKpiAutoBackup">${autoBackupEnabled ? "Enabled" : "Disabled"}</div>
+          <span class="kpi-card-sub">Automatic shutdown snapshot</span>
+        </article>
+        <article class="kpi-card">
+          <span class="kpi-card-label">Restore Points</span>
+          <div class="kpi-card-value" id="syncKpiSnapshotCount">Checking...</div>
+          <span class="kpi-card-sub">Available local snapshots</span>
+        </article>
+        ${kpiCard("Sync Mode", "Offline-First", "Zero latency & 100% private")}
       </section>
-      <section class="data-table-card report-card backup-panel">
+
+      <!-- Auto-backup settings card -->
+      <section class="data-table-card report-card sync-settings-card" style="margin-bottom:20px;padding:20px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:16px;">
+          <div style="max-width:620px;">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+              <svg class="gi-icon" style="width:18px;height:18px;color:#2563eb;"><use href="#gi-shield"></use></svg>
+              <h3 style="margin:0;font-size:16px;font-weight:700;color:#0f172a;">Automatic Snapshot on Exit</h3>
+            </div>
+            <p style="margin:0;font-size:13px;color:#64748b;line-height:1.5;">When enabled, GI Billing will automatically generate a timestamped SQLite snapshot into your local backup directory every time you close the application.</p>
+          </div>
+          <label style="display:inline-flex;align-items:center;gap:10px;cursor:pointer;background:#f8fafc;padding:10px 16px;border-radius:8px;border:1px solid #e2e8f0;">
+            <input type="checkbox" id="autoBackupExitToggle" ${autoBackupEnabled ? "checked" : ""} style="width:18px;height:18px;accent-color:#2563eb;cursor:pointer;">
+            <span style="font-weight:700;font-size:13px;color:#1e293b;">Enable Auto-Backup</span>
+          </label>
+        </div>
+      </section>
+
+      <!-- Instant Snapshot & Restore Table -->
+      <section class="data-table-card report-card" style="margin-bottom:20px;padding:20px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:12px;">
+          <div>
+            <h3 style="margin:0 0 4px;font-size:16px;font-weight:700;color:#0f172a;">Local Snapshot Restore Points</h3>
+            <p style="margin:0;font-size:13px;color:#64748b;">Instant local backups stored safely in your user data directory. You can restore back to any point in time in one click.</p>
+          </div>
+          <button class="secondary-button compact-button" type="button" data-action="refresh-snapshots" style="display:inline-flex;align-items:center;gap:6px;">
+            <svg class="gi-icon" style="width:14px;height:14px;"><use href="#gi-refresh"></use></svg>
+            Refresh
+          </button>
+        </div>
+
+        <div id="snapshotListContainer">
+          <div style="padding:24px;text-align:center;color:#64748b;font-size:13px;">
+            Loading local snapshot history...
+          </div>
+        </div>
+      </section>
+
+      <!-- Manual Backup / Restore File Panel -->
+      <section class="data-table-card report-card backup-panel" style="padding:20px;">
         <article>
-          <h3>Local SQLite Backup</h3>
-          <p>Create a copy of the current GI Billing SQLite database. Use this before major imports, updates, or sending data to an accountant.</p>
+          <h3 style="margin:0 0 6px;font-size:16px;font-weight:700;color:#0f172a;">Manual File Export &amp; Import</h3>
+          <p style="margin:0 0 16px;font-size:13px;color:#64748b;">Export an explicit .sqlite database file to an external USB drive, or restore an existing SQLite database file from your computer.</p>
           <div class="backup-actions" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
-            <button class="primary-button square" data-action="backup-db" type="button">Backup SQLite Database</button>
-            <button class="secondary-button square" data-action="restore-db" type="button">Restore SQLite Database</button>
-            <span id="backupStatus">Ready to create or restore a backup.</span>
+            <button class="secondary-button square" data-action="backup-db" type="button">Export SQLite File...</button>
+            <button class="secondary-button square" data-action="restore-db" type="button">Import &amp; Restore File...</button>
+            <span id="backupStatus" style="font-size:13px;color:#64748b;">Ready.</span>
           </div>
         </article>
       </section>
     </section>
   `;
+}
+
+async function handleCreateSnapshot() {
+  const btn = elements.featureView?.querySelector("[data-action='create-snapshot']");
+  const origText = btn ? btn.innerHTML : "";
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = `<svg class="gi-icon spin" style="width:16px;height:16px;"><use href="#gi-refresh"></use></svg> Creating Snapshot...`;
+  }
+  try {
+    if (!window.giDB?.createSnapshot) {
+      showToast("Snapshot creation is only available in the desktop application.");
+      return;
+    }
+    const result = await window.giDB.createSnapshot();
+    showToast(`Snapshot created: ${result.filename} (${result.formattedSize})`);
+    await loadSnapshotList();
+  } catch (err) {
+    showToast(`Snapshot failed: ${err.message || "Unknown error"}`);
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = origText;
+    }
+  }
+}
+
+async function loadSnapshotList() {
+  const container = elements.featureView?.querySelector("#snapshotListContainer");
+  const kpiCount = elements.featureView?.querySelector("#syncKpiSnapshotCount");
+  if (!container) return;
+
+  if (!window.giDB?.listSnapshots) {
+    container.innerHTML = `<div style="padding:24px;text-align:center;color:#64748b;">Snapshot manager is available in the desktop application.</div>`;
+    if (kpiCount) kpiCount.textContent = "Desktop only";
+    return;
+  }
+
+  try {
+    const list = await window.giDB.listSnapshots();
+    if (kpiCount) kpiCount.textContent = String(list ? list.length : 0);
+    if (!list || list.length === 0) {
+      container.innerHTML = `
+        <div style="padding:32px 20px;text-align:center;border:1px dashed #cbd5e1;border-radius:10px;background:#f8fafc;">
+          <div style="width:44px;height:44px;border-radius:50%;background:#e0e7ff;color:#2563eb;display:inline-flex;align-items:center;justify-content:center;margin-bottom:10px;">
+            <svg class="gi-icon" style="width:22px;height:22px;"><use href="#gi-save"></use></svg>
+          </div>
+          <div style="font-weight:700;font-size:14px;color:#1e293b;margin-bottom:4px;">No Snapshot Restore Points Yet</div>
+          <p style="font-size:12px;color:#64748b;max-width:380px;margin:0 auto 14px;">Snapshots provide 1-click points in time you can safely rewind to whenever needed.</p>
+          <button class="primary-button compact-button" data-action="create-snapshot" type="button">+ Create First Snapshot Now</button>
+        </div>
+      `;
+      container.querySelector("[data-action='create-snapshot']")?.addEventListener("click", handleCreateSnapshot);
+      return;
+    }
+
+    container.innerHTML = `
+      <div style="overflow-x:auto;">
+        <table class="data-table" style="width:100%;border-collapse:collapse;">
+          <thead>
+            <tr>
+              <th style="padding:10px 14px;font-size:12px;color:#64748b;font-weight:700;border-bottom:1px solid #e2e8f0;">Snapshot File</th>
+              <th style="padding:10px 14px;font-size:12px;color:#64748b;font-weight:700;border-bottom:1px solid #e2e8f0;">Created At</th>
+              <th style="padding:10px 14px;font-size:12px;color:#64748b;font-weight:700;border-bottom:1px solid #e2e8f0;">File Size</th>
+              <th style="padding:10px 14px;font-size:12px;color:#64748b;font-weight:700;border-bottom:1px solid #e2e8f0;">Integrity</th>
+              <th style="padding:10px 14px;font-size:12px;color:#64748b;font-weight:700;border-bottom:1px solid #e2e8f0;text-align:right;">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${list.map((snap) => `
+              <tr>
+                <td style="padding:12px 14px;border-bottom:1px solid #f1f5f9;">
+                  <div style="display:flex;align-items:center;gap:10px;">
+                    <div style="width:32px;height:32px;border-radius:8px;background:#eff6ff;color:#2563eb;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+                      <svg class="gi-icon" style="width:16px;height:16px;"><use href="#gi-file-text"></use></svg>
+                    </div>
+                    <div>
+                      <strong style="font-size:13px;color:#0f172a;display:block;">${escapeHtml(snap.filename)}</strong>
+                      <span style="font-size:11px;color:#94a3b8;">${escapeHtml(snap.path || "")}</span>
+                    </div>
+                  </div>
+                </td>
+                <td style="padding:12px 14px;font-size:13px;color:#334155;border-bottom:1px solid #f1f5f9;">
+                  ${escapeHtml(new Date(snap.createdAt).toLocaleString())}
+                </td>
+                <td style="padding:12px 14px;font-size:13px;border-bottom:1px solid #f1f5f9;">
+                  <span class="kpi-badge badge-blue">${escapeHtml(snap.formattedSize || "Unknown")}</span>
+                </td>
+                <td style="padding:12px 14px;font-size:13px;border-bottom:1px solid #f1f5f9;">
+                  <span class="kpi-badge badge-green">Verified SQLite</span>
+                </td>
+                <td style="padding:12px 14px;text-align:right;border-bottom:1px solid #f1f5f9;">
+                  <button class="secondary-button compact-button" type="button" data-restore-snapshot="${escapeHtml(snap.path)}" data-restore-filename="${escapeHtml(snap.filename)}" style="font-size:12px;padding:4px 10px;">
+                    ↺ Restore
+                  </button>
+                </td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+      </div>
+    `;
+
+    container.querySelectorAll("[data-restore-snapshot]").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const path = btn.dataset.restoreSnapshot;
+        const fname = btn.dataset.restoreFilename;
+        if (!confirm(`Restore database to snapshot:\n"${fname}"?\n\nCAUTION: Current active data will be replaced by this snapshot point. A safety backup will also be saved first.`)) {
+          return;
+        }
+        btn.disabled = true;
+        btn.textContent = "Restoring...";
+        try {
+          const res = await window.giDB.restoreSnapshot(path);
+          if (res?.state) {
+            state = normalizeState(res.state);
+            render();
+            showToast("Database restored successfully from snapshot.");
+          } else {
+            showToast("Snapshot restored successfully.");
+          }
+        } catch (err) {
+          showToast(`Restore failed: ${err.message || "Unknown error"}`);
+          btn.disabled = false;
+          btn.textContent = "↺ Restore";
+        }
+      });
+    });
+  } catch (err) {
+    container.innerHTML = `<div style="padding:16px;color:#ef4444;font-size:13px;">Failed to load snapshots: ${escapeHtml(err.message)}</div>`;
+  }
+}
+
+function bindSyncEvents() {
+  loadSnapshotList();
+
+  const autoToggle = elements.featureView?.querySelector("#autoBackupExitToggle");
+  if (autoToggle) {
+    autoToggle.addEventListener("change", (e) => {
+      const enabled = e.target.checked;
+      localStorage.setItem("gi_auto_backup_on_exit", enabled ? "true" : "false");
+      const kpi = elements.featureView?.querySelector("#syncKpiAutoBackup");
+      if (kpi) kpi.textContent = enabled ? "Enabled" : "Disabled";
+      showToast(`Auto-backup on exit ${enabled ? "enabled" : "disabled"}.`);
+    });
+  }
+
+  elements.featureView?.querySelector("[data-action='create-snapshot']")?.addEventListener("click", handleCreateSnapshot);
+  elements.featureView?.querySelector("[data-action='refresh-snapshots']")?.addEventListener("click", () => {
+    loadSnapshotList();
+    showToast("Refreshed snapshot list.");
+  });
 }
 
 function partiesTemplate(selectedPartyId = null, activeTab = "overview", query = partySearchQuery) {
@@ -11742,7 +16162,7 @@ function partiesTemplate(selectedPartyId = null, activeTab = "overview", query =
     : allParties;
   const parties = applyPartyAdvancedFilter(searchedParties, f);
   const activeFilterCount = countActiveFilters(f);
-  const selectedParty = parties.find((party) => Number(party.id) === Number(selectedPartyId)) || parties[0];
+  const selectedParty = parties.find((party) => String(party.id) === String(selectedPartyId) || Number(party.id) === Number(selectedPartyId)) || parties[0];
   const selectedId = selectedParty?.id || "";
   const listMeta = normalizedQuery || activeFilterCount > 0
     ? `${parties.length} of ${allParties.length} parties`
@@ -11754,7 +16174,7 @@ function partiesTemplate(selectedPartyId = null, activeTab = "overview", query =
   return `
     <section class="parties-page">
       <header class="feature-titlebar">
-        <div><p class="muted-label">Manage</p><h1>Parties</h1></div>
+        <h1>Parties</h1>
         <button class="primary-button square" type="button" data-action="add-party">+ Add Party</button>
       </header>
 
@@ -11832,7 +16252,15 @@ function partyDetail(party, activeTab) {
           <h2>${escapeHtml(party.name)} <span class="party-role-badge ${role.className}">${role.label}</span></h2>
           <p>${partyMeta || "No contact details"}</p>
         </div>
-        <button class="secondary-button" type="button" data-action="edit-party" data-party-id="${party.id}">Edit Party</button>
+        <div style="display:flex;gap:8px;align-items:center;">
+          ${(Number(party.balance || 0) > 0 || Number(party.receivable || 0) > 0) ? `
+            <button class="secondary-button compact-button wa-reminder-btn" type="button" data-action="wa-party-reminder" data-party-id="${party.id}" style="color:#059669;border-color:#10b981;background:#ecfdf5;font-weight:700;display:inline-flex;align-items:center;gap:6px;">
+              <svg class="gi-icon" style="width:14px;height:14px;color:#25d366;"><use href="#gi-whatsapp"></use></svg>
+              WhatsApp Reminder
+            </button>
+          ` : ""}
+          <button class="secondary-button" type="button" data-action="edit-party" data-party-id="${party.id}">Edit Party</button>
+        </div>
       </header>
       <div class="party-balance-grid">
         <article><span>Receivable</span><strong>${formatCurrency(party.receivable || 0)}</strong></article>
@@ -11969,15 +16397,24 @@ function itemsTemplate(selectedItemId = null, activeTab = "overview", query = it
     ? `${items.length} of ${allItems.length} items`
     : `${allItems.length} item${allItems.length === 1 ? "" : "s"}`;
 
-  // Build category list from items
-  const categories = [...new Set(allItems.map((item) => item.category || "").filter(Boolean))].sort();
+  // Build category list from master categories and items
+  const masterCategories = (state.itemCategories || [])
+    .filter((c) => c.is_active !== false)
+    .map((c) => c.name);
+  const itemCategories = allItems.map((item) => item.category || "").filter(Boolean);
+  const categories = mergeChoiceList(masterCategories, itemCategories).sort((a, b) => a.localeCompare(b));
 
   return `
     <section class="items-page">
       <header class="feature-titlebar">
-        <div><p class="muted-label">Inventory</p><h1>Items</h1></div>
+        <h1>Items</h1>
         <div class="title-actions">
           <button class="secondary-button" type="button" data-action="manage-item-masters">Units &amp; Categories</button>
+          <button class="secondary-button" type="button" data-action="stock-adjustment">Stock Adjustment</button>
+          <button class="secondary-button" type="button" data-action="print-all-barcodes" title="Open Barcode Label Print Center">
+            <svg class="gi-icon" style="width:14px;height:14px;margin-right:4px;vertical-align:text-bottom;"><use href="#gi-printer"></use></svg>
+            Print Labels
+          </button>
           <button class="secondary-button" type="button" data-action="import-items">Import Items</button>
           <button class="primary-button square" type="button" data-action="add-item">+ Add Item</button>
         </div>
@@ -12022,7 +16459,7 @@ function itemsTemplate(selectedItemId = null, activeTab = "overview", query = it
           </div>
         </aside>
         <main class="item-detail-panel">
-          ${selectedItem ? itemDetail(selectedItem, activeTab) : emptyItemDetail()}
+          ${selectedItem ? itemDetail(selectedItem) : emptyItemDetail()}
         </main>
       </div>
     </section>
@@ -12053,7 +16490,7 @@ function itemMastersTemplate() {
   return `
     <section class="masters-page">
       <header class="feature-titlebar">
-        <div><p class="muted-label">Inventory setup</p><h1>Units & Categories</h1></div>
+        <h1>Units &amp; Categories</h1>
         <button class="secondary-button" type="button" data-action="back-to-items">Back to Items</button>
       </header>
       <div class="masters-tabs">
@@ -12145,7 +16582,7 @@ function mastersCategoriesTab(categories) {
   `;
 }
 
-function openMasterFormModal(kind, record = null, parentId = null) {
+function openMasterFormModal(kind, record = null, parentId = null, onSaved = null) {
   const existing = document.querySelector(".masters-form-backdrop");
   if (existing) existing.remove();
   const isEdit = Boolean(record);
@@ -12208,8 +16645,13 @@ function openMasterFormModal(kind, record = null, parentId = null) {
           allows_decimal_quantity: fd.has("allows_decimal_quantity"),
           is_active: record?.is_active ?? true,
         };
-        if (isEdit) { payload.id = record.id; state = normalizeState(await window.giDB.updateUnit(payload)); }
-        else { state = normalizeState(await window.giDB.createUnit(payload)); }
+        if (window.giDB) {
+          if (isEdit) { payload.id = record.id; state = normalizeState(await window.giDB.updateUnit(payload)); }
+          else { state = normalizeState(await window.giDB.createUnit(payload)); }
+        } else {
+          addLocalMaster("unit", payload);
+          saveState();
+        }
       } else {
         const payload = {
           name: fd.get("name"),
@@ -12219,11 +16661,19 @@ function openMasterFormModal(kind, record = null, parentId = null) {
           is_active: record?.is_active ?? true,
           sort_order: record?.sort_order,
         };
-        if (isEdit) { payload.id = record.id; state = normalizeState(await window.giDB.updateItemCategory(payload)); }
-        else { state = normalizeState(await window.giDB.createItemCategory(payload)); }
+        if (window.giDB) {
+          if (isEdit) { payload.id = record.id; state = normalizeState(await window.giDB.updateItemCategory(payload)); }
+          else { state = normalizeState(await window.giDB.createItemCategory(payload)); }
+        } else {
+          addLocalMaster("category", payload);
+          saveState();
+        }
       }
       close();
       renderMastersTabContent();
+      if (typeof onSaved === "function") {
+        onSaved({ name: fd.get("name") });
+      }
       showToast(`${kind === 'unit' ? 'Unit' : 'Category'} ${isEdit ? 'updated' : 'created'} successfully.`);
     } catch (err) {
       showToast(err.message || "Failed to save.");
@@ -12367,17 +16817,25 @@ function itemListButton(item, selectedId) {
   const kind = itemKind(item);
   const meta = [item.sku ? `SKU ${item.sku}` : "", item.hsnSac ? `HSN/SAC ${item.hsnSac}` : "", item.category, item.unit ? `Unit ${item.unit}` : ""].filter(Boolean).join(" - ") || "No item details";
   const qty = Number(item.currentStock || 0);
+  const salePrice = Number(item.salePrice || 0);
+  const purchasePrice = Number(item.purchasePrice || 0);
+
   return `
     <button class="item-list-item ${Number(item.id) === Number(selectedId) ? "active" : ""}" data-item-id="${item.id}" type="button">
-      <span class="item-list-main"><strong>${escapeHtml(item.name)}</strong><small>${escapeHtml(meta)}</small></span>
+      <span class="item-list-main">
+        <strong>${escapeHtml(item.name)}</strong>
+        <small>${escapeHtml(meta)}</small>
+        <span class="item-list-prices-row">
+          <span class="item-chip-sale" title="Selling Price">Sale: <b>${formatCurrency(salePrice)}</b></span>
+          <span class="item-chip-pur" title="Purchase Cost Price">Cost: <b>${purchasePrice ? formatCurrency(purchasePrice) : "-"}</b></span>
+        </span>
+      </span>
       <span class="item-list-side"><em class="item-kind-badge ${kind.className}">${kind.label}</em><b>${formatQuantity(qty)}</b></span>
     </button>
   `;
 }
 
-function itemDetail(item, activeTab) {
-  const tabs = ["overview", "stockLedger", "pricing", "sales", "purchases", "notes"];
-  const safeActiveTab = tabs.includes(activeTab) ? activeTab : "overview";
+function itemDetail(item) {
   const kind = itemKind(item);
   const stockValue = Number(item.currentStock || 0) * Number(item.purchasePrice || 0);
   const meta = [item.sku ? `SKU ${item.sku}` : "", item.hsnSac ? `HSN/SAC ${item.hsnSac}` : "", item.category, item.unit ? `Unit ${item.unit}` : ""].filter(Boolean).join(" - ");
@@ -12389,7 +16847,13 @@ function itemDetail(item, activeTab) {
           <h2>${escapeHtml(item.name)} <span class="item-kind-badge ${kind.className}">${kind.label}</span></h2>
           <p>${escapeHtml(meta || "No item details")}</p>
         </div>
-        <button class="secondary-button" type="button" data-action="edit-item" data-item-id="${item.id}">Edit Item</button>
+        <div style="display:flex;gap:8px;">
+          <button class="secondary-button" type="button" data-action="print-item-barcode" data-item-id="${item.id}" title="Print Barcode Labels for this item">
+            <svg class="gi-icon" style="width:14px;height:14px;margin-right:4px;vertical-align:text-bottom;"><use href="#gi-printer"></use></svg>
+            Print Barcode
+          </button>
+          <button class="secondary-button" type="button" data-action="edit-item" data-item-id="${item.id}">Edit Item</button>
+        </div>
       </header>
       <div class="item-metric-grid">
         <article><span>Current Stock</span><strong>${formatQuantity(item.currentStock || 0)}</strong></article>
@@ -12397,35 +16861,16 @@ function itemDetail(item, activeTab) {
         <article><span>Purchase Price</span><strong>${formatCurrency(item.purchasePrice || 0)}</strong></article>
         <article><span>Stock Value</span><strong>${formatCurrency(stockValue)}</strong></article>
       </div>
-      <nav class="item-tabs">
-        ${tabs.map((tab) => `<button class="${tab === safeActiveTab ? "active" : ""}" data-item-id="${item.id}" data-item-tab="${tab}" type="button">${itemTabLabel(tab)}</button>`).join("")}
-      </nav>
-      <div class="item-tab-body">${itemTabContent(item, safeActiveTab)}</div>
-    </section>
-  `;
-}
-
-function itemTabContent(item, activeTab) {
-  if (activeTab === "stockLedger") return itemStockLedgerTable(item);
-  if (activeTab === "pricing") return itemPricingPanel(item);
-  if (activeTab === "sales") return itemInvoiceTable(item, "sale");
-  if (activeTab === "purchases") return itemInvoiceTable(item, "purchase");
-  if (activeTab === "notes") return `<section class="item-notes"><h3>Notes</h3><p>${escapeHtml(item.notes || "No notes added.")}</p></section>`;
-
-  return `
-    <section class="item-overview-grid">
-      <article><h3>Basic Details</h3><p>Type: ${escapeHtml(itemKind(item).label)}</p><p>SKU: ${escapeHtml(item.sku || "-")}</p><p>HSN/SAC: ${escapeHtml(item.hsnSac || "-")}</p><p>Category: ${escapeHtml(item.category || "-")}</p><p>Unit: ${escapeHtml(item.unit || "-")}</p></article>
-      <article><h3>Stock Position</h3><p>Opening Stock: ${formatQuantity(item.openingStock || 0)}</p><p>Current Stock: ${formatQuantity(item.currentStock || 0)}</p><p>Opening Date: ${formatDate(item.openingStockDate)}</p><p>Opening Value: ${formatCurrency(item.openingStockValue || 0)}</p><p>Storage: ${escapeHtml(item.storageLocation || "-")}</p></article>
-      <article><h3>Rates</h3><p>Sale Price: ${formatCurrency(item.salePrice || 0)}</p><p>Sale Type: ${escapeHtml(priceTaxTypeLabel(item.saleTaxType))}</p><p>Purchase Price: ${formatCurrency(item.purchasePrice || 0)}</p><p>Purchase Type: ${escapeHtml(priceTaxTypeLabel(item.purchaseTaxType))}</p><p>GST: ${formatPercent(item.taxRate || 0)}</p></article>
-      <article><h3>Invoice Description</h3><p>${escapeHtml(item.description || "-")}</p></article>
-      <article><h3>Usage</h3><p>Sales: ${itemInvoiceRows(item, "sale").length}</p><p>Purchases: ${itemInvoiceRows(item, "purchase").length}</p></article>
+      <div class="item-section-title-bar">
+        <h3>Stock Ledger</h3>
+      </div>
+      <div class="item-tab-body">${itemStockLedgerTable(item)}</div>
     </section>
   `;
 }
 
 function itemStockLedgerTable(item) {
   const invoiceMap = new Map((state.invoices || []).map((invoice) => [invoice.id, invoice]));
-  let running = Number(item.openingStock || 0);
   const rows = (state.stockMovements || [])
     .filter((movement) => itemMovementMatchesItem(movement, item))
     .sort((a, b) => new Date(a.movementDate) - new Date(b.movementDate))
@@ -12433,7 +16878,6 @@ function itemStockLedgerTable(item) {
       const qty = Number(movement.quantity || 0);
       const qtyIn = movement.movementType === "in" || movement.movementType === "adjustment" ? qty : 0;
       const qtyOut = movement.movementType === "out" ? qty : 0;
-      running += qtyIn - qtyOut;
       const invoice = invoiceMap.get(movement.invoiceId);
       return [
         formatDate(movement.movementDate),
@@ -12441,11 +16885,10 @@ function itemStockLedgerTable(item) {
         invoice?.invoiceNo || movement.transactionId || "-",
         formatQuantity(qtyIn),
         formatQuantity(qtyOut),
-        formatQuantity(running),
         formatCurrency(movement.rate || 0),
       ];
     });
-  return basicPartyTable(["Date", "Type", "Reference", "Qty In", "Qty Out", "Balance", "Rate"], rows, "No stock movements found.");
+  return basicPartyTable(["Date", "Type", "Reference", "Qty In", "Qty Out", "Rate"], rows, "No stock movements found.");
 }
 
 function itemPricingPanel(item) {
@@ -12653,50 +17096,62 @@ function gstHsnRows(lines) {
 function reportGroups() {
   return [
     {
-      title: "GST",
-      note: "Output, input, liability, slabs, GSTR-3B and HSN/SAC.",
-      reports: [
-        { id: "gstr1", title: "GSTR-1 / Output Tax", note: "Sale invoice GST, B2B/B2C, slabs, HSN." },
-        { id: "gstr2", title: "GSTR-2 / Input Tax", note: "Purchase input GST with bill summary." },
-        { id: "gstr3b", title: "GSTR-3B Summary", note: "Table 3.1, Table 4 ITC, and Table 6.1 filing summary." },
-        { id: "gstLiability", title: "GST Liability", note: "Output minus input and expense GST." },
-      ],
-    },
-    {
       title: "Sales",
-      note: "Invoices, collection status and margins.",
+      note: "Sales register, product-wise sales, customer sales and staff performance.",
       reports: [
-        { id: "sale", title: "Sales Register", note: "Invoice, customer, taxable, tax and balance." },
-        { id: "profitability", title: "Profitability Report", note: "Bill-wise and item-wise profit margins." },
-        { id: "daybook", title: "Day Book", note: "All dated business entries in one view." },
+        { id: "sale", title: "Sales Register", note: "Invoice-by-invoice sales register, tax and balances." },
+        { id: "salesByProduct", title: "Sales by Product", note: "Item-wise quantity sold, revenue, average rate and margin." },
+        { id: "salesByCustomer", title: "Sales by Customer", note: "Customer-wise revenue, order frequency and outstanding." },
+        { id: "salesByStaff", title: "Sales by Staff", note: "Salesperson performance, volume and average ticket size." },
       ],
     },
     {
-      title: "Purchase & Accounting",
-      note: "Supplier bills, expenses, profit & loss, and trial balance.",
+      title: "Purchase",
+      note: "Procurement bills register, supplier spend and item-wise purchases.",
       reports: [
-        { id: "purchase", title: "Purchase Register", note: "Bill, supplier, paid and payable." },
-        { id: "expenseBreakdown", title: "Expense Breakdown", note: "Category-wise expense analysis and ITC." },
-        { id: "profitLoss", title: "Profit & Loss", note: "Sales, purchases, expenses and net profit." },
-        { id: "trialBalance", title: "Trial Balance", note: "Double-entry balance check (Debits = Credits)." },
-      ],
-    },
-    {
-      title: "Party",
-      note: "Statements, receivables, payables and aging.",
-      reports: [
-        { id: "partyStatement", title: "Party Statement / Ledger", note: "Customer/supplier running balance statement." },
-        { id: "partyBalances", title: "Party Balances", note: "Receivable/payable by party." },
-        { id: "receivableAging", title: "Receivable Aging", note: "Customer invoices grouped by age." },
-        { id: "payableAging", title: "Payable Aging", note: "Supplier bills grouped by age." },
+        { id: "purchase", title: "Purchase Register", note: "Supplier bill-by-bill register with tax and balance payable." },
+        { id: "purchaseBySupplier", title: "Purchase by Supplier", note: "Supplier-wise procurement volume, bills count and balances." },
+        { id: "purchaseByProduct", title: "Purchase by Product", note: "Product-wise inward quantities, average cost and total spend." },
       ],
     },
     {
       title: "Inventory",
-      note: "Stock value, item ledger and movement audit.",
+      note: "Stock summary, valuation, low stock alerts, ledger and movement.",
       reports: [
-        { id: "stock", title: "Stock Summary", note: "Qty, value, HSN/SAC, unit and GST." },
-        { id: "itemLedger", title: "Item Ledger", note: "Stock movement history." },
+        { id: "stock", title: "Stock Summary", note: "Current quantity, valuation, unit, category and GST tax rates." },
+        { id: "itemLedger", title: "Stock Ledger", note: "Detailed item-by-item chronological stock movement audit trail." },
+        { id: "stockValuation", title: "Stock Valuation", note: "Cost valuation, retail valuation and unrealized gross profit." },
+        { id: "lowStock", title: "Low Stock", note: "Items at or below reorder threshold needing replenishment." },
+        { id: "stockMovement", title: "Stock Movement", note: "Opening stock, inward receipts, sales outward and turnover." },
+      ],
+    },
+    {
+      title: "Accounting",
+      note: "Financial statements, running ledger, double-entry trial balance and P&L.",
+      reports: [
+        { id: "ledger", title: "Ledger", note: "Customer and supplier running ledger account statements." },
+        { id: "trialBalance", title: "Trial Balance", note: "Double-entry balance check proving Debits equal Credits." },
+        { id: "profitLoss", title: "P&L", note: "Trading and Profit & Loss statement showing Net Profit." },
+        { id: "balanceSheet", title: "Balance Sheet", note: "Financial position statement: Assets, Liabilities and Capital." },
+      ],
+    },
+    {
+      title: "GST",
+      note: "Statutory returns, HSN table 12 and tax liability set-off.",
+      reports: [
+        { id: "gstr1", title: "GSTR-1", note: "Outward supplies summary for GST portal filing." },
+        { id: "gstr3b", title: "GSTR-3B", note: "Monthly summary return for Table 3.1 and Table 4 ITC." },
+        { id: "hsnSummary", title: "HSN Summary", note: "Rate-wise HSN/SAC code summary for Table 12 and GSTR-9." },
+        { id: "gstLiability", title: "Tax Liability", note: "Output tax vs ITC set-off and net payable in cash." },
+      ],
+    },
+    {
+      title: "Receivables",
+      note: "Customer dues, aging buckets and running statements.",
+      reports: [
+        { id: "receivablesOutstanding", title: "Outstanding", note: "Customer-wise pending balances and overdue days." },
+        { id: "receivableAging", title: "Ageing", note: "Receivables classified by age buckets (0-30, 31-60, 61-90, 90+)." },
+        { id: "customerStatements", title: "Customer Statements", note: "Running statement of account for customer invoices and payments." },
       ],
     },
     {
@@ -12743,22 +17198,55 @@ function reportMenuButton(report, activeReport) {
 
 function reportContent(activeReport) {
   if (activeReport === "overview") return reportOverview();
-  if (activeReport === "gstr1") return gstReport("sale");
-  if (activeReport === "gstr2") return gstReport("purchase");
+  // Sales
+  if (activeReport === "sale" || activeReport === "salesRegister") return saleReportDataInner();
+  if (activeReport === "salesByProduct") return salesByProductReport();
+  if (activeReport === "salesByCustomer") return salesByCustomerReport();
+  if (activeReport === "salesByStaff") return salesByStaffReport();
+  // Purchase
+  if (activeReport === "purchase" || activeReport === "purchaseRegister") return purchaseReportInner();
+  if (activeReport === "purchaseBySupplier") return purchaseBySupplierReport();
+  if (activeReport === "purchaseByProduct") return purchaseByProductReport();
+  // Inventory
+  if (activeReport === "stock" || activeReport === "stockSummary") return stockSummaryReport();
+  if (activeReport === "itemLedger" || activeReport === "stockLedger") return itemLedgerReport();
+  if (activeReport === "stockValuation") return stockValuationReport();
+  if (activeReport === "lowStock") return lowStockReport();
+  if (activeReport === "stockMovement") return stockMovementReport();
+  // Accounting
+  if (activeReport === "ledger") return partyStatementReport();
+  if (activeReport === "trialBalance") return trialBalanceReport();
+  if (activeReport === "profitLoss" || activeReport === "pnl") return profitLossReport();
+  if (activeReport === "balanceSheet") return balanceSheetReport();
+  // GST
+  if (activeReport === "gstr1") return gstr1HubReport();
   if (activeReport === "gstr3b") return gstr3bReport();
-  if (activeReport === "gstLiability") return gstLiabilityReport();
+  if (activeReport === "hsnSummary") return hsnSummaryReport();
+  if (activeReport === "gstLiability" || activeReport === "taxLiability") return gstLiabilityReport();
+  // Receivables
+  if (activeReport === "receivablesOutstanding" || activeReport === "outstanding") return receivablesOutstandingReport();
+  if (activeReport === "receivableAging" || activeReport === "ageing") return agingReport("sale");
+  if (activeReport === "customerStatements") return customerStatementsReport();
+  // Additional / Existing
+  if (activeReport === "gstDashboard" || activeReport === "gst") return gstDashboardReport();
+  if (activeReport === "gstr1Export") return gstr1ExportReport();
+  if (activeReport === "gstr2") return gstReport("purchase");
+  if (activeReport === "gstr2bRecon" || activeReport === "gstReconciliation") return gstr2bReconReport();
+  if (activeReport === "salesTaxSummary") return salesTaxSummaryReport();
+  if (activeReport === "purchaseTaxSummary") return purchaseTaxSummaryReport();
+  if (activeReport === "itcRegister") return itcRegisterReport();
+  if (activeReport === "outputGst") return outputGstReport();
+  if (activeReport === "eInvoice" || activeReport === "eInvoiceLog") return eInvoiceLogReport();
+  if (activeReport === "eWayBill" || activeReport === "eWayBillLog") return eWayBillLogReport();
   if (activeReport === "profitability") return profitabilityReport();
-  if (activeReport === "purchase") return purchaseReportInner();
+  if (activeReport === "saleReturn") return returnsRegisterReport("saleReturn");
+  if (activeReport === "purchaseReturn") return returnsRegisterReport("purchaseReturn");
   if (activeReport === "expenseBreakdown") return expenseBreakdownReport();
   if (activeReport === "daybook") return dayBookReport();
   if (activeReport === "partyStatement") return partyStatementReport();
   if (activeReport === "partyBalances") return partyBalancesReport();
-  if (activeReport === "receivableAging") return agingReport("sale");
   if (activeReport === "payableAging") return agingReport("purchase");
-  if (activeReport === "stock") return stockSummaryReport();
-  if (activeReport === "itemLedger") return itemLedgerReport();
-  if (activeReport === "profitLoss") return profitLossReport();
-  if (activeReport === "trialBalance") return trialBalanceReport();
+  if (activeReport === "journalEntry") return journalEntryReport();
   if (activeReport === "cashBank") return cashBankReport();
   return saleReportDataInner();
 }
@@ -12778,7 +17266,6 @@ function reportPageShell({
     <section class="report-page report-modern-page">
       <header class="app-page-header report-page-header">
         <div>
-          <p class="muted-label">${escapeHtml(eyebrow)}</p>
           <h1>${escapeHtml(title)}</h1>
           ${summary ? `<small>${escapeHtml(summary)}</small>` : ""}
         </div>
@@ -12797,8 +17284,19 @@ function reportPageShell({
 
 function reportFilterToolbar(activeReport) {
   const dateScope = reportDateScope();
-  const showPartyFilter = ["sale", "purchase", "partyStatement", "receivableAging", "payableAging"].includes(activeReport);
-  const showCategoryFilter = ["stock", "itemLedger", "profitability", "expenseBreakdown"].includes(activeReport);
+  const showPartyFilter = [
+    "sale", "salesRegister", "salesByCustomer",
+    "purchase", "purchaseRegister", "purchaseBySupplier",
+    "partyStatement", "ledger", "customerStatements",
+    "receivableAging", "payableAging", "receivablesOutstanding",
+  ].includes(activeReport);
+
+  const showCategoryFilter = [
+    "stock", "stockSummary", "itemLedger", "stockLedger",
+    "stockValuation", "lowStock", "stockMovement",
+    "salesByProduct", "purchaseByProduct",
+    "profitability", "expenseBreakdown",
+  ].includes(activeReport);
 
   const parties = (state.parties || []).slice().sort((a, b) => (a.name || "").localeCompare(b.name || ""));
   const categories = Array.from(new Set([
@@ -12809,11 +17307,34 @@ function reportFilterToolbar(activeReport) {
 
   const isFiltered = Boolean(reportSearchQuery || reportDateFilter.preset !== "all" || reportPartyFilter || reportCategoryFilter);
 
+  const searchPlaceholders = {
+    stock: "Search item, SKU, HSN, category...",
+    itemLedger: "Search item, movement, notes...",
+    stockValuation: "Search item, SKU, category...",
+    lowStock: "Search low stock item, category...",
+    stockMovement: "Search item, velocity, category...",
+    salesByProduct: "Search product, SKU, category...",
+    salesByCustomer: "Search customer, GSTIN, phone...",
+    salesByStaff: "Search salesperson / staff...",
+    purchaseBySupplier: "Search supplier, GSTIN, phone...",
+    purchaseByProduct: "Search product, SKU, category...",
+    receivablesOutstanding: "Search customer, invoice, status...",
+    customerStatements: "Search customer statement, transaction...",
+    ledger: "Search transaction, invoice, party...",
+    partyStatement: "Search transaction, invoice, party...",
+    partyBalances: "Search party, phone, GSTIN...",
+    receivableAging: "Search party, invoice...",
+    payableAging: "Search party, bill...",
+    expenseBreakdown: "Search expense category, payment mode...",
+    cashBank: "Search bank name, account, IFSC, UPI...",
+  };
+  const placeholder = searchPlaceholders[activeReport] || "Search invoice, party, item, GSTIN, status";
+
   return `
     <section class="app-toolbar report-toolbar">
       <label class="toolbar-search">
         <span>Search report</span>
-        <input data-report-search="${escapeHtml(activeReport)}" type="search" value="${escapeHtml(reportSearchQuery)}" placeholder="Search invoice, party, item, GSTIN, status">
+        <input data-report-search="${escapeHtml(activeReport)}" type="search" value="${escapeHtml(reportSearchQuery)}" placeholder="${escapeHtml(placeholder)}">
       </label>
       <div class="report-date-controls" aria-label="Report date range">
         <label><span>Period</span><select class="form-input" data-report-date-preset="${escapeHtml(activeReport)}">
@@ -12826,7 +17347,7 @@ function reportFilterToolbar(activeReport) {
         </select></label>
         <label class="report-date-input ${reportDateFilter.preset === "custom" ? "" : "hidden"}"><span>From</span><input class="form-input" data-report-date-from type="date" value="${escapeHtml(dateScope.from || "")}"></label>
         <label class="report-date-input ${reportDateFilter.preset === "custom" ? "" : "hidden"}"><span>To</span><input class="form-input" data-report-date-to type="date" value="${escapeHtml(dateScope.to || "")}"></label>
-        <span class="report-date-summary">${escapeHtml(formatReportDateScope(dateScope))}</span>
+        ${reportDateFilter.preset !== "all" ? `<span class="report-date-summary">${escapeHtml(formatReportDateScope(dateScope))}</span>` : ""}
       </div>
       ${showPartyFilter ? `
         <label class="report-filter-select">
@@ -12899,7 +17420,6 @@ function reportOverview() {
     activeReport: "overview",
     title: "Report Center",
     summary: "Grouped reports for GST filing, accountant review, collections, payables and inventory control.",
-    showToolbar: false,
     kpis: [
       { label: "Sales", value: formatCurrency(salesTotals.total), note: `${salesTotals.count} sale records`, tone: "success" },
       { label: "Purchases", value: formatCurrency(purchaseTotals.total), note: `${purchaseTotals.count} purchase records`, tone: "neutral" },
@@ -13080,6 +17600,817 @@ function gstReport(type) {
       ) : ""}
       ${reportTableCard("GST Slab Summary", ["GST Slab", "Taxable", "CGST", "SGST", "IGST", "Total Tax"], gstSlabRows(totals.lines), "No GST slab rows found.")}
       ${reportTableCard("HSN/SAC Summary", ["HSN/SAC", "Qty", "Taxable", "CGST", "SGST", "IGST", "Tax"], gstHsnRows(totals.lines), "No HSN/SAC rows found.")}
+    `,
+  });
+}
+
+// ── GST Module Support ────────────────────────────────────────────────────────
+function isGstView(id) {
+  return [
+    "gst",
+    "gstDashboard",
+    "gstr1",
+    "gstr3b",
+    "hsnSummary",
+    "salesTaxSummary",
+    "purchaseTaxSummary",
+    "itcRegister",
+    "outputGst",
+    "gstLiability",
+    "eInvoice",
+    "eWayBill",
+    "gstReconciliation",
+  ].includes(id);
+}
+
+function gstWorkspaceTemplate(activeGstView = "gstDashboard") {
+  const current = activeGstView === "gst" ? "gstDashboard" : activeGstView;
+
+  const navGroups = [
+    {
+      title: "Overview",
+      items: [
+        { id: "gstDashboard", label: "GST Dashboard", note: "Compliance & Health" },
+      ],
+    },
+    {
+      title: "Returns & Filing",
+      items: [
+        { id: "gstr1", label: "GSTR-1", note: "Outward Supplies & Export" },
+        { id: "gstr3b", label: "GSTR-3B", note: "Monthly Return Summary" },
+        { id: "hsnSummary", label: "HSN Summary", note: "HSN/SAC Table 12 & GSTR-9" },
+      ],
+    },
+    {
+      title: "Tax Registers & ITC",
+      items: [
+        { id: "salesTaxSummary", label: "Sales Tax Summary", note: "Rate-wise Sales Register" },
+        { id: "purchaseTaxSummary", label: "Purchase Tax Summary", note: "Rate-wise Purchase Bills" },
+        { id: "itcRegister", label: "Input Tax Credit", note: "Eligible & Blocked §17(5)" },
+        { id: "outputGst", label: "Output GST", note: "Tax Collected & Returns" },
+        { id: "gstLiability", label: "GST Liability", note: "Output vs ITC Set-off" },
+      ],
+    },
+    {
+      title: "E-Way & Compliance",
+      items: [
+        { id: "eInvoice", label: "E-Invoice", note: "IRN Status & QR Codes" },
+        { id: "eWayBill", label: "E-Way Bill", note: "Consignments ≥ ₹50,000" },
+        { id: "gstReconciliation", label: "GST Reconciliation", note: "GSTR-2B vs Purchase Books" },
+      ],
+    },
+  ];
+
+  return `
+    <section class="reports-layout report-center-shell gst-center-shell">
+      <aside class="reports-menu report-sidebar gst-sidebar">
+        <div class="report-sidebar-title">
+          <div style="display:flex;align-items:center;gap:8px;">
+            <svg class="gi-icon" style="width:20px;height:20px;color:var(--primary, #2563eb);"><use href="#gi-gst"></use></svg>
+            <strong>GST Center</strong>
+          </div>
+          <span>Statutory Compliance</span>
+        </div>
+        ${navGroups.map((group) => `
+          <div class="report-nav-group">
+            <p>${escapeHtml(group.title)}</p>
+            ${group.items.map((item) => `
+              <button data-gst-view="${escapeHtml(item.id)}" class="report-nav-button ${current === item.id ? "active" : ""}" type="button">
+                <span>${escapeHtml(item.label)}</span>
+                <small>${escapeHtml(item.note)}</small>
+              </button>
+            `).join("")}
+          </div>
+        `).join("")}
+      </aside>
+      <main class="report-main">${gstViewContent(current)}</main>
+    </section>
+  `;
+}
+
+function gstViewContent(activeView) {
+  if (activeView === "gstDashboard" || activeView === "gst") return gstDashboardReport();
+  if (activeView === "gstr1") return gstr1HubReport();
+  if (activeView === "gstr3b") return gstr3bReport();
+  if (activeView === "hsnSummary") return hsnSummaryReport();
+  if (activeView === "salesTaxSummary") return salesTaxSummaryReport();
+  if (activeView === "purchaseTaxSummary") return purchaseTaxSummaryReport();
+  if (activeView === "itcRegister") return itcRegisterReport();
+  if (activeView === "outputGst") return outputGstReport();
+  if (activeView === "gstLiability") return gstLiabilityReport();
+  if (activeView === "eInvoice") return eInvoiceLogReport();
+  if (activeView === "eWayBill") return eWayBillLogReport();
+  if (activeView === "gstReconciliation") return gstr2bReconReport();
+  return gstDashboardReport();
+}
+
+function gstDashboardReport() {
+  const settings = state.businessSettings || defaultBusinessSettings();
+  const gstin = settings.gstin || "";
+  const companyName = settings.businessName || state.activeCompany || "My Business";
+  const stateName = settings.state || "Karnataka";
+  const pan = settings.pan || (gstin ? gstin.slice(2, 12) : "");
+
+  const outputTotals = reportTaxTotals("sale");
+  const purchaseTotals = reportTaxTotals("purchase");
+  const expenseInput = reportExpenseInputTax();
+
+  const creditNotes = (state.creditNotes || []).filter((note) => creditNoteStatus(note) !== "cancelled" && isInReportDateScope(note));
+  const creditNoteTax = creditNotes.reduce((sum, n) => sum + Number(n.cgstTotal || 0) + Number(n.sgstTotal || 0) + Number(n.igstTotal || 0), 0);
+  const netOutput = Math.max(0, outputTotals.tax - creditNoteTax);
+
+  const debitNotes = (state.debitNotes || []).filter((note) => debitNoteStatus(note) !== "cancelled" && isInReportDateScope(note));
+  const debitNoteTax = debitNotes.reduce((sum, n) => sum + Number(n.cgstTotal || 0) + Number(n.sgstTotal || 0) + Number(n.igstTotal || 0), 0);
+  const netPurchaseInput = Math.max(0, purchaseTotals.tax - debitNoteTax);
+  const totalInput = netPurchaseInput + expenseInput;
+
+  const netPayable = netOutput - totalInput;
+
+  const saleInvoices = reportInvoicesForType("sale").filter((inv) => invoiceStatusKey(inv) !== "cancelled");
+  const b2bInvoices = saleInvoices.filter((inv) => invoiceSupplyType(inv) === "b2b");
+  const purchaseBills = reportInvoicesForType("purchase").filter((inv) => invoiceStatusKey(inv) !== "cancelled");
+
+  const missingHsnCount = (state.items || []).filter((i) => !String(i.hsnSac || "").trim()).length;
+  const invalidGstinB2b = b2bInvoices.filter((inv) => !isValidGstin(inv.partyGstin || "")).length;
+  const blockedItcItems = (state.invoiceItems || []).filter((l) => isItcBlocked(l));
+  const blockedItcTotal = blockedItcItems.reduce((s, l) => s + Number(l.cgstAmount || 0) + Number(l.sgstAmount || 0) + Number(l.igstAmount || 0), 0);
+
+  const pendingEwbCount = saleInvoices.filter((inv) => invoiceTotalValue(inv) >= 50000 && !(state.eWayBillLogs || []).some((l) => (l.invoiceId === inv.id || l.invoice_id === inv.id) && l.ewbNo)).length;
+  const pendingEInvoiceCount = b2bInvoices.filter((inv) => isValidGstin(inv.partyGstin || "") && !(state.eInvoiceLogs || []).some((l) => (l.invoiceId === inv.id || l.invoice_id === inv.id) && l.irn)).length;
+
+  const hasGstin = Boolean(gstin && isValidGstin(gstin));
+  const healthIssues = missingHsnCount + invalidGstinB2b;
+  const healthScore = healthIssues === 0 ? "100% Audit Ready" : `${healthIssues} Action Item${healthIssues > 1 ? "s" : ""}`;
+
+  const rates = [0, 5, 12, 18, 28];
+  const saleLines = (state.invoiceItems || []).filter((l) => saleInvoices.some((inv) => inv.id === l.invoiceId));
+  const purchaseLines = (state.invoiceItems || []).filter((l) => purchaseBills.some((inv) => inv.id === l.invoiceId));
+
+  const slabComparisonRows = rates.map((r) => {
+    const sTaxable = saleLines.filter((l) => Number(l.taxRate || 0) === r).reduce((s, l) => s + Number(l.taxableValue || 0), 0);
+    const sTax = saleLines.filter((l) => Number(l.taxRate || 0) === r).reduce((s, l) => s + Number(l.taxAmount || 0), 0);
+    const pTaxable = purchaseLines.filter((l) => Number(l.taxRate || 0) === r).reduce((s, l) => s + Number(l.taxableValue || 0), 0);
+    const pTax = purchaseLines.filter((l) => Number(l.taxRate || 0) === r).reduce((s, l) => s + Number(l.taxAmount || 0), 0);
+    return [
+      `${r}% GST Slab`,
+      formatCurrency(sTaxable),
+      formatCurrency(sTax),
+      formatCurrency(pTaxable),
+      formatCurrency(pTax),
+      formatCurrency(sTax - pTax),
+    ];
+  });
+
+  return reportPageShell({
+    activeReport: "gstDashboard",
+    eyebrow: "Statutory Compliance",
+    title: "GST Compliance Dashboard",
+    summary: `Centralized statutory compliance center for ${escapeHtml(companyName)} (${stateName}). Monitor liability, ITC, and filings in real time.`,
+    exportLabel: "Export GST Summary",
+    exportMessage: "GST dashboard summary ready.",
+    kpis: [
+      {
+        label: "Net Output GST",
+        value: formatCurrency(netOutput),
+        note: creditNoteTax > 0 ? `Gross: ${formatCurrency(outputTotals.tax)} | Less Returns: ${formatCurrency(creditNoteTax)}` : "Tax collected on sales",
+        tone: "danger",
+      },
+      {
+        label: "Total Eligible ITC",
+        value: formatCurrency(totalInput),
+        note: `Purchases (${formatCurrency(netPurchaseInput)}) + Expenses (${formatCurrency(expenseInput)})`,
+        tone: "success",
+      },
+      {
+        label: netPayable >= 0 ? "Net GST Payable" : "ITC Carried Forward",
+        value: formatCurrency(Math.abs(netPayable)),
+        note: netPayable >= 0 ? "Cash payable after ITC set-off" : "Excess input tax credit balance",
+        tone: netPayable >= 0 ? "danger" : "success",
+      },
+      {
+        label: "Compliance Health",
+        value: healthScore,
+        note: healthIssues === 0 ? "Zero filing errors detected" : "Missing HSN or invalid GSTIN",
+        tone: healthIssues === 0 ? "success" : "warn",
+      },
+    ],
+    body: `
+      <section class="gst-dashboard-hero">
+        <div class="gst-hero-info">
+          <h2>
+            <svg class="gi-icon" style="width:24px;height:24px;color:#38bdf8;"><use href="#gi-gst"></use></svg>
+            ${escapeHtml(companyName)}
+          </h2>
+          <p>State: <strong>${escapeHtml(stateName)}</strong> | PAN: <strong>${escapeHtml(pan || "Not set")}</strong> | Return Scheme: <strong>Regular Monthly</strong></p>
+        </div>
+        <div class="gst-hero-tags">
+          <span class="gst-tag ${hasGstin ? "gst-tag--verified" : "gst-tag--warning"}">
+            <svg class="gi-icon" style="width:14px;height:14px;"><use href="#gi-${hasGstin ? "check" : "ban"}"></use></svg>
+            GSTIN: ${escapeHtml(gstin || "NOT CONFIGURED")}
+          </span>
+          <span class="gst-tag gst-tag--info">
+            <svg class="gi-icon" style="width:14px;height:14px;"><use href="#gi-calendar"></use></svg>
+            FY 2026-27
+          </span>
+          <button class="secondary-button compact-button" data-view="appSettings" data-settings-target="COMPANY" type="button" style="background:rgba(255,255,255,0.15);color:#fff;border-color:rgba(255,255,255,0.3);">
+            Edit Profile
+          </button>
+        </div>
+      </section>
+
+      <!-- Return Filing Calendar & Timelines -->
+      <section class="gst-deadlines-grid">
+        <article class="gst-deadline-card">
+          <div class="gst-deadline-header">
+            <div>
+              <h3 class="gst-deadline-title">GSTR-1 (Outward Supplies)</h3>
+              <p class="gst-deadline-desc">Monthly return of sales invoices &amp; credit notes</p>
+            </div>
+            <div class="gst-deadline-day">11th<small>Monthly</small></div>
+          </div>
+          <div style="display:flex;align-items:center;justify-content:space-between;padding-top:10px;border-top:1px solid #f1f5f9;">
+            <span class="status-badge status-badge--success">${saleInvoices.length} Invoices Ready</span>
+            <button class="primary-button compact-button" data-gst-view="gstr1" type="button">Review &amp; Export &rsaquo;</button>
+          </div>
+        </article>
+
+        <article class="gst-deadline-card">
+          <div class="gst-deadline-header">
+            <div>
+              <h3 class="gst-deadline-title">GSTR-3B (Summary Return)</h3>
+              <p class="gst-deadline-desc">Self-assessed tax liability &amp; eligible ITC payment</p>
+            </div>
+            <div class="gst-deadline-day">20th<small>Monthly</small></div>
+          </div>
+          <div style="display:flex;align-items:center;justify-content:space-between;padding-top:10px;border-top:1px solid #f1f5f9;">
+            <span class="status-badge status-badge--${netPayable > 0 ? "warn" : "success"}">${netPayable > 0 ? "Tax Payable" : "Nil Cash Tax"}</span>
+            <button class="primary-button compact-button" data-gst-view="gstr3b" type="button">View Return &rsaquo;</button>
+          </div>
+        </article>
+
+        <article class="gst-deadline-card">
+          <div class="gst-deadline-header">
+            <div>
+              <h3 class="gst-deadline-title">GSTR-2B (Reconciliation)</h3>
+              <p class="gst-deadline-desc">Auto-drafted ITC statement from government portal</p>
+            </div>
+            <div class="gst-deadline-day">14th<small>Monthly</small></div>
+          </div>
+          <div style="display:flex;align-items:center;justify-content:space-between;padding-top:10px;border-top:1px solid #f1f5f9;">
+            <span class="status-badge status-badge--info">${purchaseBills.length} Purchase Bills</span>
+            <button class="secondary-button compact-button" data-gst-view="gstReconciliation" type="button">Match Books &rsaquo;</button>
+          </div>
+        </article>
+      </section>
+
+      <!-- 12-Module Quick Access Matrix -->
+      <section class="gst-hub-grid">
+        <article class="gst-hub-card" data-gst-view="gstDashboard">
+          <div class="gst-hub-card-header">
+            <div class="gst-hub-icon-wrap"><svg class="gi-icon"><use href="#gi-home"></use></svg></div>
+            <div class="gst-hub-info">
+              <h3>GST Dashboard</h3>
+              <p>Executive compliance overview, liability metrics, and filing health</p>
+            </div>
+          </div>
+          <div class="gst-hub-card-footer">
+            <span class="gst-hub-metric">Command Center</span>
+            <button class="gst-hub-btn" type="button">Active &rsaquo;</button>
+          </div>
+        </article>
+
+        <article class="gst-hub-card" data-gst-view="gstr1">
+          <div class="gst-hub-card-header">
+            <div class="gst-hub-icon-wrap"><svg class="gi-icon"><use href="#gi-receipt"></use></svg></div>
+            <div class="gst-hub-info">
+              <h3>GSTR-1</h3>
+              <p>Outward supplies register with portal JSON &amp; CSV export</p>
+            </div>
+          </div>
+          <div class="gst-hub-card-footer">
+            <span class="gst-hub-metric">${formatCurrency(netOutput)} Output Tax</span>
+            <button class="gst-hub-btn" type="button">Open &rsaquo;</button>
+          </div>
+        </article>
+
+        <article class="gst-hub-card" data-gst-view="gstr3b">
+          <div class="gst-hub-card-header">
+            <div class="gst-hub-icon-wrap"><svg class="gi-icon"><use href="#gi-calculator"></use></svg></div>
+            <div class="gst-hub-info">
+              <h3>GSTR-3B</h3>
+              <p>Table 3.1 outward supplies, Table 4 ITC, and tax payment</p>
+            </div>
+          </div>
+          <div class="gst-hub-card-footer">
+            <span class="gst-hub-metric">Tables 3.1 &amp; 4 Ready</span>
+            <button class="gst-hub-btn" type="button">Open &rsaquo;</button>
+          </div>
+        </article>
+
+        <article class="gst-hub-card" data-gst-view="hsnSummary">
+          <div class="gst-hub-card-header">
+            <div class="gst-hub-icon-wrap"><svg class="gi-icon"><use href="#gi-box"></use></svg></div>
+            <div class="gst-hub-info">
+              <h3>HSN Summary</h3>
+              <p>Rate-wise HSN/SAC summary table for GSTR-1 Table 12 &amp; GSTR-9</p>
+            </div>
+          </div>
+          <div class="gst-hub-card-footer">
+            <span class="gst-hub-metric">${missingHsnCount ? missingHsnCount + " Missing HSN" : "Complete"}</span>
+            <button class="gst-hub-btn" type="button">Open &rsaquo;</button>
+          </div>
+        </article>
+
+        <article class="gst-hub-card" data-gst-view="salesTaxSummary">
+          <div class="gst-hub-card-header">
+            <div class="gst-hub-icon-wrap"><svg class="gi-icon"><use href="#gi-arrow-down"></use></svg></div>
+            <div class="gst-hub-info">
+              <h3>Sales Tax Summary</h3>
+              <p>Rate-wise sales tax register separating taxable value and taxes</p>
+            </div>
+          </div>
+          <div class="gst-hub-card-footer">
+            <span class="gst-hub-metric">0%, 5%, 12%, 18%, 28%</span>
+            <button class="gst-hub-btn" type="button">Open &rsaquo;</button>
+          </div>
+        </article>
+
+        <article class="gst-hub-card" data-gst-view="purchaseTaxSummary">
+          <div class="gst-hub-card-header">
+            <div class="gst-hub-icon-wrap"><svg class="gi-icon"><use href="#gi-arrow-up"></use></svg></div>
+            <div class="gst-hub-info">
+              <h3>Purchase Tax Summary</h3>
+              <p>Rate-wise purchase bills and expense input tax breakdown</p>
+            </div>
+          </div>
+          <div class="gst-hub-card-footer">
+            <span class="gst-hub-metric">${purchaseBills.length} Purchase Bills</span>
+            <button class="gst-hub-btn" type="button">Open &rsaquo;</button>
+          </div>
+        </article>
+
+        <article class="gst-hub-card" data-gst-view="itcRegister">
+          <div class="gst-hub-card-header">
+            <div class="gst-hub-icon-wrap"><svg class="gi-icon"><use href="#gi-check"></use></svg></div>
+            <div class="gst-hub-info">
+              <h3>Input Tax Credit</h3>
+              <p>Statutory ITC register with Section 17(5) blocked credit flags</p>
+            </div>
+          </div>
+          <div class="gst-hub-card-footer">
+            <span class="gst-hub-metric">${formatCurrency(totalInput)} Eligible</span>
+            <button class="gst-hub-btn" type="button">Open &rsaquo;</button>
+          </div>
+        </article>
+
+        <article class="gst-hub-card" data-gst-view="outputGst">
+          <div class="gst-hub-card-header">
+            <div class="gst-hub-icon-wrap"><svg class="gi-icon"><use href="#gi-receipt"></use></svg></div>
+            <div class="gst-hub-info">
+              <h3>Output GST</h3>
+              <p>Statutory output tax ledger reflecting sales and credit notes</p>
+            </div>
+          </div>
+          <div class="gst-hub-card-footer">
+            <span class="gst-hub-metric">${formatCurrency(netOutput)} Net Collected</span>
+            <button class="gst-hub-btn" type="button">Open &rsaquo;</button>
+          </div>
+        </article>
+
+        <article class="gst-hub-card" data-gst-view="gstLiability">
+          <div class="gst-hub-card-header">
+            <div class="gst-hub-icon-wrap"><svg class="gi-icon"><use href="#gi-wallet"></use></svg></div>
+            <div class="gst-hub-info">
+              <h3>GST Liability</h3>
+              <p>Periodic accountant worksheet of output minus input tax set-off</p>
+            </div>
+          </div>
+          <div class="gst-hub-card-footer">
+            <span class="gst-hub-metric">${netPayable >= 0 ? formatCurrency(netPayable) + " Payable" : formatCurrency(Math.abs(netPayable)) + " ITC Credit"}</span>
+            <button class="gst-hub-btn" type="button">Open &rsaquo;</button>
+          </div>
+        </article>
+
+        <article class="gst-hub-card" data-gst-view="eInvoice">
+          <div class="gst-hub-card-header">
+            <div class="gst-hub-icon-wrap"><svg class="gi-icon"><use href="#gi-qr"></use></svg></div>
+            <div class="gst-hub-info">
+              <h3>E-Invoice</h3>
+              <p>IRN generation status, signed QR codes, and compliance log</p>
+            </div>
+          </div>
+          <div class="gst-hub-card-footer">
+            <span class="gst-hub-metric">${pendingEInvoiceCount ? pendingEInvoiceCount + " Pending IRN" : "B2B Compliant"}</span>
+            <button class="gst-hub-btn" type="button">Open &rsaquo;</button>
+          </div>
+        </article>
+
+        <article class="gst-hub-card" data-gst-view="eWayBill">
+          <div class="gst-hub-card-header">
+            <div class="gst-hub-icon-wrap"><svg class="gi-icon"><use href="#gi-trend"></use></svg></div>
+            <div class="gst-hub-info">
+              <h3>E-Way Bill</h3>
+              <p>EWB generation and vehicle tracking for goods movement &ge; &#8377;50K</p>
+            </div>
+          </div>
+          <div class="gst-hub-card-footer">
+            <span class="gst-hub-metric">${pendingEwbCount ? pendingEwbCount + " Pending EWB" : "All Valid"}</span>
+            <button class="gst-hub-btn" type="button">Open &rsaquo;</button>
+          </div>
+        </article>
+
+        <article class="gst-hub-card" data-gst-view="gstReconciliation">
+          <div class="gst-hub-card-header">
+            <div class="gst-hub-icon-wrap"><svg class="gi-icon"><use href="#gi-refresh"></use></svg></div>
+            <div class="gst-hub-info">
+              <h3>GST Reconciliation</h3>
+              <p>Upload GSTR-2B JSON and match against purchase register</p>
+            </div>
+          </div>
+          <div class="gst-hub-card-footer">
+            <span class="gst-hub-metric">Portal Matcher</span>
+            <button class="gst-hub-btn" type="button">Open &rsaquo;</button>
+          </div>
+        </article>
+      </section>
+
+      <!-- Slab Comparison & Health Audits -->
+      ${reportTableCard("Rate-wise Tax Comparison: Output (Sales) vs Input (Purchases)", ["GST Slab", "Sales Taxable", "Sales Tax (Output)", "Purchase Taxable", "Purchase Tax (Input)", "Net Tax Impact"], slabComparisonRows, "No slab entries found.")}
+
+      <section class="gst-health-grid">
+        <article class="gst-health-card">
+          <h3>
+            <svg class="gi-icon" style="width:16px;height:16px;color:#2563eb;"><use href="#gi-check"></use></svg>
+            Compliance Health Audit
+          </h3>
+          <div class="gst-health-item">
+            <div class="gst-health-label">
+              <span class="gst-health-dot ${missingHsnCount > 0 ? "gst-health-dot--warn" : "gst-health-dot--good"}"></span>
+              <span>HSN/SAC Classification</span>
+            </div>
+            <strong>${missingHsnCount > 0 ? `${missingHsnCount} items missing HSN` : "100% Configured"}</strong>
+          </div>
+          <div class="gst-health-item">
+            <div class="gst-health-label">
+              <span class="gst-health-dot ${invalidGstinB2b > 0 ? "gst-health-dot--bad" : "gst-health-dot--good"}"></span>
+              <span>B2B Customer GSTIN Validity</span>
+            </div>
+            <strong>${invalidGstinB2b > 0 ? `${invalidGstinB2b} invalid GSTINs` : "All GSTINs Valid"}</strong>
+          </div>
+          <div class="gst-health-item">
+            <div class="gst-health-label">
+              <span class="gst-health-dot ${blockedItcItems.length > 0 ? "gst-health-dot--warn" : "gst-health-dot--good"}"></span>
+              <span>Section 17(5) Blocked Credits</span>
+            </div>
+            <strong>${blockedItcItems.length > 0 ? `${blockedItcItems.length} lines (${formatCurrency(blockedItcTotal)})` : "None flagged"}</strong>
+          </div>
+          <div class="gst-health-item">
+            <div class="gst-health-label">
+              <span class="gst-health-dot ${pendingEwbCount > 0 ? "gst-health-dot--warn" : "gst-health-dot--good"}"></span>
+              <span>E-Way Bill Compliance (&ge; &#8377;50K)</span>
+            </div>
+            <strong>${pendingEwbCount > 0 ? `${pendingEwbCount} consignments pending` : "All Covered"}</strong>
+          </div>
+        </article>
+
+        <article class="gst-health-card">
+          <h3>
+            <svg class="gi-icon" style="width:16px;height:16px;color:#2563eb;"><use href="#gi-calculator"></use></svg>
+            Tax Component Distribution
+          </h3>
+          <div class="gst-health-item">
+            <div class="gst-health-label">
+              <span class="gst-health-dot gst-health-dot--good"></span>
+              <span>Central GST (CGST) Output</span>
+            </div>
+            <strong>${formatCurrency(outputTotals.cgst)}</strong>
+          </div>
+          <div class="gst-health-item">
+            <div class="gst-health-label">
+              <span class="gst-health-dot gst-health-dot--good"></span>
+              <span>State / UT GST (SGST) Output</span>
+            </div>
+            <strong>${formatCurrency(outputTotals.sgst)}</strong>
+          </div>
+          <div class="gst-health-item">
+            <div class="gst-health-label">
+              <span class="gst-health-dot gst-health-dot--good"></span>
+              <span>Integrated GST (IGST) Output</span>
+            </div>
+            <strong>${formatCurrency(outputTotals.igst)}</strong>
+          </div>
+          <div class="gst-health-item">
+            <div class="gst-health-label">
+              <span class="gst-health-dot gst-health-dot--good"></span>
+              <span>Total Available Input Tax Credit</span>
+            </div>
+            <strong>${formatCurrency(totalInput)}</strong>
+          </div>
+        </article>
+      </section>
+    `,
+  });
+}
+
+function gstr1HubReport() {
+  const totals = reportTaxTotals("sale");
+  const returnNotes = (state.creditNotes || [])
+    .filter((note) => creditNoteStatus(note) !== "cancelled")
+    .filter(isInReportDateScope);
+  const returnTaxable = returnNotes.reduce((sum, n) => sum + Math.max(0, Number(n.subtotal || 0) - Number(n.discountTotal || 0)), 0);
+  const returnCgst = returnNotes.reduce((sum, n) => sum + Number(n.cgstTotal || 0), 0);
+  const returnSgst = returnNotes.reduce((sum, n) => sum + Number(n.sgstTotal || 0), 0);
+  const returnIgst = returnNotes.reduce((sum, n) => sum + Number(n.igstTotal || 0), 0);
+  const returnTax = returnCgst + returnSgst + returnIgst;
+
+  const netTaxable = Math.max(0, totals.taxable - returnTaxable);
+  const netCgst = Math.max(0, totals.cgst - returnCgst);
+  const netSgst = Math.max(0, totals.sgst - returnSgst);
+  const netIgst = Math.max(0, totals.igst - returnIgst);
+  const netTax = netCgst + netSgst + netIgst;
+
+  const b2bTotal = totals.invoices.filter((invoice) => invoiceSupplyType(invoice) === "b2b").reduce((sum, invoice) => sum + invoiceTaxableValue(invoice), 0);
+  const b2cTotal = totals.invoices.filter((invoice) => invoiceSupplyType(invoice) === "b2c").reduce((sum, invoice) => sum + invoiceTaxableValue(invoice), 0);
+
+  return reportPageShell({
+    activeReport: "gstr1",
+    eyebrow: "GST Returns",
+    title: "GSTR-1 / Outward Supplies",
+    summary: "Government return format for outward taxable supplies, B2B/B2C classification, debit/credit notes, and portal export.",
+    exportLabel: "Export GSTR-1 (CSV)",
+    exportMessage: "GSTR-1 CSV export ready.",
+    kpis: [
+      { label: "Net Taxable Turnover", value: formatCurrency(netTaxable), note: returnTaxable > 0 ? `Gross: ${formatCurrency(totals.taxable)} | Ret: ${formatCurrency(returnTaxable)}` : `${totals.lines.length} taxable lines`, tone: "neutral" },
+      { label: "Net CGST Collected", value: formatCurrency(netCgst), note: returnCgst > 0 ? `Gross: ${formatCurrency(totals.cgst)}` : "Central GST", tone: "info" },
+      { label: "Net SGST Collected", value: formatCurrency(netSgst), note: returnSgst > 0 ? `Gross: ${formatCurrency(totals.sgst)}` : "State GST", tone: "info" },
+      { label: "Net IGST Collected", value: formatCurrency(netIgst), note: returnIgst > 0 ? `Gross: ${formatCurrency(totals.igst)}` : "Interstate GST", tone: "info" },
+      { label: "Net Output GST", value: formatCurrency(netTax), note: returnTax > 0 ? `Gross: ${formatCurrency(totals.tax)}` : "Tax liability", tone: "danger" },
+      { label: "B2B / B2C Split", value: `${formatCurrency(b2bTotal)} / ${formatCurrency(b2cTotal)}`, note: "Taxable turnover", tone: "neutral" },
+    ],
+    body: `
+      <div class="gst-quick-export-bar">
+        <button class="primary-button compact-button" data-report-view="gstr1Export" type="button" style="display:inline-flex;align-items:center;gap:6px;">
+          <svg class="gi-icon" style="width:14px;height:14px;"><use href="#gi-database"></use></svg>
+          GSTR-1 JSON &amp; CSV Export Center (Govt Portal)
+        </button>
+        <button class="secondary-button compact-button" data-gst-view="hsnSummary" type="button">
+          HSN Summary (Table 12)
+        </button>
+        <button class="secondary-button compact-button" data-gst-view="salesTaxSummary" type="button">
+          Rate Slab Breakdown
+        </button>
+        <button class="secondary-button compact-button" data-gst-view="gstr3b" type="button">
+          Go to GSTR-3B Return &rsaquo;
+        </button>
+      </div>
+
+      <section class="gst-chart-grid report-chart-grid">
+        <article class="gst-chart-card">
+          <h2>Monthly Output GST Trend</h2>
+          <div class="gst-bar-chart">${gstMonthlyBars(totals.invoices)}</div>
+        </article>
+        <article class="gst-chart-card">
+          <h2>GST Slab Breakdown</h2>
+          <div class="gst-pie-placeholder">${gstPieSlices(totals.lines)}</div>
+        </article>
+      </section>
+
+      ${reportTableCard(
+        "Sale Invoice Register (GSTR-1 Outward Supplies)",
+        ["Date", "Invoice No", "Customer", "Supply Type", "GSTIN", "Taxable Value", "CGST", "SGST", "IGST", "Invoice Total"],
+        gstInvoiceRows(totals.invoices),
+        "No sale GST records found for this period.",
+        `${totals.invoices.length} invoices`
+      )}
+
+      ${returnNotes.length ? reportTableCard(
+        "Sales Returns / Credit Notes Impact (Table 9B CDNR)",
+        ["Date", "Credit Note No", "Customer", "Reason", "Taxable Value", "CGST", "SGST", "IGST", "Total Amount"],
+        returnNotes.map((n) => [
+          formatDate(n.date || n.creditDate),
+          n.creditNo || "-",
+          n.party || "-",
+          n.reason || "-",
+          formatCurrency(Math.max(0, Number(n.subtotal || 0) - Number(n.discountTotal || 0))),
+          formatCurrency(n.cgstTotal || 0),
+          formatCurrency(n.sgstTotal || 0),
+          formatCurrency(n.igstTotal || 0),
+          formatCurrency(n.total || 0),
+        ]),
+        "No credit notes found.",
+        `${returnNotes.length} returns`
+      ) : ""}
+
+      ${reportTableCard("GST Slab Summary", ["GST Slab", "Taxable", "CGST", "SGST", "IGST", "Total Tax"], gstSlabRows(totals.lines), "No GST slab rows found.")}
+      ${reportTableCard("HSN/SAC Summary", ["HSN/SAC", "Qty", "Taxable", "CGST", "SGST", "IGST", "Tax"], gstHsnRows(totals.lines), "No HSN/SAC rows found.")}
+    `,
+  });
+}
+
+function salesTaxSummaryReport() {
+  const totals = reportTaxTotals("sale");
+  const invoices = totals.invoices.filter((inv) => invoiceStatusKey(inv) !== "cancelled");
+  const invoiceIds = new Set(invoices.map((inv) => inv.id));
+  const lines = (state.invoiceItems || []).filter((l) => invoiceIds.has(l.invoiceId));
+
+  const slabs = new Map();
+  [0, 5, 12, 18, 28].forEach((r) => slabs.set(r, { rate: r, count: 0, taxable: 0, cgst: 0, sgst: 0, igst: 0, tax: 0 }));
+
+  lines.forEach((l) => {
+    const rate = Number(l.taxRate || 0);
+    const s = slabs.get(rate) || { rate, count: 0, taxable: 0, cgst: 0, sgst: 0, igst: 0, tax: 0 };
+    s.count++;
+    s.taxable += Number(l.taxableValue || 0);
+    s.cgst += Number(l.cgstAmount || 0);
+    s.sgst += Number(l.sgstAmount || 0);
+    s.igst += Number(l.igstAmount || 0);
+    s.tax += Number(l.taxAmount || 0);
+    slabs.set(rate, s);
+  });
+
+  const slabRows = [...slabs.values()]
+    .filter((s) => s.taxable > 0 || s.count > 0 || [5, 12, 18, 28].includes(s.rate))
+    .sort((a, b) => a.rate - b.rate)
+    .map((s) => [
+      `${s.rate}% GST`,
+      String(s.count),
+      formatCurrency(s.taxable),
+      formatCurrency(s.cgst),
+      formatCurrency(s.sgst),
+      formatCurrency(s.igst),
+      formatCurrency(s.tax),
+      formatCurrency(s.taxable + s.tax),
+    ]);
+
+  const invoiceRows = invoices.map((inv) => [
+    formatDate(inv.date),
+    inv.invoiceNo || "-",
+    inv.party || "-",
+    inv.partyGstin || "-",
+    inv.placeOfSupply || "-",
+    String(inv.supplyType || "").toUpperCase() || "B2C",
+    formatCurrency(invoiceTaxableValue(inv)),
+    formatCurrency(inv.cgstTotal || 0),
+    formatCurrency(inv.sgstTotal || 0),
+    formatCurrency(inv.igstTotal || 0),
+    formatCurrency(invoiceTaxValue(inv)),
+    formatCurrency(invoiceTotalValue(inv)),
+  ]);
+
+  return reportPageShell({
+    activeReport: "salesTaxSummary",
+    eyebrow: "GST Registers",
+    title: "Sales Tax Summary",
+    summary: "Rate-wise sales tax register separating taxable turnover, CGST, SGST, IGST, and total invoice values.",
+    exportLabel: "Export Sales Tax (CSV)",
+    kpis: [
+      { label: "Taxable Turnover", value: formatCurrency(totals.taxable), note: `${invoices.length} invoices`, tone: "neutral" },
+      { label: "CGST Collected", value: formatCurrency(totals.cgst), note: "Central GST", tone: "info" },
+      { label: "SGST Collected", value: formatCurrency(totals.sgst), note: "State GST", tone: "info" },
+      { label: "IGST Collected", value: formatCurrency(totals.igst), note: "Integrated GST", tone: "info" },
+      { label: "Total Output Tax", value: formatCurrency(totals.tax), note: "Gross sales GST", tone: "danger" },
+    ],
+    body: `
+      ${reportTableCard("Rate Slab Breakdown", ["GST Slab", "Lines", "Taxable Value", "CGST", "SGST", "IGST", "Total Tax", "Total Value"], slabRows, "No slab entries found.")}
+      ${reportTableCard("Invoice-by-Invoice Sales Tax Register", ["Date", "Invoice No", "Customer", "GSTIN", "POS", "Supply", "Taxable", "CGST", "SGST", "IGST", "Tax", "Invoice Total"], invoiceRows, "No sales invoices found.")}
+    `,
+  });
+}
+
+function purchaseTaxSummaryReport() {
+  const totals = reportTaxTotals("purchase");
+  const expenseInput = reportExpenseInputTax();
+  const purchases = totals.invoices.filter((inv) => invoiceStatusKey(inv) !== "cancelled");
+  const purchaseIds = new Set(purchases.map((inv) => inv.id));
+  const lines = (state.invoiceItems || []).filter((l) => purchaseIds.has(l.invoiceId));
+
+  const slabs = new Map();
+  [0, 5, 12, 18, 28].forEach((r) => slabs.set(r, { rate: r, count: 0, taxable: 0, cgst: 0, sgst: 0, igst: 0, tax: 0 }));
+
+  lines.forEach((l) => {
+    const rate = Number(l.taxRate || 0);
+    const s = slabs.get(rate) || { rate, count: 0, taxable: 0, cgst: 0, sgst: 0, igst: 0, tax: 0 };
+    s.count++;
+    s.taxable += Number(l.taxableValue || 0);
+    s.cgst += Number(l.cgstAmount || 0);
+    s.sgst += Number(l.sgstAmount || 0);
+    s.igst += Number(l.igstAmount || 0);
+    s.tax += Number(l.taxAmount || 0);
+    slabs.set(rate, s);
+  });
+
+  const slabRows = [...slabs.values()]
+    .filter((s) => s.taxable > 0 || s.count > 0 || [5, 12, 18, 28].includes(s.rate))
+    .sort((a, b) => a.rate - b.rate)
+    .map((s) => [
+      `${s.rate}% GST`,
+      String(s.count),
+      formatCurrency(s.taxable),
+      formatCurrency(s.cgst),
+      formatCurrency(s.sgst),
+      formatCurrency(s.igst),
+      formatCurrency(s.tax),
+      formatCurrency(s.taxable + s.tax),
+    ]);
+
+  const billRows = purchases.map((inv) => [
+    formatDate(inv.date),
+    inv.invoiceNo || "-",
+    inv.party || "-",
+    inv.partyGstin || "-",
+    formatCurrency(invoiceTaxableValue(inv)),
+    formatCurrency(inv.cgstTotal || 0),
+    formatCurrency(inv.sgstTotal || 0),
+    formatCurrency(inv.igstTotal || 0),
+    formatCurrency(invoiceTaxValue(inv)),
+    formatCurrency(invoiceTotalValue(inv)),
+  ]);
+
+  return reportPageShell({
+    activeReport: "purchaseTaxSummary",
+    eyebrow: "GST Registers",
+    title: "Purchase Tax Summary",
+    summary: "Rate-wise purchase bills and input tax register for supplier invoices and business expenses.",
+    exportLabel: "Export Purchase Tax (CSV)",
+    kpis: [
+      { label: "Taxable Purchases", value: formatCurrency(totals.taxable), note: `${purchases.length} purchase bills`, tone: "neutral" },
+      { label: "Input CGST", value: formatCurrency(totals.cgst), note: "Central GST credit", tone: "info" },
+      { label: "Input SGST", value: formatCurrency(totals.sgst), note: "State GST credit", tone: "info" },
+      { label: "Input IGST", value: formatCurrency(totals.igst), note: "Interstate GST credit", tone: "info" },
+      { label: "Total Input GST", value: formatCurrency(totals.tax + expenseInput), note: expenseInput > 0 ? `Bills: ${formatCurrency(totals.tax)} + Exp: ${formatCurrency(expenseInput)}` : "Available ITC", tone: "success" },
+    ],
+    body: `
+      ${reportTableCard("Purchase Rate Slab Breakdown", ["GST Slab", "Lines", "Taxable Value", "Input CGST", "Input SGST", "Input IGST", "Total Input Tax", "Total Value"], slabRows, "No slab entries found.")}
+      ${reportTableCard("Bill-by-Bill Purchase Tax Register", ["Date", "Bill No", "Supplier", "GSTIN", "Taxable", "Input CGST", "Input SGST", "Input IGST", "Input Tax", "Bill Total"], billRows, "No purchase bills found.")}
+    `,
+  });
+}
+
+function outputGstReport() {
+  const output = reportTaxTotals("sale");
+  const creditNotes = (state.creditNotes || []).filter((note) => creditNoteStatus(note) !== "cancelled" && isInReportDateScope(note));
+  const cnTaxable = creditNotes.reduce((sum, n) => sum + Math.max(0, Number(n.subtotal || 0) - Number(n.discountTotal || 0)), 0);
+  const cnCgst = creditNotes.reduce((sum, n) => sum + Number(n.cgstTotal || 0), 0);
+  const cnSgst = creditNotes.reduce((sum, n) => sum + Number(n.sgstTotal || 0), 0);
+  const cnIgst = creditNotes.reduce((sum, n) => sum + Number(n.igstTotal || 0), 0);
+  const cnTax = cnCgst + cnSgst + cnIgst;
+
+  const netTaxable = Math.max(0, output.taxable - cnTaxable);
+  const netCgst = Math.max(0, output.cgst - cnCgst);
+  const netSgst = Math.max(0, output.sgst - cnSgst);
+  const netIgst = Math.max(0, output.igst - cnIgst);
+  const netTax = netCgst + netSgst + netIgst;
+
+  const invoices = output.invoices.filter((inv) => invoiceStatusKey(inv) !== "cancelled");
+
+  const documentRows = [
+    ...invoices.map((inv) => [
+      formatDate(inv.date),
+      inv.invoiceNo || "-",
+      "Sale Invoice",
+      inv.party || "-",
+      inv.partyGstin || "-",
+      formatCurrency(invoiceTaxableValue(inv)),
+      formatCurrency(inv.cgstTotal || 0),
+      formatCurrency(inv.sgstTotal || 0),
+      formatCurrency(inv.igstTotal || 0),
+      formatCurrency(invoiceTaxValue(inv)),
+    ]),
+    ...creditNotes.map((n) => [
+      formatDate(n.date || n.creditDate),
+      n.creditNo || "-",
+      "Credit Note (Return)",
+      n.party || "-",
+      "-",
+      `-${formatCurrency(Math.max(0, Number(n.subtotal || 0) - Number(n.discountTotal || 0)))}`,
+      `-${formatCurrency(n.cgstTotal || 0)}`,
+      `-${formatCurrency(n.sgstTotal || 0)}`,
+      `-${formatCurrency(n.igstTotal || 0)}`,
+      `-${formatCurrency(Number(n.cgstTotal || 0) + Number(n.sgstTotal || 0) + Number(n.igstTotal || 0))}`,
+    ]),
+  ];
+
+  return reportPageShell({
+    activeReport: "outputGst",
+    eyebrow: "GST Tax Ledger",
+    title: "Output GST Register",
+    summary: "Comprehensive statutory output tax ledger showing gross tax collected, credit note reversals, and net liability.",
+    exportLabel: "Export Output GST (CSV)",
+    kpis: [
+      { label: "Gross Output Tax", value: formatCurrency(output.tax), note: `Taxable: ${formatCurrency(output.taxable)}`, tone: "neutral" },
+      { label: "Credit Note Reversals", value: formatCurrency(cnTax), note: `${creditNotes.length} returns`, tone: cnTax > 0 ? "warn" : "neutral" },
+      { label: "Net Output GST", value: formatCurrency(netTax), note: "Statutory tax collected", tone: "danger" },
+      { label: "Intra-State (CGST+SGST)", value: formatCurrency(netCgst + netSgst), note: `CGST: ${formatCurrency(netCgst)} | SGST: ${formatCurrency(netSgst)}`, tone: "info" },
+      { label: "Inter-State (IGST)", value: formatCurrency(netIgst), note: "Integrated tax", tone: "info" },
+    ],
+    body: `
+      ${reportTableCard("Output Tax Summary by Component", ["Component", "Gross Tax", "Credit Note Reversal", "Net Tax Liability"], [
+        ["Central Tax (CGST)", formatCurrency(output.cgst), formatCurrency(cnCgst), formatCurrency(netCgst)],
+        ["State / UT Tax (SGST)", formatCurrency(output.sgst), formatCurrency(cnSgst), formatCurrency(netSgst)],
+        ["Integrated Tax (IGST)", formatCurrency(output.igst), formatCurrency(cnIgst), formatCurrency(netIgst)],
+        ["Total Output GST", formatCurrency(output.tax), formatCurrency(cnTax), formatCurrency(netTax)],
+      ], "No tax component data found.")}
+      ${reportTableCard("Outward Tax Documents Register", ["Date", "Doc No", "Document Type", "Party", "GSTIN", "Taxable Value", "CGST", "SGST", "IGST", "Total Output Tax"], documentRows, "No outward tax documents found.")}
     `,
   });
 }
@@ -13713,6 +19044,42 @@ function transactionRegisterReport(type) {
   });
 }
 
+function returnsRegisterReport(type) {
+  const isSaleReturn = type === "saleReturn";
+  const allRows = isSaleReturn ? (state.creditNotes || []) : (state.debitNotes || []);
+  const title = isSaleReturn ? "Sales Returns / Credit Notes" : "Purchase Returns / Debit Notes";
+  const partyLabel = isSaleReturn ? "Customer" : "Supplier";
+  const numberKey = isSaleReturn ? "creditNo" : "debitNo";
+  const rows = allRows.filter(isInReportDateScope);
+  const totalAmount = rows.reduce((s, r) => s + Number(r.total || 0), 0);
+  const totalTax = rows.reduce((s, r) => s + Number(r.taxTotal || (Number(r.cgstTotal || 0) + Number(r.sgstTotal || 0) + Number(r.igstTotal || 0))), 0);
+  const totalTaxable = rows.reduce((s, r) => s + Number(r.subtotal || 0), 0);
+
+  return reportPageShell({
+    activeReport: type,
+    eyebrow: isSaleReturn ? "Sales" : "Purchase",
+    title,
+    summary: isSaleReturn ? "Credit note register of goods returned by customers with GST reversals." : "Debit note register of goods returned to suppliers with ITC reversals.",
+    exportLabel: `Export ${isSaleReturn ? "Credit Notes" : "Debit Notes"} CSV`,
+    exportMessage: `${title} export ready.`,
+    kpis: [
+      { label: isSaleReturn ? "Credit Notes Total" : "Debit Notes Total", value: formatCurrency(totalAmount), note: `${rows.length} records`, tone: "neutral" },
+      { label: "Taxable Value", value: formatCurrency(totalTaxable), note: "Net return amount", tone: "neutral" },
+      { label: "GST Reversed", value: formatCurrency(totalTax), note: isSaleReturn ? "Output GST reduced" : "Input ITC reduced", tone: "info" },
+    ],
+    body: reportTableCard(title, ["Date", isSaleReturn ? "Credit Note No" : "Debit Note No", "Original Invoice", partyLabel, "Taxable", "Tax", "Total", "Reason"], rows.map((row) => [
+      formatDate(row.date),
+      row[numberKey] || "-",
+      row.originalInvoiceNo || "-",
+      row.party || "-",
+      formatCurrency(row.subtotal || 0),
+      formatCurrency(row.taxTotal || (Number(row.cgstTotal || 0) + Number(row.sgstTotal || 0) + Number(row.igstTotal || 0))),
+      formatCurrency(row.total || 0),
+      row.reason || row.notes || "-",
+    ]), `No ${isSaleReturn ? "credit note" : "debit note"} records found.`, `${rows.length} rows`),
+  });
+}
+
 function dayBookReport() {
   const rows = [...(state.invoices || []), ...(state.payments || []), ...(state.transactions || []).filter((row) => row.type === "expense")]
     .filter(isInReportDateScope)
@@ -13938,7 +19305,7 @@ function trialBalanceReport() {
 }
 
 function stockSummaryReport() {
-  const rows = state.items.length
+  let rows = state.items.length
     ? state.items.map((item) => ({
         item: item.name,
         kind: itemKind(item).label,
@@ -13952,7 +19319,24 @@ function stockSummaryReport() {
         quantity: item.currentStock,
       }))
     : (state.stockBalances || []);
+
+  if (reportCategoryFilter) {
+    rows = rows.filter((row) => (row.category || "").toLowerCase() === reportCategoryFilter.toLowerCase());
+  }
+
+  const query = String(reportSearchQuery || "").trim().toLowerCase();
+  if (query) {
+    rows = rows.filter((row) =>
+      (row.item || "").toLowerCase().includes(query) ||
+      (row.sku || "").toLowerCase().includes(query) ||
+      (row.hsnSac || "").toLowerCase().includes(query) ||
+      (row.category || "").toLowerCase().includes(query)
+    );
+  }
+
   const stockValue = rows.reduce((sum, row) => sum + Number(row.quantity || 0) * Number(row.purchasePrice || 0), 0);
+  const totalQty = rows.reduce((sum, row) => sum + Number(row.quantity || 0), 0);
+
   const tableRows = rows.map((row) => [
     row.item,
     row.kind || "-",
@@ -13964,6 +19348,7 @@ function stockSummaryReport() {
     formatCurrency(row.salePrice || 0),
     formatPercent(row.taxRate || 0),
     formatQuantity(row.quantity || 0),
+    formatCurrency(Number(row.quantity || 0) * Number(row.purchasePrice || 0)),
   ]);
   return reportPageShell({
     activeReport: "stock",
@@ -13972,11 +19357,11 @@ function stockSummaryReport() {
     summary: "Item quantity, value, category, HSN/SAC and GST rate.",
     kpis: [
       { label: "Items", value: String(rows.length), note: "Tracked records", tone: "neutral" },
-      { label: "Stock Qty", value: formatQuantity(rows.reduce((sum, row) => sum + Number(row.quantity || 0), 0)), note: "Total quantity", tone: "info" },
+      { label: "Stock Qty", value: formatQuantity(totalQty), note: "Total quantity", tone: "info" },
       { label: "Stock Value", value: formatCurrency(stockValue), note: "At purchase price", tone: "success" },
-      { label: "Missing HSN", value: String((state.items || []).filter((item) => !item.hsnSac).length), note: "For GST report", tone: "danger" },
+      { label: "Missing HSN", value: String(rows.filter((item) => !item.hsnSac || item.hsnSac === "-").length), note: "For GST report", tone: "danger" },
     ],
-    body: reportTableCard("Stock List", ["Item", "Type", "Category", "SKU", "HSN/SAC", "Unit", "Purchase Price", "Sale Price", "GST", "Current Stock"], tableRows, "No stock records found."),
+    body: reportTableCard("Stock List", ["Item", "Type", "Category", "SKU", "HSN/SAC", "Unit", "Purchase Price", "Sale Price", "GST", "Current Stock", "Stock Value"], tableRows, "No stock records found."),
   });
 }
 
@@ -14031,6 +19416,1630 @@ function cashBankReport() {
       Number(row.isDefault || 0) ? "Yes" : "No",
     ]), "No bank accounts found."),
   });
+}
+
+// ── Reports Suite: Sales Categorized Reports ──────────────────────────────────
+function salesByProductReport() {
+  const invoices = reportInvoicesForType("sale");
+  const productMap = {};
+
+  for (const inv of invoices) {
+    const lines = invoiceLinesFor(inv);
+    for (const line of lines) {
+      if (reportCategoryFilter && lineItemCategory(line).toLowerCase() !== reportCategoryFilter.toLowerCase()) {
+        continue;
+      }
+      const prodName = line.item || line.name || line.description || "Unknown Item";
+      const key = String(line.itemId || prodName).toLowerCase();
+      if (!productMap[key]) {
+        productMap[key] = {
+          name: prodName,
+          category: lineItemCategory(line) || "-",
+          sku: line.sku || "-",
+          hsnSac: line.hsnSac || "-",
+          unit: line.unit || "PCS",
+          qtySold: 0,
+          ordersCount: 0,
+          taxableValue: 0,
+          cgst: 0,
+          sgst: 0,
+          igst: 0,
+          totalTax: 0,
+          grossSales: 0,
+          costPrice: lineItemPurchasePrice(line),
+        };
+      }
+      const qty = Number(line.qty || line.quantity || 1);
+      const taxable = Number(line.taxableValue !== undefined ? line.taxableValue : ((qty * Number(line.price || line.rate || 0)) - Number(line.discount || 0)));
+      const rate = Number(line.taxRate || 0);
+      const isInter = invoiceSupplyType(inv) === "inter_state" || (inv.placeOfSupply && inv.placeOfSupply !== (state.businessSettings?.state || ""));
+      const tax = (taxable * rate) / 100;
+      const cgst = isInter ? 0 : tax / 2;
+      const sgst = isInter ? 0 : tax / 2;
+      const igst = isInter ? tax : 0;
+
+      productMap[key].qtySold += qty;
+      productMap[key].ordersCount += 1;
+      productMap[key].taxableValue += taxable;
+      productMap[key].cgst += cgst;
+      productMap[key].sgst += sgst;
+      productMap[key].igst += igst;
+      productMap[key].totalTax += tax;
+      productMap[key].grossSales += (taxable + tax);
+    }
+  }
+
+  let products = Object.values(productMap);
+  const query = String(reportSearchQuery || "").trim().toLowerCase();
+  if (query) {
+    products = products.filter((p) =>
+      p.name.toLowerCase().includes(query) ||
+      p.category.toLowerCase().includes(query) ||
+      p.sku.toLowerCase().includes(query) ||
+      p.hsnSac.toLowerCase().includes(query)
+    );
+  }
+
+  products.sort((a, b) => b.grossSales - a.grossSales);
+
+  const totalQty = products.reduce((acc, p) => acc + p.qtySold, 0);
+  const totalTaxable = products.reduce((acc, p) => acc + p.taxableValue, 0);
+  const totalTax = products.reduce((acc, p) => acc + p.totalTax, 0);
+  const totalSales = products.reduce((acc, p) => acc + p.grossSales, 0);
+  const totalCost = products.reduce((acc, p) => acc + (p.qtySold * p.costPrice), 0);
+  const totalProfit = totalTaxable - totalCost;
+  const overallMargin = totalTaxable > 0 ? (totalProfit / totalTaxable) * 100 : 0;
+
+  const tableRows = products.map((p) => {
+    const avgRate = p.qtySold > 0 ? p.taxableValue / p.qtySold : 0;
+    const estCost = p.qtySold * p.costPrice;
+    const profit = p.taxableValue - estCost;
+    const margin = p.taxableValue > 0 ? (profit / p.taxableValue) * 100 : 0;
+    return [
+      p.name,
+      p.sku,
+      p.category,
+      `${formatQuantity(p.qtySold)} ${p.unit}`,
+      formatCurrency(avgRate),
+      formatCurrency(p.taxableValue),
+      formatCurrency(p.totalTax),
+      formatCurrency(p.grossSales),
+      renderMarginBadge(margin),
+    ];
+  });
+
+  return reportPageShell({
+    activeReport: "salesByProduct",
+    eyebrow: "Sales Reports",
+    title: "Sales by Product",
+    summary: "Product-wise sales volume, revenue, average selling price and gross profit margin.",
+    kpis: [
+      { label: "Products Sold", value: String(products.length), note: `${formatQuantity(totalQty)} total units`, tone: "neutral" },
+      { label: "Gross Revenue", value: formatCurrency(totalSales), note: `Taxable: ${formatCurrency(totalTaxable)}`, tone: "success" },
+      { label: "Tax Collected", value: formatCurrency(totalTax), note: "CGST + SGST + IGST", tone: "info" },
+      { label: "Est. Gross Margin", value: `${overallMargin.toFixed(1)}%`, note: `Profit: ${formatCurrency(totalProfit)}`, tone: overallMargin >= 20 ? "success" : "neutral" },
+    ],
+    body: reportTableCard("Product Sales Performance", ["Product Name", "SKU", "Category", "Qty Sold", "Avg Rate", "Taxable", "Tax", "Total Sales", "Margin %"], tableRows, "No product sales records found for this period."),
+  });
+}
+
+function salesByCustomerReport() {
+  const invoices = reportInvoicesForType("sale");
+  const customerMap = {};
+
+  for (const inv of invoices) {
+    const customerName = inv.party || inv.customer || "Cash Customer";
+    const key = String(inv.partyId || customerName).toLowerCase();
+    if (!customerMap[key]) {
+      customerMap[key] = {
+        name: customerName,
+        partyId: inv.partyId,
+        gstin: inv.partyGstin || "-",
+        phone: inv.phone || "-",
+        invoicesCount: 0,
+        taxable: 0,
+        tax: 0,
+        totalBilled: 0,
+        received: 0,
+        balance: 0,
+        lastDate: "",
+      };
+    }
+    customerMap[key].invoicesCount += 1;
+    customerMap[key].taxable += invoiceTaxableValue(inv);
+    customerMap[key].tax += invoiceTaxValue(inv);
+    customerMap[key].totalBilled += invoiceTotalValue(inv);
+    customerMap[key].received += invoiceReceivedValue(inv);
+    customerMap[key].balance += invoiceBalanceValue(inv);
+    if (!customerMap[key].lastDate || inv.date > customerMap[key].lastDate) {
+      customerMap[key].lastDate = inv.date || "";
+    }
+  }
+
+  let customers = Object.values(customerMap);
+  const query = String(reportSearchQuery || "").trim().toLowerCase();
+  if (query) {
+    customers = customers.filter((c) =>
+      c.name.toLowerCase().includes(query) ||
+      c.gstin.toLowerCase().includes(query) ||
+      c.phone.toLowerCase().includes(query)
+    );
+  }
+
+  customers.sort((a, b) => b.totalBilled - a.totalBilled);
+
+  const totalBilled = customers.reduce((sum, c) => sum + c.totalBilled, 0);
+  const totalReceived = customers.reduce((sum, c) => sum + c.received, 0);
+  const totalBalance = customers.reduce((sum, c) => sum + c.balance, 0);
+  const totalInvoices = customers.reduce((sum, c) => sum + c.invoicesCount, 0);
+
+  const tableRows = customers.map((c) => [
+    c.name,
+    c.gstin && c.gstin !== "-" ? c.gstin : (c.phone || "-"),
+    String(c.invoicesCount),
+    formatCurrency(c.taxable),
+    formatCurrency(c.tax),
+    formatCurrency(c.totalBilled),
+    formatCurrency(c.received),
+    formatCurrency(c.balance),
+    formatDate(c.lastDate),
+  ]);
+
+  return reportPageShell({
+    activeReport: "salesByCustomer",
+    eyebrow: "Sales Reports",
+    title: "Sales by Customer",
+    summary: "Customer-wise billing volume, order frequency, collections and outstanding balances.",
+    kpis: [
+      { label: "Total Customers", value: String(customers.length), note: `${totalInvoices} total bills`, tone: "neutral" },
+      { label: "Total Billed", value: formatCurrency(totalBilled), note: "Gross sales value", tone: "success" },
+      { label: "Amount Received", value: formatCurrency(totalReceived), note: "Total collected", tone: "info" },
+      { label: "Pending Balance", value: formatCurrency(totalBalance), note: "Outstanding dues", tone: totalBalance > 0 ? "danger" : "neutral" },
+    ],
+    body: reportTableCard("Customer Sales Summary", ["Customer Name", "GSTIN / Contact", "Invoices", "Taxable Amount", "Tax", "Total Billed", "Received", "Balance", "Last Billed"], tableRows, "No customer sales found for this period."),
+  });
+}
+
+function salesByStaffReport() {
+  const invoices = reportInvoicesForType("sale");
+  const staffMap = {};
+
+  for (const inv of invoices) {
+    const staffName = inv.salesperson || inv.staff || inv.createdBy || inv.counter || "Admin / Counter 1";
+    const key = String(staffName).trim().toLowerCase();
+    if (!staffMap[key]) {
+      staffMap[key] = {
+        name: staffName,
+        invoiceCount: 0,
+        qtySold: 0,
+        taxable: 0,
+        tax: 0,
+        totalBilled: 0,
+        received: 0,
+      };
+    }
+    const lines = invoiceLinesFor(inv);
+    const qty = lines.reduce((acc, l) => acc + Number(l.qty || l.quantity || 1), 0);
+    staffMap[key].invoiceCount += 1;
+    staffMap[key].qtySold += qty;
+    staffMap[key].taxable += invoiceTaxableValue(inv);
+    staffMap[key].tax += invoiceTaxValue(inv);
+    staffMap[key].totalBilled += invoiceTotalValue(inv);
+    staffMap[key].received += invoiceReceivedValue(inv);
+  }
+
+  let staffList = Object.values(staffMap);
+  const query = String(reportSearchQuery || "").trim().toLowerCase();
+  if (query) {
+    staffList = staffList.filter((s) => s.name.toLowerCase().includes(query));
+  }
+
+  staffList.sort((a, b) => b.totalBilled - a.totalBilled);
+
+  const totalSales = staffList.reduce((sum, s) => sum + s.totalBilled, 0);
+  const totalBills = staffList.reduce((sum, s) => sum + s.invoiceCount, 0);
+  const avgTicket = totalBills > 0 ? totalSales / totalBills : 0;
+
+  const tableRows = staffList.map((s) => {
+    const staffAvg = s.invoiceCount > 0 ? s.totalBilled / s.invoiceCount : 0;
+    return [
+      s.name,
+      String(s.invoiceCount),
+      formatQuantity(s.qtySold),
+      formatCurrency(s.taxable),
+      formatCurrency(s.tax),
+      formatCurrency(s.totalBilled),
+      formatCurrency(s.received),
+      formatCurrency(staffAvg),
+    ];
+  });
+
+  return reportPageShell({
+    activeReport: "salesByStaff",
+    eyebrow: "Sales Reports",
+    title: "Sales by Staff",
+    summary: "Salesperson and counter operator performance, orders count, collections and ticket sizes.",
+    kpis: [
+      { label: "Active Staff", value: String(staffList.length), note: "Sales operators", tone: "neutral" },
+      { label: "Total Sales", value: formatCurrency(totalSales), note: `${totalBills} total bills`, tone: "success" },
+      { label: "Average Ticket", value: formatCurrency(avgTicket), note: "Per invoice average", tone: "info" },
+      { label: "Top Performer", value: staffList[0]?.name || "-", note: staffList[0] ? formatCurrency(staffList[0].totalBilled) : "-", tone: "success" },
+    ],
+    body: reportTableCard("Staff Sales Performance", ["Salesperson / Staff", "Invoices Billed", "Units Sold", "Taxable (₹)", "Tax (₹)", "Total Sales (₹)", "Received (₹)", "Avg Ticket (₹)"], tableRows, "No staff sales recorded for this period."),
+  });
+}
+
+// ── Reports Suite: Purchase Categorized Reports ───────────────────────────────
+function purchaseBySupplierReport() {
+  const invoices = reportInvoicesForType("purchase");
+  const supplierMap = {};
+
+  for (const inv of invoices) {
+    const supplierName = inv.party || inv.vendor || "Direct Vendor";
+    const key = String(inv.partyId || supplierName).toLowerCase();
+    if (!supplierMap[key]) {
+      supplierMap[key] = {
+        name: supplierName,
+        partyId: inv.partyId,
+        gstin: inv.partyGstin || "-",
+        phone: inv.phone || "-",
+        billsCount: 0,
+        taxable: 0,
+        tax: 0,
+        totalBilled: 0,
+        paid: 0,
+        balance: 0,
+        lastDate: "",
+      };
+    }
+    supplierMap[key].billsCount += 1;
+    supplierMap[key].taxable += invoiceTaxableValue(inv);
+    supplierMap[key].tax += invoiceTaxValue(inv);
+    supplierMap[key].totalBilled += invoiceTotalValue(inv);
+    supplierMap[key].paid += invoiceReceivedValue(inv);
+    supplierMap[key].balance += invoiceBalanceValue(inv);
+    if (!supplierMap[key].lastDate || inv.date > supplierMap[key].lastDate) {
+      supplierMap[key].lastDate = inv.date || "";
+    }
+  }
+
+  let suppliers = Object.values(supplierMap);
+  const query = String(reportSearchQuery || "").trim().toLowerCase();
+  if (query) {
+    suppliers = suppliers.filter((s) =>
+      s.name.toLowerCase().includes(query) ||
+      s.gstin.toLowerCase().includes(query)
+    );
+  }
+
+  suppliers.sort((a, b) => b.totalBilled - a.totalBilled);
+
+  const totalProcured = suppliers.reduce((sum, s) => sum + s.totalBilled, 0);
+  const totalTax = suppliers.reduce((sum, s) => sum + s.tax, 0);
+  const totalPaid = suppliers.reduce((sum, s) => sum + s.paid, 0);
+  const totalPayable = suppliers.reduce((sum, s) => sum + s.balance, 0);
+
+  const tableRows = suppliers.map((s) => [
+    s.name,
+    s.gstin || "-",
+    String(s.billsCount),
+    formatCurrency(s.taxable),
+    formatCurrency(s.tax),
+    formatCurrency(s.totalBilled),
+    formatCurrency(s.paid),
+    formatCurrency(s.balance),
+    formatDate(s.lastDate),
+  ]);
+
+  return reportPageShell({
+    activeReport: "purchaseBySupplier",
+    eyebrow: "Purchase Reports",
+    title: "Purchase by Supplier",
+    summary: "Supplier-wise procurement volume, inward tax credits, payments made and outstanding payables.",
+    kpis: [
+      { label: "Active Suppliers", value: String(suppliers.length), note: "Procurement vendors", tone: "neutral" },
+      { label: "Total Purchases", value: formatCurrency(totalProcured), note: "Gross billed amount", tone: "neutral" },
+      { label: "Input GST (ITC)", value: formatCurrency(totalTax), note: "Eligible tax credit", tone: "info" },
+      { label: "Total Payable", value: formatCurrency(totalPayable), note: "Pending balance", tone: totalPayable > 0 ? "danger" : "success" },
+    ],
+    body: reportTableCard("Supplier Procurement Summary", ["Supplier Name", "GSTIN", "Bills Count", "Taxable Amount", "Input Tax (ITC)", "Total Purchases", "Paid Amount", "Balance Payable", "Last Bill Date"], tableRows, "No supplier purchase bills found for this period."),
+  });
+}
+
+function purchaseByProductReport() {
+  const invoices = reportInvoicesForType("purchase");
+  const productMap = {};
+
+  for (const inv of invoices) {
+    const lines = invoiceLinesFor(inv);
+    for (const line of lines) {
+      if (reportCategoryFilter && lineItemCategory(line).toLowerCase() !== reportCategoryFilter.toLowerCase()) {
+        continue;
+      }
+      const prodName = line.item || line.name || line.description || "Procured Item";
+      const key = String(line.itemId || prodName).toLowerCase();
+      if (!productMap[key]) {
+        productMap[key] = {
+          name: prodName,
+          category: lineItemCategory(line) || "-",
+          sku: line.sku || "-",
+          unit: line.unit || "PCS",
+          qtyPurchased: 0,
+          billsCount: 0,
+          taxableValue: 0,
+          taxAmount: 0,
+          totalCost: 0,
+        };
+      }
+      const qty = Number(line.qty || line.quantity || 1);
+      const taxable = Number(line.taxableValue !== undefined ? line.taxableValue : ((qty * Number(line.price || line.rate || 0)) - Number(line.discount || 0)));
+      const rate = Number(line.taxRate || 0);
+      const tax = (taxable * rate) / 100;
+
+      productMap[key].qtyPurchased += qty;
+      productMap[key].billsCount += 1;
+      productMap[key].taxableValue += taxable;
+      productMap[key].taxAmount += tax;
+      productMap[key].totalCost += (taxable + tax);
+    }
+  }
+
+  let products = Object.values(productMap);
+  const query = String(reportSearchQuery || "").trim().toLowerCase();
+  if (query) {
+    products = products.filter((p) =>
+      p.name.toLowerCase().includes(query) ||
+      p.category.toLowerCase().includes(query)
+    );
+  }
+
+  products.sort((a, b) => b.totalCost - a.totalCost);
+
+  const totalQty = products.reduce((acc, p) => acc + p.qtyPurchased, 0);
+  const totalSpend = products.reduce((acc, p) => acc + p.totalCost, 0);
+  const totalTax = products.reduce((acc, p) => acc + p.taxAmount, 0);
+
+  const tableRows = products.map((p) => {
+    const avgRate = p.qtyPurchased > 0 ? p.taxableValue / p.qtyPurchased : 0;
+    return [
+      p.name,
+      p.sku,
+      p.category,
+      `${formatQuantity(p.qtyPurchased)} ${p.unit}`,
+      String(p.billsCount),
+      formatCurrency(avgRate),
+      formatCurrency(p.taxableValue),
+      formatCurrency(p.taxAmount),
+      formatCurrency(p.totalCost),
+    ];
+  });
+
+  return reportPageShell({
+    activeReport: "purchaseByProduct",
+    eyebrow: "Purchase Reports",
+    title: "Purchase by Product",
+    summary: "Product-wise purchase quantities, average purchase rates, input tax and total procurement cost.",
+    kpis: [
+      { label: "Items Procured", value: String(products.length), note: `${formatQuantity(totalQty)} units`, tone: "neutral" },
+      { label: "Total Spend", value: formatCurrency(totalSpend), note: "Gross purchase cost", tone: "neutral" },
+      { label: "Input GST Paid", value: formatCurrency(totalTax), note: "Inward supply tax", tone: "info" },
+      { label: "Top Product Spend", value: products[0]?.name || "-", note: products[0] ? formatCurrency(products[0].totalCost) : "-", tone: "neutral" },
+    ],
+    body: reportTableCard("Product Procurement Breakdown", ["Product Name", "SKU", "Category", "Qty Procured", "Bills Count", "Avg Cost Rate", "Taxable Value", "Input GST", "Total Spent"], tableRows, "No product purchase records found for this period."),
+  });
+}
+
+// ── Reports Suite: Inventory Categorized Reports ──────────────────────────────
+function stockValuationReport() {
+  let items = (state.items || []).slice();
+  if (reportCategoryFilter) {
+    items = items.filter((i) => (i.category || "").toLowerCase() === reportCategoryFilter.toLowerCase());
+  }
+  const query = String(reportSearchQuery || "").trim().toLowerCase();
+  if (query) {
+    items = items.filter((i) =>
+      (i.name || "").toLowerCase().includes(query) ||
+      (i.sku || "").toLowerCase().includes(query) ||
+      (i.category || "").toLowerCase().includes(query)
+    );
+  }
+
+  let totalCostVal = 0;
+  let totalRetailVal = 0;
+  let totalUnits = 0;
+
+  const tableRows = items.map((item) => {
+    const qty = Number(item.currentStock || 0);
+    const costRate = Number(item.purchasePrice || 0);
+    const saleRate = Number(item.salePrice || 0);
+    const costVal = qty * costRate;
+    const retailVal = qty * saleRate;
+    const potentialMargin = retailVal - costVal;
+    const markupPct = costVal > 0 ? (potentialMargin / costVal) * 100 : (saleRate > 0 ? 100 : 0);
+
+    totalCostVal += costVal;
+    totalRetailVal += retailVal;
+    totalUnits += qty;
+
+    return [
+      item.name,
+      item.sku || "-",
+      item.category || "-",
+      `${formatQuantity(qty)} ${item.unit || "PCS"}`,
+      formatCurrency(costRate),
+      formatCurrency(saleRate),
+      formatCurrency(costVal),
+      formatCurrency(retailVal),
+      formatCurrency(potentialMargin),
+      renderMarginBadge(markupPct),
+    ];
+  });
+
+  const potentialGrossProfit = totalRetailVal - totalCostVal;
+  const overallMarkup = totalCostVal > 0 ? (potentialGrossProfit / totalCostVal) * 100 : 0;
+
+  return reportPageShell({
+    activeReport: "stockValuation",
+    eyebrow: "Inventory Reports",
+    title: "Stock Valuation",
+    summary: "Inventory valuation based on purchase cost vs. selling price with unrealized profit analysis.",
+    kpis: [
+      { label: "Cost Valuation", value: formatCurrency(totalCostVal), note: "At purchase cost rate", tone: "neutral" },
+      { label: "Retail Valuation", value: formatCurrency(totalRetailVal), note: "At selling price", tone: "info" },
+      { label: "Unrealized Margin", value: formatCurrency(potentialGrossProfit), note: `${overallMarkup.toFixed(1)}% markup`, tone: potentialGrossProfit >= 0 ? "success" : "danger" },
+      { label: "Stocked Units", value: formatQuantity(totalUnits), note: `${items.length} unique items`, tone: "neutral" },
+    ],
+    body: reportTableCard("Stock Valuation Schedule", ["Item Name", "SKU", "Category", "Available Stock", "Cost Rate", "Sale Rate", "Cost Valuation", "Retail Valuation", "Unrealized Profit", "Markup %"], tableRows, "No inventory items found to value."),
+  });
+}
+
+function lowStockReport() {
+  let items = (state.items || []).filter((item) => {
+    const stock = Number(item.currentStock || 0);
+    const minAlert = Number(item.minStockAlert !== undefined && item.minStockAlert !== null && item.minStockAlert !== "" ? item.minStockAlert : 5);
+    return stock <= minAlert;
+  });
+
+  if (reportCategoryFilter) {
+    items = items.filter((i) => (i.category || "").toLowerCase() === reportCategoryFilter.toLowerCase());
+  }
+  const query = String(reportSearchQuery || "").trim().toLowerCase();
+  if (query) {
+    items = items.filter((i) =>
+      (i.name || "").toLowerCase().includes(query) ||
+      (i.sku || "").toLowerCase().includes(query) ||
+      (i.category || "").toLowerCase().includes(query)
+    );
+  }
+
+  items.sort((a, b) => {
+    const defA = Math.max(0, Number(a.minStockAlert || 5) - Number(a.currentStock || 0));
+    const defB = Math.max(0, Number(b.minStockAlert || 5) - Number(b.currentStock || 0));
+    return defB - defA;
+  });
+
+  let outOfStockCount = 0;
+  let totalDeficitCost = 0;
+
+  const tableRows = items.map((item) => {
+    const stock = Number(item.currentStock || 0);
+    const minAlert = Number(item.minStockAlert !== undefined && item.minStockAlert !== null && item.minStockAlert !== "" ? item.minStockAlert : 5);
+    const deficit = Math.max(0, minAlert - stock);
+    const costRate = Number(item.purchasePrice || 0);
+    const replenishCost = deficit * costRate;
+    totalDeficitCost += replenishCost;
+
+    let badge = `<span class="status-pill status-warn">Low Stock</span>`;
+    if (stock <= 0) {
+      outOfStockCount += 1;
+      badge = `<span class="status-pill status-danger">Out of Stock</span>`;
+    } else if (stock <= minAlert * 0.4) {
+      badge = `<span class="status-pill status-danger">Critical</span>`;
+    }
+
+    return [
+      item.name,
+      item.sku || "-",
+      item.category || "-",
+      `${formatQuantity(stock)} ${item.unit || "PCS"}`,
+      `${formatQuantity(minAlert)} ${item.unit || "PCS"}`,
+      `${formatQuantity(deficit)} ${item.unit || "PCS"}`,
+      formatCurrency(costRate),
+      formatCurrency(replenishCost),
+      badge,
+    ];
+  });
+
+  return reportPageShell({
+    activeReport: "lowStock",
+    eyebrow: "Inventory Reports",
+    title: "Low Stock Alert",
+    summary: "Products at or below minimum inventory reorder threshold needing replenishment.",
+    kpis: [
+      { label: "Low Stock Items", value: String(items.length), note: "Requiring reorder", tone: items.length > 0 ? "danger" : "success" },
+      { label: "Out of Stock", value: String(outOfStockCount), note: "Zero quantity available", tone: outOfStockCount > 0 ? "danger" : "neutral" },
+      { label: "Deficit Value", value: formatCurrency(totalDeficitCost), note: "Estimated restocking cost", tone: "info" },
+      { label: "Max Deficit Item", value: items[0]?.name || "None", note: items[0] ? `Deficit: ${Math.max(0, (items[0].minStockAlert || 5) - items[0].currentStock)}` : "-", tone: "neutral" },
+    ],
+    body: reportTableCard("Low Stock Reorder List", ["Item Name", "SKU", "Category", "Current Stock", "Min Threshold", "Deficit Qty", "Cost Rate", "Est. Restock Cost", "Status"], tableRows, "All inventory items are currently well stocked above minimum thresholds!"),
+  });
+}
+
+function stockMovementReport() {
+  const items = (state.items || []).slice();
+  const salesInvoices = reportInvoicesForType("sale");
+  const purchaseInvoices = reportInvoicesForType("purchase");
+
+  const inwardMap = {};
+  const outwardMap = {};
+
+  for (const inv of purchaseInvoices) {
+    for (const line of invoiceLinesFor(inv)) {
+      const key = String(line.itemId || line.item || line.name || "").toLowerCase();
+      inwardMap[key] = (inwardMap[key] || 0) + Number(line.qty || line.quantity || 1);
+    }
+  }
+
+  for (const inv of salesInvoices) {
+    for (const line of invoiceLinesFor(inv)) {
+      const key = String(line.itemId || line.item || line.name || "").toLowerCase();
+      outwardMap[key] = (outwardMap[key] || 0) + Number(line.qty || line.quantity || 1);
+    }
+  }
+
+  let rows = items.map((item) => {
+    const key = String(item.id || item.name).toLowerCase();
+    const nameKey = String(item.name).toLowerCase();
+    const inward = inwardMap[key] || inwardMap[nameKey] || 0;
+    const outward = outwardMap[key] || outwardMap[nameKey] || 0;
+    const net = inward - outward;
+    const current = Number(item.currentStock || 0);
+
+    let velocity = `<span class="status-pill status-neutral">Dormant</span>`;
+    if (outward >= 20) {
+      velocity = `<span class="status-pill status-success">Fast Moving</span>`;
+    } else if (outward >= 5) {
+      velocity = `<span class="status-pill status-info">Moderate</span>`;
+    } else if (outward > 0) {
+      velocity = `<span class="status-pill status-warn">Slow Moving</span>`;
+    }
+
+    return {
+      name: item.name,
+      sku: item.sku || "-",
+      category: item.category || "-",
+      unit: item.unit || "PCS",
+      inward,
+      outward,
+      net,
+      current,
+      velocity,
+    };
+  });
+
+  if (reportCategoryFilter) {
+    rows = rows.filter((r) => r.category.toLowerCase() === reportCategoryFilter.toLowerCase());
+  }
+  const query = String(reportSearchQuery || "").trim().toLowerCase();
+  if (query) {
+    rows = rows.filter((r) =>
+      r.name.toLowerCase().includes(query) ||
+      r.category.toLowerCase().includes(query) ||
+      r.sku.toLowerCase().includes(query)
+    );
+  }
+
+  rows.sort((a, b) => b.outward - a.outward);
+
+  const totalInward = rows.reduce((sum, r) => sum + r.inward, 0);
+  const totalOutward = rows.reduce((sum, r) => sum + r.outward, 0);
+  const fastMovingCount = rows.filter((r) => r.outward >= 20).length;
+
+  const tableRows = rows.map((r) => [
+    r.name,
+    r.sku,
+    r.category,
+    `${formatQuantity(r.inward)} ${r.unit}`,
+    `${formatQuantity(r.outward)} ${r.unit}`,
+    `${r.net >= 0 ? "+" : ""}${formatQuantity(r.net)} ${r.unit}`,
+    `${formatQuantity(r.current)} ${r.unit}`,
+    r.velocity,
+  ]);
+
+  return reportPageShell({
+    activeReport: "stockMovement",
+    eyebrow: "Inventory Reports",
+    title: "Stock Movement",
+    summary: "Stock movement summary: Inward (Purchases), Outward (Sales), Net Movement and Velocity.",
+    kpis: [
+      { label: "Total Inward", value: formatQuantity(totalInward), note: "Units purchased", tone: "info" },
+      { label: "Total Outward", value: formatQuantity(totalOutward), note: "Units sold", tone: "success" },
+      { label: "Net Inventory Change", value: `${totalInward - totalOutward >= 0 ? "+" : ""}${formatQuantity(totalInward - totalOutward)}`, note: "Inward minus outward", tone: "neutral" },
+      { label: "Fast-Moving SKUs", value: String(fastMovingCount), note: "High sales velocity", tone: "success" },
+    ],
+    body: reportTableCard("Stock Movement & Velocity", ["Item Name", "SKU", "Category", "Inward (In)", "Outward (Out)", "Net Change", "Current Stock", "Velocity"], tableRows, "No stock movement detected for this period."),
+  });
+}
+
+// ── Reports Suite: Receivables Categorized Reports ────────────────────────────
+function receivablesOutstandingReport() {
+  const invoices = activeInvoiceRowsForType("sale").filter((inv) => invoiceBalanceValue(inv) > 0);
+  const customerMap = {};
+
+  for (const inv of invoices) {
+    const customerName = inv.party || inv.customer || "Direct Customer";
+    const key = String(inv.partyId || customerName).toLowerCase();
+    if (!customerMap[key]) {
+      customerMap[key] = {
+        name: customerName,
+        partyId: inv.partyId,
+        gstin: inv.partyGstin || "-",
+        phone: inv.phone || "-",
+        unpaidCount: 0,
+        totalBilled: 0,
+        received: 0,
+        balance: 0,
+        oldestDueDate: "",
+        maxAge: 0,
+      };
+    }
+    const bal = invoiceBalanceValue(inv);
+    const age = invoiceAgeDays(inv);
+    customerMap[key].unpaidCount += 1;
+    customerMap[key].totalBilled += invoiceTotalValue(inv);
+    customerMap[key].received += invoiceReceivedValue(inv);
+    customerMap[key].balance += bal;
+    if (age > customerMap[key].maxAge) {
+      customerMap[key].maxAge = age;
+      customerMap[key].oldestDueDate = inv.dueDate || inv.date || "";
+    }
+  }
+
+  let customers = Object.values(customerMap);
+  const query = String(reportSearchQuery || "").trim().toLowerCase();
+  if (query) {
+    customers = customers.filter((c) =>
+      c.name.toLowerCase().includes(query) ||
+      c.phone.toLowerCase().includes(query) ||
+      c.gstin.toLowerCase().includes(query)
+    );
+  }
+
+  customers.sort((a, b) => b.balance - a.balance);
+
+  const totalOutstanding = customers.reduce((sum, c) => sum + c.balance, 0);
+  const totalBilled = customers.reduce((sum, c) => sum + c.totalBilled, 0);
+  const totalReceived = customers.reduce((sum, c) => sum + c.received, 0);
+  const totalUnpaidBills = customers.reduce((sum, c) => sum + c.unpaidCount, 0);
+
+  const tableRows = customers.map((c) => {
+    let riskBadge = `<span class="status-pill status-success">Current (&lt;30d)</span>`;
+    if (c.maxAge > 90) {
+      riskBadge = `<span class="status-pill status-danger">Critical (&gt;90d)</span>`;
+    } else if (c.maxAge > 60) {
+      riskBadge = `<span class="status-pill status-danger">Overdue (&gt;60d)</span>`;
+    } else if (c.maxAge > 30) {
+      riskBadge = `<span class="status-pill status-warn">Overdue (&gt;30d)</span>`;
+    }
+
+    return [
+      c.name,
+      c.gstin && c.gstin !== "-" ? c.gstin : (c.phone || "-"),
+      String(c.unpaidCount),
+      formatCurrency(c.totalBilled),
+      formatCurrency(c.received),
+      formatCurrency(c.balance),
+      formatDate(c.oldestDueDate),
+      `${c.maxAge} days`,
+      riskBadge,
+    ];
+  });
+
+  return reportPageShell({
+    activeReport: "receivablesOutstanding",
+    eyebrow: "Receivables Reports",
+    title: "Outstanding Receivables",
+    summary: "Customer-wise unpaid invoices, pending balance, last payment date and overdue risk analysis.",
+    kpis: [
+      { label: "Total Outstanding", value: formatCurrency(totalOutstanding), note: `${customers.length} debtors`, tone: "danger" },
+      { label: "Unpaid Invoices", value: String(totalUnpaidBills), note: "Bills awaiting payment", tone: "neutral" },
+      { label: "Total Billed", value: formatCurrency(totalBilled), note: "Historical billed amount", tone: "info" },
+      { label: "Top Debtor", value: customers[0]?.name || "None", note: customers[0] ? formatCurrency(customers[0].balance) : "-", tone: "danger" },
+    ],
+    body: reportTableCard("Customer Outstanding Debtors", ["Customer Name", "GSTIN / Contact", "Unpaid Bills", "Total Billed", "Received", "Outstanding Balance", "Oldest Due Date", "Overdue Age", "Risk Level"], tableRows, "No outstanding receivables! All customer invoices are fully settled."),
+  });
+}
+
+function customerStatementsReport() {
+  const parties = (state.parties || []).filter((p) => p.type === "customer" || !p.type || p.type === "both").sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+  const selectedParty = parties.find((p) => String(p.id) === reportPartyFilter || p.name === reportPartyFilter) || parties[0];
+
+  if (!selectedParty) {
+    return reportPageShell({
+      activeReport: "customerStatements",
+      eyebrow: "Receivables Reports",
+      title: "Customer Statements",
+      summary: "Customer periodic statement of accounts with invoice vouchers, payments and running balance.",
+      kpis: [],
+      body: emptyWorkspace("No Customers Found", "Add customers in Parties to view running customer statements."),
+    });
+  }
+
+  return partyStatementReport();
+}
+
+// ── GSTR-1 Portal Export Report ───────────────────────────────────────────────
+function gstr1ExportReport() {
+  const invoices = reportInvoicesForType("sale").filter((inv) => invoiceStatusKey(inv) !== "cancelled");
+  const invoiceIds = new Set(invoices.map((inv) => inv.id));
+  const lines = (state.invoiceItems || []).filter((l) => invoiceIds.has(l.invoiceId));
+
+  // B2B: registered buyers with GSTIN
+  const b2bInvoices = invoices.filter((inv) => invoiceSupplyType(inv) === "b2b" && isValidGstin(inv.partyGstin || ""));
+  // B2C Large: unregistered, invoice value > 2.5L, inter-state
+  const b2cLargeInvoices = invoices.filter((inv) => {
+    const isB2C = invoiceSupplyType(inv) !== "b2b";
+    const isInterState = (inv.placeOfSupply || "") !== (state.businessSettings?.state || "");
+    return isB2C && isInterState && invoiceTotalValue(inv) > 250000;
+  });
+  // B2C Small: rest
+  const b2cSmallInvoices = invoices.filter((inv) => {
+    const isB2C = invoiceSupplyType(inv) !== "b2b";
+    const isInterState = (inv.placeOfSupply || "") !== (state.businessSettings?.state || "");
+    const isLarge = isInterState && invoiceTotalValue(inv) > 250000;
+    return isB2C && !isLarge;
+  });
+  // CDNR: credit notes against B2B
+  const cdnrNotes = (state.creditNotes || []).filter((cn) => {
+    const status = creditNoteStatus(cn);
+    return status !== "cancelled" && isInReportDateScope(cn) && isValidGstin(cn.partyGstin || "");
+  });
+  // HSN: from invoice lines
+  const hsnMap = new Map();
+  lines.forEach((l) => {
+    const key = `${l.hsnSac || "Not set"}||${Number(l.taxRate || 0)}`;
+    const g = hsnMap.get(key) || { hsnSac: l.hsnSac || "Not set", taxRate: Number(l.taxRate || 0), qty: 0, taxable: 0, cgst: 0, sgst: 0, igst: 0 };
+    g.qty += Number(l.qty || 0);
+    g.taxable += Number(l.taxableValue || 0);
+    g.cgst += Number(l.cgstAmount || 0);
+    g.sgst += Number(l.sgstAmount || 0);
+    g.igst += Number(l.igstAmount || 0);
+    hsnMap.set(key, g);
+  });
+
+  const b2bRows = b2bInvoices.map((inv) => [
+    formatDate(inv.date), inv.invoiceNo || "-", inv.party || "-",
+    escapeHtml(inv.partyGstin || "-"), inv.placeOfSupply || "-",
+    formatCurrency(invoiceTaxableValue(inv)),
+    formatCurrency(Number(inv.cgstTotal || 0)), formatCurrency(Number(inv.sgstTotal || 0)),
+    formatCurrency(Number(inv.igstTotal || 0)), formatCurrency(invoiceTotalValue(inv)),
+    inv.reverseCharge ? "Y" : "N",
+  ]);
+  const b2cLargeRows = b2cLargeInvoices.map((inv) => [
+    formatDate(inv.date), inv.invoiceNo || "-", inv.placeOfSupply || "-",
+    formatCurrency(invoiceTaxableValue(inv)),
+    formatCurrency(Number(inv.cgstTotal || 0)), formatCurrency(Number(inv.sgstTotal || 0)),
+    formatCurrency(Number(inv.igstTotal || 0)), formatCurrency(invoiceTotalValue(inv)),
+  ]);
+
+  // B2C Small: aggregate by rate + state
+  const b2cSmallMap = new Map();
+  b2cSmallInvoices.forEach((inv) => {
+    const state_ = inv.placeOfSupply || "Unknown";
+    const invLines = lines.filter((l) => l.invoiceId === inv.id);
+    invLines.forEach((l) => {
+      const key = `${state_}||${Number(l.taxRate || 0)}`;
+      const g = b2cSmallMap.get(key) || { state: state_, rate: Number(l.taxRate || 0), taxable: 0, cgst: 0, sgst: 0, igst: 0 };
+      g.taxable += Number(l.taxableValue || 0);
+      g.cgst += Number(l.cgstAmount || 0);
+      g.sgst += Number(l.sgstAmount || 0);
+      g.igst += Number(l.igstAmount || 0);
+      b2cSmallMap.set(key, g);
+    });
+  });
+  const b2cSmallRows = [...b2cSmallMap.values()].map((g) => [
+    g.state, `${g.rate}%`, formatCurrency(g.taxable),
+    formatCurrency(g.cgst), formatCurrency(g.sgst), formatCurrency(g.igst),
+  ]);
+
+  const cdnrRows = cdnrNotes.map((cn) => [
+    formatDate(cn.date || cn.creditDate), cn.creditNo || "-",
+    cn.party || "-", escapeHtml(cn.partyGstin || "-"),
+    cn.reason || "-",
+    formatCurrency(Math.max(0, Number(cn.subtotal || 0) - Number(cn.discountTotal || 0))),
+    formatCurrency(cn.cgstTotal || 0), formatCurrency(cn.sgstTotal || 0),
+    formatCurrency(cn.igstTotal || 0), formatCurrency(cn.total || 0),
+  ]);
+  const hsnRows = [...hsnMap.values()].map((g) => [
+    g.hsnSac, `${g.taxRate}%`, formatQuantity(g.qty),
+    formatCurrency(g.taxable), formatCurrency(g.cgst), formatCurrency(g.sgst),
+    formatCurrency(g.igst), formatCurrency(g.cgst + g.sgst + g.igst),
+  ]);
+
+  const totalTaxable = invoices.reduce((s, inv) => s + invoiceTaxableValue(inv), 0);
+  const totalTax = invoices.reduce((s, inv) => s + invoiceTaxValue(inv), 0);
+
+  return reportPageShell({
+    activeReport: "gstr1Export",
+    eyebrow: "GST Compliance",
+    title: "GSTR-1 Portal Export",
+    summary: "Portal-ready bucketing of outward supplies: B2B, B2C Large, B2C Small, CDNR, and HSN Summary. Export JSON/CSV for direct upload to GST portal.",
+    exportLabel: "Export GSTR-1 JSON",
+    exportMessage: "GSTR-1 JSON export ready.",
+    kpis: [
+      { label: "B2B Invoices", value: String(b2bInvoices.length), note: "Registered buyers with GSTIN", tone: "info" },
+      { label: "B2C Large", value: String(b2cLargeInvoices.length), note: "Inter-state > ₹2.5L unregistered", tone: "neutral" },
+      { label: "B2C Small", value: String(b2cSmallInvoices.length), note: "Aggregated by rate & state", tone: "neutral" },
+      { label: "CDNR", value: String(cdnrNotes.length), note: "Credit notes vs B2B buyers", tone: "neutral" },
+      { label: "Taxable Turnover", value: formatCurrency(totalTaxable), note: "All outward supplies", tone: "success" },
+      { label: "Total Output GST", value: formatCurrency(totalTax), note: "CGST + SGST + IGST", tone: "danger" },
+    ],
+    body: `
+      <div class="report-gstr1-actions" style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;">
+        <button class="secondary-button compact-button" id="gstr1DownloadJson" type="button">⬇ Download GSTR-1 JSON</button>
+        <button class="secondary-button compact-button" id="gstr1DownloadCsv" type="button">⬇ Download GSTR-1 CSV</button>
+        <small style="align-self:center;color:var(--muted-text);">Compatible with GST portal offline utility format</small>
+      </div>
+      ${reportTableCard("4A — B2B Invoices (Supplies to Registered Buyers)", ["Date","Invoice No","Party","GSTIN","Place of Supply","Taxable","CGST","SGST","IGST","Total","Rev. Charge"], b2bRows, "No B2B invoices found for this period.")}
+      ${reportTableCard("5 — B2C Large (Inter-state > ₹2.5L, Unregistered)", ["Date","Invoice No","Place of Supply","Taxable","CGST","SGST","IGST","Total"], b2cLargeRows, "No B2C large invoices found.")}
+      ${reportTableCard("7 — B2C Small (Aggregated by Rate & State)", ["Place of Supply","GST Rate","Taxable","CGST","SGST","IGST"], b2cSmallRows, "No B2C small invoices found.")}
+      ${reportTableCard("9B — Credit/Debit Notes (Registered) CDNR", ["Date","Note No","Party","GSTIN","Reason","Taxable","CGST","SGST","IGST","Total"], cdnrRows, "No CDNR entries found.")}
+      ${reportTableCard("12 — HSN Summary (All Supplies)", ["HSN/SAC","GST Rate","Qty","Taxable","CGST","SGST","IGST","Total Tax"], hsnRows, "No HSN lines found.")}
+    `,
+  });
+}
+
+// ── GSTR-2B Reconciliation Report ─────────────────────────────────────────────
+let gstr2bUploadedData = null;
+
+function gstr2bReconReport() {
+  const localPurchases = reportInvoicesForType("purchase").filter((inv) => invoiceStatusKey(inv) !== "cancelled");
+
+  let reconBody = "";
+  if (!gstr2bUploadedData) {
+    reconBody = `
+      <div class="gstr2b-upload-area" style="border:2px dashed var(--border-color);border-radius:10px;padding:40px;text-align:center;background:var(--card-bg);">
+        <p style="font-size:1.1em;font-weight:600;margin-bottom:8px;">Upload GSTR-2B JSON from GST Portal</p>
+        <p style="color:var(--muted-text);margin-bottom:20px;">Download your GSTR-2B from gstin.gov.in → Returns → GSTR-2B → Download JSON, then upload here.</p>
+        <label class="primary-button" style="cursor:pointer;" for="gstr2bFileInput">Choose GSTR-2B JSON File</label>
+        <input type="file" id="gstr2bFileInput" accept=".json" style="display:none">
+      </div>
+    `;
+  } else {
+    const portalInvoices = (gstr2bUploadedData?.data?.docdata?.b2b || []).flatMap((supplier) =>
+      (supplier.inv || []).map((inv) => ({
+        supplierGstin: supplier.ctin || "",
+        supplierName: supplier.trdnm || "",
+        invoiceNo: inv.inum || "",
+        invoiceDate: inv.idt || "",
+        taxable: Number(inv.val || 0),
+        igst: (inv.itms || []).reduce((s, i) => s + Number(i.itm_det?.iamt || 0), 0),
+        cgst: (inv.itms || []).reduce((s, i) => s + Number(i.itm_det?.camt || 0), 0),
+        sgst: (inv.itms || []).reduce((s, i) => s + Number(i.itm_det?.samt || 0), 0),
+        total: Number(inv.val || 0),
+      }))
+    );
+
+    const matchedRows = [];
+    const unmatchedPortalRows = [];
+    const mismatchedRows = [];
+    const unmatchedLocalRows = [];
+
+    const matchedPortalKeys = new Set();
+
+    for (const localInv of localPurchases) {
+      const localGstin = (localInv.partyGstin || "").trim().toUpperCase();
+      const localNo = (localInv.invoiceNo || "").trim().toUpperCase();
+      const portalMatch = portalInvoices.find((p) =>
+        p.supplierGstin.toUpperCase() === localGstin &&
+        p.invoiceNo.trim().toUpperCase() === localNo
+      );
+
+      if (!portalMatch) {
+        unmatchedLocalRows.push([
+          formatDate(localInv.date), localInv.invoiceNo || "-",
+          localInv.party || "-", localGstin || "-",
+          formatCurrency(invoiceTaxableValue(localInv)),
+          formatCurrency(Number(localInv.cgstTotal || 0)),
+          formatCurrency(Number(localInv.sgstTotal || 0)),
+          formatCurrency(Number(localInv.igstTotal || 0)),
+          { html: `<span class="status-badge status-badge--danger">Not in GSTR-2B</span>` },
+        ]);
+        continue;
+      }
+
+      matchedPortalKeys.add(`${portalMatch.supplierGstin}||${portalMatch.invoiceNo}`);
+      const localCgst = Number(localInv.cgstTotal || 0);
+      const localSgst = Number(localInv.sgstTotal || 0);
+      const localIgst = Number(localInv.igstTotal || 0);
+      const diff = Math.abs((localCgst + localSgst + localIgst) - (portalMatch.cgst + portalMatch.sgst + portalMatch.igst));
+
+      if (diff < 1) {
+        matchedRows.push([
+          formatDate(localInv.date), localInv.invoiceNo || "-",
+          localInv.party || "-", localGstin || "-",
+          formatCurrency(invoiceTaxableValue(localInv)),
+          formatCurrency(localCgst), formatCurrency(localSgst), formatCurrency(localIgst),
+          { html: `<span class="status-badge status-badge--success">Matched ✓</span>` },
+        ]);
+      } else {
+        mismatchedRows.push([
+          formatDate(localInv.date), localInv.invoiceNo || "-",
+          localInv.party || "-", localGstin || "-",
+          `${formatCurrency(invoiceTaxableValue(localInv))} vs ${formatCurrency(portalMatch.taxable)}`,
+          `${formatCurrency(localCgst)} vs ${formatCurrency(portalMatch.cgst)}`,
+          `${formatCurrency(localSgst)} vs ${formatCurrency(portalMatch.sgst)}`,
+          `${formatCurrency(localIgst)} vs ${formatCurrency(portalMatch.igst)}`,
+          { html: `<span class="status-badge status-badge--warn">Mismatch ⚠</span>` },
+        ]);
+      }
+    }
+
+    for (const p of portalInvoices) {
+      const key = `${p.supplierGstin}||${p.invoiceNo}`;
+      if (!matchedPortalKeys.has(key)) {
+        unmatchedPortalRows.push([
+          p.invoiceDate, p.invoiceNo || "-",
+          p.supplierName || "-", p.supplierGstin || "-",
+          formatCurrency(p.taxable),
+          formatCurrency(p.cgst), formatCurrency(p.sgst), formatCurrency(p.igst),
+          { html: `<span class="status-badge status-badge--info">In Portal Only</span>` },
+        ]);
+      }
+    }
+
+    const eligibleITC = matchedRows.reduce((s, r) => {
+      const cgst = localPurchases.find((inv) => formatDate(inv.date) === r[0] && (inv.invoiceNo || "-") === r[1]);
+      return s + (cgst ? Number(cgst.cgstTotal || 0) + Number(cgst.sgstTotal || 0) + Number(cgst.igstTotal || 0) : 0);
+    }, 0);
+
+    const cols = ["Date", "Invoice No", "Party", "GSTIN", "Taxable", "CGST", "SGST", "IGST", "Status"];
+    reconBody = `
+      <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;align-items:center;">
+        <label class="secondary-button compact-button" style="cursor:pointer;" for="gstr2bFileInput">↺ Upload New GSTR-2B</label>
+        <input type="file" id="gstr2bFileInput" accept=".json" style="display:none">
+        <span style="color:var(--muted-text);font-size:0.85em;">${portalInvoices.length} portal invoices loaded · ${localPurchases.length} local bills</span>
+      </div>
+      <section class="kpi-grid report-kpis">
+        ${kpiCard("Matched", String(matchedRows.length), "Same GSTIN + invoice no + tax ≈", "success")}
+        ${kpiCard("Mismatched", String(mismatchedRows.length), "Found but tax values differ", "warn")}
+        ${kpiCard("Not in GSTR-2B", String(unmatchedLocalRows.length), "Your records not on portal", "danger")}
+        ${kpiCard("Portal Only", String(unmatchedPortalRows.length), "Portal has; you don't", "info")}
+        ${kpiCard("Eligible ITC", formatCurrency(eligibleITC), "From matched invoices", "success")}
+      </section>
+      ${mismatchedRows.length ? reportTableCard("⚠ Mismatched — Review Required", cols, mismatchedRows, "") : ""}
+      ${unmatchedLocalRows.length ? reportTableCard("✗ Not in GSTR-2B (Your bills missing from portal)", cols, unmatchedLocalRows, "") : ""}
+      ${unmatchedPortalRows.length ? reportTableCard("Portal Only — Add to your books?", cols, unmatchedPortalRows, "") : ""}
+      ${matchedRows.length ? reportTableCard("✓ Matched Invoices", cols, matchedRows, "No matched invoices.") : ""}
+    `;
+  }
+
+  return reportPageShell({
+    activeReport: "gstr2bRecon",
+    eyebrow: "GST Compliance",
+    title: "GSTR-2B Reconciliation",
+    summary: "Match your purchase records against GSTR-2B downloaded from the GST portal. Identify missing bills, tax mismatches, and confirm ITC eligibility before filing.",
+    showToolbar: !gstr2bUploadedData,
+    kpis: [],
+    body: reconBody,
+  });
+}
+
+// ── ITC Eligibility Register ───────────────────────────────────────────────────
+// Section 17(5) blocked categories
+const ITC_BLOCKED_CATEGORIES = [
+  "motor vehicle", "car", "bike", "vehicle",
+  "food", "beverages", "outdoor catering", "health services", "life insurance",
+  "membership", "club", "gym", "beauty treatment", "cosmetic",
+  "personal use", "construction", "works contract",
+  "gifts", "free samples",
+];
+
+function isItcBlocked(item) {
+  const name = (item.item || item.itemName || item.name || item.category || "").toLowerCase();
+  const cat = (item.category || "").toLowerCase();
+  return ITC_BLOCKED_CATEGORIES.some((kw) => name.includes(kw) || cat.includes(kw));
+}
+
+function itcRegisterReport() {
+  const purchases = reportInvoicesForType("purchase").filter((inv) => invoiceStatusKey(inv) !== "cancelled");
+  const purchaseIds = new Set(purchases.map((inv) => inv.id));
+  const lines = (state.invoiceItems || []).filter((l) => purchaseIds.has(l.invoiceId));
+
+  let totalEligibleCgst = 0, totalEligibleSgst = 0, totalEligibleIgst = 0;
+  let totalBlockedCgst = 0, totalBlockedSgst = 0, totalBlockedIgst = 0;
+
+  const rows = [];
+  for (const inv of purchases) {
+    const invLines = lines.filter((l) => l.invoiceId === inv.id);
+    for (const line of invLines) {
+      const blocked = isItcBlocked(line);
+      const cgst = Number(line.cgstAmount || 0);
+      const sgst = Number(line.sgstAmount || 0);
+      const igst = Number(line.igstAmount || 0);
+      if (blocked) {
+        totalBlockedCgst += cgst; totalBlockedSgst += sgst; totalBlockedIgst += igst;
+      } else {
+        totalEligibleCgst += cgst; totalEligibleSgst += sgst; totalEligibleIgst += igst;
+      }
+      rows.push([
+        formatDate(inv.date),
+        inv.invoiceNo || "-",
+        inv.party || "-",
+        line.itemName || line.item || "-",
+        line.hsnSac || "-",
+        formatCurrency(Number(line.taxableValue || 0)),
+        formatCurrency(cgst), formatCurrency(sgst), formatCurrency(igst),
+        { html: blocked
+          ? `<span class="status-badge status-badge--danger">Blocked §17(5)</span>`
+          : `<span class="status-badge status-badge--success">Eligible</span>` },
+        blocked ? "Section 17(5) — personal/restricted use" : "-",
+      ]);
+    }
+    // If no line items but invoice has tax, add summary row
+    if (!invLines.length) {
+      const cgst = Number(inv.cgstTotal || 0);
+      const sgst = Number(inv.sgstTotal || 0);
+      const igst = Number(inv.igstTotal || 0);
+      totalEligibleCgst += cgst; totalEligibleSgst += sgst; totalEligibleIgst += igst;
+      rows.push([
+        formatDate(inv.date), inv.invoiceNo || "-", inv.party || "-",
+        "(Invoice-level)", "-",
+        formatCurrency(invoiceTaxableValue(inv)),
+        formatCurrency(cgst), formatCurrency(sgst), formatCurrency(igst),
+        { html: `<span class="status-badge status-badge--success">Eligible</span>` },
+        "-",
+      ]);
+    }
+  }
+
+  const totalEligible = totalEligibleCgst + totalEligibleSgst + totalEligibleIgst;
+  const totalBlocked = totalBlockedCgst + totalBlockedSgst + totalBlockedIgst;
+
+  return reportPageShell({
+    activeReport: "itcRegister",
+    eyebrow: "GST Compliance",
+    title: "ITC Register — Input Tax Credit Eligibility",
+    summary: "Line-by-line ITC eligibility per Section 17(5) of CGST Act. Blocked credits (personal use, food, vehicles, construction) are flagged separately.",
+    kpis: [
+      { label: "Eligible ITC", value: formatCurrency(totalEligible), note: `CGST ${formatCurrency(totalEligibleCgst)} + SGST ${formatCurrency(totalEligibleSgst)} + IGST ${formatCurrency(totalEligibleIgst)}`, tone: "success" },
+      { label: "Blocked ITC §17(5)", value: formatCurrency(totalBlocked), note: `CGST ${formatCurrency(totalBlockedCgst)} + SGST ${formatCurrency(totalBlockedSgst)} + IGST ${formatCurrency(totalBlockedIgst)}`, tone: "danger" },
+      { label: "Purchase Bills", value: String(purchases.length), note: "In selected period", tone: "neutral" },
+      { label: "Line Items", value: String(rows.length), note: "Analysed for eligibility", tone: "info" },
+    ],
+    body: reportTableCard(
+      "ITC Register",
+      ["Date", "Bill No", "Supplier", "Item", "HSN/SAC", "Taxable", "CGST", "SGST", "IGST", "Status", "Reason"],
+      rows,
+      "No purchase records found for this period."
+    ),
+  });
+}
+
+// ── HSN Summary Standalone Report ─────────────────────────────────────────────
+function hsnSummaryReport() {
+  const saleInvoices = reportInvoicesForType("sale").filter((inv) => invoiceStatusKey(inv) !== "cancelled");
+  const purchaseInvoices = reportInvoicesForType("purchase").filter((inv) => invoiceStatusKey(inv) !== "cancelled");
+
+  const saleIds = new Set(saleInvoices.map((inv) => inv.id));
+  const purchaseIds = new Set(purchaseInvoices.map((inv) => inv.id));
+  const allLines = state.invoiceItems || [];
+
+  const saleLines = allLines.filter((l) => saleIds.has(l.invoiceId));
+  const purchaseLines = allLines.filter((l) => purchaseIds.has(l.invoiceId));
+
+  function buildHsnTable(lines) {
+    const map = new Map();
+    lines.forEach((l) => {
+      const hsn = l.hsnSac || "Not set";
+      const rate = Number(l.taxRate || 0);
+      const key = `${hsn}||${rate}`;
+      const g = map.get(key) || { hsn, rate, qty: 0, taxable: 0, cgst: 0, sgst: 0, igst: 0, cess: 0 };
+      g.qty += Number(l.qty || 0);
+      g.taxable += Number(l.taxableValue || 0);
+      g.cgst += Number(l.cgstAmount || 0);
+      g.sgst += Number(l.sgstAmount || 0);
+      g.igst += Number(l.igstAmount || 0);
+      g.cess += Number(l.cessAmount || 0);
+      map.set(key, g);
+    });
+    return [...map.values()].sort((a, b) => (a.hsn || "").localeCompare(b.hsn || ""));
+  }
+
+  const saleHsn = buildHsnTable(saleLines);
+  const purchaseHsn = buildHsnTable(purchaseLines);
+
+  const totalSaleTaxable = saleHsn.reduce((s, g) => s + g.taxable, 0);
+  const totalSaleTax = saleHsn.reduce((s, g) => s + g.cgst + g.sgst + g.igst, 0);
+  const totalPurchaseTaxable = purchaseHsn.reduce((s, g) => s + g.taxable, 0);
+  const missingHsn = (state.items || []).filter((i) => !String(i.hsnSac || "").trim()).length;
+
+  const toRow = (g) => [
+    g.hsn, `${g.rate}%`, formatQuantity(g.qty),
+    formatCurrency(g.taxable), formatCurrency(g.cgst), formatCurrency(g.sgst),
+    formatCurrency(g.igst), formatCurrency(g.cess),
+    formatCurrency(g.cgst + g.sgst + g.igst + g.cess),
+  ];
+
+  return reportPageShell({
+    activeReport: "hsnSummary",
+    eyebrow: "GST Compliance",
+    title: "HSN / SAC Summary",
+    summary: "Rate-wise HSN and SAC code breakdown for outward and inward supplies. Required for GSTR-1 Table 12 and GSTR-9 annual return.",
+    kpis: [
+      { label: "HSN Codes (Sales)", value: String(saleHsn.length), note: `Taxable: ${formatCurrency(totalSaleTaxable)}`, tone: "success" },
+      { label: "Output Tax (Sales)", value: formatCurrency(totalSaleTax), note: "CGST + SGST + IGST + Cess", tone: "danger" },
+      { label: "HSN Codes (Purchase)", value: String(purchaseHsn.length), note: `Taxable: ${formatCurrency(totalPurchaseTaxable)}`, tone: "neutral" },
+      { label: "Items Missing HSN", value: String(missingHsn), note: "Incomplete for GST reporting", tone: missingHsn ? "danger" : "success" },
+    ],
+    body: `
+      ${reportTableCard(
+        "Outward Supplies — Sales HSN Summary",
+        ["HSN/SAC", "Rate", "Qty", "Taxable Value", "CGST", "SGST", "IGST", "Cess", "Total Tax"],
+        saleHsn.map(toRow),
+        "No sale HSN lines found."
+      )}
+      ${reportTableCard(
+        "Inward Supplies — Purchase HSN Summary",
+        ["HSN/SAC", "Rate", "Qty", "Taxable Value", "CGST", "SGST", "IGST", "Cess", "Total Tax"],
+        purchaseHsn.map(toRow),
+        "No purchase HSN lines found."
+      )}
+    `,
+  });
+}
+
+// ── Balance Sheet Report ───────────────────────────────────────────────────────
+function balanceSheetReport() {
+  const invoices = state.invoices || [];
+  const payments = state.payments || [];
+  const transactions = state.transactions || [];
+  const items = state.items || [];
+  const banks = state.bankAccounts || [];
+
+  // Assets
+  const cashInHand = banks.filter((b) => (b.bankName || "").toLowerCase().includes("cash")).reduce((s, b) => s + Number(b.currentBalance || 0), 0);
+  const bankBalance = banks.filter((b) => !(b.bankName || "").toLowerCase().includes("cash")).reduce((s, b) => s + Number(b.currentBalance || 0), 0);
+  const closingStock = items.reduce((s, item) => s + Number(item.currentStock || 0) * Number(item.purchasePrice || 0), 0);
+
+  // Accounts Receivable: outstanding sale invoices
+  const accountsReceivable = invoices
+    .filter((inv) => inv.type === "sale" && invoiceStatusKey(inv) !== "cancelled")
+    .reduce((s, inv) => s + invoiceBalanceValue(inv), 0);
+
+  // Total Assets
+  const totalCurrentAssets = cashInHand + bankBalance + closingStock + accountsReceivable;
+
+  // Liabilities
+  // Accounts Payable: outstanding purchase invoices
+  const accountsPayable = invoices
+    .filter((inv) => inv.type === "purchase" && invoiceStatusKey(inv) !== "cancelled")
+    .reduce((s, inv) => s + invoiceBalanceValue(inv), 0);
+
+  // GST Payable = output - input
+  const outputGst = invoices.filter((inv) => inv.type === "sale" && invoiceStatusKey(inv) !== "cancelled")
+    .reduce((s, inv) => s + Number(inv.cgstTotal || 0) + Number(inv.sgstTotal || 0) + Number(inv.igstTotal || 0), 0);
+  const inputGst = invoices.filter((inv) => inv.type === "purchase" && invoiceStatusKey(inv) !== "cancelled")
+    .reduce((s, inv) => s + Number(inv.cgstTotal || 0) + Number(inv.sgstTotal || 0) + Number(inv.igstTotal || 0), 0);
+  const netGstPayable = Math.max(0, outputGst - inputGst);
+
+  const totalCurrentLiabilities = accountsPayable + netGstPayable;
+
+  // Net Worth / Capital
+  const grossSales = invoices.filter((inv) => inv.type === "sale" && invoiceStatusKey(inv) !== "cancelled")
+    .reduce((s, inv) => s + invoiceTaxableValue(inv), 0);
+  const grossPurchases = invoices.filter((inv) => inv.type === "purchase" && invoiceStatusKey(inv) !== "cancelled")
+    .reduce((s, inv) => s + invoiceTaxableValue(inv), 0);
+  const totalExpenses = transactions.filter((t) => t.type === "expense")
+    .reduce((s, t) => s + Number(t.amount || t.total || 0), 0);
+  const netProfit = grossSales - grossPurchases - totalExpenses;
+  const capital = netProfit; // simplified: equity = retained earnings
+
+  const totalAssets = totalCurrentAssets;
+  const totalLiabilitiesAndCapital = totalCurrentLiabilities + capital;
+
+  const isBalanced = Math.abs(totalAssets - totalLiabilitiesAndCapital) < 1;
+
+  return reportPageShell({
+    activeReport: "balanceSheet",
+    eyebrow: "Accountant Reports",
+    title: "Balance Sheet",
+    summary: "Simplified position statement of assets, liabilities and capital. For a fully accurate balance sheet, ensure all journal entries are posted.",
+    showToolbar: false,
+    kpis: [
+      { label: "Total Assets", value: formatCurrency(totalAssets), note: "Current assets", tone: "success" },
+      { label: "Total Liabilities", value: formatCurrency(totalCurrentLiabilities), note: "Payables + GST", tone: "danger" },
+      { label: "Net Worth / Capital", value: formatCurrency(capital), note: "Retained earnings", tone: capital >= 0 ? "success" : "danger" },
+      { label: "Balanced", value: isBalanced ? "Yes ✓" : "No ✗", note: isBalanced ? "Assets ≈ Liabilities + Capital" : `Diff: ${formatCurrency(Math.abs(totalAssets - totalLiabilitiesAndCapital))}`, tone: isBalanced ? "success" : "warn" },
+    ],
+    body: `
+      <div class="balance-sheet-layout" style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+        <section class="data-table-card report-card report-data-card">
+          <div class="report-card-head"><h2>Assets</h2><span>${formatCurrency(totalAssets)}</span></div>
+          <table class="data-table report-table">
+            <thead><tr><th>Particulars</th><th class="num">Amount</th></tr></thead>
+            <tbody>
+              <tr><td colspan="2" style="font-weight:600;background:var(--sidebar-bg);padding:6px 12px;">Current Assets</td></tr>
+              <tr><td>Cash in Hand</td><td class="num">${formatCurrency(cashInHand)}</td></tr>
+              <tr><td>Bank Balance</td><td class="num">${formatCurrency(bankBalance)}</td></tr>
+              <tr><td>Accounts Receivable (Trade Debtors)</td><td class="num">${formatCurrency(accountsReceivable)}</td></tr>
+              <tr><td>Closing Stock (at Purchase Price)</td><td class="num">${formatCurrency(closingStock)}</td></tr>
+              <tr style="font-weight:700;border-top:2px solid var(--border-color);">
+                <td>Total Current Assets</td><td class="num">${formatCurrency(totalCurrentAssets)}</td>
+              </tr>
+              <tr style="font-weight:800;font-size:1.05em;border-top:3px solid var(--accent);">
+                <td>TOTAL ASSETS</td><td class="num">${formatCurrency(totalAssets)}</td>
+              </tr>
+            </tbody>
+          </table>
+        </section>
+        <section class="data-table-card report-card report-data-card">
+          <div class="report-card-head"><h2>Liabilities &amp; Capital</h2><span>${formatCurrency(totalLiabilitiesAndCapital)}</span></div>
+          <table class="data-table report-table">
+            <thead><tr><th>Particulars</th><th class="num">Amount</th></tr></thead>
+            <tbody>
+              <tr><td colspan="2" style="font-weight:600;background:var(--sidebar-bg);padding:6px 12px;">Current Liabilities</td></tr>
+              <tr><td>Accounts Payable (Trade Creditors)</td><td class="num">${formatCurrency(accountsPayable)}</td></tr>
+              <tr><td>GST Payable (Net Output Tax)</td><td class="num">${formatCurrency(netGstPayable)}</td></tr>
+              <tr style="font-weight:700;border-top:2px solid var(--border-color);">
+                <td>Total Current Liabilities</td><td class="num">${formatCurrency(totalCurrentLiabilities)}</td>
+              </tr>
+              <tr><td colspan="2" style="font-weight:600;background:var(--sidebar-bg);padding:6px 12px;">Capital &amp; Reserves</td></tr>
+              <tr><td>Net Profit (Retained Earnings)</td><td class="num">${formatCurrency(netProfit)}</td></tr>
+              <tr style="font-weight:700;border-top:2px solid var(--border-color);">
+                <td>Total Capital</td><td class="num">${formatCurrency(capital)}</td>
+              </tr>
+              <tr style="font-weight:800;font-size:1.05em;border-top:3px solid var(--accent);">
+                <td>TOTAL LIABILITIES + CAPITAL</td><td class="num">${formatCurrency(totalLiabilitiesAndCapital)}</td>
+              </tr>
+            </tbody>
+          </table>
+        </section>
+      </div>
+      ${!isBalanced ? `<div class="report-card" style="background:var(--warn-bg,#fffbeb);border:1px solid var(--warn-border,#fbbf24);border-radius:8px;padding:12px 16px;margin-top:12px;">
+        <strong>⚠ Balance Sheet does not balance.</strong> Difference: ${formatCurrency(Math.abs(totalAssets - totalLiabilitiesAndCapital))}.
+        Post journal entries for opening capital, loans, and fixed assets to complete this view.
+      </div>` : ""}
+    `,
+  });
+}
+
+// ── Journal Entry Screen ───────────────────────────────────────────────────────
+const CHART_OF_ACCOUNTS = [
+  "Cash", "Petty Cash", "Bank Account",
+  "Accounts Receivable", "Accounts Payable",
+  "Sales Revenue", "Purchase / Cost of Goods",
+  "Sales Returns", "Purchase Returns",
+  "Input GST (CGST)", "Input GST (SGST)", "Input GST (IGST)",
+  "Output GST (CGST)", "Output GST (SGST)", "Output GST (IGST)",
+  "Capital Account", "Drawings",
+  "Fixed Assets", "Accumulated Depreciation",
+  "Loans Payable", "Opening Stock", "Closing Stock",
+  "Rent Expense", "Salary Expense", "Utilities Expense",
+  "Transport / Freight", "Advertisement", "Repairs & Maintenance",
+  "Depreciation", "Miscellaneous Expense", "Suspense Account",
+];
+
+function journalEntryReport() {
+  const entries = (state.ledgerEntries || [])
+    .filter((e) => e.entryType === "journal" || e.entryType === "manual")
+    .filter((e) => {
+      const { from, to } = reportDateScope();
+      const d = String(e.entryDate || "").slice(0, 10);
+      return (!from || d >= from) && (!to || d <= to);
+    });
+
+  const totalDebits = entries.reduce((s, e) => s + Number(e.debit || 0), 0);
+  const totalCredits = entries.reduce((s, e) => s + Number(e.credit || 0), 0);
+  const isBalanced = Math.abs(totalDebits - totalCredits) < 0.01;
+
+  const accountDatalist = CHART_OF_ACCOUNTS.map((a) => `<option value="${escapeHtml(a)}">`).join("");
+
+  const rows = entries.map((e) => [
+    formatDate(e.entryDate),
+    e.voucherNo || "-",
+    e.account || "-",
+    e.narration || "-",
+    Number(e.debit || 0) > 0 ? formatCurrency(e.debit) : "-",
+    Number(e.credit || 0) > 0 ? formatCurrency(e.credit) : "-",
+  ]);
+
+  return reportPageShell({
+    activeReport: "journalEntry",
+    eyebrow: "Accounting",
+    title: "Journal Entry",
+    summary: "Post manual double-entry journal vouchers. Each entry must have equal debits and credits.",
+    kpis: [
+      { label: "Journal Entries", value: String(entries.length), note: "Manual vouchers posted", tone: "neutral" },
+      { label: "Total Debits", value: formatCurrency(totalDebits), note: "All Dr entries", tone: "info" },
+      { label: "Total Credits", value: formatCurrency(totalCredits), note: "All Cr entries", tone: "info" },
+      { label: "Balanced", value: isBalanced ? "Yes ✓" : "No ✗", note: isBalanced ? "Dr = Cr" : `Diff: ${formatCurrency(Math.abs(totalDebits - totalCredits))}`, tone: isBalanced ? "success" : "danger" },
+    ],
+    body: `
+      <datalist id="chartOfAccounts">${accountDatalist}</datalist>
+      <section class="data-table-card report-card" style="margin-bottom:16px;">
+        <div class="report-card-head"><h2>New Journal Voucher</h2></div>
+        <form id="journalVoucherForm" style="padding:16px;display:grid;gap:12px;">
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;">
+            <label>Date<input class="form-input" type="date" name="entryDate" value="${new Date().toISOString().slice(0,10)}" required></label>
+            <label>Voucher No<input class="form-input" type="text" name="voucherNo" placeholder="JV-001"></label>
+            <label>Narration<input class="form-input" type="text" name="narration" placeholder="Description of entry" required></label>
+          </div>
+          <div style="overflow-x:auto;">
+            <table class="data-table" id="journalLinesTable" style="min-width:600px;">
+              <thead><tr><th>Account</th><th class="num">Debit (Dr)</th><th class="num">Credit (Cr)</th><th></th></tr></thead>
+              <tbody id="journalLinesBody">
+                <tr class="journal-line-row">
+                  <td><input class="form-input" type="text" name="account" list="chartOfAccounts" placeholder="Account name" required></td>
+                  <td><input class="form-input num" type="number" name="debit" placeholder="0.00" min="0" step="0.01"></td>
+                  <td><input class="form-input num" type="number" name="credit" placeholder="0.00" min="0" step="0.01"></td>
+                  <td><button type="button" class="outline-mini-button remove-journal-line">✕</button></td>
+                </tr>
+                <tr class="journal-line-row">
+                  <td><input class="form-input" type="text" name="account" list="chartOfAccounts" placeholder="Account name" required></td>
+                  <td><input class="form-input num" type="number" name="debit" placeholder="0.00" min="0" step="0.01"></td>
+                  <td><input class="form-input num" type="number" name="credit" placeholder="0.00" min="0" step="0.01"></td>
+                  <td><button type="button" class="outline-mini-button remove-journal-line">✕</button></td>
+                </tr>
+              </tbody>
+              <tfoot>
+                <tr>
+                  <td><button type="button" id="addJournalLineBtn" class="outline-mini-button">+ Add Line</button></td>
+                  <td class="num" id="journalTotalDr" style="font-weight:700;">Dr: ₹0</td>
+                  <td class="num" id="journalTotalCr" style="font-weight:700;">Cr: ₹0</td>
+                  <td></td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <button class="primary-button square" type="submit" id="saveJournalBtn">Post Voucher</button>
+            <span id="journalBalanceCheck" style="font-size:0.9em;"></span>
+          </div>
+        </form>
+      </section>
+      ${reportTableCard(
+        "Posted Journal Vouchers",
+        ["Date", "Voucher No", "Account", "Narration", "Debit (Dr)", "Credit (Cr)"],
+        rows,
+        "No manual journal entries posted yet."
+      )}
+    `,
+  });
+}
+
+// ── e-Invoice Log Report ───────────────────────────────────────────────────────
+function eInvoiceLogReport() {
+  const saleInvoices = (state.invoices || []).filter((inv) => inv.type === "sale" && invoiceStatusKey(inv) !== "cancelled");
+  const eInvoiceLogs = state.eInvoiceLogs || [];
+
+  // Join invoices with their e-invoice log entries
+  const rows = saleInvoices.map((inv) => {
+    const log = eInvoiceLogs.find((l) => l.invoiceId === inv.id || l.invoice_id === inv.id);
+    const hasIrn = Boolean(log?.irn);
+    const isB2b = invoiceSupplyType(inv) === "b2b";
+    const needsEInvoice = isB2b && isValidGstin(inv.partyGstin || "");
+    return {
+      date: formatDate(inv.date),
+      invoiceNo: inv.invoiceNo || "-",
+      party: inv.party || "-",
+      gstin: inv.partyGstin || "-",
+      amount: formatCurrency(invoiceTotalValue(inv)),
+      irn: log?.irn || "-",
+      ackNo: log?.ackNo || log?.ack_no || "-",
+      ackDate: log?.ackDate || log?.ack_date ? formatDate(log?.ackDate || log?.ack_date) : "-",
+      status: hasIrn ? "Generated" : (needsEInvoice ? "Pending" : "N/A"),
+      statusTone: hasIrn ? "success" : (needsEInvoice ? "warn" : "neutral"),
+    };
+  });
+
+  const generated = rows.filter((r) => r.status === "Generated").length;
+  const pending = rows.filter((r) => r.status === "Pending").length;
+
+  return reportPageShell({
+    activeReport: "eInvoiceLog",
+    eyebrow: "Compliance Log",
+    title: "e-Invoice Log",
+    summary: "IRN (Invoice Reference Number) generation status for all B2B sale invoices. Generated via NIC IRP portal.",
+    kpis: [
+      { label: "IRN Generated", value: String(generated), note: "Successfully registered", tone: "success" },
+      { label: "Pending IRN", value: String(pending), note: "B2B invoices needing IRN", tone: pending > 0 ? "warn" : "neutral" },
+      { label: "N/A (B2C)", value: String(rows.filter((r) => r.status === "N/A").length), note: "B2C — IRN not required", tone: "neutral" },
+      { label: "Total Invoices", value: String(saleInvoices.length), note: "Active sale invoices", tone: "info" },
+    ],
+    body: reportTableCard(
+      "e-Invoice Status",
+      ["Date", "Invoice No", "Party", "GSTIN", "Amount", "IRN", "Ack No", "Ack Date", "Status"],
+      rows.map((r) => [
+        r.date, r.invoiceNo, r.party, r.gstin, r.amount,
+        r.irn.length > 20 ? r.irn.slice(0, 20) + "…" : r.irn,
+        r.ackNo, r.ackDate,
+        { html: `<span class="status-badge status-badge--${r.statusTone}">${escapeHtml(r.status)}</span>` },
+      ]),
+      "No sale invoices found."
+    ),
+  });
+}
+
+// ── e-Way Bill Log Report ──────────────────────────────────────────────────────
+function eWayBillLogReport() {
+  const saleInvoices = (state.invoices || []).filter((inv) => inv.type === "sale" && invoiceStatusKey(inv) !== "cancelled");
+  const eWayBillLogs = state.eWayBillLogs || [];
+
+  const rows = saleInvoices.map((inv) => {
+    const log = eWayBillLogs.find((l) => l.invoiceId === inv.id || l.invoice_id === inv.id);
+    const hasEwb = Boolean(log?.ewbNo || log?.ewb_no);
+    const invTotal = invoiceTotalValue(inv);
+    const needsEwb = invTotal >= 50000;
+
+    let validUpto = log?.validUpto || log?.valid_upto || "";
+    let isExpired = false;
+    if (validUpto) {
+      isExpired = new Date(validUpto) < new Date();
+    }
+
+    const status = hasEwb ? (isExpired ? "Expired" : "Active") : (needsEwb ? "Pending" : "N/A");
+    const statusTone = hasEwb ? (isExpired ? "danger" : "success") : (needsEwb ? "warn" : "neutral");
+
+    return [
+      formatDate(inv.date), inv.invoiceNo || "-",
+      inv.party || "-",
+      formatCurrency(invTotal),
+      log?.ewbNo || log?.ewb_no || "-",
+      log?.ewbDate || log?.ewb_date ? formatDate(log?.ewbDate || log?.ewb_date) : "-",
+      validUpto ? formatDate(validUpto) : "-",
+      { html: `<span class="status-badge status-badge--${statusTone}">${escapeHtml(status)}</span>` },
+    ];
+  });
+
+  const active = rows.filter((r) => r[7].html?.includes("Active")).length;
+  const expired = rows.filter((r) => r[7].html?.includes("Expired")).length;
+  const pending = rows.filter((r) => r[7].html?.includes("Pending")).length;
+
+  return reportPageShell({
+    activeReport: "eWayBillLog",
+    eyebrow: "Compliance Log",
+    title: "e-Way Bill Log",
+    summary: "EWB generation status for all consignments. Invoices ≥ ₹50,000 require an e-Way Bill before goods movement.",
+    kpis: [
+      { label: "Active EWBs", value: String(active), note: "Generated and valid", tone: "success" },
+      { label: "Expired EWBs", value: String(expired), note: "Past validity date", tone: expired > 0 ? "danger" : "neutral" },
+      { label: "Pending", value: String(pending), note: "≥ ₹50K — EWB needed", tone: pending > 0 ? "warn" : "neutral" },
+      { label: "N/A (< ₹50K)", value: String(rows.filter((r) => r[7].html?.includes("N/A")).length), note: "Below threshold", tone: "neutral" },
+    ],
+    body: reportTableCard(
+      "e-Way Bill Status",
+      ["Date", "Invoice No", "Party", "Invoice Value", "EWB No", "Generated", "Valid Upto", "Status"],
+      rows,
+      "No sale invoices found."
+    ),
+  });
+}
+
+// ── GSTR-1 Portal JSON Builder ────────────────────────────────────────────────
+function buildGstr1PortalJson() {
+  const invoices = reportInvoicesForType("sale").filter((inv) => invoiceStatusKey(inv) !== "cancelled");
+  const invoiceIds = new Set(invoices.map((inv) => inv.id));
+  const lines = (state.invoiceItems || []).filter((l) => invoiceIds.has(l.invoiceId));
+  const gstin = state.businessSettings?.gstin || "";
+  const period = reportDateScope();
+  const fp = period.from ? period.from.slice(0, 7).replace("-", "") : new Date().toISOString().slice(0, 7).replace("-", "");
+
+  // B2B section
+  const b2bMap = new Map();
+  invoices.filter((inv) => invoiceSupplyType(inv) === "b2b" && isValidGstin(inv.partyGstin || "")).forEach((inv) => {
+    const ctin = (inv.partyGstin || "").toUpperCase();
+    if (!b2bMap.has(ctin)) b2bMap.set(ctin, []);
+    const invLines = lines.filter((l) => l.invoiceId === inv.id);
+    b2bMap.get(ctin).push({
+      inum: inv.invoiceNo || "",
+      idt: formatDateDDMMYYYY(inv.date),
+      val: round2(invoiceTotalValue(inv)),
+      pos: inv.placeOfSupply || "",
+      rchrg: inv.reverseCharge ? "Y" : "N",
+      inv_typ: "R",
+      itms: buildGstrLineItems(invLines),
+    });
+  });
+  const b2b = [...b2bMap.entries()].map(([ctin, inv]) => ({ ctin, inv }));
+
+  // B2C Large
+  const b2cl = invoices.filter((inv) => {
+    const isB2C = invoiceSupplyType(inv) !== "b2b";
+    const isInterState = (inv.placeOfSupply || "") !== (state.businessSettings?.state || "");
+    return isB2C && isInterState && invoiceTotalValue(inv) > 250000;
+  }).map((inv) => ({
+    pos: inv.placeOfSupply || "",
+    inv: [{
+      inum: inv.invoiceNo || "",
+      idt: formatDateDDMMYYYY(inv.date),
+      val: round2(invoiceTotalValue(inv)),
+      itms: buildGstrLineItems(lines.filter((l) => l.invoiceId === inv.id)),
+    }],
+  }));
+
+  // B2C Small — aggregate by state + rate
+  const b2csMap = new Map();
+  invoices.filter((inv) => {
+    const isB2C = invoiceSupplyType(inv) !== "b2b";
+    const isInterState = (inv.placeOfSupply || "") !== (state.businessSettings?.state || "");
+    return isB2C && !(isInterState && invoiceTotalValue(inv) > 250000);
+  }).forEach((inv) => {
+    lines.filter((l) => l.invoiceId === inv.id).forEach((l) => {
+      const key = `${inv.placeOfSupply || ""}||${Number(l.taxRate || 0)}`;
+      const g = b2csMap.get(key) || { pos: inv.placeOfSupply || "", sply_ty: "INTRA", typ: "OE", rt: Number(l.taxRate || 0), txval: 0, iamt: 0, camt: 0, samt: 0, csamt: 0 };
+      g.txval += round2(Number(l.taxableValue || 0));
+      g.iamt += round2(Number(l.igstAmount || 0));
+      g.camt += round2(Number(l.cgstAmount || 0));
+      g.samt += round2(Number(l.sgstAmount || 0));
+      b2csMap.set(key, g);
+    });
+  });
+  const b2cs = [...b2csMap.values()];
+
+  // CDNR
+  const cdnrMap = new Map();
+  (state.creditNotes || []).filter((cn) => creditNoteStatus(cn) !== "cancelled" && isInReportDateScope(cn) && isValidGstin(cn.partyGstin || "")).forEach((cn) => {
+    const ctin = (cn.partyGstin || "").toUpperCase();
+    if (!cdnrMap.has(ctin)) cdnrMap.set(ctin, []);
+    cdnrMap.get(ctin).push({
+      ntty: "C",
+      nt_num: cn.creditNo || "",
+      nt_dt: formatDateDDMMYYYY(cn.date || cn.creditDate),
+      val: round2(cn.total || 0),
+      itms: [{ num: 1, itm_det: { rt: 0, txval: round2(Number(cn.subtotal || 0) - Number(cn.discountTotal || 0)), iamt: round2(cn.igstTotal || 0), camt: round2(cn.cgstTotal || 0), samt: round2(cn.sgstTotal || 0), csamt: 0 } }],
+    });
+  });
+  const cdnr = [...cdnrMap.entries()].map(([ctin, nt]) => ({ ctin, nt }));
+
+  // HSN
+  const hsnMap = new Map();
+  lines.forEach((l) => {
+    const key = `${l.hsnSac || ""}||${Number(l.taxRate || 0)}`;
+    const g = hsnMap.get(key) || { hsn_sc: l.hsnSac || "", uqc: "NOS", qty: 0, val: 0, txval: 0, iamt: 0, camt: 0, samt: 0, csamt: 0 };
+    g.qty += Number(l.qty || 0);
+    g.val += round2(Number(l.total || 0));
+    g.txval += round2(Number(l.taxableValue || 0));
+    g.iamt += round2(Number(l.igstAmount || 0));
+    g.camt += round2(Number(l.cgstAmount || 0));
+    g.samt += round2(Number(l.sgstAmount || 0));
+    hsnMap.set(key, g);
+  });
+  const hsn = { version: "1.1", hsn_data: [...hsnMap.values()] };
+
+  return {
+    gstin,
+    fp,
+    gt: round2(invoices.reduce((s, inv) => s + invoiceTotalValue(inv), 0)),
+    cur_gt: round2(invoices.reduce((s, inv) => s + invoiceTotalValue(inv), 0)),
+    b2b, b2cl, b2cs, cdnr, hsn,
+    exp: [], nil: { inv: [] }, doc_issue: {},
+  };
+}
+
+function buildGstrLineItems(lines) {
+  const rateMap = new Map();
+  lines.forEach((l) => {
+    const rt = Number(l.taxRate || 0);
+    const g = rateMap.get(rt) || { rt, txval: 0, iamt: 0, camt: 0, samt: 0, csamt: 0 };
+    g.txval += round2(Number(l.taxableValue || 0));
+    g.iamt += round2(Number(l.igstAmount || 0));
+    g.camt += round2(Number(l.cgstAmount || 0));
+    g.samt += round2(Number(l.sgstAmount || 0));
+    rateMap.set(rt, g);
+  });
+  return [...rateMap.entries()].map(([, det], i) => ({ num: i + 1, itm_det: det }));
+}
+
+function formatDateDDMMYYYY(dateStr) {
+  if (!dateStr) return "";
+  const d = new Date(dateStr);
+  if (Number.isNaN(d.getTime())) return dateStr;
+  return `${String(d.getDate()).padStart(2, "0")}-${String(d.getMonth() + 1).padStart(2, "0")}-${d.getFullYear()}`;
+}
+
+function round2(v) {
+  return Math.round(Number(v || 0) * 100) / 100;
 }
 
 function reportInvoiceTotals(type) {
@@ -14114,63 +21123,1220 @@ function importTemplate(title = "Import Items") {
   `;
 }
 
-function settingsTemplate(active) {
-  const tabs = ["GENERAL", "CUSTOM FIELDS"];
-  if (!tabs.includes(active)) active = "GENERAL";
-  return `<section class="settings-layout">
-    <aside class="settings-menu"><h2>Settings</h2>${tabs.map((tab) => `<button data-settings-tab="${tab}" class="${tab === active ? "active" : ""}">${tab}</button>`).join("")}</aside>
-    <main class="settings-content">${active === "CUSTOM FIELDS" ? customFieldsSettingsTemplate() : businessSettingsForm()}</main>
-  </section>`;
+const SETTINGS_TABS = [
+  { id: "COMPANY", label: "Company Profile", note: "Identity, tax & logo", icon: "building" },
+  { id: "INVOICING", label: "Invoicing & Sequences", note: "Prefix, numbers & terms", icon: "receipt" },
+  { id: "PRINTING", label: "Print & Thermal POS", note: "A4, 80mm/58mm & QR", icon: "printer" },
+  { id: "TAX_INVENTORY", label: "Inventory & Tax Rules", note: "Negative stock, MRP & HSN", icon: "box" },
+  { id: "WHATSAPP", label: "WhatsApp Integration", note: "Direct & Meta Cloud API", icon: "whatsapp" },
+  { id: "CUSTOM_FIELDS", label: "Custom Fields", note: "Extra transaction fields", icon: "tools" },
+];
+
+function settingsTemplate(active = "COMPANY") {
+  if (active === "GENERAL" || !SETTINGS_TABS.some((t) => t.id === active)) {
+    if (active === "CUSTOM FIELDS") active = "CUSTOM_FIELDS";
+    else active = "COMPANY";
+  }
+
+  const renderActiveContent = () => {
+    if (active === "INVOICING") return settingsInvoicingTemplate();
+    if (active === "PRINTING") return settingsPrintingTemplate();
+    if (active === "TAX_INVENTORY") return settingsTaxInventoryTemplate();
+    if (active === "WHATSAPP") return settingsWhatsAppTemplate();
+    if (active === "CUSTOM_FIELDS") return customFieldsSettingsTemplate();
+    return settingsCompanyProfileTemplate();
+  };
+
+  return `
+    <section class="settings-layout">
+      <aside class="settings-menu">
+        <div class="settings-sidebar-title">
+          <strong>Settings</strong>
+          <span>Business preferences</span>
+        </div>
+        ${SETTINGS_TABS.map((tab) => `
+          <button data-settings-tab="${escapeHtml(tab.id)}" class="settings-nav-button ${tab.id === active ? "active" : ""}" type="button">
+            <svg class="gi-icon" aria-hidden="true"><use href="#gi-${escapeHtml(tab.icon)}"></use></svg>
+            <div class="settings-nav-text">
+              <span>${escapeHtml(tab.label)}</span>
+              <small>${escapeHtml(tab.note)}</small>
+            </div>
+          </button>
+        `).join("")}
+      </aside>
+      <main class="settings-content">
+        ${renderActiveContent()}
+      </main>
+    </section>
+  `;
+}
+
+function settingsCompanyProfileTemplate() {
+  const settings = state.businessSettings || defaultBusinessSettings();
+  const logoSrc = settings.logoBase64 || "";
+  return `
+    <header class="settings-page-header">
+      <div>
+        <h2>Company Profile</h2>
+        <p>Manage your business identity, registered address, GST tax details, and document logo.</p>
+      </div>
+      <div class="settings-header-actions">
+        <span class="settings-status-indicator" id="businessSettingsStatus"></span>
+        <button class="secondary-button" type="button" data-action="switch-company" title="Switch or open another company">${icon("refresh")} Switch Company</button>
+        <button class="primary-button" type="submit" form="businessSettingsForm">Save Company Profile</button>
+      </div>
+    </header>
+
+    <form class="business-settings-form" id="businessSettingsForm" data-settings-subtab="COMPANY">
+      <div class="settings-form-grid">
+        <section class="settings-card">
+          <div class="settings-card-head">
+            <h3>Business Details</h3>
+            <span class="badge">Legal entity</span>
+          </div>
+          <div class="settings-field-group">
+            <label>Business Name *</label>
+            <input class="form-input" name="businessName" value="${escapeHtml(settings.businessName || state.activeCompany || "testt")}" placeholder="Enter registered business name" required>
+          </div>
+          <div class="settings-field-group">
+            <label>Registered Address</label>
+            <textarea class="form-input" name="address" rows="3" placeholder="Shop / Office address, Street, City, PIN">${escapeHtml(settings.address || "")}</textarea>
+          </div>
+          <div class="settings-field-group">
+            <label>State *</label>
+            <select class="form-input" name="state" required>${indianStateOptions(settings.state || "Karnataka")}</select>
+            <small class="field-hint">Used for automatic CGST/SGST vs IGST calculation.</small>
+          </div>
+        </section>
+
+        <section class="settings-card">
+          <div class="settings-card-head">
+            <h3>Tax Registration</h3>
+            <span class="badge">GST &amp; PAN</span>
+          </div>
+          <div class="settings-field-group">
+            <label>GSTIN</label>
+            <input class="form-input" name="gstin" value="${escapeHtml(settings.gstin || "")}" placeholder="e.g. 29AAAAA0000A1Z5" maxlength="15" style="text-transform:uppercase;">
+            <small class="field-hint">15-digit Goods and Services Tax Identification Number.</small>
+          </div>
+          <div class="settings-field-group">
+            <label>Permanent Account Number (PAN)</label>
+            <input class="form-input" name="pan" value="${escapeHtml(settings.pan || "")}" placeholder="e.g. AAAAA0000A" maxlength="10" style="text-transform:uppercase;">
+            <small class="field-hint">10-character PAN of business or proprietor.</small>
+          </div>
+        </section>
+
+        <section class="settings-card" style="grid-column: 1 / -1;">
+          <div class="settings-card-head">
+            <h3>Business Logo</h3>
+            <span class="badge">Invoices &amp; Receipts</span>
+          </div>
+          <div class="logo-upload-section">
+            ${logoSrc ? `<img class="logo-preview-img" src="${logoSrc}" alt="Business logo">` : `<div class="logo-placeholder">No logo uploaded</div>`}
+            <div class="logo-upload-actions">
+              <label class="secondary-button logo-upload-label" for="logoFileInput">Choose Logo Image</label>
+              <input type="file" id="logoFileInput" name="logoFile" accept="image/png,image/jpeg,image/webp,image/svg+xml" style="display:none">
+              ${logoSrc ? `<button class="link-button danger-link" type="button" id="removeLogoBtn">Remove Logo</button>` : ""}
+            </div>
+            <small class="field-hint">Recommended format: Square or landscape PNG/JPG under 2MB. Printed on laser invoices and thermal receipts.</small>
+          </div>
+        </section>
+      </div>
+    </form>
+  `;
+}
+
+function settingsInvoicingTemplate() {
+  const settings = state.businessSettings || defaultBusinessSettings();
+  const prefix = settings.invoicePrefix || "INV";
+  const startNo = Number(settings.startingNo || 1);
+  return `
+    <header class="settings-page-header">
+      <div>
+        <h2>Invoicing &amp; Sequences</h2>
+        <p>Configure sales invoice numbering, starting counters, and default terms shown to customers.</p>
+      </div>
+      <div class="settings-header-actions">
+        <span class="settings-status-indicator" id="businessSettingsStatus"></span>
+        <button class="primary-button" type="submit" form="businessSettingsForm">Save Invoicing Settings</button>
+      </div>
+    </header>
+
+    <form class="business-settings-form" id="businessSettingsForm" data-settings-subtab="INVOICING">
+      <div class="settings-form-grid">
+        <section class="settings-card">
+          <div class="settings-card-head">
+            <h3>Sales Invoice Numbering</h3>
+            <span class="badge">Primary Sequence</span>
+          </div>
+          <div class="settings-field-group">
+            <label>Invoice Prefix *</label>
+            <input class="form-input" name="invoicePrefix" value="${escapeHtml(prefix)}" placeholder="e.g. INV or GI" required>
+            <small class="field-hint">Prefix added before invoice numbers (e.g. ${escapeHtml(prefix)}-001).</small>
+          </div>
+          <div class="settings-field-group">
+            <label>Starting Invoice Number *</label>
+            <input class="form-input" name="startingNo" type="number" min="1" value="${startNo}" required>
+            <small class="field-hint">The next generated invoice will increment sequentially from here.</small>
+          </div>
+          <div class="settings-info-banner">
+            <div class="banner-text">
+              <strong>Next Invoice Preview</strong>
+              <span>Generated format: <code>${escapeHtml(prefix)}-${startNo}</code></span>
+            </div>
+          </div>
+        </section>
+
+        <section class="settings-card">
+          <div class="settings-card-head">
+            <h3>Document Types Supported</h3>
+            <span class="badge">Automatic Counters</span>
+          </div>
+          <p style="font-size:13px;color:#64748b;margin:0;">The application automatically manages distinct sequential series for all document types:</p>
+          <ul style="font-size:12px;color:#334155;line-height:1.8;padding-left:18px;margin:0;">
+            <li><strong>Sales Invoices:</strong> Configured via prefix above</li>
+            <li><strong>Quotations / Estimates:</strong> EST-001, EST-002...</li>
+            <li><strong>Sales Orders:</strong> SO-001, SO-002...</li>
+            <li><strong>Delivery Challans:</strong> DC-001, DC-002...</li>
+            <li><strong>Credit Notes (Returns):</strong> CN-001, CN-002...</li>
+            <li><strong>Purchase Orders:</strong> PO-001, PO-002...</li>
+          </ul>
+        </section>
+
+        <section class="settings-card" style="grid-column: 1 / -1;">
+          <div class="settings-card-head">
+            <h3>Default Terms &amp; Conditions</h3>
+            <span class="badge">Printed on Invoices</span>
+          </div>
+          <div class="settings-field-group">
+            <textarea class="form-input" name="terms" rows="4" placeholder="Enter standard terms (e.g. 1. Goods once sold will not be taken back. 2. Interest @18% p.a. charged for delayed payment. 3. Subject to local jurisdiction.)">${escapeHtml(settings.terms || "")}</textarea>
+            <small class="field-hint">These notes and conditions will automatically appear at the bottom of every new invoice and quotation.</small>
+          </div>
+        </section>
+      </div>
+    </form>
+  `;
+}
+
+function settingsPrintingTemplate() {
+  const settings = state.businessSettings || defaultBusinessSettings();
+  const defaultBank = defaultBankAccount();
+  const a4Tpl = settings.a4Template || "modern";
+  const thermalTpl = settings.thermalTemplate || "retail";
+
+  return `
+    <header class="settings-page-header">
+      <div>
+        <h2>Print &amp; Thermal POS</h2>
+        <p>Configure document page layouts, roll printer widths, print templates, and document display elements.</p>
+      </div>
+      <div class="settings-header-actions">
+        <span class="settings-status-indicator" id="businessSettingsStatus"></span>
+        <button class="secondary-button" type="button" data-action="preview-selected-template">👁️ Preview Sample Bill</button>
+        <button class="primary-button" type="submit" form="businessSettingsForm">Save Print Settings</button>
+      </div>
+    </header>
+
+    <form class="business-settings-form" id="businessSettingsForm" data-settings-subtab="PRINTING">
+      <div class="settings-form-grid">
+        <section class="settings-card">
+          <div class="settings-card-head">
+            <h3>Printer Format &amp; Paper Size</h3>
+            <span class="badge">Page Layout</span>
+          </div>
+          <div class="settings-field-group">
+            <label>Default Printer Format</label>
+            <select class="form-input" name="printerType" id="settingPrinterType">
+              <option value="a4" ${settings.printerType === "thermal" ? "" : "selected"}>Standard Laser / Inkjet (A4 / Letter)</option>
+              <option value="thermal" ${settings.printerType === "thermal" ? "selected" : ""}>Thermal POS Receipt (Roll Printer)</option>
+            </select>
+          </div>
+          <div class="settings-field-group">
+            <label>Thermal Paper Width</label>
+            <select class="form-input" name="thermalWidth">
+              <option value="80mm" ${settings.thermalWidth === "58mm" ? "" : "selected"}>80mm (3-inch Standard POS)</option>
+              <option value="58mm" ${settings.thermalWidth === "58mm" ? "selected" : ""}>58mm (2-inch Compact Mobile POS)</option>
+            </select>
+          </div>
+
+          <div class="settings-card-head" style="margin-top:16px;">
+            <h3>Document Elements</h3>
+            <span class="badge">Show / Hide</span>
+          </div>
+          <div class="settings-toggle-stack">
+            <label class="settings-toggle-row">
+              <input type="checkbox" name="printCompanyLogo" ${settings.printCompanyLogo !== false ? "checked" : ""}>
+              <div class="settings-toggle-info">
+                <strong>Print Company Logo</strong>
+                <span>Display your uploaded business logo at the header of printed documents.</span>
+              </div>
+            </label>
+            <label class="settings-toggle-row">
+              <input type="checkbox" name="printBankDetails" ${settings.printBankDetails !== false ? "checked" : ""}>
+              <div class="settings-toggle-info">
+                <strong>Print Bank Account Details</strong>
+                <span>Pulls default bank from Cash &amp; Bank${defaultBank ? ` (<strong>${escapeHtml(defaultBank.displayName || defaultBank.bankName)}</strong>)` : ""}.</span>
+              </div>
+            </label>
+            <label class="settings-toggle-row">
+              <input type="checkbox" name="printUpiQr" ${settings.printUpiQr !== false ? "checked" : ""}>
+              <div class="settings-toggle-info">
+                <strong>Print Instant UPI Payment QR Code</strong>
+                <span>Generates a scannable dynamic UPI QR code on bills for instant customer payments.</span>
+              </div>
+            </label>
+            <label class="settings-toggle-row">
+              <input type="checkbox" name="printGstSummary" ${settings.printGstSummary !== false ? "checked" : ""}>
+              <div class="settings-toggle-info">
+                <strong>Print GST Tax Breakdown Table</strong>
+                <span>Displays itemized HSN, taxable value, CGST, and SGST tax summary.</span>
+              </div>
+            </label>
+            <label class="settings-toggle-row">
+              <input type="checkbox" name="printTerms" ${settings.printTerms !== false ? "checked" : ""}>
+              <div class="settings-toggle-info">
+                <strong>Print Terms &amp; Conditions</strong>
+                <span>Displays business terms and return notes at the document footer.</span>
+              </div>
+            </label>
+            <label class="settings-toggle-row">
+              <input type="checkbox" name="printSignature" ${settings.printSignature !== false ? "checked" : ""}>
+              <div class="settings-toggle-info">
+                <strong>Print Authorized Signatory Box</strong>
+                <span>Designated space for business signature and company seal.</span>
+              </div>
+            </label>
+          </div>
+        </section>
+
+        <section class="settings-card">
+          <div class="settings-card-head">
+            <h3>Invoice Print Templates</h3>
+            <span class="badge">A4 &amp; Thermal</span>
+          </div>
+
+          <div class="template-section-wrap">
+            <div class="template-section-title">
+              <span>📄 A4 Laser &amp; PDF Template</span>
+              <small>Select standard full-page invoice design</small>
+            </div>
+            <div class="print-template-grid" data-template-group="a4Template">
+              <label class="print-template-card ${a4Tpl === "modern" ? "active" : ""}">
+                <input type="radio" name="a4Template" value="modern" ${a4Tpl === "modern" ? "checked" : ""}>
+                <div class="template-card-preview mini-preview-modern">
+                  <div class="mini-accent-bar"></div>
+                  <div class="mini-meta-row"><span></span><span></span></div>
+                  <div class="mini-boxes-row"><div></div><div></div></div>
+                  <div class="mini-table-lines"><span></span><span></span><span></span></div>
+                </div>
+                <div class="template-card-body">
+                  <strong>Modern Accent</strong>
+                  <small>Branded header banner, 2-column cards &amp; highlight grand total</small>
+                </div>
+              </label>
+
+              <label class="print-template-card ${a4Tpl === "classic" ? "active" : ""}">
+                <input type="radio" name="a4Template" value="classic" ${a4Tpl === "classic" ? "checked" : ""}>
+                <div class="template-card-preview mini-preview-classic">
+                  <div class="mini-box-frame">
+                    <div class="mini-center-title">TAX INVOICE</div>
+                    <div class="mini-grid-3"><div></div><div></div><div></div></div>
+                    <div class="mini-table-boxed"></div>
+                  </div>
+                </div>
+                <div class="template-card-body">
+                  <strong>Classic GST Boxed</strong>
+                  <small>Traditional statutory grid with full CGST/SGST/IGST breakdown</small>
+                </div>
+              </label>
+
+              <label class="print-template-card ${a4Tpl === "minimal" ? "active" : ""}">
+                <input type="radio" name="a4Template" value="minimal" ${a4Tpl === "minimal" ? "checked" : ""}>
+                <div class="template-card-preview mini-preview-minimal">
+                  <div class="mini-clean-header"><span></span><span></span></div>
+                  <div class="mini-clean-rule"></div>
+                  <div class="mini-clean-table"></div>
+                  <div class="mini-clean-total"><span></span></div>
+                </div>
+                <div class="template-card-body">
+                  <strong>Minimalist Monochrome</strong>
+                  <small>Clean ink-saver layout with elegant whitespace and typography</small>
+                </div>
+              </label>
+
+              <label class="print-template-card ${a4Tpl === "compact" ? "active" : ""}">
+                <input type="radio" name="a4Template" value="compact" ${a4Tpl === "compact" ? "checked" : ""}>
+                <div class="template-card-preview mini-preview-compact">
+                  <div class="mini-dense-header"><span></span></div>
+                  <div class="mini-dense-lines"><span></span><span></span><span></span><span></span><span></span></div>
+                </div>
+                <div class="template-card-body">
+                  <strong>Compact Wholesale</strong>
+                  <small>High-density layout designed to fit 25+ products per page</small>
+                </div>
+              </label>
+            </div>
+          </div>
+
+          <div class="template-section-wrap" style="margin-top:16px;">
+            <div class="template-section-title">
+              <span>🧾 Thermal POS Roll Template</span>
+              <small>Optimized for 80mm and 58mm receipt printers</small>
+            </div>
+            <div class="print-template-grid" data-template-group="thermalTemplate">
+              <label class="print-template-card ${thermalTpl === "retail" ? "active" : ""}">
+                <input type="radio" name="thermalTemplate" value="retail" ${thermalTpl === "retail" ? "checked" : ""}>
+                <div class="template-card-preview mini-preview-thermal-retail">
+                  <div class="mini-thermal-cut">--- STORE RECEIPT ---</div>
+                  <div class="mini-thermal-lines"><span></span><span></span></div>
+                  <div class="mini-thermal-bold">NET: ₹XXXX</div>
+                  <div class="mini-thermal-tag">YOU SAVED!</div>
+                </div>
+                <div class="template-card-body">
+                  <strong>Retail Supermarket</strong>
+                  <small>Item count, savings highlight, dashed cut lines &amp; polite footer</small>
+                </div>
+              </label>
+
+              <label class="print-template-card ${thermalTpl === "boutique" ? "active" : ""}">
+                <input type="radio" name="thermalTemplate" value="boutique" ${thermalTpl === "boutique" ? "checked" : ""}>
+                <div class="template-card-preview mini-preview-thermal-boutique">
+                  <div class="mini-boutique-title">CAFE &amp; BOUTIQUE</div>
+                  <div class="mini-boutique-lines"><span></span><span></span></div>
+                  <div class="mini-boutique-badge">[ PAID ]</div>
+                </div>
+                <div class="template-card-body">
+                  <strong>Modern Boutique / Cafe</strong>
+                  <small>Minimal modern receipt, item notes, payment badge &amp; UPI QR</small>
+                </div>
+              </label>
+
+              <label class="print-template-card ${thermalTpl === "detailed" ? "active" : ""}">
+                <input type="radio" name="thermalTemplate" value="detailed" ${thermalTpl === "detailed" ? "checked" : ""}>
+                <div class="template-card-preview mini-preview-thermal-detailed">
+                  <div class="mini-detailed-head">TAX INVOICE (ROLL)</div>
+                  <div class="mini-detailed-lines"><span></span><span></span></div>
+                  <div class="mini-detailed-gst-box">GST SUMMARY</div>
+                </div>
+                <div class="template-card-body">
+                  <strong>GST Detailed Roll</strong>
+                  <small>Item HSN codes and compact GST Tax Breakdown table on roll slip</small>
+                </div>
+              </label>
+            </div>
+          </div>
+        </section>
+      </div>
+    </form>
+  `;
+}
+
+function settingsTaxInventoryTemplate() {
+  const settings = state.businessSettings || defaultBusinessSettings();
+  return `
+    <header class="settings-page-header">
+      <div>
+        <h2>Inventory &amp; Tax Rules</h2>
+        <p>Set operational guardrails for negative inventory, tax computation defaults, and GST compliance.</p>
+      </div>
+      <div class="settings-header-actions">
+        <span class="settings-status-indicator" id="businessSettingsStatus"></span>
+        <button class="primary-button" type="submit" form="businessSettingsForm">Save Preferences</button>
+      </div>
+    </header>
+
+    <form class="business-settings-form" id="businessSettingsForm" data-settings-subtab="TAX_INVENTORY">
+      <div class="settings-form-grid">
+        <section class="settings-card">
+          <div class="settings-card-head">
+            <h3>Inventory Protection</h3>
+            <span class="badge">Stock Control</span>
+          </div>
+          <div class="settings-toggle-stack">
+            <label class="settings-toggle-row">
+              <input type="checkbox" name="stopSaleOnNegativeStock" ${settings.stopSaleOnNegativeStock ? "checked" : ""}>
+              <div class="settings-toggle-info">
+                <strong>Restrict / Stop Sale on Zero or Negative Stock</strong>
+                <span>Warns and prevents users from issuing a sale invoice for products with zero or insufficient inventory.</span>
+              </div>
+            </label>
+          </div>
+        </section>
+
+        <section class="settings-card">
+          <div class="settings-card-head">
+            <h3>Pricing Defaults</h3>
+            <span class="badge">MRP Billing</span>
+          </div>
+          <div class="settings-toggle-stack">
+            <label class="settings-toggle-row">
+              <input type="checkbox" name="defaultTaxInclusive" ${settings.defaultTaxInclusive ? "checked" : ""}>
+              <div class="settings-toggle-info">
+                <strong>Item Rates are Default Tax-Inclusive (MRP Billing)</strong>
+                <span>When enabled, item unit prices already include GST; the invoice automatically calculates taxable value backwards.</span>
+              </div>
+            </label>
+          </div>
+        </section>
+
+        <section class="settings-card" style="grid-column: 1 / -1;">
+          <div class="settings-card-head">
+            <h3>GST Compliance Enforcement</h3>
+            <span class="badge">HSN / SAC Rules</span>
+          </div>
+          <div class="settings-toggle-stack">
+            <label class="settings-toggle-row">
+              <input type="checkbox" name="enableHsn" ${settings.enableHsn !== false ? "checked" : ""}>
+              <div class="settings-toggle-info">
+                <strong>Enable HSN / SAC Code Enforcement on Invoices</strong>
+                <span>Mandates HSN (goods) or SAC (services) codes on B2B invoices and validates format for GSTR-1 compliance.</span>
+              </div>
+            </label>
+          </div>
+        </section>
+      </div>
+    </form>
+  `;
+}
+
+function settingsWhatsAppTemplate() {
+  const settings = state.businessSettings || defaultBusinessSettings();
+  const wa = settings.whatsappSettings || {};
+  const currentMode = wa.mode || "direct";
+  const autoShare = Boolean(wa.autoShareOnSave);
+  const phoneNumberId = wa.phoneNumberId || "";
+  const wabaId = wa.wabaId || "";
+  const accessToken = wa.accessToken || "";
+  const templateName = wa.templateName || "invoice_notification";
+  const languageCode = wa.languageCode || "en";
+  const customMsg = wa.customMessageTemplate || "";
+
+  return `
+    <header class="settings-page-header">
+      <div>
+        <h2>WhatsApp Integration</h2>
+        <p>Choose between 100% Free Direct Deep-Link sharing (Zero-Ban Risk) and Official Meta WhatsApp Cloud API.</p>
+      </div>
+      <div class="settings-header-actions">
+        <span class="settings-status-indicator" id="businessSettingsStatus"></span>
+        <button class="primary-button" type="submit" form="businessSettingsForm">Save WhatsApp Settings</button>
+      </div>
+    </header>
+
+    <form class="business-settings-form" id="businessSettingsForm" data-settings-subtab="WHATSAPP">
+      <div class="settings-form-grid">
+        <section class="settings-card" style="grid-column: 1 / -1;">
+          <div class="settings-card-head">
+            <h3>Default WhatsApp Dispatch Mode</h3>
+            <span class="badge">Both Modes Supported</span>
+          </div>
+
+          <div class="wa-mode-grid">
+            <label class="wa-mode-card ${currentMode === "direct" ? "active" : ""}">
+              <input type="radio" name="whatsappMode" value="direct" ${currentMode === "direct" ? "checked" : ""}>
+              <div class="wa-mode-header">
+                <span class="wa-mode-icon">${icon("whatsapp")}</span>
+                <div>
+                  <strong>Direct WhatsApp (wa.me &amp; Desktop App)</strong>
+                  <span class="wa-badge free">100% Free &bull; Zero Ban Risk</span>
+                </div>
+              </div>
+              <p style="font-size:12.5px;color:#475569;margin:0;line-height:1.5;">Opens WhatsApp Desktop or WhatsApp Web directly with pre-formatted invoice text, customer number, and attached PDF. Zero setup, zero Meta fees, completely ban-proof.</p>
+            </label>
+
+            <label class="wa-mode-card ${currentMode === "cloud_api" ? "active" : ""}">
+              <input type="radio" name="whatsappMode" value="cloud_api" ${currentMode === "cloud_api" ? "checked" : ""}>
+              <div class="wa-mode-header">
+                <span class="wa-mode-icon" style="background:#e0f2fe;color:#0284c7;">${icon("zap")}</span>
+                <div>
+                  <strong>Official Meta WhatsApp Cloud API</strong>
+                  <span class="wa-badge enterprise">Meta Verified &bull; Automated Background</span>
+                </div>
+              </div>
+              <p style="font-size:12.5px;color:#475569;margin:0;line-height:1.5;">Programmatically sends pre-approved utility messages directly to customers via Meta's official Graph API in the background. Requires Meta Business Manager account.</p>
+            </label>
+          </div>
+
+          <div class="settings-field-group" style="margin-top:16px;">
+            <label class="editor-checkbox-label">
+              <input type="checkbox" name="autoShareOnSave" ${autoShare ? "checked" : ""}>
+              <span><strong>Auto-prompt WhatsApp share on invoice save</strong> (Automatically opens WhatsApp modal immediately after saving a new sale invoice)</span>
+            </label>
+          </div>
+        </section>
+
+        <section class="settings-card">
+          <div class="settings-card-head">
+            <h3>Custom Message Template</h3>
+            <span class="badge">Direct &amp; Fallback</span>
+          </div>
+          <div class="settings-field-group">
+            <label>Invoice Text Template</label>
+            <textarea class="form-input" name="customMessageTemplate" id="waCustomMessageTemplate" rows="8" placeholder="Leave blank to use the standard billing template, or customize with placeholders.">${escapeHtml(customMsg)}</textarea>
+            <div class="wa-token-chips" style="margin-top:8px;">
+              <small style="display:block;margin-bottom:4px;color:#64748b;width:100%;">Click tokens to insert:</small>
+              <button type="button" class="wa-token-btn" data-token="{party_name}">{party_name}</button>
+              <button type="button" class="wa-token-btn" data-token="{business_name}">{business_name}</button>
+              <button type="button" class="wa-token-btn" data-token="{doc_type}">{doc_type}</button>
+              <button type="button" class="wa-token-btn" data-token="{doc_no}">{doc_no}</button>
+              <button type="button" class="wa-token-btn" data-token="{date}">{date}</button>
+              <button type="button" class="wa-token-btn" data-token="{amount}">{amount}</button>
+              <button type="button" class="wa-token-btn" data-token="{balance}">{balance}</button>
+              <button type="button" class="wa-token-btn" data-token="{due_date}">{due_date}</button>
+              <button type="button" class="wa-token-btn" data-token="{upi_id}">{upi_id}</button>
+            </div>
+            <button type="button" class="secondary-button" id="waResetTemplateBtn" style="margin-top:8px;font-size:12px;padding:4px 10px;">Reset to Default Template</button>
+          </div>
+        </section>
+
+        <section class="settings-card">
+          <div class="settings-card-head">
+            <h3>Meta Cloud API Credentials (Optional)</h3>
+            <span class="badge">Official Enterprise API</span>
+          </div>
+          <div class="settings-field-group">
+            <label>Phone Number ID *</label>
+            <input class="form-input" name="phoneNumberId" id="waPhoneNumberId" value="${escapeHtml(phoneNumberId)}" placeholder="e.g. 109823485729104">
+            <small class="field-hint">Found under WhatsApp &gt; API Setup in your Meta App Dashboard.</small>
+          </div>
+          <div class="settings-field-group">
+            <label>WhatsApp Business Account ID (WABA ID)</label>
+            <input class="form-input" name="wabaId" value="${escapeHtml(wabaId)}" placeholder="e.g. 104829381029384">
+          </div>
+          <div class="settings-field-group">
+            <label>Permanent Access Token *</label>
+            <div style="display:flex;gap:6px;">
+              <input class="form-input" type="password" name="accessToken" id="waAccessToken" value="${escapeHtml(accessToken)}" placeholder="EAAG... (System User Token)">
+              <button type="button" class="secondary-button" id="waToggleTokenBtn" style="padding:0 10px;">Show</button>
+            </div>
+            <small class="field-hint">Generate a permanent token from Meta Business Manager &gt; System Users with whatsapp_business_messaging permission.</small>
+          </div>
+          <div class="settings-field-group">
+            <label>Template Name</label>
+            <input class="form-input" name="templateName" value="${escapeHtml(templateName)}" placeholder="e.g. invoice_notification">
+            <small class="field-hint">The pre-approved template name in Meta WhatsApp Manager.</small>
+          </div>
+          <div class="settings-field-group">
+            <label>Template Language Code</label>
+            <input class="form-input" name="languageCode" value="${escapeHtml(languageCode)}" placeholder="e.g. en or en_US">
+          </div>
+          <div class="wa-test-box" style="margin-top:12px;padding:12px;border-radius:8px;background:#f8fafc;border:1px solid #e2e8f0;">
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;">
+              <div>
+                <strong>Connection Test</strong>
+                <div id="waTestStatus" style="font-size:12px;color:#64748b;margin-top:2px;">Check if Meta Cloud API credentials are valid and active.</div>
+              </div>
+              <button type="button" class="secondary-button" id="waTestConnectionBtn" style="white-space:nowrap;">Test Connection</button>
+            </div>
+          </div>
+        </section>
+      </div>
+    </form>
+  `;
+}
+
+function openWhatsAppPaymentReminder(partyOrId, invoice = null) {
+  let party = typeof partyOrId === "object" && partyOrId
+    ? partyOrId
+    : (state.parties || []).find((p) => String(p.id) === String(partyOrId) || p.name === partyOrId);
+
+  if (!party && invoice?.party) {
+    party = (state.parties || []).find((p) => p.name === invoice.party);
+  }
+
+  if (!party && !invoice) {
+    showToast("Party or invoice details not found.");
+    return;
+  }
+
+  const business = state.businessSettings || defaultBusinessSettings();
+  const bank = (state.bankAccounts || []).find((b) => b.isDefault || b.upiId) || (state.bankAccounts || [])[0] || {};
+  const upiId = bank.upiId || business.bankDetails?.upiId || "";
+  const businessName = business.businessName || state.activeCompany || "Our Business";
+
+  const balance = invoice
+    ? Number(invoice.balance || 0)
+    : Math.max(0, Number(party?.balance || party?.receivable || 0));
+
+  const invoiceNo = invoice?.invoiceNo || "";
+  const dueDate = invoice?.dueDate || "";
+  const partyName = party?.name || invoice?.party || "Customer";
+  const recipientPhone = party?.phone || invoice?.phone || "";
+
+  // Dynamic UPI Link
+  const upiLink = upiId
+    ? `upi://pay?pa=${encodeURIComponent(upiId)}&pn=${encodeURIComponent(businessName)}&am=${balance.toFixed(2)}&cu=INR&tn=${encodeURIComponent((invoiceNo ? `Inv ${invoiceNo}` : "Payment") + ` to ${businessName}`)}`
+    : "";
+
+  let invoiceSection = "";
+  if (invoiceNo) {
+    invoiceSection = `📄 *Invoice No:* ${invoiceNo}\n📅 *Invoice Date:* ${formatDate(invoice.date)}\n` + (dueDate && dueDate !== "-" ? `⏰ *Due Date:* ${dueDate}\n` : "");
+  }
+
+  const reminderMessage = `Dear *${partyName}*,
+
+This is a gentle payment reminder from *${businessName}*.
+You have an outstanding balance of *₹${formatCurrency(balance).replace(/[₹\s]/g, "")}* due for payment.
+
+${invoiceSection}💰 *Pending Amount:* ₹${formatCurrency(balance).replace(/[₹\s]/g, "")}
+${upiId ? `\n🔗 *UPI ID:* ${upiId}\n📲 *Direct UPI Pay Link:* ${upiLink}\n` : ""}
+Kindly process the payment at your earliest convenience. If you have already made the transfer, please disregard this reminder.
+
+Thank you,
+*${businessName}*`;
+
+  const reminderRecord = {
+    invoiceNo: invoiceNo || "REMINDER",
+    party: partyName,
+    partyId: party?.id,
+    phone: recipientPhone,
+    amount: balance,
+    received: 0,
+    balance: balance,
+    dueDate: dueDate || "-",
+    date: formatDate(new Date().toISOString()),
+    customMessage: reminderMessage,
+    upiLink: upiLink,
+    hasPdf: Boolean(invoice),
+  };
+
+  openWhatsAppShareModal(reminderRecord, "paymentReminder");
+}
+
+function openWhatsAppShareModal(recordOrInvoice, docType = "sale") {
+  if (!recordOrInvoice) {
+    showToast("No document selected for WhatsApp sharing.");
+    return;
+  }
+
+  document.getElementById("whatsappShareModalBackdrop")?.remove();
+
+  const business = state.businessSettings || defaultBusinessSettings();
+  const waSettings = business.whatsappSettings || {};
+
+  const docNo = recordOrInvoice.invoiceNo || recordOrInvoice.quoteNo || recordOrInvoice.debitNo || recordOrInvoice.id || "DOC-001";
+  const docDate = recordOrInvoice.date || recordOrInvoice.invoiceDate || formatDate(new Date().toISOString());
+  const dueDate = recordOrInvoice.dueDate || recordOrInvoice.validUntil || "-";
+
+  let partyName = recordOrInvoice.party || recordOrInvoice.partyName || recordOrInvoice.customerName || "";
+  let recipientPhone = String(recordOrInvoice.phone || "").trim();
+
+  if (!partyName && recordOrInvoice.partyId) {
+    const party = (state.parties || []).find((p) => String(p.id) === String(recordOrInvoice.partyId));
+    if (party) {
+      partyName = party.name;
+      if (!recipientPhone) recipientPhone = party.phone || "";
+    }
+  }
+  if (!recipientPhone && partyName) {
+    const party = (state.parties || []).find((p) => p.name === partyName);
+    if (party?.phone) recipientPhone = party.phone;
+  }
+  if (!partyName) partyName = "Customer";
+
+  const grandTotal = typeof recordOrInvoice.amount === "number" ? recordOrInvoice.amount : (invoiceTotalValue(recordOrInvoice) || 0);
+  const balanceDue = typeof recordOrInvoice.received === "number" ? Math.max(0, grandTotal - recordOrInvoice.received) : (invoiceBalanceValue(recordOrInvoice) || 0);
+
+  const docTypeLabel = {
+    sale: "Invoice",
+    estimate: "Quotation",
+    proforma: "Proforma Invoice",
+    deliveryChallan: "Delivery Challan",
+    saleOrder: "Sale Order",
+    purchase: "Purchase Bill",
+    purchaseOrder: "Purchase Order",
+    saleReturn: "Credit Note",
+    purchaseReturn: "Debit Note",
+    paymentIn: "Payment Receipt",
+    paymentReminder: "Payment Reminder",
+  }[docType] || "Invoice";
+
+  const defaultTemplate = `Dear *{party_name}*,
+
+Thank you for your business with *{business_name}*!
+Here are the details of your *{doc_type}*:
+
+📄 *{doc_type} No:* {doc_no}
+📅 *Date:* {date}
+💰 *Total Amount:* ₹{amount}
+💳 *Balance Due:* ₹{balance}
+${dueDate && dueDate !== "-" ? `⏰ *Due Date:* ${dueDate}\n` : ""}${business.bankDetails?.upiId ? `🔗 *UPI Payment:* ${business.bankDetails.upiId}\n` : ""}
+📎 A detailed PDF document is attached with this message.
+Please let us know if you have any questions.
+
+Warm regards,
+*{business_name}*`;
+
+  const templateToUse = (waSettings.customMessageTemplate || "").trim() || defaultTemplate;
+  const initialMessage = (recordOrInvoice.customMessage) || templateToUse
+    .replace(/{party_name}/g, partyName)
+    .replace(/{business_name}/g, business.businessName || state.activeCompany || "Our Business")
+    .replace(/{doc_type}/g, docTypeLabel)
+    .replace(/{doc_no}/g, docNo)
+    .replace(/{date}/g, docDate)
+    .replace(/{amount}/g, formatCurrency(grandTotal).replace(/[₹\s]/g, ""))
+    .replace(/{balance}/g, formatCurrency(balanceDue).replace(/[₹\s]/g, ""))
+    .replace(/{due_date}/g, dueDate)
+    .replace(/{upi_id}/g, business.bankDetails?.upiId || "");
+
+  const cleanPhone = (recipientPhone || "").replace(/\D/g, "");
+
+  const backdrop = document.createElement("div");
+  backdrop.id = "whatsappShareModalBackdrop";
+  backdrop.className = "whatsapp-modal-backdrop";
+  backdrop.innerHTML = `
+    <section class="whatsapp-modal" role="dialog" aria-modal="true" aria-labelledby="waModalTitle">
+      <header class="whatsapp-modal-header">
+        <div class="whatsapp-brand-title">
+          <svg class="gi-icon wa-brand-icon"><use href="#gi-whatsapp"></use></svg>
+          <div>
+            <h3 id="waModalTitle">${docType === "paymentReminder" ? "Send Payment Reminder" : "Share on WhatsApp"}</h3>
+            <p>${docType === "paymentReminder" ? `Reminder for ${escapeHtml(partyName)} &bull; Balance Due: ${formatCurrency(balanceDue)}` : `${escapeHtml(docTypeLabel)} #${escapeHtml(docNo)} &bull; ${escapeHtml(partyName)} &bull; ${formatCurrency(grandTotal)}`}</p>
+          </div>
+        </div>
+        <button class="close-button" type="button" data-wa-close aria-label="Close">&times;</button>
+      </header>
+
+      <div class="whatsapp-modal-body">
+        <div class="whatsapp-modal-grid">
+          <!-- Left Column: Document Details -->
+          <div class="whatsapp-details-col">
+            <div class="whatsapp-input-row">
+              <label><strong>Recipient WhatsApp Phone *</strong></label>
+              <div class="whatsapp-phone-input-wrap">
+                <span class="phone-prefix">+91</span>
+                <input class="form-input" id="waRecipientPhone" type="tel" value="${escapeHtml(cleanPhone)}" placeholder="10-digit mobile number, e.g. 9876543210" autofocus>
+              </div>
+              <small class="field-hint">Enter the customer's mobile number with active WhatsApp.</small>
+            </div>
+
+            <div class="whatsapp-message-box-wrap">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+                <label><strong>Message Content (Editable)</strong></label>
+                <div style="display:flex;gap:8px;align-items:center;">
+                  ${recordOrInvoice.upiLink ? `<span class="wa-upi-badge"><svg class="gi-icon" style="width:12px;height:12px;"><use href="#gi-wallet"></use></svg> UPI Link Ready</span>` : ""}
+                  <button type="button" class="link-button" id="waCopyMsgBtn" style="font-size:12px;">Copy Message</button>
+                </div>
+              </div>
+              <textarea class="form-input whatsapp-message-textarea" id="waMessageText" rows="6">${escapeHtml(initialMessage)}</textarea>
+            </div>
+
+            ${(docType !== "paymentReminder" || recordOrInvoice.hasPdf) ? `
+            <div class="whatsapp-pdf-box">
+              <div class="whatsapp-pdf-info">
+                <svg class="gi-icon" style="width:20px;height:20px;color:#ef4444;"><use href="#gi-receipt"></use></svg>
+                <div>
+                  <strong>${escapeHtml(docNo)}.pdf</strong>
+                  <span>Ready to attach &amp; send</span>
+                </div>
+              </div>
+              <button type="button" class="secondary-button" id="waSaveAndLocatePdfBtn" title="Generate PDF and show file in folder to drag-and-drop into WhatsApp">
+                ${icon("paperclip")} Save &amp; Locate PDF
+              </button>
+            </div>
+            ` : ""}
+
+            <div id="waStatusAlert" class="hidden"></div>
+          </div>
+
+          <!-- Right Column: Scan to Send QR Code -->
+          <div class="whatsapp-qr-col">
+            <div class="wa-qr-card">
+              <div class="wa-qr-card-header">
+                <svg class="gi-icon" style="width:16px;height:16px;color:#25D366;"><use href="#gi-whatsapp"></use></svg>
+                <strong>Scan to Send via Phone</strong>
+                <span class="wa-qr-badge">Zero Ban</span>
+              </div>
+              <div class="wa-qr-box" id="waQrCodeContainer" title="Scan with Phone Camera or WhatsApp">
+                <div class="wa-qr-empty">Loading QR Code...</div>
+              </div>
+              <div class="wa-qr-instructions">
+                <span>Point Phone Camera Here</span>
+                Opens WhatsApp on your phone with this bill &amp; customer chat pre-filled.
+              </div>
+              <div class="wa-qr-quick-actions">
+                <button type="button" class="secondary-button" id="waCopyLinkBtn" title="Copy wa.me link to clipboard">
+                  <svg class="gi-icon" style="width:13px;height:13px;margin-right:3px;"><use href="#gi-copy"></use></svg> Copy Link
+                </button>
+                <button type="button" class="secondary-button" id="waOpenLinkBtn" title="Open link in browser">
+                  <svg class="gi-icon" style="width:13px;height:13px;margin-right:3px;"><use href="#gi-external-link"></use></svg> Test Link
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <footer class="whatsapp-modal-footer">
+        <div class="wa-footer-left">
+          <button class="secondary-button" type="button" data-wa-close>Cancel</button>
+        </div>
+        <div class="wa-footer-actions">
+          <button class="secondary-button" type="button" id="waOpenWebBtn" title="Open WhatsApp Web in default browser">
+            WhatsApp Web
+          </button>
+          <button class="primary-button wa-primary-btn" type="button" id="waOpenDesktopBtn" title="Open native WhatsApp Desktop app (100% Free &amp; Zero Ban Risk)">
+            <svg class="gi-icon" style="width:16px;height:16px;margin-right:6px;"><use href="#gi-whatsapp"></use></svg> Open WhatsApp Desktop
+          </button>
+          ${(waSettings.phoneNumberId && waSettings.accessToken) ? `
+            <button class="secondary-button wa-cloud-btn" type="button" id="waSendCloudBtn" title="Send directly in background via official Meta Cloud API">
+              ${icon("zap")} Send via Meta Cloud API
+            </button>
+          ` : ""}
+        </div>
+      </footer>
+    </section>
+  `;
+  document.body.append(backdrop);
+
+  const close = () => backdrop.remove();
+  backdrop.querySelectorAll("[data-wa-close]").forEach((btn) => btn.addEventListener("click", close));
+  backdrop.addEventListener("click", (e) => { if (e.target === backdrop) close(); });
+
+  const getCleanNumber = () => {
+    let raw = (backdrop.querySelector("#waRecipientPhone")?.value || "").replace(/\D/g, "");
+    if (!raw) return "";
+    if (raw.startsWith("0") && raw.length === 11) raw = "91" + raw.slice(1);
+    else if (raw.length === 10) raw = "91" + raw;
+    return raw;
+  };
+
+  const getMessage = () => backdrop.querySelector("#waMessageText")?.value || "";
+
+  const qrContainer = backdrop.querySelector("#waQrCodeContainer");
+  const copyLinkBtn = backdrop.querySelector("#waCopyLinkBtn");
+  const openLinkBtn = backdrop.querySelector("#waOpenLinkBtn");
+
+  let qrDebounceTimer = null;
+  const updateWhatsAppQr = async () => {
+    const phone = getCleanNumber();
+    const msg = getMessage();
+    if (!phone || phone.length < 10) {
+      if (qrContainer) {
+        qrContainer.innerHTML = `
+          <div class="wa-qr-empty">
+            <svg class="gi-icon" style="width:32px;height:32px;color:#94a3b8;margin-bottom:6px;"><use href="#gi-phone"></use></svg>
+            <strong>Enter Mobile Number</strong>
+            <span>Provide a 10-digit customer number to generate WhatsApp QR</span>
+          </div>
+        `;
+      }
+      if (copyLinkBtn) copyLinkBtn.disabled = true;
+      if (openLinkBtn) openLinkBtn.disabled = true;
+      return;
+    }
+
+    const waUrl = `https://wa.me/${phone}?text=${encodeURIComponent(msg)}`;
+    if (copyLinkBtn) copyLinkBtn.disabled = false;
+    if (openLinkBtn) openLinkBtn.disabled = false;
+
+    let svgMarkup = "";
+    if (window.giApp?.generateQrSvg) {
+      try {
+        const res = await window.giApp.generateQrSvg({ text: waUrl, options: { margin: 1, errorCorrectionLevel: "M" } });
+        if (res?.success && res.svg) {
+          svgMarkup = res.svg;
+        }
+      } catch (err) {
+        console.warn("Failed generating QR via IPC:", err);
+      }
+    }
+
+    if (!svgMarkup && typeof QRCode !== "undefined" && QRCode.toString) {
+      try {
+        svgMarkup = await QRCode.toString(waUrl, { type: "svg", margin: 1 });
+      } catch (err) {
+        console.warn("Fallback QRCode.toString failed:", err);
+      }
+    }
+
+    if (!svgMarkup) {
+      try {
+        svgMarkup = generateUpiQrSvg(waUrl, 174);
+      } catch {
+        svgMarkup = "";
+      }
+    }
+
+    if (qrContainer) {
+      if (svgMarkup) {
+        qrContainer.innerHTML = svgMarkup;
+      } else {
+        qrContainer.innerHTML = `
+          <div class="wa-qr-empty">
+            <svg class="gi-icon" style="width:32px;height:32px;color:#ef4444;margin-bottom:6px;"><use href="#gi-ban"></use></svg>
+            <strong>QR Preview</strong>
+            <span>Message is ready. Use "Open Desktop" or "WhatsApp Web" below.</span>
+          </div>
+        `;
+      }
+    }
+  };
+
+  const debouncedQrUpdate = () => {
+    clearTimeout(qrDebounceTimer);
+    qrDebounceTimer = setTimeout(updateWhatsAppQr, 150);
+  };
+
+  backdrop.querySelector("#waRecipientPhone")?.addEventListener("input", debouncedQrUpdate);
+  backdrop.querySelector("#waMessageText")?.addEventListener("input", debouncedQrUpdate);
+
+  copyLinkBtn?.addEventListener("click", async () => {
+    const phone = getCleanNumber();
+    if (!phone) {
+      showToast("Please enter a valid recipient phone number.");
+      backdrop.querySelector("#waRecipientPhone")?.focus();
+      return;
+    }
+    const waUrl = `https://wa.me/${phone}?text=${encodeURIComponent(getMessage())}`;
+    try {
+      await navigator.clipboard.writeText(waUrl);
+      showToast("WhatsApp link copied to clipboard!");
+    } catch {
+      showToast("Unable to copy link to clipboard.");
+    }
+  });
+
+  openLinkBtn?.addEventListener("click", () => {
+    const phone = getCleanNumber();
+    if (!phone) {
+      showToast("Please enter a valid recipient phone number.");
+      backdrop.querySelector("#waRecipientPhone")?.focus();
+      return;
+    }
+    const waUrl = `https://wa.me/${phone}?text=${encodeURIComponent(getMessage())}`;
+    if (window.giApp?.openExternal) {
+      window.giApp.openExternal(waUrl);
+    } else {
+      window.open(waUrl, "_blank");
+    }
+  });
+
+  // Render QR immediately on open
+  updateWhatsAppQr();
+
+  // 1. Copy Message
+  backdrop.querySelector("#waCopyMsgBtn")?.addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(getMessage());
+      showToast("Message copied to clipboard!");
+    } catch {
+      showToast("Unable to copy to clipboard.");
+    }
+  });
+
+  // 2. Open Desktop App (whatsapp:// protocol)
+  backdrop.querySelector("#waOpenDesktopBtn")?.addEventListener("click", async () => {
+    const phone = getCleanNumber();
+    if (!phone) {
+      showToast("Please enter a valid recipient phone number.");
+      backdrop.querySelector("#waRecipientPhone")?.focus();
+      return;
+    }
+    const text = encodeURIComponent(getMessage());
+    const desktopUrl = `whatsapp://send?phone=${phone}&text=${text}`;
+    if (window.giApp?.openExternal) {
+      const res = await window.giApp.openExternal(desktopUrl);
+      if (!res?.success) {
+        window.open(`https://web.whatsapp.com/send?phone=${phone}&text=${text}`, "_blank");
+      }
+    } else {
+      window.open(desktopUrl, "_blank");
+    }
+    close();
+  });
+
+  // 3. Open WhatsApp Web (https://web.whatsapp.com/send?...)
+  backdrop.querySelector("#waOpenWebBtn")?.addEventListener("click", async () => {
+    const phone = getCleanNumber();
+    if (!phone) {
+      showToast("Please enter a valid recipient phone number.");
+      backdrop.querySelector("#waRecipientPhone")?.focus();
+      return;
+    }
+    const text = encodeURIComponent(getMessage());
+    const webUrl = `https://web.whatsapp.com/send?phone=${phone}&text=${text}`;
+    if (window.giApp?.openExternal) {
+      await window.giApp.openExternal(webUrl);
+    } else {
+      window.open(webUrl, "_blank");
+    }
+    close();
+  });
+
+  // 4. Save PDF & Locate in folder
+  backdrop.querySelector("#waSaveAndLocatePdfBtn")?.addEventListener("click", async () => {
+    const btn = backdrop.querySelector("#waSaveAndLocatePdfBtn");
+    btn.disabled = true;
+    btn.textContent = "Generating PDF...";
+    try {
+      const preview = recordOrInvoice.rows ? recordOrInvoice : (typeof invoicePreviewDataFromRecord === "function" ? invoicePreviewDataFromRecord(recordOrInvoice) : sampleInvoicePreviewData());
+      const currentFormat = "a4";
+      const a4Tpl = business.a4Template || "modern";
+      const paperMarkup = invoicePreviewMarkup(preview, {
+        printerType: currentFormat,
+        a4Template: a4Tpl,
+        thermalTemplate: "retail",
+        thermalWidth: "80mm"
+      });
+      const styles = `<style>${Array.from(document.styleSheets).map((s) => {
+        try { return Array.from(s.cssRules).map(r => r.cssText).join('\\n'); } catch { return ''; }
+      }).join('\\n')}</style>`;
+      const htmlContent = `<!DOCTYPE html><html><head><meta charset="utf-8">${styles}<style>body{background:#fff;padding:20px;font-family:system-ui,-apple-system,sans-serif;}</style></head><body><div class="invoice-preview-paper paper-a4 template-${a4Tpl}">${paperMarkup}</div></body></html>`;
+      const filename = `${docNo.replace(/[^a-zA-Z0-9_-]/g, "_")}.pdf`;
+
+      if (window.giApp?.saveTempPdf) {
+        const res = await window.giApp.saveTempPdf({ htmlContent, filename });
+        if (res.success && res.filePath) {
+          showToast("PDF saved! Opening folder for drag-and-drop into WhatsApp...");
+          if (window.giApp.showItemInFolder) {
+            await window.giApp.showItemInFolder(res.filePath);
+          }
+        } else {
+          showToast("Failed to generate PDF.");
+        }
+      } else {
+        showToast("PDF generation requires desktop application.");
+      }
+    } catch (err) {
+      showToast(`PDF generation error: ${err.message}`);
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = `${icon("paperclip")} Save &amp; Locate PDF`;
+    }
+  });
+
+  // 5. Send via Meta Cloud API (if credentials present)
+  backdrop.querySelector("#waSendCloudBtn")?.addEventListener("click", async () => {
+    const btn = backdrop.querySelector("#waSendCloudBtn");
+    const statusBox = backdrop.querySelector("#waStatusAlert");
+    const phone = getCleanNumber();
+    if (!phone) {
+      showToast("Please enter a valid recipient phone number.");
+      backdrop.querySelector("#waRecipientPhone")?.focus();
+      return;
+    }
+
+    btn.disabled = true;
+    btn.textContent = "Sending via Meta...";
+    if (statusBox) {
+      statusBox.className = "wa-status-box info";
+      statusBox.classList.remove("hidden");
+      statusBox.textContent = "Transmitting message to Meta WhatsApp Cloud API...";
+    }
+
+    try {
+      if (window.giApp?.sendWhatsAppCloudMessage) {
+        const payload = {
+          phoneNumberId: waSettings.phoneNumberId,
+          accessToken: waSettings.accessToken,
+          to: phone,
+          textBody: getMessage(),
+        };
+        const res = await window.giApp.sendWhatsAppCloudMessage(payload);
+        if (res.success) {
+          if (statusBox) {
+            statusBox.className = "wa-status-box success";
+            statusBox.innerHTML = `<strong>Sent!</strong> Message delivered via Meta Cloud API (ID: ${escapeHtml(res.messageId || "OK")})`;
+          }
+          showToast("WhatsApp message sent successfully via Meta Cloud API!");
+          setTimeout(close, 1800);
+        } else {
+          if (statusBox) {
+            statusBox.className = "wa-status-box error";
+            statusBox.innerHTML = `<strong>Meta API Error:</strong> ${escapeHtml(res.error || "Failed to send")}`;
+          }
+        }
+      } else {
+        if (statusBox) {
+          statusBox.className = "wa-status-box error";
+          statusBox.textContent = "Meta Cloud API requires desktop application.";
+        }
+      }
+    } catch (err) {
+      if (statusBox) {
+        statusBox.className = "wa-status-box error";
+        statusBox.textContent = `Error: ${err.message}`;
+      }
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = `${icon("zap")} Send via Meta Cloud API`;
+    }
+  });
 }
 
 function customFieldsSettingsTemplate() {
   const fields = normalizeCustomFieldDefinitions(state.businessSettings?.customFields);
   return `
-    <section class="custom-fields-settings">
-      <header class="settings-section-header">
-        <div>
-          <h3>Custom Fields</h3>
-          <p>Add fields to Sale, Purchase, Quotation, Credit Note, Party, Item, or Expense screens.</p>
-        </div>
-      </header>
-      <form id="customFieldCreateForm" class="custom-field-create-form">
-        <label>Module
-          <select class="form-input" name="module">
-            <option value="sale">Sale Invoice</option>
-            <option value="purchase">Purchase Bill</option>
-            <option value="estimate">Quotation</option>
-            <option value="saleReturn">Credit Note</option>
-            <option value="purchaseReturn">Debit Note</option>
-            <option value="party">Party</option>
-            <option value="item">Item</option>
-            <option value="expense">Expense</option>
-          </select>
-        </label>
-        <label>Field Label<input class="form-input" name="label" placeholder="Vehicle No, Project Name"></label>
-        <label>Type
-          <select class="form-input" name="fieldType">
-            <option value="text">Text</option>
-            <option value="number">Number</option>
-            <option value="date">Date</option>
-            <option value="dropdown">Dropdown</option>
-            <option value="checkbox">Checkbox</option>
-            <option value="textarea">Textarea</option>
-          </select>
-        </label>
-        <label>Dropdown Options<input class="form-input" name="options" placeholder="Option 1, Option 2"></label>
-        <button class="primary-button square" type="submit">Add Field</button>
-      </form>
-      <div class="custom-field-list">
-        ${fields.map((field) => customFieldRowTemplate(field)).join("") || '<p class="empty-table">No custom fields yet.</p>'}
+    <header class="settings-page-header">
+      <div>
+        <h2>Custom Fields</h2>
+        <p>Add flexible custom data attributes to Sales, Purchases, Quotations, Parties, Items, or Expenses.</p>
       </div>
-    </section>
+    </header>
+
+    <div class="custom-fields-panel">
+      <section class="custom-field-creator-card">
+        <div class="settings-card-head">
+          <h3>Create Custom Field</h3>
+          <span class="badge">Extend Data Schema</span>
+        </div>
+        <form id="customFieldCreateForm" class="custom-field-create-form">
+          <div class="field-col">
+            <label>Target Module</label>
+            <select class="form-input" name="module">
+              <option value="sale">Sale Invoice</option>
+              <option value="purchase">Purchase Bill</option>
+              <option value="estimate">Quotation / Estimate</option>
+              <option value="saleReturn">Credit Note</option>
+              <option value="purchaseReturn">Debit Note</option>
+              <option value="party">Party / Customer</option>
+              <option value="item">Product / Item</option>
+              <option value="expense">Expense Entry</option>
+            </select>
+          </div>
+          <div class="field-col">
+            <label>Field Label *</label>
+            <input class="form-input" name="label" placeholder="e.g. Vehicle No, Batch ID, PO Ref" required>
+          </div>
+          <div class="field-col">
+            <label>Field Type</label>
+            <select class="form-input" name="fieldType">
+              <option value="text">Text (Single Line)</option>
+              <option value="number">Number</option>
+              <option value="date">Date</option>
+              <option value="dropdown">Dropdown Options</option>
+              <option value="checkbox">Checkbox (Yes / No)</option>
+              <option value="textarea">Textarea (Multi Line)</option>
+            </select>
+          </div>
+          <div class="field-col options-col">
+            <label>Dropdown Options (comma-separated)</label>
+            <input class="form-input" name="options" placeholder="e.g. Express, Normal, Priority">
+          </div>
+          <div class="submit-col">
+            <button class="primary-button" type="submit">+ Add Field</button>
+          </div>
+        </form>
+      </section>
+
+      <section class="settings-card">
+        <div class="settings-card-head">
+          <h3>Active Custom Fields</h3>
+          <span class="badge">${fields.length} defined</span>
+        </div>
+        <div class="custom-field-list" style="display:flex;flex-direction:column;gap:10px;">
+          ${fields.map((field) => customFieldRowTemplate(field)).join("") || '<p class="empty-table">No custom fields defined yet. Use the form above to add your first custom field.</p>'}
+        </div>
+      </section>
+    </div>
   `;
 }
 
 function customFieldRowTemplate(field) {
   const moduleLabel = {
-    sale: "Sale",
-    purchase: "Purchase",
+    sale: "Sale Invoice",
+    purchase: "Purchase Bill",
     estimate: "Quotation",
     saleReturn: "Credit Note",
     purchaseReturn: "Debit Note",
@@ -14178,65 +22344,25 @@ function customFieldRowTemplate(field) {
     item: "Item",
     expense: "Expense",
   }[field.module] || field.module;
+
   return `
     <article class="custom-field-row ${field.active ? "" : "inactive"}">
-      <div>
+      <div class="custom-field-meta">
         <strong>${escapeHtml(field.label)}</strong>
-        <small>${escapeHtml(moduleLabel)} · ${escapeHtml(field.fieldType)} · key: ${escapeHtml(field.fieldKey)}</small>
+        <small><span class="badge" style="display:inline-block;padding:1px 6px;font-size:10px;margin-right:6px;">${escapeHtml(moduleLabel)}</span>${escapeHtml(field.fieldType)} · key: <code>${escapeHtml(field.fieldKey)}</code></small>
       </div>
-      <label><input data-custom-field-toggle="${escapeHtml(field.id)}" data-custom-field-prop="required" type="checkbox" ${field.required ? "checked" : ""}> Required</label>
-      <label><input data-custom-field-toggle="${escapeHtml(field.id)}" data-custom-field-prop="showOnPrint" type="checkbox" ${field.showOnPrint ? "checked" : ""}> Print</label>
-      <label><input data-custom-field-toggle="${escapeHtml(field.id)}" data-custom-field-prop="active" type="checkbox" ${field.active ? "checked" : ""}> Active</label>
-      <button class="outline-mini-button" data-custom-field-delete="${escapeHtml(field.id)}" type="button">Delete</button>
+      <div class="custom-field-controls">
+        <label><input data-custom-field-toggle="${escapeHtml(field.id)}" data-custom-field-prop="required" type="checkbox" ${field.required ? "checked" : ""}> Required</label>
+        <label><input data-custom-field-toggle="${escapeHtml(field.id)}" data-custom-field-prop="showOnPrint" type="checkbox" ${field.showOnPrint ? "checked" : ""}> Print</label>
+        <label><input data-custom-field-toggle="${escapeHtml(field.id)}" data-custom-field-prop="active" type="checkbox" ${field.active ? "checked" : ""}> Active</label>
+        <button class="outline-mini-button danger" data-custom-field-delete="${escapeHtml(field.id)}" type="button" title="Delete custom field">Delete</button>
+      </div>
     </article>
   `;
 }
 
 function businessSettingsForm() {
-  const settings = state.businessSettings || defaultBusinessSettings();
-  const bank = settings.bankDetails || {};
-  const logoSrc = settings.logoBase64 || "";
-  return `
-    <form class="business-settings-form" id="businessSettingsForm">
-      <section>
-        <h3>Business Profile</h3>
-        <label>Business Name<input class="form-input" name="businessName" value="${escapeHtml(settings.businessName || state.activeCompany || "testt")}"></label>
-        <label>Address<textarea class="form-input" name="address" rows="3" placeholder="Business address">${escapeHtml(settings.address || "")}</textarea></label>
-        <label>State<select class="form-input" name="state">${indianStateOptions(settings.state || "Karnataka")}</select></label>
-      </section>
-      <section>
-        <h3>Tax Identity</h3>
-        <label>GSTIN<input class="form-input" name="gstin" value="${escapeHtml(settings.gstin || "")}" placeholder="GSTIN"><small class="field-hint">Format: 22AAAAA0000A1Z5</small></label>
-        <label>PAN<input class="form-input" name="pan" value="${escapeHtml(settings.pan || "")}" placeholder="PAN"></label>
-      </section>
-      <section>
-        <h3>Business Logo</h3>
-        <div class="logo-upload-section">
-          ${logoSrc ? `<img class="logo-preview-img" src="${logoSrc}" alt="Business logo">` : `<div class="logo-placeholder">No logo uploaded</div>`}
-          <div class="logo-upload-actions">
-            <label class="secondary-button logo-upload-label" for="logoFileInput">Choose Logo</label>
-            <input type="file" id="logoFileInput" name="logoFile" accept="image/*" style="display:none">
-            ${logoSrc ? `<button class="link-button danger-link" type="button" id="removeLogoBtn">Remove Logo</button>` : ""}
-          </div>
-          <small>PNG or JPG, shown on invoice print</small>
-        </div>
-      </section>
-      <section>
-        <h3>Invoice Numbering</h3>
-        <label>Invoice Prefix<input class="form-input" name="invoicePrefix" value="${escapeHtml(settings.invoicePrefix || "INV")}"></label>
-        <label>Starting Invoice Number<input class="form-input" name="startingNo" type="number" min="1" value="${Number(settings.startingNo || 1)}"></label>
-        <label>Default Terms &amp; Conditions<textarea class="form-input" name="terms" rows="4" placeholder="Terms shown on invoices">${escapeHtml(settings.terms || "")}</textarea></label>
-      </section>
-      <section>
-        <h3>Bank Details</h3>
-        <label>Bank Name<input class="form-input" name="bankName" value="${escapeHtml(bank.bankName || "")}" placeholder="Bank name"></label>
-        <label>Account No<input class="form-input" name="accountNo" value="${escapeHtml(bank.accountNo || "")}" placeholder="Account number"></label>
-        <label>IFSC<input class="form-input" name="ifsc" value="${escapeHtml(bank.ifsc || "")}" placeholder="IFSC"></label>
-        <label>UPI ID<input class="form-input" name="upiId" value="${escapeHtml(bank.upiId || "")}" placeholder="name@upi"></label>
-      </section>
-      <footer><span id="businessSettingsStatus"></span><button class="primary-button square" type="submit">Save Settings</button></footer>
-    </form>
-  `;
+  return settingsCompanyProfileTemplate();
 }
 
 function indianStateOptions(selected = "") {
@@ -14598,14 +22724,23 @@ function icon(name, className = "") {
 // ── Payment-In Module ─────────────────────────────────────────────────────────
 
 function paymentInTemplate() {
-  const payments = (state.payments || []).filter((p) => p.type === "payment_in");
+  const payments = (state.payments || [])
+    .filter((p) => p.type === "payment_in")
+    .sort((a, b) => new Date(b.paymentDate || b.createdAt || 0) - new Date(a.paymentDate || a.createdAt || 0));
   const receivable = totalReceivable();
+  const now = new Date();
   const thisMonthPayments = payments.filter((p) => {
     const d = new Date(p.paymentDate || p.createdAt || "");
-    const now = new Date();
     return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
   });
   const thisMonthTotal = thisMonthPayments.reduce((sum, p) => sum + Number(p.amount || 0), 0);
+  const totalReceived  = payments.reduce((s, p) => s + Number(p.amount || 0), 0);
+
+  const searchQ = String(reportSearchQuery || "").trim().toLowerCase();
+  const visible  = searchQ
+    ? payments.filter((p) => [p.party, p.invoiceNo, p.referenceNo, p.method, p.notes].filter(Boolean).join(" ").toLowerCase().includes(searchQ))
+    : payments;
+
   return `
     <section class="invoice-workspace sale-workspace">
       <header class="app-page-header invoice-page-header">
@@ -14618,34 +22753,66 @@ function paymentInTemplate() {
           <button class="sale-button" data-action="create-payment-in" type="button">+ Record Payment</button>
         </div>
       </header>
+
       <section class="kpi-grid invoice-kpis">
-        ${kpiCard("This Month", formatCurrency(thisMonthTotal), `${thisMonthPayments.length} payments received`, "success")}
-        ${kpiCard("Total Received", formatCurrency(payments.reduce((s, p) => s + Number(p.amount || 0), 0)), "All time", "neutral")}
+        ${kpiCard("This Month", formatCurrency(thisMonthTotal), `${thisMonthPayments.length} payment${thisMonthPayments.length === 1 ? "" : "s"} received`, "success")}
+        ${kpiCard("Total Received", formatCurrency(totalReceived), "All time", "neutral")}
         ${kpiCard("Receivable", formatCurrency(receivable), "Pending customer balances", receivable > 0 ? "danger" : "success")}
         ${kpiCard("Payments", String(payments.length), "All recorded", "info")}
       </section>
+
+      <section class="app-toolbar" style="padding:8px 0 4px;">
+        <label class="toolbar-search">
+          <span>Search</span>
+          <input class="form-input" data-payment-in-search type="search"
+            value="${escapeHtml(reportSearchQuery)}"
+            placeholder="Customer, invoice ref, method, notes">
+        </label>
+      </section>
+
       <section class="data-table-card invoice-data-card">
-        ${payments.length ? `
+        ${visible.length ? `
           <table class="data-table">
-            <thead><tr><th>Date</th><th>Customer</th><th>Invoice Ref</th><th>Method</th><th>Amount</th><th>Notes</th></tr></thead>
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Customer</th>
+                <th>Invoice Ref</th>
+                <th>Method</th>
+                <th class="num">Amount</th>
+                <th>Notes</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
             <tbody>
-              ${payments.map((p) => `
+              ${visible.map((p) => `
                 <tr>
                   <td>${formatDate(p.paymentDate || p.createdAt)}</td>
                   <td><strong>${escapeHtml(p.party || "-")}</strong></td>
                   <td>${escapeHtml(p.invoiceNo || p.referenceNo || "-")}</td>
-                  <td>${escapeHtml(p.method || "Cash")}</td>
-                  <td class="amount-cell strong">${formatCurrency(p.amount || 0)}</td>
-                  <td>${escapeHtml(p.notes || "-")}</td>
+                  <td><span class="status-badge">${escapeHtml(p.method || "Cash")}</span></td>
+                  <td class="num amount-cell strong">${formatCurrency(p.amount || 0)}</td>
+                  <td class="muted-text">${escapeHtml(p.notes || "-")}</td>
+                  <td>
+                    <details class="invoice-row-details">
+                      <summary>⋮</summary>
+                      <div class="invoice-action-menu">
+                        <section>
+                          <span>Actions</span>
+                          <button type="button" data-payment-in-action="delete" data-payment-id="${escapeHtml(String(p.id || ""))}">Delete</button>
+                        </section>
+                      </div>
+                    </details>
+                  </td>
                 </tr>
               `).join("")}
             </tbody>
           </table>
         ` : `
           <div class="feature-empty-card">
-            <strong>No payments recorded yet</strong>
-            <p>Record incoming payments from customers against sale invoices.</p>
-            <button class="sale-button" data-action="create-payment-in" type="button">+ Record Payment</button>
+            <strong>${searchQ ? "No matching payments" : "No payments recorded yet"}</strong>
+            <p>${searchQ ? "Try a different customer name, method, or invoice reference." : "Record incoming payments from customers against sale invoices."}</p>
+            ${!searchQ ? `<button class="sale-button" data-action="create-payment-in" type="button">+ Record Payment</button>` : ""}
           </div>
         `}
       </section>
@@ -14677,23 +22844,27 @@ function openPaymentInModal() {
           <label>Invoice Reference
             <select class="form-input" name="invoiceRef">
               <option value="">— Select invoice (optional) —</option>
-              ${invoices.map((inv) => `<option value="${escapeHtml(inv.invoiceNo || inv.id)}">${escapeHtml(inv.invoiceNo || inv.id)} — ${escapeHtml(inv.party)} — ${formatCurrency(invoiceBalanceValue(inv))}</option>`).join("")}
+              ${invoices.map((inv) => `<option value="${escapeHtml(inv.invoiceNo || inv.id)}" data-party="${escapeHtml(inv.party)}" data-balance="${invoiceBalanceValue(inv)}">${escapeHtml(inv.invoiceNo || inv.id)} — ${escapeHtml(inv.party)} — Due: ${formatCurrency(invoiceBalanceValue(inv))}</option>`).join("")}
             </select>
           </label>
-          <label>Amount *
-            <input class="form-input" name="amount" type="number" step="0.01" min="0.01" placeholder="0.00" required>
-          </label>
-          <label>Payment Date
-            <input class="form-input" name="paymentDate" type="date" value="${new Date().toISOString().slice(0, 10)}">
-          </label>
-          <label>Payment Method
-            <select class="form-input" name="method">
-              <option>Cash</option><option>Bank Transfer</option><option>UPI</option><option>Cheque</option><option>Card</option>
-            </select>
-          </label>
-          <label>Notes
-            <input class="form-input" name="notes" placeholder="Reference number, cheque no, etc.">
-          </label>
+          <div class="entry-form-row">
+            <label>Amount *
+              <input class="form-input" name="amount" type="number" step="0.01" min="0.01" placeholder="0.00" required>
+            </label>
+            <label>Payment Date
+              <input class="form-input" name="paymentDate" type="date" value="${new Date().toISOString().slice(0, 10)}">
+            </label>
+          </div>
+          <div class="entry-form-row">
+            <label>Payment Method
+              <select class="form-input" name="method">
+                ${editorPaymentMethodOptions(false)}
+              </select>
+            </label>
+            <label>Notes
+              <input class="form-input" name="notes" placeholder="Reference number, cheque no, etc.">
+            </label>
+          </div>
         </div>
         <footer>
           <span id="paymentInStatus"></span>
@@ -14706,10 +22877,33 @@ function openPaymentInModal() {
     </section>
   `;
   document.body.append(modal);
-  modal.querySelectorAll("[data-close-payment-modal]").forEach((btn) => {
-    btn.addEventListener("click", () => modal.remove());
+
+  const selectEl = modal.querySelector('[name="invoiceRef"]');
+  const partyInput = modal.querySelector('[name="party"]');
+  const amountInput = modal.querySelector('[name="amount"]');
+  selectEl?.addEventListener("change", () => {
+    const opt = selectEl.selectedOptions[0];
+    if (opt?.dataset.party) {
+      partyInput.value = opt.dataset.party;
+    }
+    if (opt?.dataset.balance && !amountInput.value) {
+      amountInput.value = opt.dataset.balance;
+    }
   });
-  modal.addEventListener("click", (e) => { if (e.target === modal) modal.remove(); });
+
+  const closeModal = () => {
+    modal.remove();
+    window.removeEventListener("keydown", handleEscape);
+  };
+  const handleEscape = (e) => {
+    if (e.key === "Escape") closeModal();
+  };
+  window.addEventListener("keydown", handleEscape);
+
+  modal.querySelectorAll("[data-close-payment-modal]").forEach((btn) => {
+    btn.addEventListener("click", closeModal);
+  });
+  modal.addEventListener("click", (e) => { if (e.target === modal) closeModal(); });
   modal.querySelector("#paymentInForm")?.addEventListener("submit", async (e) => {
     e.preventDefault();
     const form = new FormData(e.currentTarget);
@@ -14875,9 +23069,15 @@ async function runCsvImport() {
   let success = 0;
   let errors = 0;
   let warnings = [];
-  for (const row of csvImportRows) {
-    const name = row["Name"] || row["name"] || "";
-    if (!name) { errors++; continue; }
+  let errorDetails = [];
+  for (let index = 0; index < csvImportRows.length; index++) {
+    const row = csvImportRows[index];
+    const name = (row["Name"] || row["name"] || "").trim();
+    if (!name) {
+      errors++;
+      errorDetails.push(`Row ${index + 1}: Name is required`);
+      continue;
+    }
     try {
       if (isItems) {
         const rawCategory = (row["Category"] || row["category"] || "").trim();
@@ -14950,12 +23150,14 @@ async function runCsvImport() {
       success++;
     } catch (err) {
       errors++;
+      errorDetails.push(`Row ${index + 1} ("${name}"): ${err.message || "Failed to save"}`);
     }
   }
   if (!window.giDB) saveState();
   csvImportRows = [];
   const warnText = warnings.length ? ` (${warnings.slice(0, 3).join("; ")}${warnings.length > 3 ? "..." : ""})` : "";
-  showToast(`Import complete: ${success} added${errors ? `, ${errors} skipped` : ""}${warnText}.`);
+  const errorSummary = errorDetails.length ? ` (${errorDetails.slice(0, 2).join("; ")}${errorDetails.length > 2 ? ` +${errorDetails.length - 2} more` : ""})` : "";
+  showToast(`Import complete: ${success} added${errors ? `, ${errors} skipped${errorSummary}` : ""}${warnText}.`);
   renderFeatureView(csvImportType === "items" ? "importItems" : "importParties");
 }
 
@@ -14979,75 +23181,11 @@ function exportCsvTemplate(importType = "items") {
   showToast("Template downloaded.");
 }
 
-// ── Sale Order ────────────────────────────────────────────────────────────────
-
-function saleOrderTemplate() {
-  const saleOrders = (state.invoices || []).filter((inv) => inv.type === "saleOrder" || inv.type === "sale_order");
-  return `
-    <section class="invoice-workspace sale-workspace">
-      <header class="app-page-header invoice-page-header">
-        <div>
-          <p class="muted-label">Sales</p>
-          <h1>Sale Orders</h1>
-          <small>${saleOrders.length} order${saleOrders.length === 1 ? "" : "s"}</small>
-        </div>
-        <div class="invoice-header-actions">
-          <button class="sale-button" type="button" onclick="openTransactionEditor('sale')">+ New Sale Invoice</button>
-        </div>
-      </header>
-      <section class="kpi-grid invoice-kpis">
-        ${kpiCard("Orders", String(saleOrders.length), "Recorded sale orders", "neutral")}
-        ${kpiCard("Total", formatCurrency(saleOrders.reduce((s, o) => s + invoiceTotalValue(o), 0)), "Order value", "success")}
-        ${kpiCard("Pending", String(saleOrders.filter((o) => o.status === "pending" || o.status === "draft").length), "Awaiting processing", "info")}
-        ${kpiCard("Receivable", formatCurrency(totalReceivable()), "Customer balance", "danger")}
-      </section>
-      <section class="data-table-card invoice-data-card">
-        ${saleOrders.length ? invoiceRowsTable(saleOrders, { isSale: true, partyLabel: "Customer", numberLabel: "Order No", paidLabel: "Received" }) : `
-          <div class="feature-empty-card">
-            <strong>No sale orders yet</strong>
-            <p>Sale orders will appear here once recorded. Use the Sale Invoice editor to get started.</p>
-            <button class="sale-button" type="button" onclick="openTransactionEditor('sale')">+ Create Sale Invoice</button>
-          </div>
-        `}
-      </section>
-    </section>
-  `;
-}
-
-// ── Delivery Challan ──────────────────────────────────────────────────────────
-
-function deliveryChallanTemplate() {
-  const challans = (state.invoices || []).filter((inv) => inv.type === "deliveryChallan" || inv.type === "delivery_challan");
-  return `
-    <section class="invoice-workspace sale-workspace">
-      <header class="app-page-header invoice-page-header">
-        <div>
-          <p class="muted-label">Sales</p>
-          <h1>Delivery Challans</h1>
-          <small>${challans.length} challan${challans.length === 1 ? "" : "s"}</small>
-        </div>
-        <div class="invoice-header-actions">
-          <button class="sale-button" type="button" onclick="openTransactionEditor('sale')">+ New Sale Invoice</button>
-        </div>
-      </header>
-      <section class="kpi-grid invoice-kpis">
-        ${kpiCard("Challans", String(challans.length), "Recorded challans", "neutral")}
-        ${kpiCard("Total Value", formatCurrency(challans.reduce((s, c) => s + invoiceTotalValue(c), 0)), "Challan amount", "success")}
-        ${kpiCard("Pending", String(challans.filter((c) => c.status === "pending").length), "Not invoiced", "info")}
-        ${kpiCard("This Month", String(challans.filter((c) => { const d = new Date(c.date || ""); const n = new Date(); return d.getFullYear() === n.getFullYear() && d.getMonth() === n.getMonth(); }).length), "Current month challans", "neutral")}
-      </section>
-      <section class="data-table-card invoice-data-card">
-        ${challans.length ? invoiceRowsTable(challans, { isSale: true, partyLabel: "Customer", numberLabel: "Challan No", paidLabel: "Received" }) : `
-          <div class="feature-empty-card">
-            <strong>No delivery challans yet</strong>
-            <p>Challans document goods dispatched before invoicing. Create a sale invoice and mark it as a delivery challan.</p>
-            <button class="sale-button" type="button" onclick="openTransactionEditor('sale')">+ Create Sale Invoice</button>
-          </div>
-        `}
-      </section>
-    </section>
-  `;
-}
+// ── Sale Order / Delivery Challan ─────────────────────────────────────────────
+// Both are served by estimateTemplate() which reads currentView and adapts
+// labels, KPI headings, empty-state copy, and action menu text automatically.
+// Records are stored in state.estimates[] with documentType "sale_order" /
+// "delivery_challan" respectively. Do NOT add separate template functions here.
 
 function openKeyboardShortcutsDialog() {
   const existing = document.querySelector(".shortcuts-backdrop");

@@ -1,5 +1,6 @@
 const { app, BrowserWindow, Menu, Tray, dialog, ipcMain, nativeImage, shell } = require("electron");
 const path = require("path");
+const fs = require("fs");
 const database = require("./database");
 const { SyncService, DisabledSyncAdapter } = require("./sync-service");
 
@@ -11,7 +12,7 @@ const syncService = new SyncService({ database, adapter: new DisabledSyncAdapter
 const singleInstanceLock = app.requestSingleInstanceLock();
 if (!singleInstanceLock) {
   console.log("GI Billing is already running. Focusing the existing instance...");
-  app.quit();
+  app.exit(0);
 }
 
 function focusWindowForInput(window = mainWindow, options = {}) {
@@ -43,6 +44,7 @@ function createMainWindow() {
     center: true,
     title: "GI Billing",
     backgroundColor: "#eef3f8",
+    autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
@@ -51,18 +53,22 @@ function createMainWindow() {
     },
   });
 
+  window.setMenuBarVisibility(false);
   mainWindow = window;
 
+  let revealed = false;
   const revealWindow = () => {
-    if (!window.isDestroyed()) {
-      if (!window.isVisible()) window.show();
-      window.focus();
-      scheduleInputFocus(window);
-    }
+    if (revealed || window.isDestroyed()) return;
+    revealed = true;
+    if (window.isMinimized()) window.restore();
+    window.show();
+    window.focus();
+    console.log("GI Billing window is active and displayed.");
   };
 
   window.once("ready-to-show", revealWindow);
   window.webContents.once("did-finish-load", revealWindow);
+  setTimeout(revealWindow, 600);
 
   window.webContents.on("console-message", (_event, level, message, line, sourceId) => {
     if (level >= 2) console.log(`[Renderer Error] ${message} (${sourceId}:${line})`);
@@ -88,6 +94,14 @@ function createMainWindow() {
 
   window.on("closed", () => {
     if (mainWindow === window) mainWindow = null;
+    if (process.platform !== "darwin") {
+      isQuitting = true;
+      if (tray && !tray.isDestroyed()) {
+        tray.destroy();
+        tray = null;
+      }
+      app.quit();
+    }
   });
 
   return window;
@@ -99,6 +113,11 @@ function showMainWindow() {
     return;
   }
 
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  if (!mainWindow.isVisible()) mainWindow.show();
+  mainWindow.show();
+  mainWindow.focus();
+  if (typeof mainWindow.moveTop === "function") mainWindow.moveTop();
   scheduleInputFocus(mainWindow);
 }
 
@@ -144,6 +163,13 @@ function createTray() {
   } catch (err) {
     console.warn("Tray initialization skipped:", err?.message || err);
   }
+}
+
+function formatSnapshotSize(bytes) {
+  if (!bytes || bytes <= 0) return "0 B";
+  if (bytes < 1024) return bytes + " B";
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
+  return (bytes / (1024 * 1024)).toFixed(2) + " MB";
 }
 
 function registerDatabaseHandlers() {
@@ -199,6 +225,100 @@ function registerDatabaseHandlers() {
       throw err;
     }
   });
+
+  ipcMain.handle("db:create-snapshot", async () => {
+    try {
+      const backupDir = path.join(app.getPath("userData"), "backups");
+      if (!fs.existsSync(backupDir)) {
+        fs.mkdirSync(backupDir, { recursive: true });
+      }
+      const now = new Date();
+      const pad = (n) => String(n).padStart(2, "0");
+      const stamp = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}_${pad(now.getHours())}-${pad(now.getMinutes())}-${pad(now.getSeconds())}`;
+      const filename = `gi-snapshot-${stamp}.sqlite`;
+      const targetPath = path.join(backupDir, filename);
+      await database.backupTo(targetPath);
+      const stats = fs.statSync(targetPath);
+      return {
+        success: true,
+        path: targetPath,
+        filename,
+        sizeBytes: stats.size,
+        formattedSize: formatSnapshotSize(stats.size),
+        createdAt: now.toISOString(),
+      };
+    } catch (err) {
+      console.error("Create snapshot error:", err);
+      throw err;
+    }
+  });
+
+  ipcMain.handle("db:list-snapshots", async () => {
+    try {
+      const backupDir = path.join(app.getPath("userData"), "backups");
+      const autoDir = path.join(backupDir, "auto");
+      const list = [];
+      const scanDir = (dir, isAuto) => {
+        if (!fs.existsSync(dir)) return;
+        const files = fs.readdirSync(dir).filter((f) => f.endsWith(".sqlite") || f.endsWith(".db"));
+        files.forEach((f) => {
+          const fullPath = path.join(dir, f);
+          try {
+            const stats = fs.statSync(fullPath);
+            list.push({
+              filename: f,
+              path: fullPath,
+              isAuto,
+              sizeBytes: stats.size,
+              formattedSize: formatSnapshotSize(stats.size),
+              createdAt: stats.mtime.toISOString(),
+              mtimeMs: stats.mtimeMs,
+            });
+          } catch (_) {}
+        });
+      };
+      scanDir(backupDir, false);
+      scanDir(autoDir, true);
+      list.sort((a, b) => b.mtimeMs - a.mtimeMs);
+      return list;
+    } catch (err) {
+      console.error("List snapshots error:", err);
+      return [];
+    }
+  });
+
+  ipcMain.handle("db:restore-snapshot", async (_event, snapshotPath) => {
+    if (!snapshotPath || !fs.existsSync(snapshotPath)) {
+      throw new Error("Snapshot file does not exist.");
+    }
+    const result = await database.restoreBackup(snapshotPath, {
+      userDataPath: app.getPath("userData"),
+    });
+    return result;
+  });
+
+  ipcMain.handle("db:preview-backup", async (_event, sourcePath) => {
+    let target = sourcePath;
+    if (!target) {
+      const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
+        title: "Select Backup File to Preview",
+        properties: ["openFile"],
+        filters: [
+          { name: "SQLite Database", extensions: ["sqlite", "db"] },
+          { name: "All Files", extensions: ["*"] },
+        ],
+      });
+      if (canceled || !filePaths || !filePaths.length) return null;
+      target = filePaths[0];
+    }
+    return database.previewBackup(target);
+  });
+
+  ipcMain.handle("db:get-users", (_event, companyId) => database.getUsers(companyId));
+  ipcMain.handle("db:create-user", (_event, payload) => database.createUser(payload));
+  ipcMain.handle("db:update-user", (_event, payload) => database.updateUser(payload));
+  ipcMain.handle("db:delete-user", (_event, payload) => database.deleteUser(payload));
+  ipcMain.handle("db:get-audit-trail", (_event, filter) => database.getAuditTrail(filter));
   ipcMain.handle("db:set-current-company", (_event, name) => database.setCurrentCompany(name));
   ipcMain.handle("db:set-country", (_event, country) => database.setCountry(country));
   ipcMain.handle("db:update-business-settings", (_event, settings) => database.updateBusinessSettings(settings));
@@ -246,6 +366,7 @@ function registerDatabaseHandlers() {
   ipcMain.handle("db:update-company-profile", (_event, payload) => database.updateCompanyProfile(payload));
   ipcMain.handle("db:delete-company", (_event, id) => database.deleteCompany(id));
   ipcMain.handle("db:get-tax-entries", (_event, filter) => database.getTaxEntries(filter));
+  ipcMain.handle("db:save-journal-voucher", (_event, payload) => database.saveJournalVoucher(payload));
   ipcMain.handle("sync:get-status", () => syncService.getStatus());
   ipcMain.handle("sync:run", () => syncService.syncNow());
   ipcMain.handle("app:export-pdf", async (_event, { htmlContent, defaultFilename = "invoice.pdf" }) => {
@@ -285,6 +406,142 @@ function registerDatabaseHandlers() {
       return { success: true, filePath: saveResult.filePath };
     } finally {
       printWindow.destroy();
+    }
+  });
+  ipcMain.handle("whatsapp:open-link", async (_event, url) => {
+    if (typeof url === "string" && (url.startsWith("https://wa.me/") || url.startsWith("https://web.whatsapp.com/") || url.startsWith("whatsapp://"))) {
+      await shell.openExternal(url);
+      return { success: true };
+    }
+    return { success: false, error: "Invalid WhatsApp URL format." };
+  });
+  ipcMain.handle("whatsapp:save-temp-pdf", async (_event, { htmlContent, filename = "invoice.pdf" }) => {
+    const fs = require("fs");
+    if (typeof htmlContent !== "string" || !htmlContent.trim()) throw new Error("Invalid invoice content.");
+    const tempDir = path.join(app.getPath("temp"), "gi-billing-invoices");
+    if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
+    const safeFilename = path.basename(String(filename)).replace(/[<>:"|?*]/g, "_");
+    const filePath = path.join(tempDir, safeFilename);
+
+    const printWindow = new BrowserWindow({
+      show: false,
+      webPreferences: {
+        nodeIntegration: false,
+        contextIsolation: true,
+        sandbox: true,
+        javascript: false,
+      },
+    });
+
+    try {
+      printWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+      const policy = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:; object-src 'none'; base-uri 'none'">`;
+      await printWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(policy + htmlContent)}`);
+      const pdfData = await printWindow.webContents.printToPDF({
+        printBackground: true,
+        pageSize: "A4",
+        margins: { marginType: "default" },
+      });
+      fs.writeFileSync(filePath, pdfData);
+      return { success: true, filePath };
+    } finally {
+      printWindow.destroy();
+    }
+  });
+  ipcMain.handle("whatsapp:show-in-folder", async (_event, filePath) => {
+    const fs = require("fs");
+    if (filePath && fs.existsSync(filePath)) {
+      shell.showItemInFolder(filePath);
+      return { success: true };
+    }
+    return { success: false, error: "File not found on disk." };
+  });
+  ipcMain.handle("whatsapp:test-connection", async (_event, { phoneNumberId, accessToken }) => {
+    try {
+      if (!phoneNumberId || !accessToken) {
+        return { success: false, error: "Phone Number ID and Permanent Access Token are required." };
+      }
+      const response = await fetch(`https://graph.facebook.com/v20.0/${encodeURIComponent(phoneNumberId)}`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        return { success: false, error: data?.error?.message || `HTTP ${response.status}: Failed to verify credentials` };
+      }
+      return {
+        success: true,
+        verifiedName: data?.verified_name || data?.display_phone_number || "Meta Cloud API Connected",
+        displayPhoneNumber: data?.display_phone_number || "",
+        qualityRating: data?.quality_rating || "GREEN",
+      };
+    } catch (err) {
+      return { success: false, error: err.message || "Failed to reach Meta Graph API." };
+    }
+  });
+  ipcMain.handle("whatsapp:send-cloud-message", async (_event, payload) => {
+    try {
+      const { phoneNumberId, accessToken, to, templateName, languageCode = "en", components, textBody } = payload;
+      if (!phoneNumberId || !accessToken || !to) {
+        return { success: false, error: "Phone Number ID, Access Token, and recipient phone number are required." };
+      }
+      const cleanTo = String(to).replace(/\D/g, "");
+      if (!cleanTo || cleanTo.length < 10) {
+        return { success: false, error: "Invalid recipient phone number." };
+      }
+      const body = templateName ? {
+        messaging_product: "whatsapp",
+        recipient_type: "individual",
+        to: cleanTo,
+        type: "template",
+        template: {
+          name: templateName,
+          language: { code: languageCode },
+          ...(components && components.length ? { components } : {}),
+        },
+      } : {
+        messaging_product: "whatsapp",
+        recipient_type: "individual",
+        to: cleanTo,
+        type: "text",
+        text: { preview_url: false, body: textBody || "" },
+      };
+
+      const response = await fetch(`https://graph.facebook.com/v20.0/${encodeURIComponent(phoneNumberId)}/messages`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(body),
+      });
+
+      const data = await response.json();
+      if (!response.ok) {
+        return { success: false, error: data?.error?.message || `HTTP ${response.status}: Message rejected by Meta API` };
+      }
+      return { success: true, messageId: data?.messages?.[0]?.id || "" };
+    } catch (err) {
+      return { success: false, error: err.message || "Network error while calling Meta WhatsApp Cloud API." };
+    }
+  });
+  ipcMain.handle("app:generate-qr-svg", async (_event, { text, options = {} } = {}) => {
+    try {
+      if (!text || typeof text !== "string") {
+        return { success: false, error: "Text string is required for QR code generation." };
+      }
+      const QRCode = require("qrcode");
+      const svg = await QRCode.toString(text, {
+        type: "svg",
+        margin: options.margin !== undefined ? options.margin : 1,
+        errorCorrectionLevel: options.errorCorrectionLevel || "M",
+        color: {
+          dark: options.darkColor || "#000000",
+          light: options.lightColor || "#ffffff",
+        },
+      });
+      return { success: true, svg };
+    } catch (err) {
+      return { success: false, error: err.message || "Failed to generate QR code SVG." };
     }
   });
 }
@@ -327,15 +584,78 @@ function createMenu() {
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
 
+function startScheduledBackupService() {
+  const runAutoBackup = async () => {
+    try {
+      const autoBackupDir = path.join(app.getPath("userData"), "backups", "auto");
+      if (!fs.existsSync(autoBackupDir)) {
+        fs.mkdirSync(autoBackupDir, { recursive: true });
+      }
+
+      const files = fs.readdirSync(autoBackupDir).filter((f) => f.endsWith(".sqlite") || f.endsWith(".db"));
+      const now = new Date();
+      let shouldBackup = true;
+
+      if (files.length) {
+        const sorted = files.map((f) => {
+          try {
+            const stat = fs.statSync(path.join(autoBackupDir, f));
+            return { filename: f, mtimeMs: stat.mtimeMs };
+          } catch (_) {
+            return null;
+          }
+        }).filter(Boolean).sort((a, b) => b.mtimeMs - a.mtimeMs);
+
+        if (sorted.length) {
+          const ageHours = (now.getTime() - sorted[0].mtimeMs) / (1000 * 60 * 60);
+          if (ageHours < 24) {
+            shouldBackup = false;
+          }
+        }
+      }
+
+      if (shouldBackup) {
+        const pad = (n) => String(n).padStart(2, "0");
+        const stamp = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}_${pad(now.getHours())}-${pad(now.getMinutes())}-${pad(now.getSeconds())}`;
+        const filename = `gi-auto-backup-${stamp}.sqlite`;
+        const targetPath = path.join(autoBackupDir, filename);
+        await database.backupTo(targetPath);
+
+        const updatedFiles = fs.readdirSync(autoBackupDir)
+          .filter((f) => f.endsWith(".sqlite") || f.endsWith(".db"))
+          .map((f) => {
+            try {
+              const stat = fs.statSync(path.join(autoBackupDir, f));
+              return { filename: f, fullPath: path.join(autoBackupDir, f), mtimeMs: stat.mtimeMs };
+            } catch (_) {
+              return null;
+            }
+          })
+          .filter(Boolean)
+          .sort((a, b) => b.mtimeMs - a.mtimeMs);
+
+        if (updatedFiles.length > 7) {
+          for (let i = 7; i < updatedFiles.length; i++) {
+            try {
+              fs.unlinkSync(updatedFiles[i].fullPath);
+            } catch (_) {}
+          }
+        }
+      }
+    } catch (err) {
+      console.warn("Scheduled auto backup check warning:", err.message);
+    }
+  };
+
+  const autoBackupTimer = setTimeout(runAutoBackup, 3000);
+  const autoBackupInterval = setInterval(runAutoBackup, 6 * 60 * 60 * 1000);
+  if (typeof autoBackupTimer.unref === "function") autoBackupTimer.unref();
+  if (typeof autoBackupInterval.unref === "function") autoBackupInterval.unref();
+}
+
 if (singleInstanceLock) {
   app.on("second-instance", () => {
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      if (mainWindow.isMinimized()) mainWindow.restore();
-      if (!mainWindow.isVisible()) mainWindow.show();
-      mainWindow.focus();
-    } else {
-      createMainWindow();
-    }
+    showMainWindow();
   });
 
   app.whenReady().then(async () => {
@@ -345,15 +665,10 @@ if (singleInstanceLock) {
     createTray();
     createMainWindow();
     syncService.start();
+    startScheduledBackupService();
 
     app.on("activate", () => {
-      if (!mainWindow || mainWindow.isDestroyed()) {
-        createMainWindow();
-      } else {
-        if (mainWindow.isMinimized()) mainWindow.restore();
-        if (!mainWindow.isVisible()) mainWindow.show();
-        mainWindow.focus();
-      }
+      showMainWindow();
     });
   }).catch((error) => {
     console.error("GI Billing startup failed:", error);
@@ -369,11 +684,19 @@ if (singleInstanceLock) {
 
   app.on("before-quit", () => {
     isQuitting = true;
+    if (tray && !tray.isDestroyed()) {
+      tray.destroy();
+      tray = null;
+    }
     syncService.stop();
   });
 
   app.on("window-all-closed", () => {
     isQuitting = true;
+    if (tray && !tray.isDestroyed()) {
+      tray.destroy();
+      tray = null;
+    }
     app.quit();
   });
 }

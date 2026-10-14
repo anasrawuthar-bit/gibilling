@@ -52,10 +52,26 @@ contextBridge.exposeInMainWorld("giDB", {
   updateCompanyProfile: (idOrPayload, maybeProfile) => ipcRenderer.invoke("db:update-company-profile", maybeProfile ? { ...maybeProfile, companyId: idOrPayload } : idOrPayload),
   deleteCompany: (id) => ipcRenderer.invoke("db:delete-company", id),
   getTaxEntries: (filter) => ipcRenderer.invoke("db:get-tax-entries", filter),
+  saveJournalVoucher: (payload) => ipcRenderer.invoke("db:save-journal-voucher", payload),
   getSyncStatus: () => ipcRenderer.invoke("sync:get-status"),
   syncNow: () => ipcRenderer.invoke("sync:run"),
+  createSnapshot: () => ipcRenderer.invoke("db:create-snapshot"),
+  listSnapshots: () => ipcRenderer.invoke("db:list-snapshots"),
+  restoreSnapshot: (snapshotPath) => ipcRenderer.invoke("db:restore-snapshot", snapshotPath),
+  previewBackup: (sourcePath) => ipcRenderer.invoke("db:preview-backup", sourcePath),
+  getUsers: (companyId) => ipcRenderer.invoke("db:get-users", companyId),
+  createUser: (payload) => ipcRenderer.invoke("db:create-user", payload),
+  updateUser: (payload) => ipcRenderer.invoke("db:update-user", payload),
+  deleteUser: (payload) => ipcRenderer.invoke("db:delete-user", payload),
+  getAuditTrail: (filter) => ipcRenderer.invoke("db:get-audit-trail", filter),
 });
 
 contextBridge.exposeInMainWorld("giApp", {
   exportPdf: (payload) => ipcRenderer.invoke("app:export-pdf", payload),
+  saveTempPdf: (payload) => ipcRenderer.invoke("whatsapp:save-temp-pdf", payload),
+  showItemInFolder: (filePath) => ipcRenderer.invoke("whatsapp:show-in-folder", filePath),
+  openExternal: (url) => ipcRenderer.invoke("whatsapp:open-link", url),
+  testWhatsAppConnection: (payload) => ipcRenderer.invoke("whatsapp:test-connection", payload),
+  sendWhatsAppCloudMessage: (payload) => ipcRenderer.invoke("whatsapp:send-cloud-message", payload),
+  generateQrSvg: (payload) => ipcRenderer.invoke("app:generate-qr-svg", payload),
 });
