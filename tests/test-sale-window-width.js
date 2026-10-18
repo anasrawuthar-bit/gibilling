@@ -117,8 +117,8 @@ app.whenReady().then(async () => {
     assert.strictEqual(test5Close.sidebarDisplay, 'flex');
     assert.strictEqual(test5Close.sidebarWidth, '60px');
 
-    // Test 6: Check other transaction editors (estimate, saleReturn, purchaseReturn)
-    for (const type of ['estimate', 'saleReturn', 'purchaseReturn']) {
+    // Test 6: Check all other transaction editors (estimate, saleReturn, purchaseReturn, saleOrder, deliveryChallan, purchaseOrder, proforma)
+    for (const type of ['estimate', 'saleReturn', 'purchaseReturn', 'saleOrder', 'deliveryChallan', 'purchaseOrder', 'proforma']) {
       const res = await win.webContents.executeJavaScript(`(() => {
         openTransactionEditor('${type}', { skipDirtyCheck: true });
         const ed = document.querySelector('.transaction-editor');
