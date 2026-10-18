@@ -21,6 +21,8 @@
       <symbol id="gi-wallet" viewBox="0 0 24 24"><path d="M4 6h15a2 2 0 0 1 2 2v11H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h13"></path><path d="M16 11h5v4h-5a2 2 0 0 1 0-4Z"></path></symbol>
       <symbol id="gi-chart" viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"></path></symbol>
       <symbol id="gi-database" viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="8" ry="3"></ellipse><path d="M4 5v6c0 1.7 3.6 3 8 3s8-1.3 8-3V5M4 11v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"></path></symbol>
+      <symbol id="gi-layers" viewBox="0 0 24 24"><polygon points="12 2 2 7 12 12 22 7 12 2"></polygon><polyline points="2 17 12 22 22 17"></polyline><polyline points="2 12 12 17 22 12"></polyline></symbol>
+      <symbol id="gi-file" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line></symbol>
       <symbol id="gi-tools" viewBox="0 0 24 24"><path d="m14 7 3-3a4 4 0 0 1-5 5L4 17l3 3 8-8a4 4 0 0 1 5-5l-3 3"></path></symbol>
       <symbol id="gi-settings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"></circle><path d="M19 12a7 7 0 0 0-.1-1l2-1.5-2-3.5-2.5 1A7 7 0 0 0 15 6l-.4-3h-4L10 6a7 7 0 0 0-1.4 1L6 6 4 9.5 6.1 11a7 7 0 0 0 0 2L4 14.5 6 18l2.6-1a7 7 0 0 0 1.4 1l.5 3h4l.5-3a7 7 0 0 0 1.4-1l2.6 1 2-3.5-2.1-1.5a7 7 0 0 0 .1-1Z"></path></symbol>
       <symbol id="gi-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"></path></symbol>
@@ -543,143 +545,191 @@
           <div class="party-tab-content party-only" id="partyTabContent">
             <!-- Tab 1: Basic Info -->
             <div class="party-tab-panel active" id="partyTabBasic">
-              <label class="party-field-group full-width">
-                <span class="field-label">Party Name <span class="req">*</span></span>
-                <input id="partyNameInput" name="party" required placeholder="Business or person name (e.g. Sharma Enterprises)">
-              </label>
+              <div class="entry-card">
+                <div class="entry-card-header">
+                  <span class="entry-card-title">General Information</span>
+                  <span class="entry-card-hint">Primary party details for invoices and ledgers</span>
+                </div>
+                <label class="party-field-group full-width">
+                  <span class="field-label">Party Name <span class="req">*</span></span>
+                  <input id="partyNameInput" name="party" required placeholder="Business or person name (e.g. Sharma Enterprises)">
+                </label>
 
-              <!-- Party type fixed to "party" — no Customer/Supplier distinction needed -->
-              <input type="hidden" name="type" id="partyTypeHidden" value="party">
+                <!-- Party type fixed to "party" — no Customer/Supplier distinction needed -->
+                <input type="hidden" name="type" id="partyTypeHidden" value="party">
 
-              <div class="party-grid-2">
-                <label class="party-field-group">
-                  <span class="field-label">Mobile / Phone</span>
-                  <input id="partyPhoneInput" name="phone" type="tel" placeholder="10-digit mobile number">
-                </label>
-                <label class="party-field-group">
-                  <span class="field-label">Email Address</span>
-                  <input id="partyEmailInput" name="email" type="email" placeholder="contact@example.com">
-                </label>
-                <label class="party-field-group">
-                  <span class="field-label">Contact Person</span>
-                  <input id="partyContactPersonInput" name="contactPerson" placeholder="Owner or manager name">
-                </label>
-                <label class="party-field-group">
-                  <span class="field-label">Internal Notes / Remarks</span>
-                  <input id="partyNotesInput" name="notes" placeholder="Private internal notes">
-                </label>
+                <div class="party-grid-2">
+                  <label class="party-field-group">
+                    <span class="field-label">Mobile / Phone</span>
+                    <input id="partyPhoneInput" name="phone" type="tel" placeholder="10-digit mobile number">
+                  </label>
+                  <label class="party-field-group">
+                    <span class="field-label">Email Address</span>
+                    <input id="partyEmailInput" name="email" type="email" placeholder="contact@example.com">
+                  </label>
+                  <label class="party-field-group">
+                    <span class="field-label">Contact Person</span>
+                    <input id="partyContactPersonInput" name="contactPerson" placeholder="Owner or manager name">
+                  </label>
+                  <label class="party-field-group">
+                    <span class="field-label">Internal Notes / Remarks</span>
+                    <input id="partyNotesInput" name="notes" placeholder="Private internal notes">
+                  </label>
+                </div>
               </div>
             </div>
 
             <!-- Tab 2: GST & Address -->
             <div class="party-tab-panel hidden" id="partyTabGst">
-              <div class="party-grid-2">
-                <label class="party-field-group">
-                  <span class="field-label">GST Registration Status</span>
-                  <select name="taxType" id="partyTaxType">
-                    <option value="unregistered">Unregistered / Consumer</option>
-                    <option value="gst_registered">GST Registered (Regular)</option>
-                    <option value="composition">Composition Dealer</option>
-                    <option value="overseas">Overseas / Export</option>
-                  </select>
-                </label>
-                <label class="party-field-group">
-                  <span class="field-label">Place of Supply / State</span>
-                  <input id="partyStateInput" name="state" placeholder="State (e.g. Maharashtra)" list="indianStatesList">
-                </label>
-              </div>
+              <div class="entry-card">
+                <div class="entry-card-header">
+                  <span class="entry-card-title">Tax &amp; GST Compliance</span>
+                  <span class="entry-card-hint">Required for B2B tax invoices &amp; GSTR reports</span>
+                </div>
+                <div class="party-grid-2">
+                  <label class="party-field-group">
+                    <span class="field-label">GST Registration Status</span>
+                    <select name="taxType" id="partyTaxType">
+                      <option value="unregistered">Unregistered / Consumer</option>
+                      <option value="gst_registered">GST Registered (Regular)</option>
+                      <option value="composition">Composition Dealer</option>
+                      <option value="overseas">Overseas / Export</option>
+                    </select>
+                  </label>
+                  <label class="party-field-group">
+                    <span class="field-label">Place of Supply / State</span>
+                    <input id="partyStateInput" name="state" placeholder="State (e.g. Maharashtra)" list="indianStatesList">
+                  </label>
+                </div>
 
-              <div class="party-grid-2 gst-detail-field">
-                <label class="party-field-group">
-                  <span class="field-label">GSTIN <span class="req">*</span></span>
-                  <input id="partyGstinInput" name="gstin" placeholder="15-character GSTIN (e.g. 27AAAAA0000A1Z5)" maxlength="15" class="uppercase-field">
-                  <small class="field-hint">Auto-fills state code and PAN</small>
-                </label>
-                <label class="party-field-group">
-                  <span class="field-label">PAN</span>
-                  <input id="partyPanInput" name="pan" placeholder="10-digit PAN (e.g. AAAAA0000A)" maxlength="10" class="uppercase-field">
-                </label>
-              </div>
+                <div class="party-grid-2 gst-detail-field">
+                  <label class="party-field-group">
+                    <span class="field-label">GSTIN <span class="req">*</span></span>
+                    <input id="partyGstinInput" name="gstin" placeholder="15-character GSTIN (e.g. 27AAAAA0000A1Z5)" maxlength="15" class="uppercase-field">
+                    <small class="field-hint">Auto-fills state code and PAN</small>
+                  </label>
+                  <label class="party-field-group">
+                    <span class="field-label">PAN</span>
+                    <input id="partyPanInput" name="pan" placeholder="10-digit PAN (e.g. AAAAA0000A)" maxlength="10" class="uppercase-field">
+                  </label>
+                </div>
 
-              <label class="party-field-group full-width gst-detail-field">
-                <span class="field-label">Legal Name (as per GST certificate)</span>
-                <input id="partyLegalNameInput" name="legalName" placeholder="Business legal name">
-              </label>
-
-              <label class="party-field-group full-width">
-                <span class="field-label">Billing Address</span>
-                <textarea id="partyBillingAddress" name="billingAddress" rows="2" placeholder="Building, Street, Area, City, Pincode"></textarea>
-              </label>
-
-              <div class="party-field-group full-width checkbox-row">
-                <label class="checkbox-inline">
-                  <input name="sameAsBilling" id="partySameAsBilling" type="checkbox" checked>
-                  <span>Shipping address is same as billing address</span>
+                <label class="party-field-group full-width gst-detail-field">
+                  <span class="field-label">Legal Name (as per GST certificate)</span>
+                  <input id="partyLegalNameInput" name="legalName" placeholder="Business legal name">
                 </label>
               </div>
 
-              <label class="party-field-group full-width" id="shippingAddressRow" style="display: none;">
-                <span class="field-label">Shipping Address</span>
-                <textarea id="partyShippingAddress" name="shippingAddress" rows="2" placeholder="Delivery street, City, Pincode"></textarea>
-              </label>
+              <div class="entry-card">
+                <div class="entry-card-header">
+                  <span class="entry-card-title">Address &amp; Delivery</span>
+                  <span class="entry-card-hint">Prints on bills, delivery challans &amp; e-way bills</span>
+                </div>
+                <label class="party-field-group full-width">
+                  <span class="field-label">Billing Address</span>
+                  <textarea id="partyBillingAddress" name="billingAddress" rows="2" placeholder="Building, Street, Area, City, Pincode"></textarea>
+                </label>
+
+                <div class="party-field-group full-width checkbox-row">
+                  <label class="checkbox-inline">
+                    <input name="sameAsBilling" id="partySameAsBilling" type="checkbox" checked>
+                    <span>Shipping address is same as billing address</span>
+                  </label>
+                </div>
+
+                <label class="party-field-group full-width" id="shippingAddressRow" style="display: none;">
+                  <span class="field-label">Shipping Address</span>
+                  <textarea id="partyShippingAddress" name="shippingAddress" rows="2" placeholder="Delivery street, City, Pincode"></textarea>
+                </label>
+              </div>
             </div>
 
             <!-- Tab 3: Credit & Balance -->
             <div class="party-tab-panel hidden" id="partyTabCredit">
-              <div class="party-grid-2">
-                <label class="party-field-group">
-                  <span class="field-label">Opening Balance (₹)</span>
-                  <div class="input-with-prefix">
-                    <span class="prefix">₹</span>
-                    <input id="partyOpeningBalanceInput" name="openingBalance" type="number" step="0.01" min="0" placeholder="0.00">
+              <div class="entry-card">
+                <div class="entry-card-header">
+                  <span class="entry-card-title">Opening Balance &amp; Ledger</span>
+                  <span class="entry-card-hint">Initial outstanding ledger balance as of start date</span>
+                </div>
+                <div class="party-grid-2">
+                  <label class="party-field-group">
+                    <span class="field-label">Opening Balance (₹)</span>
+                    <div class="input-with-prefix">
+                      <span class="prefix">₹</span>
+                      <input id="partyOpeningBalanceInput" name="openingBalance" type="number" step="0.01" min="0" placeholder="0.00">
+                    </div>
+                  </label>
+                  <div class="party-field-group">
+                    <span class="field-label">Balance Type</span>
+                    <div class="balance-type-chips" role="radiogroup" aria-label="Balance Type">
+                      <button type="button" class="balance-type-chip to-receive active" data-balance-type="receivable">
+                        <span class="status-indicator-dot"></span>
+                        <span>To Receive (Dr)</span>
+                      </button>
+                      <button type="button" class="balance-type-chip to-pay" data-balance-type="payable">
+                        <span class="status-indicator-dot"></span>
+                        <span>To Pay (Cr)</span>
+                      </button>
+                    </div>
+                    <select name="openingBalanceType" id="partyOpeningBalanceType" style="display: none;">
+                      <option value="receivable" selected>Receivable from party</option>
+                      <option value="payable">Payable to party</option>
+                    </select>
                   </div>
-                </label>
-                <div class="party-field-group">
-                  <span class="field-label">Balance Type</span>
-                  <div class="balance-type-chips" role="radiogroup" aria-label="Balance Type">
-                    <button type="button" class="balance-type-chip to-receive active" data-balance-type="receivable">
-                      <span class="status-indicator-dot"></span>
-                      <span>To Receive (Dr)</span>
-                    </button>
-                    <button type="button" class="balance-type-chip to-pay" data-balance-type="payable">
-                      <span class="status-indicator-dot"></span>
-                      <span>To Pay (Cr)</span>
-                    </button>
+                </div>
+
+                <div class="entry-summary-strip">
+                  <div class="entry-summary-pill">
+                    <span>Opening Balance</span>
+                    <strong id="partySummaryBalance">₹0.00</strong>
+                    <small id="partySummaryBalanceNote">Initial ledger balance</small>
                   </div>
-                  <select name="openingBalanceType" id="partyOpeningBalanceType" style="display: none;">
-                    <option value="receivable" selected>Receivable from party</option>
-                    <option value="payable">Payable to party</option>
-                  </select>
+                  <div class="entry-summary-pill">
+                    <span>Balance Nature</span>
+                    <strong id="partySummaryType">To Receive (Dr)</strong>
+                    <small id="partySummaryTypeNote">Asset / Customer receivable</small>
+                  </div>
+                  <div class="entry-summary-pill">
+                    <span>Credit Terms</span>
+                    <strong id="partySummaryTerms">30 Days</strong>
+                    <small id="partySummaryTermsNote">Standard credit policy</small>
+                  </div>
                 </div>
               </div>
 
-              <div class="party-grid-2">
-                <label class="party-field-group">
-                  <span class="field-label">Credit Limit (₹)</span>
-                  <div class="input-with-prefix">
-                    <span class="prefix">₹</span>
-                    <input id="partyCreditLimitInput" name="creditLimit" type="number" step="0.01" min="0" placeholder="0.00 (leave 0 for unlimited)">
-                  </div>
-                  <small class="field-hint">Alerts when unpaid invoices exceed limit</small>
-                </label>
-                <label class="party-field-group">
-                  <span class="field-label">Credit Period (Due Days)</span>
-                  <input id="partyDueDaysInput" name="dueDays" type="number" min="0" step="1" placeholder="30">
-                  <small class="field-hint">Default payment grace period in days</small>
-                </label>
-              </div>
+              <div class="entry-card">
+                <div class="entry-card-header">
+                  <span class="entry-card-title">Credit Limit &amp; Terms</span>
+                  <span class="entry-card-hint">Grace periods, credit safety limits &amp; default payment terms</span>
+                </div>
+                <div class="party-grid-2">
+                  <label class="party-field-group">
+                    <span class="field-label">Credit Limit (₹)</span>
+                    <div class="input-with-prefix">
+                      <span class="prefix">₹</span>
+                      <input id="partyCreditLimitInput" name="creditLimit" type="number" step="0.01" min="0" placeholder="0.00 (leave 0 for unlimited)">
+                    </div>
+                    <small class="field-hint">Alerts when unpaid invoices exceed limit</small>
+                  </label>
+                  <label class="party-field-group">
+                    <span class="field-label">Credit Period (Due Days)</span>
+                    <input id="partyDueDaysInput" name="dueDays" type="number" min="0" step="1" placeholder="30">
+                    <small class="field-hint">Default payment grace period in days</small>
+                  </label>
+                </div>
 
-              <div class="party-field-group full-width">
-                <label for="partyPaymentTermsInput">
-                  <span class="field-label">Payment Terms</span>
-                </label>
-                <input id="partyPaymentTermsInput" name="paymentTerms" placeholder="e.g. Net 30">
-                <div class="terms-preset-chips">
-                  <button type="button" class="terms-chip" data-terms="Due on Receipt" data-days="0">Due on Receipt</button>
-                  <button type="button" class="terms-chip" data-terms="Net 15" data-days="15">Net 15</button>
-                  <button type="button" class="terms-chip" data-terms="Net 30" data-days="30">Net 30</button>
-                  <button type="button" class="terms-chip" data-terms="Net 45" data-days="45">Net 45</button>
-                  <button type="button" class="terms-chip" data-terms="Net 60" data-days="60">Net 60</button>
+                <div class="party-field-group full-width">
+                  <label for="partyPaymentTermsInput">
+                    <span class="field-label">Payment Terms</span>
+                  </label>
+                  <input id="partyPaymentTermsInput" name="paymentTerms" placeholder="e.g. Net 30">
+                  <div class="terms-preset-chips">
+                    <button type="button" class="terms-chip" data-terms="Due on Receipt" data-days="0">Due on Receipt</button>
+                    <button type="button" class="terms-chip" data-terms="Net 15" data-days="15">Net 15</button>
+                    <button type="button" class="terms-chip" data-terms="Net 30" data-days="30">Net 30</button>
+                    <button type="button" class="terms-chip" data-terms="Net 45" data-days="45">Net 45</button>
+                    <button type="button" class="terms-chip" data-terms="Net 60" data-days="60">Net 60</button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -688,120 +738,143 @@
           <div class="item-tab-content item-only" id="itemTabContent">
             <!-- Tab 1: Basic & Pricing -->
             <div class="item-tab-panel entry-section item-only active" id="itemTabBasic">
-              <!-- Row 1: Item Name & Item Type -->
-              <div class="item-name-type-row">
-                <label class="party-field-group item-name-field">
-                  <span class="field-label">Item Name <span class="req">*</span></span>
-                  <input id="itemNameInput" name="item" placeholder="Product or service name (e.g. Cotton T-Shirt, Consulting)">
-                </label>
+              <div class="entry-card">
+                <div class="entry-card-header">
+                  <span class="entry-card-title">Item Identification</span>
+                  <span class="entry-card-hint">Master product or service catalog setup</span>
+                </div>
+                <!-- Row 1: Item Name & Item Type -->
+                <div class="item-name-type-row">
+                  <label class="party-field-group item-name-field">
+                    <span class="field-label">Item Name <span class="req">*</span></span>
+                    <input id="itemNameInput" name="item" placeholder="Product or service name (e.g. Cotton T-Shirt, Consulting)">
+                  </label>
 
-                <div class="party-field-group item-type-field">
-                  <span class="field-label">Item Type</span>
-                  <div class="item-type-chips" role="radiogroup" aria-label="Item Type">
-                    <button type="button" class="item-type-chip active" data-item-type="product">
-                      <svg class="gi-icon"><use href="#gi-box"></use></svg>
-                      <span>Product</span>
-                    </button>
-                    <button type="button" class="item-type-chip" data-item-type="service">
-                      <svg class="gi-icon"><use href="#gi-settings"></use></svg>
-                      <span>Service</span>
-                    </button>
+                  <div class="party-field-group item-type-field">
+                    <span class="field-label">Item Type</span>
+                    <div class="item-type-chips" role="radiogroup" aria-label="Item Type">
+                      <button type="button" class="item-type-chip active" data-item-type="product">
+                        <svg class="gi-icon"><use href="#gi-box"></use></svg>
+                        <span>Product</span>
+                      </button>
+                      <button type="button" class="item-type-chip" data-item-type="service">
+                        <svg class="gi-icon"><use href="#gi-settings"></use></svg>
+                        <span>Service</span>
+                      </button>
+                    </div>
+                    <select name="itemType" id="itemType" style="display: none;">
+                      <option value="product" selected>Product</option>
+                      <option value="service">Service</option>
+                    </select>
                   </div>
-                  <select name="itemType" id="itemType" style="display: none;">
-                    <option value="product" selected>Product</option>
-                    <option value="service">Service</option>
-                  </select>
                 </div>
-              </div>
 
-              <!-- Row 2: Category, Unit, SKU, HSN (4-column responsive grid) -->
-              <div class="item-grid-4">
-                <div class="party-field-group">
-                  <span class="field-label">Category</span>
-                  <div class="entry-inline-action">
-                    <input id="itemCategoryInput" name="category" list="itemCategoryOptions" placeholder="Category" autocomplete="off">
-                    <button class="mini-action-button" type="button" data-action="quick-add-category" title="Add new category">+</button>
+                <!-- Row 2: Category, Unit, SKU, HSN (4-column responsive grid) -->
+                <div class="item-grid-4">
+                  <div class="party-field-group">
+                    <span class="field-label">Category</span>
+                    <div class="entry-inline-action">
+                      <input id="itemCategoryInput" name="category" list="itemCategoryOptions" placeholder="Category" autocomplete="off">
+                      <button class="mini-action-button" type="button" data-action="quick-add-category" title="Add new category">+</button>
+                    </div>
                   </div>
+                  <div class="party-field-group">
+                    <span class="field-label">Unit</span>
+                    <div class="entry-inline-action">
+                      <select id="itemUnitInput" name="unit" class="form-input"></select>
+                      <button class="mini-action-button" type="button" data-action="quick-add-unit" title="Add new unit">+</button>
+                    </div>
+                  </div>
+                  <div class="party-field-group">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px;">
+                      <span class="field-label">Barcode / SKU</span>
+                      <button class="link-button" type="button" data-action="generate-item-barcode" style="font-size:11.5px;font-weight:600;color:#0c65c2;padding:0;background:none;border:none;cursor:pointer;" title="Auto-generate barcode">Auto-Generate</button>
+                    </div>
+                    <div class="entry-inline-action">
+                      <input id="itemSkuInput" name="sku" placeholder="Scan barcode with gun or click Auto-Generate" autocomplete="off">
+                      <button class="mini-action-button" type="button" data-action="print-single-item-barcode" title="Print barcode label for this item"><svg class="gi-icon" style="width:13px;height:13px;"><use href="#gi-printer"></use></svg></button>
+                    </div>
+                  </div>
+                  <label class="party-field-group">
+                    <span class="field-label"><span id="hsnSacLabel">HSN Code</span></span>
+                    <input id="itemHsnSacInput" name="hsnSac" placeholder="HSN/SAC">
+                  </label>
                 </div>
-                <div class="party-field-group">
-                  <span class="field-label">Unit</span>
-                  <div class="entry-inline-action">
-                    <select id="itemUnitInput" name="unit" class="form-input"></select>
-                    <button class="mini-action-button" type="button" data-action="quick-add-unit" title="Add new unit">+</button>
-                  </div>
-                </div>
-                <div class="party-field-group">
-                  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px;">
-                    <span class="field-label">Barcode / SKU</span>
-                    <button class="link-button" type="button" data-action="generate-item-barcode" style="font-size:11.5px;font-weight:600;color:#0c65c2;padding:0;background:none;border:none;cursor:pointer;" title="Auto-generate barcode">Auto-Generate</button>
-                  </div>
-                  <div class="entry-inline-action">
-                    <input id="itemSkuInput" name="sku" placeholder="Scan barcode with gun or click Auto-Generate" autocomplete="off">
-                    <button class="mini-action-button" type="button" data-action="print-single-item-barcode" title="Print barcode label for this item"><svg class="gi-icon" style="width:13px;height:13px;"><use href="#gi-printer"></use></svg></button>
-                  </div>
-                </div>
-                <label class="party-field-group">
-                  <span class="field-label"><span id="hsnSacLabel">HSN Code</span></span>
-                  <input id="itemHsnSacInput" name="hsnSac" placeholder="HSN/SAC">
-                </label>
               </div>
 
               <!-- Pricing & Tax Card -->
-              <div class="item-pricing-card">
-                <div class="item-pricing-card-header">
-                  <svg class="gi-icon"><use href="#gi-wallet"></use></svg>
-                  <span>Pricing &amp; GST Details</span>
+              <div class="entry-card item-pricing-card">
+                <div class="entry-card-header">
+                  <span class="entry-card-title">Pricing &amp; GST Rates</span>
+                  <span class="entry-card-hint">Sales price, purchase cost, margin &amp; tax schedule</span>
                 </div>
-                <div class="item-pricing-card-body">
-                  <div class="party-grid-2">
-                    <div class="party-field-group">
-                      <span class="field-label">Sale Price (₹)</span>
-                      <div class="price-input-row">
-                        <div class="input-with-prefix">
-                          <span class="prefix">₹</span>
-                          <input id="itemSalePriceInput" name="salePrice" type="number" min="0" step="0.01" placeholder="0.00">
-                        </div>
-                        <select name="saleTaxType" id="itemSaleTaxType" class="tax-type-select">
-                          <option value="without_tax">Without Tax</option>
-                          <option value="with_tax">With Tax</option>
-                        </select>
+                <div class="party-grid-2">
+                  <div class="party-field-group">
+                    <span class="field-label">Sale Price (₹)</span>
+                    <div class="price-input-row">
+                      <div class="input-with-prefix">
+                        <span class="prefix">₹</span>
+                        <input id="itemSalePriceInput" name="salePrice" type="number" min="0" step="0.01" placeholder="0.00">
                       </div>
-                    </div>
-                    <div class="party-field-group">
-                      <span class="field-label">Purchase Price (₹)</span>
-                      <div class="price-input-row">
-                        <div class="input-with-prefix">
-                          <span class="prefix">₹</span>
-                          <input id="itemPurchasePriceInput" name="purchasePrice" type="number" min="0" step="0.01" placeholder="0.00">
-                        </div>
-                        <select name="purchaseTaxType" id="itemPurchaseTaxType" class="tax-type-select">
-                          <option value="without_tax">Without Tax</option>
-                          <option value="with_tax">With Tax</option>
-                        </select>
-                      </div>
+                      <select name="saleTaxType" id="itemSaleTaxType" class="tax-type-select">
+                        <option value="without_tax">Without Tax</option>
+                        <option value="with_tax">With Tax</option>
+                      </select>
                     </div>
                   </div>
-
-                  <div class="party-grid-2" style="margin-top: 10px;">
-                    <label class="party-field-group">
-                      <span class="field-label">GST Tax Rate</span>
-                      <select name="taxRate" id="itemTaxRate">
-                        <option value="0">None / 0%</option>
-                        <option value="0.25">GST 0.25%</option>
-                        <option value="3">GST 3%</option>
-                        <option value="5">GST 5%</option>
-                        <option value="12">GST 12%</option>
-                        <option value="18" selected>GST 18%</option>
-                        <option value="28">GST 28%</option>
-                      </select>
-                    </label>
-                    <label class="party-field-group">
-                      <span class="field-label">Default Discount (%)</span>
-                      <div class="input-with-suffix">
-                        <input id="itemDiscountInput" name="discount" type="number" min="0" max="100" step="0.01" placeholder="0.00">
-                        <span class="suffix">%</span>
+                  <div class="party-field-group">
+                    <span class="field-label">Purchase Price (₹)</span>
+                    <div class="price-input-row">
+                      <div class="input-with-prefix">
+                        <span class="prefix">₹</span>
+                        <input id="itemPurchasePriceInput" name="purchasePrice" type="number" min="0" step="0.01" placeholder="0.00">
                       </div>
-                    </label>
+                      <select name="purchaseTaxType" id="itemPurchaseTaxType" class="tax-type-select">
+                        <option value="without_tax">Without Tax</option>
+                        <option value="with_tax">With Tax</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="party-grid-2">
+                  <label class="party-field-group">
+                    <span class="field-label">GST Tax Rate</span>
+                    <select name="taxRate" id="itemTaxRate">
+                      <option value="0">None / 0%</option>
+                      <option value="0.25">GST 0.25%</option>
+                      <option value="3">GST 3%</option>
+                      <option value="5">GST 5%</option>
+                      <option value="12">GST 12%</option>
+                      <option value="18" selected>GST 18%</option>
+                      <option value="28">GST 28%</option>
+                    </select>
+                  </label>
+                  <label class="party-field-group">
+                    <span class="field-label">Default Discount (%)</span>
+                    <div class="input-with-suffix">
+                      <input id="itemDiscountInput" name="discount" type="number" min="0" max="100" step="0.01" placeholder="0.00">
+                      <span class="suffix">%</span>
+                    </div>
+                  </label>
+                </div>
+
+                <!-- 3-Column Summary Strip matching Expense modal -->
+                <div class="entry-summary-strip">
+                  <div class="entry-summary-pill">
+                    <span>Sale Price</span>
+                    <strong id="itemSummarySale">₹0.00</strong>
+                    <small id="itemSummarySaleNote">Customer selling price</small>
+                  </div>
+                  <div class="entry-summary-pill">
+                    <span>Purchase Cost</span>
+                    <strong id="itemSummaryPurchase">₹0.00</strong>
+                    <small id="itemSummaryPurchaseNote">Supplier unit cost</small>
+                  </div>
+                  <div class="entry-summary-pill">
+                    <span>Profit Margin</span>
+                    <strong id="itemSummaryMargin">₹0.00 (0%)</strong>
+                    <small id="itemSummaryMarginNote">Estimated markup</small>
                   </div>
                 </div>
               </div>
@@ -821,8 +894,12 @@
                 </div>
               </div>
 
-              <!-- Product Stock Fields -->
-              <div id="itemStockFieldsGroup">
+              <!-- Product Stock Fields in Card -->
+              <div class="entry-card" id="itemStockFieldsGroup">
+                <div class="entry-card-header">
+                  <span class="entry-card-title">Opening Stock &amp; Inventory</span>
+                  <span class="entry-card-hint">Track current on-hand quantities &amp; storage</span>
+                </div>
                 <div class="party-grid-2">
                   <label class="party-field-group product-stock-field">
                     <span class="field-label">Opening Stock Quantity</span>
@@ -862,17 +939,23 @@
 
             <!-- Tab 3: Description & Notes -->
             <div class="item-tab-panel hidden" id="itemTabNotes">
-              <label class="party-field-group full-width">
-                <span class="field-label">Description shown on Invoice</span>
-                <textarea id="itemDescriptionInput" name="itemDescription" rows="4" placeholder="Detailed product or service specifications that will appear on printed invoices and bills..."></textarea>
-                <small class="field-hint">Automatically printed below the item row on PDF invoices and estimates.</small>
-              </label>
+              <div class="entry-card">
+                <div class="entry-card-header">
+                  <span class="entry-card-title">Descriptions &amp; Remarks</span>
+                  <span class="entry-card-hint">Custom printing notes &amp; internal team references</span>
+                </div>
+                <label class="party-field-group full-width">
+                  <span class="field-label">Description shown on Invoice</span>
+                  <textarea id="itemDescriptionInput" name="itemDescription" rows="4" placeholder="Detailed product or service specifications that will appear on printed invoices and bills..."></textarea>
+                  <small class="field-hint">Automatically printed below the item row on PDF invoices and estimates.</small>
+                </label>
 
-              <label class="party-field-group full-width">
-                <span class="field-label">Internal Notes / Remarks</span>
-                <textarea id="itemNotesInput" name="itemNotes" rows="4" placeholder="Private internal notes, vendor details, batch records, reorder policies..."></textarea>
-                <small class="field-hint">Private notes for internal team reference only. Never printed on invoices.</small>
-              </label>
+                <label class="party-field-group full-width">
+                  <span class="field-label">Internal Notes / Remarks</span>
+                  <textarea id="itemNotesInput" name="itemNotes" rows="4" placeholder="Private internal notes, vendor details, batch records, reorder policies..."></textarea>
+                  <small class="field-hint">Private notes for internal team reference only. Never printed on invoices.</small>
+                </label>
+              </div>
             </div>
           </div>
           <footer class="entry-modal-footer">

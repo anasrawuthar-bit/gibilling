@@ -1807,6 +1807,7 @@ function openEntryModal(type, record = null, options = {}) {
       if (sameAsBilling) sameAsBilling.checked = true;
       if (shippingRow) shippingRow.style.display = "none";
     }
+    updatePartySummaryPills();
   } else if (type === "item") {
     resetItemTabs();
     if (!currentEntryRecordId) {
@@ -1814,6 +1815,7 @@ function openEntryModal(type, record = null, options = {}) {
       const openingStockValue = elements.entryForm.querySelector('[name="openingStockValue"]');
       if (openingStockValue) delete openingStockValue.dataset.manualEdit;
     }
+    updateItemSummaryPills();
   }
 
   const entrySubtitle = document.getElementById("entrySubtitle");
@@ -6455,6 +6457,7 @@ function initBalanceTypeChips() {
         hiddenSelect.value = chip.dataset.balanceType;
         hiddenSelect.dispatchEvent(new Event("change"));
       }
+      updatePartySummaryPills();
     };
   });
 }
@@ -6465,6 +6468,7 @@ function setBalanceTypeChip(val) {
   chips.forEach((c) => c.classList.toggle("active", c.dataset.balanceType === normalized));
   const hiddenSelect = elements.entryForm.querySelector('[name="openingBalanceType"]');
   if (hiddenSelect) hiddenSelect.value = normalized;
+  updatePartySummaryPills();
 }
 
 function initTermsPresetChips() {
@@ -6475,6 +6479,7 @@ function initTermsPresetChips() {
     chip.onclick = () => {
       if (termsInput) termsInput.value = chip.dataset.terms;
       if (dueDaysInput && chip.dataset.days !== undefined) dueDaysInput.value = chip.dataset.days;
+      updatePartySummaryPills();
     };
   });
 }
@@ -6572,6 +6577,7 @@ function populateEntryForm(type, record) {
     }
     updatePartyTaxFields();
     resetPartyTabs();
+    updatePartySummaryPills();
     return;
   }
 
@@ -6600,6 +6606,7 @@ function populateEntryForm(type, record) {
     setEntryValue("itemNotes", record.notes);
     updateItemEntryFields();
     resetItemTabs();
+    updateItemSummaryPills();
   }
 }
 
@@ -6688,6 +6695,68 @@ function bindPartyEntryFields() {
         shippingAddress.value = billingAddress.value;
       }
     };
+  }
+
+  const balanceInput = elements.entryForm.querySelector('[name="openingBalance"]');
+  if (balanceInput) balanceInput.oninput = updatePartySummaryPills;
+
+  const dueDaysInput = elements.entryForm.querySelector('[name="dueDays"]');
+  if (dueDaysInput) dueDaysInput.oninput = updatePartySummaryPills;
+
+  const paymentTermsInput = elements.entryForm.querySelector('[name="paymentTerms"]');
+  if (paymentTermsInput) paymentTermsInput.oninput = updatePartySummaryPills;
+
+  updatePartySummaryPills();
+}
+
+function updatePartySummaryPills() {
+  const balanceEl = document.getElementById("partySummaryBalance");
+  const balanceNoteEl = document.getElementById("partySummaryBalanceNote");
+  const typeEl = document.getElementById("partySummaryType");
+  const typeNoteEl = document.getElementById("partySummaryTypeNote");
+  const termsEl = document.getElementById("partySummaryTerms");
+  const termsNoteEl = document.getElementById("partySummaryTermsNote");
+
+  if (!balanceEl || !typeEl || !termsEl) return;
+
+  const balanceInput = elements.entryForm.querySelector('[name="openingBalance"]');
+  const balanceVal = parseFloat(balanceInput?.value || 0) || 0;
+  balanceEl.textContent = `₹${balanceVal.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  if (balanceNoteEl) {
+    balanceNoteEl.textContent = balanceVal > 0 ? "Initial ledger balance" : "Zero initial balance";
+  }
+
+  const activeChip = elements.entryModal.querySelector(".balance-type-chip.active");
+  const isPayable = (activeChip?.dataset.balanceType === "payable") ||
+    (elements.entryForm.querySelector('[name="openingBalanceType"]')?.value === "payable");
+
+  if (isPayable) {
+    typeEl.textContent = "To Pay (Cr)";
+    typeEl.style.color = "#d97706";
+    if (typeNoteEl) typeNoteEl.textContent = "Liability / Vendor payable";
+  } else {
+    typeEl.textContent = "To Receive (Dr)";
+    typeEl.style.color = "#16a34a";
+    if (typeNoteEl) typeNoteEl.textContent = "Asset / Customer receivable";
+  }
+
+  const termsInput = elements.entryForm.querySelector('[name="paymentTerms"]');
+  const dueDaysInput = elements.entryForm.querySelector('[name="dueDays"]');
+  const termsVal = termsInput?.value?.trim();
+  const dueDaysVal = dueDaysInput?.value !== "" && dueDaysInput?.value !== undefined ? parseInt(dueDaysInput.value, 10) : NaN;
+
+  if (termsVal) {
+    termsEl.textContent = termsVal;
+    if (termsNoteEl) termsNoteEl.textContent = !isNaN(dueDaysVal) && dueDaysVal > 0 ? `${dueDaysVal} days grace period` : "Custom payment terms";
+  } else if (!isNaN(dueDaysVal) && dueDaysVal > 0) {
+    termsEl.textContent = `${dueDaysVal} Days`;
+    if (termsNoteEl) termsNoteEl.textContent = "Standard credit period";
+  } else if (dueDaysVal === 0) {
+    termsEl.textContent = "Due on Receipt";
+    if (termsNoteEl) termsNoteEl.textContent = "Immediate settlement";
+  } else {
+    termsEl.textContent = "Standard / Net 30";
+    if (termsNoteEl) termsNoteEl.textContent = "Default 30-day terms";
   }
 }
 
@@ -6806,8 +6875,80 @@ function bindItemEntryFields() {
     }
   };
 
-  if (stockInput) stockInput.oninput = calcStockVal;
-  if (purchasePriceInput) purchasePriceInput.oninput = calcStockVal;
+  const onPriceChange = () => {
+    calcStockVal();
+    updateItemSummaryPills();
+  };
+
+  if (stockInput) stockInput.oninput = onPriceChange;
+  if (purchasePriceInput) purchasePriceInput.oninput = onPriceChange;
+
+  const salePriceInput = elements.entryForm.querySelector('[name="salePrice"]');
+  if (salePriceInput) salePriceInput.oninput = updateItemSummaryPills;
+
+  const saleTaxSelect = elements.entryForm.querySelector('[name="saleTaxType"]');
+  if (saleTaxSelect) saleTaxSelect.onchange = updateItemSummaryPills;
+
+  const purchaseTaxSelect = elements.entryForm.querySelector('[name="purchaseTaxType"]');
+  if (purchaseTaxSelect) purchaseTaxSelect.onchange = updateItemSummaryPills;
+
+  const taxRateSelect = elements.entryForm.querySelector('[name="taxRate"]');
+  if (taxRateSelect) taxRateSelect.onchange = updateItemSummaryPills;
+
+  updateItemSummaryPills();
+}
+
+function updateItemSummaryPills() {
+  const saleEl = document.getElementById("itemSummarySale");
+  const saleNoteEl = document.getElementById("itemSummarySaleNote");
+  const purchaseEl = document.getElementById("itemSummaryPurchase");
+  const purchaseNoteEl = document.getElementById("itemSummaryPurchaseNote");
+  const marginEl = document.getElementById("itemSummaryMargin");
+  const marginNoteEl = document.getElementById("itemSummaryMarginNote");
+
+  if (!saleEl || !purchaseEl || !marginEl) return;
+
+  const saleInput = elements.entryForm.querySelector('[name="salePrice"]');
+  const purchaseInput = elements.entryForm.querySelector('[name="purchasePrice"]');
+  const saleTaxSelect = elements.entryForm.querySelector('[name="saleTaxType"]');
+  const purchaseTaxSelect = elements.entryForm.querySelector('[name="purchaseTaxType"]');
+
+  const salePrice = parseFloat(saleInput?.value || 0) || 0;
+  const purchasePrice = parseFloat(purchaseInput?.value || 0) || 0;
+  const isSaleTaxInc = saleTaxSelect?.value === "with_tax";
+  const isPurchaseTaxInc = purchaseTaxSelect?.value === "with_tax";
+
+  saleEl.textContent = `₹${salePrice.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  if (saleNoteEl) {
+    saleNoteEl.textContent = salePrice > 0 ? (isSaleTaxInc ? "Inclusive of tax" : "Exclusive of tax") : "Selling price";
+  }
+
+  purchaseEl.textContent = `₹${purchasePrice.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  if (purchaseNoteEl) {
+    purchaseNoteEl.textContent = purchasePrice > 0 ? (isPurchaseTaxInc ? "Inclusive of tax" : "Exclusive of tax") : "Unit purchase cost";
+  }
+
+  const profit = salePrice - purchasePrice;
+  if (salePrice > 0 && purchasePrice > 0) {
+    const markupPct = ((profit / purchasePrice) * 100);
+    const sign = profit >= 0 ? "+" : "";
+    marginEl.textContent = `₹${profit.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} (${sign}${markupPct.toFixed(1)}%)`;
+    if (profit >= 0) {
+      marginEl.style.color = "#16a34a";
+      if (marginNoteEl) marginNoteEl.textContent = "Estimated markup profit";
+    } else {
+      marginEl.style.color = "#e11d48";
+      if (marginNoteEl) marginNoteEl.textContent = "Selling below purchase cost";
+    }
+  } else if (salePrice > 0 && purchasePrice === 0) {
+    marginEl.textContent = `₹${salePrice.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} (100%)`;
+    marginEl.style.color = "#16a34a";
+    if (marginNoteEl) marginNoteEl.textContent = "Full markup (zero purchase cost)";
+  } else {
+    marginEl.textContent = "₹0.00 (0%)";
+    marginEl.style.color = "#0f172a";
+    if (marginNoteEl) marginNoteEl.textContent = "Estimated markup";
+  }
 }
 
 function quickAddItemMaster(kind) {
