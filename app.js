@@ -95,6 +95,12 @@ let saleColumnFilters = {};    // { colKey: { category, value, value2 } }
 let purchaseColumnFilters = {}; // same
 let partyAdvancedFilter = { balanceType: "all", datePreset: "all", dateFrom: "", dateTo: "" };
 let itemAdvancedFilter = { category: "", itemType: "all", stockLevel: "all", datePreset: "all", dateFrom: "", dateTo: "" };
+let partyTabSort = {
+  transactions: { column: "date", direction: "desc" },
+  ledger: { column: "date", direction: "desc" },
+  payments: { column: "date", direction: "desc" },
+};
+let itemStockLedgerSort = { column: "date", direction: "desc" };
 
 let posCart = [];
 let posCustomerQuery = "";
@@ -12003,6 +12009,23 @@ function bindFeatureActions() {
   elements.featureView.querySelectorAll("[data-party-invoice-id]").forEach((button) => {
     button.addEventListener("click", () => handleInvoiceListAction("view", button.dataset.partyInvoiceId));
   });
+  elements.featureView.querySelectorAll("[data-party-sort-col]").forEach((th) => {
+    th.addEventListener("click", () => {
+      const col = th.dataset.partySortCol;
+      const tab = th.dataset.partySortTab || "transactions";
+      const current = (partyTabSort && partyTabSort[tab]) || { column: "date", direction: "desc" };
+      let newDir = "asc";
+      if (current.column === col) {
+        newDir = current.direction === "asc" ? "desc" : "asc";
+      } else {
+        newDir = (col === "date" || col === "total" || col === "balance" || col === "debit" || col === "credit" || col === "amount") ? "desc" : "asc";
+      }
+      partyTabSort[tab] = { column: col, direction: newDir };
+      const selectedId = elements.featureView.querySelector(".party-list-item.active")?.dataset.partyId;
+      elements.featureView.innerHTML = partiesTemplate(selectedId ? Number(selectedId) : null, tab, partySearchQuery);
+      bindFeatureActions();
+    });
+  });
   elements.featureView.querySelectorAll("[data-item-id]:not([data-action='edit-item']):not([data-action='print-item-barcode'])").forEach((button) => {
     button.addEventListener("click", () => {
       elements.featureView.innerHTML = itemsTemplate(Number(button.dataset.itemId), "stockLedger", itemSearchQuery);
@@ -12019,6 +12042,22 @@ function bindFeatureActions() {
     const nextSearchInput = elements.featureView.querySelector("#itemSearchInput");
     nextSearchInput?.focus();
     nextSearchInput?.setSelectionRange(itemSearchQuery.length, itemSearchQuery.length);
+  });
+  elements.featureView.querySelectorAll("[data-item-sort-col]").forEach((th) => {
+    th.addEventListener("click", () => {
+      const col = th.dataset.itemSortCol;
+      const current = itemStockLedgerSort || { column: "date", direction: "desc" };
+      let newDir = "asc";
+      if (current.column === col) {
+        newDir = current.direction === "asc" ? "desc" : "asc";
+      } else {
+        newDir = (col === "date" || col === "qtyIn" || col === "qtyOut" || col === "rate") ? "desc" : "asc";
+      }
+      itemStockLedgerSort = { column: col, direction: newDir };
+      const selectedId = elements.featureView.querySelector(".item-list-item.active")?.dataset.itemId;
+      elements.featureView.innerHTML = itemsTemplate(selectedId ? Number(selectedId) : null, "stockLedger", itemSearchQuery);
+      bindFeatureActions();
+    });
   });
   elements.featureView.querySelector("[data-action='add-item']")?.addEventListener("click", () => openEntryModal("item"));
   elements.featureView.querySelector("[data-action='edit-item']")?.addEventListener("click", (event) => {
@@ -16769,6 +16808,19 @@ function partyTabContent(party, activeTab) {
   `;
 }
 
+function renderPartySortTh(label, colKey, tabKey, className = "") {
+  const current = (partyTabSort && partyTabSort[tabKey]) || { column: "date", direction: "desc" };
+  const isActive = current.column === colKey;
+  const icon = isActive ? (current.direction === "asc" ? "▲" : "▼") : "↕";
+  const activeClass = isActive ? " active-sort" : "";
+  const extraClass = className ? ` ${className}` : "";
+  return `
+    <th class="sortable-th${activeClass}${extraClass}" data-party-sort-col="${colKey}" data-party-sort-tab="${tabKey}" title="Click to sort by ${label}">
+      <span class="th-content">${label} <span class="sort-icon">${icon}</span></span>
+    </th>
+  `;
+}
+
 function partyTransactionsTable(party) {
   const f = partyAdvancedFilter;
   const range = getPartyDateRange(f);
@@ -16785,7 +16837,28 @@ function partyTransactionsTable(party) {
       return true;
     });
   }
-  rows.sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
+
+  const sort = (partyTabSort && partyTabSort.transactions) || { column: "date", direction: "desc" };
+  rows.sort((a, b) => {
+    let result = 0;
+    if (sort.column === "date") {
+      const timeA = new Date(a.date || a.invoiceDate || a.createdAt || 0).getTime();
+      const timeB = new Date(b.date || b.invoiceDate || b.createdAt || 0).getTime();
+      result = timeA - timeB;
+      if (result === 0) result = Number(a.id || 0) - Number(b.id || 0);
+    } else if (sort.column === "invoiceNo") {
+      result = String(a.invoiceNo || "").localeCompare(String(b.invoiceNo || ""), undefined, { numeric: true, sensitivity: "base" });
+    } else if (sort.column === "type") {
+      result = String(a.type || "").localeCompare(String(b.type || ""));
+    } else if (sort.column === "status") {
+      result = String(a.status || "").localeCompare(String(b.status || ""));
+    } else if (sort.column === "total") {
+      result = Number(a.total || 0) - Number(b.total || 0);
+    } else if (sort.column === "balance") {
+      result = Number(a.balance || 0) - Number(b.balance || 0);
+    }
+    return sort.direction === "desc" ? -result : result;
+  });
 
   return `
     <div class="table-card party-transactions-table">
@@ -16795,7 +16868,16 @@ function partyTransactionsTable(party) {
         </div>
       ` : ""}
       <table>
-        <thead><tr><th>Date</th><th>Bill No.</th><th>Type</th><th>Status</th><th>Total</th><th>Balance</th></tr></thead>
+        <thead>
+          <tr>
+            ${renderPartySortTh("Date", "date", "transactions")}
+            ${renderPartySortTh("Bill No.", "invoiceNo", "transactions")}
+            ${renderPartySortTh("Type", "type", "transactions")}
+            ${renderPartySortTh("Status", "status", "transactions")}
+            ${renderPartySortTh("Total", "total", "transactions", "amount-cell")}
+            ${renderPartySortTh("Balance", "balance", "transactions", "amount-cell")}
+          </tr>
+        </thead>
         <tbody>${rows.map((row) => {
           const invoiceId = row.id || row.invoiceId || row.transactionId || "";
           return `
@@ -16824,6 +16906,8 @@ function partyLedgerTable(party) {
       ref: invoice.invoiceNo,
       debit: invoice.type === "sale" ? Number(invoice.total || 0) : 0,
       credit: invoice.type === "purchase" ? Number(invoice.total || 0) : 0,
+      createdAt: invoice.createdAt,
+      id: invoice.id,
     })),
     ...payments.map((payment) => ({
       date: payment.paymentDate,
@@ -16831,80 +16915,101 @@ function partyLedgerTable(party) {
       ref: payment.method,
       debit: payment.type === "payment_out" ? Number(payment.amount || 0) : 0,
       credit: payment.type === "payment_in" ? Number(payment.amount || 0) : 0,
+      createdAt: payment.createdAt,
+      id: payment.id,
     })),
-  ].sort((a, b) => new Date(a.date) - new Date(b.date));
+  ];
+
+  // 1. Sort chronologically (oldest to newest) to compute historical running balances accurately
+  allRows.sort((a, b) => {
+    const tA = new Date(a.date || a.createdAt || 0).getTime();
+    const tB = new Date(b.date || b.createdAt || 0).getTime();
+    return tA - tB || Number(a.id || 0) - Number(b.id || 0);
+  });
+
+  let running = Number(party.openingBalance || 0);
+  for (const row of allRows) {
+    running += Number(row.debit || 0) - Number(row.credit || 0);
+    row.runningBalance = running;
+  }
 
   const f = partyAdvancedFilter;
   const range = getPartyDateRange(f);
   const fromDate = range.from ? parseLocalIsoDate(range.from) : null;
   const toDate = range.to ? parseLocalIsoDate(range.to, true) : null;
 
-  let running = Number(party.openingBalance || 0);
   let periodDebit = 0;
   let periodCredit = 0;
-  const tableRows = [];
-
-  if (fromDate) {
-    for (const row of allRows) {
-      const rowDate = parseLocalIsoDate(row.date);
-      if (rowDate && rowDate < fromDate) {
-        running += Number(row.debit || 0) - Number(row.credit || 0);
-      }
-    }
-    tableRows.push([
-      formatDate(range.from),
-      "Opening Balance",
-      "B/F",
-      "-",
-      "-",
-      formatCurrency(Math.abs(running)),
-    ]);
-  }
-
   let countInPeriod = 0;
-  for (const row of allRows) {
-    const rowDate = parseLocalIsoDate(row.date);
-    if (fromDate && rowDate && rowDate < fromDate) continue;
-    if (toDate && rowDate && rowDate > toDate) continue;
 
-    running += Number(row.debit || 0) - Number(row.credit || 0);
+  let filteredRows = allRows.filter((row) => {
+    const rowDate = parseLocalIsoDate(row.date);
+    if (fromDate && rowDate && rowDate < fromDate) return false;
+    if (toDate && rowDate && rowDate > toDate) return false;
     periodDebit += Number(row.debit || 0);
     periodCredit += Number(row.credit || 0);
     countInPeriod++;
+    return true;
+  });
 
-    tableRows.push([
-      formatDate(row.date),
-      row.type,
-      row.ref,
-      row.debit ? formatCurrency(row.debit) : "₹ 0",
-      row.credit ? formatCurrency(row.credit) : "₹ 0",
-      formatCurrency(Math.abs(running)),
-    ]);
-  }
-
-  if (fromDate || toDate) {
-    tableRows.push([
-      toDate ? formatDate(range.to) : "Total / Closing",
-      "Closing Balance",
-      "C/F",
-      formatCurrency(periodDebit),
-      formatCurrency(periodCredit),
-      formatCurrency(Math.abs(running)),
-    ]);
-  }
+  // 2. Sort by user's chosen sort column/direction (default: Date DESC -> last date first line!)
+  const sort = (partyTabSort && partyTabSort.ledger) || { column: "date", direction: "desc" };
+  filteredRows.sort((a, b) => {
+    let result = 0;
+    if (sort.column === "date") {
+      const tA = new Date(a.date || a.createdAt || 0).getTime();
+      const tB = new Date(b.date || b.createdAt || 0).getTime();
+      result = tA - tB || Number(a.id || 0) - Number(b.id || 0);
+    } else if (sort.column === "type") {
+      result = String(a.type || "").localeCompare(String(b.type || ""));
+    } else if (sort.column === "ref") {
+      result = String(a.ref || "").localeCompare(String(b.ref || ""), undefined, { numeric: true });
+    } else if (sort.column === "debit") {
+      result = Number(a.debit || 0) - Number(b.debit || 0);
+    } else if (sort.column === "credit") {
+      result = Number(a.credit || 0) - Number(b.credit || 0);
+    } else if (sort.column === "balance") {
+      result = Number(a.runningBalance || 0) - Number(b.runningBalance || 0);
+    }
+    return sort.direction === "desc" ? -result : result;
+  });
 
   const emptyText = fromDate || toDate
     ? `No transactions recorded between ${formatDate(range.from || "")} and ${formatDate(range.to || "")}.`
     : "No ledger entries found.";
 
   return `
-    ${(range.from || range.to) ? `
-      <div class="party-ledger-period-banner">
-        <span>Showing ledger from <strong>${formatDate(range.from)}</strong> to <strong>${formatDate(range.to)}</strong> (${countInPeriod} record${countInPeriod === 1 ? "" : "s"})</span>
-        <span>Period Movement: <strong class="${(periodDebit - periodCredit) >= 0 ? "receivable-text" : "payable-text"}">${formatCurrency(Math.abs(periodDebit - periodCredit))}</strong></span>
-      </div>
-    ` : ""}
-    ${basicPartyTable(["Date", "Type", "Ref", "Debit", "Credit", "Balance"], tableRows, emptyText)}
+    <div class="table-card party-ledger-table">
+      ${(range.from || range.to) ? `
+        <div class="party-ledger-period-banner">
+          <span>Showing ledger from <strong>${formatDate(range.from)}</strong> to <strong>${formatDate(range.to)}</strong> (${countInPeriod} record${countInPeriod === 1 ? "" : "s"})</span>
+          <span>Period Movement: <strong class="${(periodDebit - periodCredit) >= 0 ? "receivable-text" : "payable-text"}">${formatCurrency(Math.abs(periodDebit - periodCredit))}</strong></span>
+        </div>
+      ` : ""}
+      <table>
+        <thead>
+          <tr>
+            ${renderPartySortTh("Date", "date", "ledger")}
+            ${renderPartySortTh("Type", "type", "ledger")}
+            ${renderPartySortTh("Ref", "ref", "ledger")}
+            ${renderPartySortTh("Debit", "debit", "ledger", "amount-cell")}
+            ${renderPartySortTh("Credit", "credit", "ledger", "amount-cell")}
+            ${renderPartySortTh("Balance", "balance", "ledger", "amount-cell")}
+          </tr>
+        </thead>
+        <tbody>${filteredRows.map((row) => `
+          <tr>
+            <td>${formatDate(row.date)}</td>
+            <td>${escapeHtml(titleCase(row.type || ""))}</td>
+            <td>${escapeHtml(row.ref || "-")}</td>
+            <td class="amount-cell">${row.debit ? formatCurrency(row.debit) : "-"}</td>
+            <td class="amount-cell">${row.credit ? formatCurrency(row.credit) : "-"}</td>
+            <td class="amount-cell"><strong>${formatCurrency(Math.abs(row.runningBalance || 0))}</strong></td>
+          </tr>`).join("")}
+        </tbody>
+      </table>
+      <div class="empty-table ${filteredRows.length ? "hidden" : ""}">${emptyText}</div>
+    </div>
   `;
 }
 
@@ -16951,20 +17056,47 @@ function partyPaymentsTable(party) {
     });
   }
 
+  const sort = (partyTabSort && partyTabSort.payments) || { column: "date", direction: "desc" };
+  rows.sort((a, b) => {
+    let result = 0;
+    if (sort.column === "date") {
+      const tA = new Date(a.paymentDate || a.date || a.createdAt || 0).getTime();
+      const tB = new Date(b.paymentDate || b.date || b.createdAt || 0).getTime();
+      result = tA - tB || Number(a.id || 0) - Number(b.id || 0);
+    } else if (sort.column === "type") {
+      result = String(a.type || "").localeCompare(String(b.type || ""));
+    } else if (sort.column === "method") {
+      result = String(a.method || "").localeCompare(String(b.method || ""));
+    } else if (sort.column === "amount") {
+      result = Number(a.amount || 0) - Number(b.amount || 0);
+    } else if (sort.column === "notes") {
+      result = String(a.notes || "").localeCompare(String(b.notes || ""));
+    }
+    return sort.direction === "desc" ? -result : result;
+  });
+
   return `
-    <div class="table-card">
+    <div class="table-card party-payments-table">
       ${(range.from || range.to) ? `
         <div class="party-ledger-period-banner">
           <span>Period: <strong>${formatDate(range.from)} &ndash; ${formatDate(range.to)}</strong> (${rows.length} payment${rows.length === 1 ? "" : "s"})</span>
         </div>
       ` : ""}
       <table>
-        <thead><tr><th>Date</th><th>Type</th><th>Method</th><th>Amount</th><th>Notes</th></tr></thead>
+        <thead>
+          <tr>
+            ${renderPartySortTh("Date", "date", "payments")}
+            ${renderPartySortTh("Type", "type", "payments")}
+            ${renderPartySortTh("Method", "method", "payments")}
+            ${renderPartySortTh("Amount", "amount", "payments", "amount-cell")}
+            ${renderPartySortTh("Notes", "notes", "payments")}
+          </tr>
+        </thead>
         <tbody>${rows.map((row) => `<tr>
           <td>${formatDate(row.paymentDate)}</td>
-          <td>${escapeHtml(row.type || "")}</td>
+          <td>${escapeHtml(titleCase(row.type || ""))}</td>
           <td>${escapeHtml(row.method || "")}</td>
-          <td>${formatCurrency(row.amount)}</td>
+          <td class="amount-cell">${formatCurrency(row.amount)}</td>
           <td>${escapeHtml(row.notes || "-")}</td>
         </tr>`).join("")}</tbody>
       </table>
@@ -16990,7 +17122,9 @@ function emptyPartyDetail() {
 }
 
 function titleCase(value) {
-  return String(value).replace(/(^|\s)\w/g, (letter) => letter.toUpperCase());
+  return String(value || "")
+    .replace(/_/g, " ")
+    .replace(/(^|\s)\w/g, (letter) => letter.toUpperCase());
 }
 
 function itemsTemplate(selectedItemId = null, activeTab = "overview", query = itemSearchQuery) {
@@ -17580,6 +17714,19 @@ function itemDetail(item) {
   `;
 }
 
+function renderItemSortTh(label, colKey, className = "") {
+  const current = itemStockLedgerSort || { column: "date", direction: "desc" };
+  const isActive = current.column === colKey;
+  const icon = isActive ? (current.direction === "asc" ? "▲" : "▼") : "↕";
+  const activeClass = isActive ? " active-sort" : "";
+  const extraClass = className ? ` ${className}` : "";
+  return `
+    <th class="sortable-th${activeClass}${extraClass}" data-item-sort-col="${colKey}" title="Click to sort by ${label}">
+      <span class="th-content">${label} <span class="sort-icon">${icon}</span></span>
+    </th>
+  `;
+}
+
 function itemStockLedgerTable(item) {
   const invoiceMap = new Map((state.invoices || []).map((invoice) => [invoice.id, invoice]));
   const f = itemAdvancedFilter;
@@ -17600,32 +17747,70 @@ function itemStockLedgerTable(item) {
     });
   }
 
-  const rows = movements
-    .sort((a, b) => new Date(a.movementDate) - new Date(b.movementDate))
-    .map((movement) => {
-      const qty = Number(movement.quantity || 0);
-      const qtyIn = movement.movementType === "in" || movement.movementType === "adjustment" ? qty : 0;
-      const qtyOut = movement.movementType === "out" ? qty : 0;
-      const invoice = invoiceMap.get(movement.invoiceId);
-      return [
-        formatDate(movement.movementDate),
-        movementTypeLabel(movement.movementType),
-        invoice?.invoiceNo || movement.transactionId || "-",
-        formatQuantity(qtyIn),
-        formatQuantity(qtyOut),
-        formatCurrency(movement.rate || 0),
-      ];
-    });
+  const sort = itemStockLedgerSort || { column: "date", direction: "desc" };
+  movements.sort((a, b) => {
+    let result = 0;
+    if (sort.column === "date") {
+      const tA = new Date(a.movementDate || a.date || a.createdAt || 0).getTime();
+      const tB = new Date(b.movementDate || b.date || b.createdAt || 0).getTime();
+      result = tA - tB || Number(a.id || 0) - Number(b.id || 0);
+    } else if (sort.column === "type") {
+      result = String(a.movementType || "").localeCompare(String(b.movementType || ""));
+    } else if (sort.column === "ref") {
+      const invA = invoiceMap.get(a.invoiceId)?.invoiceNo || a.transactionId || "";
+      const invB = invoiceMap.get(b.invoiceId)?.invoiceNo || b.transactionId || "";
+      result = String(invA).localeCompare(String(invB), undefined, { numeric: true });
+    } else if (sort.column === "qtyIn") {
+      const qA = (a.movementType === "in" || a.movementType === "adjustment") ? Number(a.quantity || 0) : 0;
+      const qB = (b.movementType === "in" || b.movementType === "adjustment") ? Number(b.quantity || 0) : 0;
+      result = qA - qB;
+    } else if (sort.column === "qtyOut") {
+      const qA = a.movementType === "out" ? Number(a.quantity || 0) : 0;
+      const qB = b.movementType === "out" ? Number(b.quantity || 0) : 0;
+      result = qA - qB;
+    } else if (sort.column === "rate") {
+      result = Number(a.rate || 0) - Number(b.rate || 0);
+    }
+    return sort.direction === "desc" ? -result : result;
+  });
 
   const periodBanner = (range.from || range.to)
-    ? `<div class="item-ledger-period-banner"><span>Period: <strong>${formatDate(range.from)} &ndash; ${formatDate(range.to)}</strong> (${rows.length} movement${rows.length === 1 ? "" : "s"})</span></div>`
+    ? `<div class="item-ledger-period-banner"><span>Period: <strong>${formatDate(range.from)} &ndash; ${formatDate(range.to)}</strong> (${movements.length} movement${movements.length === 1 ? "" : "s"})</span></div>`
     : "";
 
-  return periodBanner + basicPartyTable(
-    ["Date", "Type", "Reference", "Qty In", "Qty Out", "Rate"],
-    rows,
-    (range.from || range.to) ? "No stock movements found for this period." : "No stock movements found."
-  );
+  return `
+    <div class="table-card item-stock-ledger-table">
+      ${periodBanner}
+      <table>
+        <thead>
+          <tr>
+            ${renderItemSortTh("Date", "date")}
+            ${renderItemSortTh("Type", "type")}
+            ${renderItemSortTh("Reference", "ref")}
+            ${renderItemSortTh("Qty In", "qtyIn", "amount-cell")}
+            ${renderItemSortTh("Qty Out", "qtyOut", "amount-cell")}
+            ${renderItemSortTh("Rate", "rate", "amount-cell")}
+          </tr>
+        </thead>
+        <tbody>${movements.map((movement) => {
+          const qty = Number(movement.quantity || 0);
+          const qtyIn = movement.movementType === "in" || movement.movementType === "adjustment" ? qty : 0;
+          const qtyOut = movement.movementType === "out" ? qty : 0;
+          const invoice = invoiceMap.get(movement.invoiceId);
+          return `
+            <tr>
+              <td>${formatDate(movement.movementDate)}</td>
+              <td>${movementTypeLabel(movement.movementType)}</td>
+              <td>${escapeHtml(invoice?.invoiceNo || movement.transactionId || "-")}</td>
+              <td class="amount-cell">${qtyIn ? formatQuantity(qtyIn) : "-"}</td>
+              <td class="amount-cell">${qtyOut ? formatQuantity(qtyOut) : "-"}</td>
+              <td class="amount-cell">${movement.rate ? formatCurrency(movement.rate) : "-"}</td>
+            </tr>`;
+        }).join("")}</tbody>
+      </table>
+      <div class="empty-table ${movements.length ? "hidden" : ""}">No stock movements found.</div>
+    </div>
+  `;
 }
 
 function itemPricingPanel(item) {
