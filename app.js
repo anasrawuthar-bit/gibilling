@@ -5146,9 +5146,19 @@ function itemLookupButton(item) {
   `;
 }
 
+function isExpenseItem(item) {
+  if (!item) return false;
+  const name = String(item.name || "").trim().toLowerCase();
+  const isZeroStockAndPrice = !item.salePrice && !item.purchasePrice && !item.openingStock && !item.currentStock && !item.sku;
+  if (!isZeroStockAndPrice) return false;
+  return (state.transactions || []).some(
+    (t) => t.type === "expense" && String(t.item || "").trim().toLowerCase() === name
+  );
+}
+
 function searchItemsForLookup(query) {
   const cleanQuery = String(query || "").trim().toLowerCase();
-  const items = state.items || [];
+  const items = (state.items || []).filter((item) => !isExpenseItem(item));
   if (!cleanQuery) return items;
   return items.filter((item) => [
     item.name,
@@ -7074,8 +7084,10 @@ async function handleEntrySubmit(event) {
       state = normalizeState(await window.giDB.createTransaction(transaction));
     } else {
       state.transactions.unshift(transaction);
-      upsertByName(state.parties, { name: party, notes: "", createdAt: transaction.date });
-      upsertByName(state.items, { name: item, notes: "", createdAt: transaction.date });
+      if (transaction.type !== "expense") {
+        upsertByName(state.parties, { name: party, notes: "", createdAt: transaction.date });
+        upsertByName(state.items, { name: item, notes: "", createdAt: transaction.date });
+      }
     }
   }
   } catch (error) {
@@ -16730,7 +16742,7 @@ function titleCase(value) {
 
 function itemsTemplate(selectedItemId = null, activeTab = "overview", query = itemSearchQuery) {
   const normalizedQuery = String(query || "").trim().toLowerCase();
-  const allItems = state.items || [];
+  const allItems = (state.items || []).filter((item) => !isExpenseItem(item));
   const f = itemAdvancedFilter;
   const searchedItems = normalizedQuery
     ? allItems.filter((item) => itemMatchesQuery(item, normalizedQuery))
@@ -22782,7 +22794,7 @@ function renderCurrentList() {
     rows = state.parties.map((party) => [party.name, party.notes || "-", formatDate(party.createdAt)]);
   } else if (currentView === "items") {
     head = ["Item", "Unit", "Current Stock", "Purchase Price", "Sale Price", "Created"];
-    rows = state.items.map((item) => [
+    rows = (state.items || []).filter((item) => !isExpenseItem(item)).map((item) => [
       item.name,
       item.unit || "-",
       Number(item.currentStock || 0),

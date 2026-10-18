@@ -158,6 +158,7 @@ async function initDatabase(userDataPath, options = {}) {
     ensureDebitNoteSchema();
     ensureLocalSyncIdentity();
     ensureUsersSchema();
+    cleanupOrphanExpenseItems();
     run("UPDATE sync_outbox SET status = 'retry', next_attempt_at = NULL, last_error_code = 'INTERRUPTED' WHERE status = 'uploading'");
     persist();
     return getState();
@@ -1644,6 +1645,17 @@ function getState() {
         GROUP BY item_id
        ) sb ON sb.item_id = i.id
        WHERE i.company_id = ?
+         AND NOT (
+           EXISTS (SELECT 1 FROM transactions t WHERE t.company_id = i.company_id AND t.type = 'expense' AND LOWER(TRIM(t.item)) = LOWER(TRIM(i.name)))
+           AND NOT EXISTS (SELECT 1 FROM invoice_items ii WHERE ii.item_id = i.id OR LOWER(TRIM(ii.item_name)) = LOWER(TRIM(i.name)))
+           AND NOT EXISTS (SELECT 1 FROM estimate_items ei WHERE ei.item_id = i.id OR LOWER(TRIM(ei.item_name)) = LOWER(TRIM(i.name)))
+           AND NOT EXISTS (SELECT 1 FROM credit_note_items cni WHERE cni.item_id = i.id OR LOWER(TRIM(cni.item_name)) = LOWER(TRIM(i.name)))
+           AND NOT EXISTS (SELECT 1 FROM debit_note_items dni WHERE dni.item_id = i.id OR LOWER(TRIM(dni.item_name)) = LOWER(TRIM(i.name)))
+           AND NOT EXISTS (SELECT 1 FROM stock_movements sm WHERE sm.item_id = i.id)
+           AND COALESCE(i.opening_stock, 0) = 0
+           AND COALESCE(i.sale_price, 0) = 0
+           AND COALESCE(i.purchase_price, 0) = 0
+         )
        ORDER BY i.id DESC`,
       [currentCompany.id, currentCompany.id],
     ),
@@ -1841,7 +1853,10 @@ function setCurrentCompany(name) {
   run("UPDATE companies SET is_current = 0");
   run("UPDATE companies SET is_current = 1 WHERE name = ?", [name]);
   const company = one("SELECT id FROM companies WHERE name = ?", [name]);
-  if (company?.id) seedMasterDefaults(company.id);
+  if (company?.id) {
+    seedMasterDefaults(company.id);
+    cleanupOrphanExpenseItems(company.id);
+  }
   persist();
   return getState();
 }
@@ -2427,6 +2442,53 @@ function syncDefaultBankToBusinessSettings(companyId) {
     }
     : { bankName: "", accountNo: "", ifsc: "", upiId: "" };
   run("INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, ?)", ["bankDetails", JSON.stringify(bankDetails)]);
+}
+
+function cleanupOrphanExpenseItems(companyId = null) {
+  if (!db) return;
+  try {
+    const companyFilter = companyId ? "AND i.company_id = ?" : "";
+    const partyCompanyFilter = companyId ? "AND parties.company_id = ?" : "";
+    const params = companyId ? [companyId] : [];
+
+    run(`
+      DELETE FROM items
+      WHERE id IN (
+        SELECT i.id
+        FROM items i
+        WHERE EXISTS (
+          SELECT 1 FROM transactions t
+          WHERE t.company_id = i.company_id
+            AND t.type = 'expense'
+            AND LOWER(TRIM(t.item)) = LOWER(TRIM(i.name))
+        )
+        AND NOT EXISTS (SELECT 1 FROM invoice_items ii WHERE ii.item_id = i.id OR LOWER(TRIM(ii.item_name)) = LOWER(TRIM(i.name)))
+        AND NOT EXISTS (SELECT 1 FROM estimate_items ei WHERE ei.item_id = i.id OR LOWER(TRIM(ei.item_name)) = LOWER(TRIM(i.name)))
+        AND NOT EXISTS (SELECT 1 FROM credit_note_items cni WHERE cni.item_id = i.id OR LOWER(TRIM(cni.item_name)) = LOWER(TRIM(i.name)))
+        AND NOT EXISTS (SELECT 1 FROM debit_note_items dni WHERE dni.item_id = i.id OR LOWER(TRIM(dni.item_name)) = LOWER(TRIM(i.name)))
+        AND NOT EXISTS (SELECT 1 FROM stock_movements sm WHERE sm.item_id = i.id)
+        AND COALESCE(i.opening_stock, 0) = 0
+        AND COALESCE(i.sale_price, 0) = 0
+        AND COALESCE(i.purchase_price, 0) = 0
+        ${companyFilter}
+      )
+    `, params);
+
+    run(`
+      DELETE FROM parties
+      WHERE LOWER(TRIM(name)) = 'expense'
+        AND opening_balance = 0
+        AND NOT EXISTS (SELECT 1 FROM invoices WHERE party_id = parties.id OR LOWER(TRIM(party)) = 'expense')
+        AND NOT EXISTS (SELECT 1 FROM estimates WHERE party_id = parties.id OR LOWER(TRIM(party)) = 'expense')
+        AND NOT EXISTS (SELECT 1 FROM credit_notes WHERE party_id = parties.id OR LOWER(TRIM(party)) = 'expense')
+        AND NOT EXISTS (SELECT 1 FROM debit_notes WHERE party_id = parties.id OR LOWER(TRIM(party)) = 'expense')
+        AND NOT EXISTS (SELECT 1 FROM payments WHERE party_id = parties.id OR LOWER(TRIM(party)) = 'expense')
+        AND NOT EXISTS (SELECT 1 FROM transactions WHERE (party_id = parties.id OR LOWER(TRIM(party)) = 'expense') AND type <> 'expense')
+        ${partyCompanyFilter}
+    `, params);
+  } catch (_e) {
+    // Graceful fallback during early migration
+  }
 }
 
 function createParty({
@@ -3066,7 +3128,7 @@ function createTransactionUnsafe(entry) {
     transaction.cessTotal = invoiceTotals.cessTotal;
   }
 
-  if (transaction.party && transaction.type !== "sale" && transaction.type !== "purchase") {
+  if (transaction.party && transaction.party.toLowerCase() !== "expense" && transaction.type !== "sale" && transaction.type !== "purchase" && transaction.type !== "expense") {
     createPartyWithoutPersist(company.id, transaction.party, {
       type: transaction.type === "sale" ? "customer" : transaction.type === "purchase" ? "supplier" : "both",
       phone: entry.phone || "",
@@ -3074,9 +3136,9 @@ function createTransactionUnsafe(entry) {
       paymentTerms: entry.paymentTerms || "",
     });
   }
-  if (invoiceItems.length && transaction.type !== "sale" && transaction.type !== "purchase") {
+  if (invoiceItems.length && transaction.type !== "sale" && transaction.type !== "purchase" && transaction.type !== "expense") {
     invoiceItems.forEach((item) => createItemWithoutPersist(company.id, item.item));
-  } else if (transaction.item && transaction.type !== "sale" && transaction.type !== "purchase") {
+  } else if (transaction.item && transaction.type !== "sale" && transaction.type !== "purchase" && transaction.type !== "expense") {
     createItemWithoutPersist(company.id, transaction.item);
   }
   postLedger(company.id, transaction);
