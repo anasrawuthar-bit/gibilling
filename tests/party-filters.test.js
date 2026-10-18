@@ -56,7 +56,7 @@ async function runPartyFilterTests() {
 
     await new Promise((r) => setTimeout(r, 300));
 
-    console.log("Test 1: Verify Filter Options & Date Types rendered as select lists...");
+    console.log("Test 1: Verify Filter Options & Date Types rendered as select lists, and Transactions tab is first...");
     const check1 = await window.webContents.executeJavaScript(`
       (() => {
         const balSelect = document.getElementById("partyBalanceFilterSelect");
@@ -67,11 +67,13 @@ async function runPartyFilterTests() {
 
         const balOptions = Array.from(balSelect.options).map(o => o.value);
         const dateOptions = Array.from(dateSelect.options).map(o => o.value);
+        const tabList = Array.from(document.querySelectorAll(".party-tabs button")).map(b => b.dataset.partyTab);
 
         return {
           ok: true,
           balOptions,
           dateOptions,
+          tabList,
           balVal: balSelect.value,
           dateVal: dateSelect.value
         };
@@ -81,9 +83,10 @@ async function runPartyFilterTests() {
     assert.strictEqual(check1.ok, true, check1.error);
     assert.deepStrictEqual(check1.balOptions, ["all", "receivable", "payable", "zero", "active"]);
     assert.deepStrictEqual(check1.dateOptions, ["all", "today", "yesterday", "thisWeek", "thisMonth", "lastMonth", "thisQuarter", "thisYear", "custom"]);
+    assert.strictEqual(check1.tabList[0], "transactions", "Transactions must be placed first in party tabs");
     assert.strictEqual(check1.balVal, "all");
     assert.strictEqual(check1.dateVal, "all");
-    console.log("  ✓ Filter Options and Date Types are styled <select> lists with complete choices.");
+    console.log("  ✓ Filter Options and Date Types are styled <select> lists, and 'Transactions' is the first tab.");
 
     console.log("Test 2: Test Balance Filter select option filtering...");
     const checkBalRec = await window.webContents.executeJavaScript(`
@@ -138,6 +141,8 @@ async function runPartyFilterTests() {
         dateSelect.value = "thisMonth";
         dateSelect.dispatchEvent(new Event("change"));
 
+        document.querySelector(".party-tabs [data-party-tab='ledger']")?.click();
+
         const badge = document.querySelector(".party-filter-range-badge");
         const banner = document.querySelector(".party-ledger-period-banner");
         const tableRows = Array.from(document.querySelectorAll(".table-card table tbody tr")).map(tr => {
@@ -182,6 +187,8 @@ async function runPartyFilterTests() {
 
         toInput.value = "2026-09-30";
         toInput.dispatchEvent(new Event("change"));
+
+        document.querySelector(".party-tabs [data-party-tab='ledger']")?.click();
 
         const tableRows = Array.from(document.querySelectorAll(".table-card table tbody tr")).map(tr => {
           return Array.from(tr.querySelectorAll("td")).map(td => td.textContent.trim());
@@ -228,24 +235,15 @@ async function runPartyFilterTests() {
     assert.strictEqual(checkClear.hasClearBtn, false);
     console.log("  ✓ Clear button resets both Filter Options and Date Types back to defaults.");
 
-    // Set This Month and select Acme Corp for visual proof and capture screenshot
-    const diag = await window.webContents.executeJavaScript(`
+    // Select Acme Corp with Transactions first and capture screenshot
+    await window.webContents.executeJavaScript(`
       (() => {
-        const dateSelect = document.getElementById("partyDateTypeSelect");
-        const beforeVal = dateSelect ? dateSelect.value : "null";
-        if (dateSelect) {
-          dateSelect.value = "thisMonth";
-          dateSelect.dispatchEvent(new Event("change"));
-        }
-        const afterVal = document.getElementById("partyDateTypeSelect")?.value;
-        const filterPreset = partyAdvancedFilter.datePreset;
-        return { beforeVal, afterVal, filterPreset };
+        document.querySelector(".party-list-item[data-party-id='1']")?.click();
       })()
     `);
-    console.log("[DIAG]", diag);
     await new Promise((r) => setTimeout(r, 400));
 
-    const activePeriodScreenshotPath = path.join(
+    const transactionsFirstScreenshotPath = path.join(
       "C:",
       "Users",
       "ANAS",
@@ -253,13 +251,13 @@ async function runPartyFilterTests() {
       "antigravity",
       "brain",
       "bed9650d-397d-4216-aa80-c0ae1c3c4fcb",
-      "parties_filter_active_period.png"
+      "party_transactions_first_verified.png"
     );
 
-    console.log("Capturing verified screenshot of Parties with active date filter...");
+    console.log("Capturing verified screenshot of Transactions placed first...");
     const imageActive = await window.webContents.capturePage();
-    fs.writeFileSync(activePeriodScreenshotPath, imageActive.toPNG());
-    console.log("  ✓ Screenshot saved at:", activePeriodScreenshotPath);
+    fs.writeFileSync(transactionsFirstScreenshotPath, imageActive.toPNG());
+    console.log("  ✓ Screenshot saved at:", transactionsFirstScreenshotPath);
 
     console.log("\n=======================================================");
     console.log("   ALL PARTY FILTER LIST & DATE TYPE TESTS PASSED!     ");

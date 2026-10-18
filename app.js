@@ -1410,7 +1410,7 @@ function executeOpenAnythingResult(index) {
     elements.searchInput.value = result.title;
     partySearchQuery = result.title;
     showView("parties");
-    elements.featureView.innerHTML = partiesTemplate(result.partyId, "ledger", partySearchQuery);
+    elements.featureView.innerHTML = partiesTemplate(result.partyId, "transactions", partySearchQuery);
     bindFeatureActions();
     return;
   }
@@ -7068,7 +7068,7 @@ async function handleEntrySubmit(event) {
   }
   renderDashboard();
   if (currentView === "parties") {
-    elements.featureView.innerHTML = partiesTemplate(editingRecordId || null, "ledger", partySearchQuery);
+    elements.featureView.innerHTML = partiesTemplate(editingRecordId || null, "transactions", partySearchQuery);
     bindFeatureActions();
   }
   if (currentView === "items") {
@@ -11138,7 +11138,7 @@ function bindFeatureActions() {
     partyBalanceSelect.addEventListener("change", (e) => {
       partyAdvancedFilter.balanceType = e.target.value;
       const selectedId = elements.featureView.querySelector(".party-list-item.active")?.dataset.partyId;
-      const activeTab = elements.featureView.querySelector(".party-tabs button.active")?.dataset.partyTab || "ledger";
+      const activeTab = elements.featureView.querySelector(".party-tabs button.active")?.dataset.partyTab || "transactions";
       elements.featureView.innerHTML = partiesTemplate(selectedId ? Number(selectedId) : null, activeTab, partySearchQuery);
       bindFeatureActions();
     });
@@ -11153,7 +11153,7 @@ function bindFeatureActions() {
         partyAdvancedFilter.dateTo = "";
       }
       const selectedId = elements.featureView.querySelector(".party-list-item.active")?.dataset.partyId;
-      const activeTab = elements.featureView.querySelector(".party-tabs button.active")?.dataset.partyTab || "ledger";
+      const activeTab = elements.featureView.querySelector(".party-tabs button.active")?.dataset.partyTab || "transactions";
       elements.featureView.innerHTML = partiesTemplate(selectedId ? Number(selectedId) : null, activeTab, partySearchQuery);
       bindFeatureActions();
     });
@@ -11165,7 +11165,7 @@ function bindFeatureActions() {
     partyAdvancedFilter.dateFrom = partyDateFrom?.value || "";
     partyAdvancedFilter.dateTo = partyDateTo?.value || "";
     const selectedId = elements.featureView.querySelector(".party-list-item.active")?.dataset.partyId;
-    const activeTab = elements.featureView.querySelector(".party-tabs button.active")?.dataset.partyTab || "ledger";
+    const activeTab = elements.featureView.querySelector(".party-tabs button.active")?.dataset.partyTab || "transactions";
     elements.featureView.innerHTML = partiesTemplate(selectedId ? Number(selectedId) : null, activeTab, partySearchQuery);
     bindFeatureActions();
   };
@@ -11176,7 +11176,7 @@ function bindFeatureActions() {
     btn.addEventListener("click", () => {
       partyAdvancedFilter.balanceType = btn.dataset.partyBalanceFilter;
       const selectedId = elements.featureView.querySelector(".party-list-item.active")?.dataset.partyId;
-      const activeTab = elements.featureView.querySelector(".party-tabs button.active")?.dataset.partyTab || "ledger";
+      const activeTab = elements.featureView.querySelector(".party-tabs button.active")?.dataset.partyTab || "transactions";
       elements.featureView.innerHTML = partiesTemplate(selectedId ? Number(selectedId) : null, activeTab, partySearchQuery);
       bindFeatureActions();
     });
@@ -11186,7 +11186,7 @@ function bindFeatureActions() {
     partyAdvancedFilter = { balanceType: "all", datePreset: "all", dateFrom: "", dateTo: "" };
     partySearchQuery = "";
     if (elements.searchInput) elements.searchInput.value = "";
-    elements.featureView.innerHTML = partiesTemplate(null, "ledger", "");
+    elements.featureView.innerHTML = partiesTemplate(null, "transactions", "");
     bindFeatureActions();
   });
 
@@ -11668,14 +11668,14 @@ function bindFeatureActions() {
   }
   elements.featureView.querySelectorAll("[data-party-id]:not([data-action='edit-party'])").forEach((button) => {
     button.addEventListener("click", () => {
-      elements.featureView.innerHTML = partiesTemplate(Number(button.dataset.partyId), button.dataset.partyTab || "ledger", partySearchQuery);
+      elements.featureView.innerHTML = partiesTemplate(Number(button.dataset.partyId), button.dataset.partyTab || "transactions", partySearchQuery);
       bindFeatureActions();
     });
   });
   const partySearchInput = elements.featureView.querySelector("#partySearchInput");
   partySearchInput?.addEventListener("input", () => {
     const selectedId = elements.featureView.querySelector(".party-list-item.active")?.dataset.partyId;
-    const activeTab = elements.featureView.querySelector(".party-tabs button.active")?.dataset.partyTab || "ledger";
+    const activeTab = elements.featureView.querySelector(".party-tabs button.active")?.dataset.partyTab || "transactions";
     partySearchQuery = partySearchInput.value;
     elements.searchInput.value = partySearchQuery;
     elements.featureView.innerHTML = partiesTemplate(selectedId ? Number(selectedId) : null, activeTab, partySearchQuery);
@@ -16210,7 +16210,7 @@ function bindSyncEvents() {
   });
 }
 
-function partiesTemplate(selectedPartyId = null, activeTab = "ledger", query = partySearchQuery) {
+function partiesTemplate(selectedPartyId = null, activeTab = "transactions", query = partySearchQuery) {
   const normalizedQuery = String(query || "").trim().toLowerCase();
   const allParties = state.parties || [];
   const f = partyAdvancedFilter;
@@ -16370,8 +16370,8 @@ function partyListButton(party, selectedId) {
 }
 
 function partyDetail(party, activeTab) {
-  const tabs = ["ledger", "overview", "transactions", "payments", "notes"];
-  const safeActiveTab = activeTab === "statement" ? "ledger" : activeTab;
+  const tabs = ["transactions", "ledger", "overview", "payments", "notes"];
+  const safeActiveTab = activeTab === "statement" ? "ledger" : (activeTab || "transactions");
   const partyMeta = [party.phone, party.gstin ? `GSTIN ${party.gstin}` : ""]
     .filter(Boolean)
     .map(escapeHtml)
@@ -16439,6 +16439,7 @@ function partyTransactionsTable(party) {
       return true;
     });
   }
+  rows.sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
 
   return `
     <div class="table-card party-transactions-table">
