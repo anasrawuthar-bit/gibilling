@@ -17864,14 +17864,17 @@ function reportPageShell({
           <button class="secondary-button compact-button" data-report-tool="print" type="button">Print</button>
         </div>
       </header>
-      ${showToolbar ? reportFilterToolbar(activeReport) : ""}
-      ${kpis.length ? `<section class="kpi-grid report-kpis">${kpis.map((item) => kpiCard(item.label, item.value, item.note, item.tone)).join("")}</section>` : ""}
+      ${showToolbar
+        ? reportFilterToolbar(activeReport, kpis)
+        : (kpis && kpis.length
+          ? `<div class="report-kpis report-compact-kpis" role="region" aria-label="Report summary metrics">${kpis.map((item) => kpiCard(item.label, item.value, item.note, item.tone)).join("")}</div>`
+          : "")}
       <div class="report-content-stack">${body}</div>
     </section>
   `;
 }
 
-function reportFilterToolbar(activeReport) {
+function reportFilterToolbar(activeReport, kpis = []) {
   const dateScope = reportDateScope();
   const showPartyFilter = [
     "sale", "salesRegister", "salesByCustomer",
@@ -17921,43 +17924,50 @@ function reportFilterToolbar(activeReport) {
 
   return `
     <section class="app-toolbar report-toolbar">
-      <label class="toolbar-search">
-        <span>Search report</span>
-        <input data-report-search="${escapeHtml(activeReport)}" type="search" value="${escapeHtml(reportSearchQuery)}" placeholder="${escapeHtml(placeholder)}">
-      </label>
-      <div class="report-date-controls" aria-label="Report date range">
-        <label><span>Period</span><select class="form-input" data-report-date-preset="${escapeHtml(activeReport)}">
-          <option value="all" ${reportDateFilter.preset === "all" ? "selected" : ""}>All dates</option>
-          <option value="thisMonth" ${reportDateFilter.preset === "thisMonth" ? "selected" : ""}>This month</option>
-          <option value="lastMonth" ${reportDateFilter.preset === "lastMonth" ? "selected" : ""}>Last month</option>
-          <option value="thisQuarter" ${reportDateFilter.preset === "thisQuarter" ? "selected" : ""}>This quarter</option>
-          <option value="thisYear" ${reportDateFilter.preset === "thisYear" ? "selected" : ""}>This financial year</option>
-          <option value="custom" ${reportDateFilter.preset === "custom" ? "selected" : ""}>Custom range</option>
-        </select></label>
-        <label class="report-date-input ${reportDateFilter.preset === "custom" ? "" : "hidden"}"><span>From</span><input class="form-input" data-report-date-from type="date" value="${escapeHtml(dateScope.from || "")}"></label>
-        <label class="report-date-input ${reportDateFilter.preset === "custom" ? "" : "hidden"}"><span>To</span><input class="form-input" data-report-date-to type="date" value="${escapeHtml(dateScope.to || "")}"></label>
-        ${reportDateFilter.preset !== "all" ? `<span class="report-date-summary">${escapeHtml(formatReportDateScope(dateScope))}</span>` : ""}
+      <div class="report-toolbar-filters">
+        <label class="toolbar-search">
+          <span>Search report</span>
+          <input data-report-search="${escapeHtml(activeReport)}" type="search" value="${escapeHtml(reportSearchQuery)}" placeholder="${escapeHtml(placeholder)}">
+        </label>
+        <div class="report-date-controls" aria-label="Report date range">
+          <label><span>Period</span><select class="form-input" data-report-date-preset="${escapeHtml(activeReport)}">
+            <option value="all" ${reportDateFilter.preset === "all" ? "selected" : ""}>All dates</option>
+            <option value="thisMonth" ${reportDateFilter.preset === "thisMonth" ? "selected" : ""}>This month</option>
+            <option value="lastMonth" ${reportDateFilter.preset === "lastMonth" ? "selected" : ""}>Last month</option>
+            <option value="thisQuarter" ${reportDateFilter.preset === "thisQuarter" ? "selected" : ""}>This quarter</option>
+            <option value="thisYear" ${reportDateFilter.preset === "thisYear" ? "selected" : ""}>This financial year</option>
+            <option value="custom" ${reportDateFilter.preset === "custom" ? "selected" : ""}>Custom range</option>
+          </select></label>
+          <label class="report-date-input ${reportDateFilter.preset === "custom" ? "" : "hidden"}"><span>From</span><input class="form-input" data-report-date-from type="date" value="${escapeHtml(dateScope.from || "")}"></label>
+          <label class="report-date-input ${reportDateFilter.preset === "custom" ? "" : "hidden"}"><span>To</span><input class="form-input" data-report-date-to type="date" value="${escapeHtml(dateScope.to || "")}"></label>
+          ${reportDateFilter.preset !== "all" ? `<span class="report-date-summary">${escapeHtml(formatReportDateScope(dateScope))}</span>` : ""}
+        </div>
+        ${showPartyFilter ? `
+          <label class="report-filter-select">
+            <span>Party</span>
+            <select class="form-input" data-report-party-filter="${escapeHtml(activeReport)}">
+              <option value="" ${!reportPartyFilter ? "selected" : ""}>All Parties</option>
+              ${parties.map((p) => `<option value="${escapeHtml(String(p.id || p.name))}" ${reportPartyFilter === String(p.id || p.name) || (activeReport === "partyStatement" && !reportPartyFilter && p === parties[0]) ? "selected" : ""}>${escapeHtml(p.name)}</option>`).join("")}
+            </select>
+          </label>
+        ` : ""}
+        ${showCategoryFilter ? `
+          <label class="report-filter-select">
+            <span>Category</span>
+            <select class="form-input" data-report-category-filter="${escapeHtml(activeReport)}">
+              <option value="" ${!reportCategoryFilter ? "selected" : ""}>All Categories</option>
+              ${categories.map((c) => `<option value="${escapeHtml(c)}" ${reportCategoryFilter === c ? "selected" : ""}>${escapeHtml(c)}</option>`).join("")}
+            </select>
+          </label>
+        ` : ""}
+        ${isFiltered ? `
+          <button class="secondary-button compact-button report-reset-btn" data-report-reset-filters="${escapeHtml(activeReport)}" type="button" title="Clear all filters">Reset</button>
+        ` : ""}
       </div>
-      ${showPartyFilter ? `
-        <label class="report-filter-select">
-          <span>Party</span>
-          <select class="form-input" data-report-party-filter="${escapeHtml(activeReport)}">
-            <option value="" ${!reportPartyFilter ? "selected" : ""}>All Parties</option>
-            ${parties.map((p) => `<option value="${escapeHtml(String(p.id || p.name))}" ${reportPartyFilter === String(p.id || p.name) || (activeReport === "partyStatement" && !reportPartyFilter && p === parties[0]) ? "selected" : ""}>${escapeHtml(p.name)}</option>`).join("")}
-          </select>
-        </label>
-      ` : ""}
-      ${showCategoryFilter ? `
-        <label class="report-filter-select">
-          <span>Category</span>
-          <select class="form-input" data-report-category-filter="${escapeHtml(activeReport)}">
-            <option value="" ${!reportCategoryFilter ? "selected" : ""}>All Categories</option>
-            ${categories.map((c) => `<option value="${escapeHtml(c)}" ${reportCategoryFilter === c ? "selected" : ""}>${escapeHtml(c)}</option>`).join("")}
-          </select>
-        </label>
-      ` : ""}
-      ${isFiltered ? `
-        <button class="secondary-button compact-button report-reset-btn" data-report-reset-filters="${escapeHtml(activeReport)}" type="button" title="Clear all filters">Reset</button>
+      ${kpis && kpis.length ? `
+        <div class="report-kpis report-toolbar-kpis" role="region" aria-label="Report summary metrics">
+          ${kpis.map((item) => kpiCard(item.label, item.value, item.note, item.tone)).join("")}
+        </div>
       ` : ""}
     </section>
   `;
@@ -20989,13 +20999,13 @@ function gstr2bReconReport() {
         <input type="file" id="gstr2bFileInput" accept=".json" style="display:none">
         <span style="color:var(--muted-text);font-size:0.85em;">${portalInvoices.length} portal invoices loaded · ${localPurchases.length} local bills</span>
       </div>
-      <section class="kpi-grid report-kpis">
+      <div class="report-kpis report-compact-kpis" role="region" aria-label="GSTR-2B reconciliation summary">
         ${kpiCard("Matched", String(matchedRows.length), "Same GSTIN + invoice no + tax ≈", "success")}
         ${kpiCard("Mismatched", String(mismatchedRows.length), "Found but tax values differ", "warn")}
         ${kpiCard("Not in GSTR-2B", String(unmatchedLocalRows.length), "Your records not on portal", "danger")}
         ${kpiCard("Portal Only", String(unmatchedPortalRows.length), "Portal has; you don't", "info")}
         ${kpiCard("Eligible ITC", formatCurrency(eligibleITC), "From matched invoices", "success")}
-      </section>
+      </div>
       ${mismatchedRows.length ? reportTableCard("⚠ Mismatched — Review Required", cols, mismatchedRows, "") : ""}
       ${unmatchedLocalRows.length ? reportTableCard("✗ Not in GSTR-2B (Your bills missing from portal)", cols, unmatchedLocalRows, "") : ""}
       ${unmatchedPortalRows.length ? reportTableCard("Portal Only — Add to your books?", cols, unmatchedPortalRows, "") : ""}
