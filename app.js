@@ -278,6 +278,7 @@ const elements = {
   receivableCaption: document.getElementById("receivableCaption"),
   payableCaption: document.getElementById("payableCaption"),
   saleTotal: document.getElementById("saleTotal"),
+  purchaseTotal: document.getElementById("purchaseTotal"),
   salesChart: document.getElementById("salesChart"),
   dashboardPrivacyToggle: document.getElementById("dashboardPrivacyToggle"),
   refreshButton: document.getElementById("refreshButton"),
@@ -896,6 +897,13 @@ function updateDashboardPrivacyAmounts() {
     elements.saleTotal.textContent = isPrivate ? PRIVACY_MASK_TEXT : elements.saleTotal.dataset.actualValue;
     elements.saleTotal.classList.toggle("privacy-masked-text", isPrivate);
   }
+  if (elements.purchaseTotal) {
+    if (!elements.purchaseTotal.dataset.actualValue) {
+      elements.purchaseTotal.dataset.actualValue = elements.purchaseTotal.textContent || "₹ 0";
+    }
+    elements.purchaseTotal.textContent = isPrivate ? PRIVACY_MASK_TEXT : elements.purchaseTotal.dataset.actualValue;
+    elements.purchaseTotal.classList.toggle("privacy-masked-text", isPrivate);
+  }
 }
 
 function initPrivacyModeToggle() {
@@ -961,6 +969,7 @@ function initPrivacyModeToggle() {
   attachHoverPeek("#homeView .metric-card:first-of-type", elements.receivableTotal);
   attachHoverPeek("#homeView .metric-card:nth-of-type(2)", elements.payableTotal);
   attachHoverPeek("#homeView .chart-panel", elements.saleTotal);
+  attachHoverPeek("#homeView .chart-panel", elements.purchaseTotal);
 
   try {
     const saved = localStorage.getItem(STORAGE_KEY);
@@ -7226,10 +7235,14 @@ function renderDashboard() {
   const receivable = (state.parties || []).length ? partyReceivable : sales.reduce((total, entry) => total + invoiceBalanceValue(entry), 0);
   const payable = (state.parties || []).length ? partyPayable : purchases.reduce((total, entry) => total + invoiceBalanceValue(entry), 0);
   const saleTotal = sales.reduce((total, entry) => total + invoiceTotalValue(entry), 0);
+  const purchaseTotal = purchases.reduce((total, entry) => total + invoiceTotalValue(entry), 0);
 
   elements.receivableTotal.dataset.actualValue = formatCurrency(receivable);
   elements.payableTotal.dataset.actualValue = formatCurrency(payable);
   elements.saleTotal.dataset.actualValue = formatCurrency(saleTotal);
+  if (elements.purchaseTotal) {
+    elements.purchaseTotal.dataset.actualValue = formatCurrency(purchaseTotal);
+  }
   updateDashboardPrivacyAmounts();
   elements.receivableCaption.textContent = receivable
     ? "Pending sale payments from customers."
@@ -22850,9 +22863,18 @@ let dashboardChartState = {
   startTime: 0,
   duration: 650,
   activePeriod: "This Month",
-  fromValues: [],
-  targetValues: [],
-  currentValues: [],
+  fromSalesValues: [],
+  targetSalesValues: [],
+  currentSalesValues: [],
+  fromPurchaseValues: [],
+  targetPurchaseValues: [],
+  currentPurchaseValues: [],
+  get fromValues() { return this.fromSalesValues; },
+  set fromValues(v) { this.fromSalesValues = v; },
+  get targetValues() { return this.targetSalesValues; },
+  set targetValues(v) { this.targetSalesValues = v; },
+  get currentValues() { return this.currentSalesValues; },
+  set currentValues(v) { this.currentSalesValues = v; },
   labels: [],
   title: "",
   maxValue: 0,
@@ -22902,16 +22924,23 @@ function scheduleDashboardChartDraw() {
   if (!canvas || elements.homeView?.classList.contains("hidden")) return;
 
   const period = document.getElementById("periodSelect")?.value || "This Month";
-  const series = dashboardSalesSeries(period);
-  const newTarget = series.values;
-  const maxVal = Math.max(...newTarget, 0);
+  const series = dashboardSeries(period);
+  const targetSales = series.salesValues;
+  const targetPurchases = series.purchaseValues;
+
+  const maxVal = Math.max(...targetSales, ...targetPurchases, 0);
   const niceMax = niceChartMax(maxVal);
 
-  const periodTotal = newTarget.reduce((sum, v) => sum + v, 0);
+  const salePeriodTotal = targetSales.reduce((sum, v) => sum + v, 0);
+  const purchasePeriodTotal = targetPurchases.reduce((sum, v) => sum + v, 0);
+
   if (elements.saleTotal) {
-    elements.saleTotal.dataset.actualValue = formatCurrency(periodTotal);
-    updateDashboardPrivacyAmounts();
+    elements.saleTotal.dataset.actualValue = formatCurrency(salePeriodTotal);
   }
+  if (elements.purchaseTotal) {
+    elements.purchaseTotal.dataset.actualValue = formatCurrency(purchasePeriodTotal);
+  }
+  updateDashboardPrivacyAmounts();
 
   const periodChanged = dashboardChartState.activePeriod !== period;
   dashboardChartState.activePeriod = period;
@@ -22920,16 +22949,26 @@ function scheduleDashboardChartDraw() {
   dashboardChartState.maxValue = maxVal;
   dashboardChartState.niceMax = niceMax;
 
-  if (dashboardChartState.currentValues.length === newTarget.length && !periodChanged) {
-    dashboardChartState.fromValues = [...dashboardChartState.currentValues];
-  } else if (dashboardChartState.currentValues.length > 0 && periodChanged) {
-    dashboardChartState.fromValues = resampleChartArray(dashboardChartState.currentValues, newTarget.length);
+  if (dashboardChartState.currentSalesValues.length === targetSales.length && !periodChanged) {
+    dashboardChartState.fromSalesValues = [...dashboardChartState.currentSalesValues];
+  } else if (dashboardChartState.currentSalesValues.length > 0 && periodChanged) {
+    dashboardChartState.fromSalesValues = resampleChartArray(dashboardChartState.currentSalesValues, targetSales.length);
   } else {
-    dashboardChartState.fromValues = new Array(newTarget.length).fill(0);
-    dashboardChartState.currentValues = [...dashboardChartState.fromValues];
+    dashboardChartState.fromSalesValues = new Array(targetSales.length).fill(0);
+    dashboardChartState.currentSalesValues = [...dashboardChartState.fromSalesValues];
   }
 
-  dashboardChartState.targetValues = [...newTarget];
+  if (dashboardChartState.currentPurchaseValues.length === targetPurchases.length && !periodChanged) {
+    dashboardChartState.fromPurchaseValues = [...dashboardChartState.currentPurchaseValues];
+  } else if (dashboardChartState.currentPurchaseValues.length > 0 && periodChanged) {
+    dashboardChartState.fromPurchaseValues = resampleChartArray(dashboardChartState.currentPurchaseValues, targetPurchases.length);
+  } else {
+    dashboardChartState.fromPurchaseValues = new Array(targetPurchases.length).fill(0);
+    dashboardChartState.currentPurchaseValues = [...dashboardChartState.fromPurchaseValues];
+  }
+
+  dashboardChartState.targetSalesValues = [...targetSales];
+  dashboardChartState.targetPurchaseValues = [...targetPurchases];
   dashboardChartState.startTime = performance.now();
   dashboardChartState.isAnimating = true;
 
@@ -22956,10 +22995,17 @@ function startChartRenderLoop() {
       const progress = Math.min(1, Math.max(0, elapsed / dashboardChartState.duration));
       const ease = 1 - Math.pow(1 - progress, 3);
 
-      const from = dashboardChartState.fromValues;
-      const to = dashboardChartState.targetValues;
-      dashboardChartState.currentValues = to.map((targetVal, i) => {
-        const fromVal = from[i] ?? 0;
+      const fromS = dashboardChartState.fromSalesValues;
+      const toS = dashboardChartState.targetSalesValues;
+      dashboardChartState.currentSalesValues = toS.map((targetVal, i) => {
+        const fromVal = fromS[i] ?? 0;
+        return fromVal + (targetVal - fromVal) * ease;
+      });
+
+      const fromP = dashboardChartState.fromPurchaseValues;
+      const toP = dashboardChartState.targetPurchaseValues;
+      dashboardChartState.currentPurchaseValues = toP.map((targetVal, i) => {
+        const fromVal = fromP[i] ?? 0;
         return fromVal + (targetVal - fromVal) * ease;
       });
 
@@ -22967,7 +23013,8 @@ function startChartRenderLoop() {
         needsNext = true;
       } else {
         dashboardChartState.isAnimating = false;
-        dashboardChartState.currentValues = [...dashboardChartState.targetValues];
+        dashboardChartState.currentSalesValues = [...dashboardChartState.targetSalesValues];
+        dashboardChartState.currentPurchaseValues = [...dashboardChartState.targetPurchaseValues];
       }
     }
 
@@ -23049,8 +23096,11 @@ function renderChartCanvas() {
   const plotHeight = height - pad.top - pad.bottom;
   const baselineY = pad.top + plotHeight;
 
-  const values = dashboardChartState.currentValues;
-  const targetValues = dashboardChartState.targetValues;
+  const isAnim = dashboardChartState.isAnimating;
+  const salesVals = isAnim && dashboardChartState.currentSalesValues.length ? dashboardChartState.currentSalesValues : dashboardChartState.targetSalesValues;
+  const targetSales = dashboardChartState.targetSalesValues;
+  const purchVals = isAnim && dashboardChartState.currentPurchaseValues.length ? dashboardChartState.currentPurchaseValues : dashboardChartState.targetPurchaseValues;
+  const targetPurchases = dashboardChartState.targetPurchaseValues;
   const max = dashboardChartState.niceMax;
   const hasData = dashboardChartState.maxValue > 0;
 
@@ -23081,52 +23131,107 @@ function renderChartCanvas() {
     ctx.fillText(labelStr, pad.left - 10, y + 4);
   }
 
-  const points = values.map((val, idx) => {
-    const x = values.length <= 1 ? pad.left + plotWidth / 2 : pad.left + (plotWidth / (values.length - 1)) * idx;
+  const numPoints = Math.max(salesVals.length, purchVals.length);
+  const salesPoints = salesVals.map((val, idx) => {
+    const x = numPoints <= 1 ? pad.left + plotWidth / 2 : pad.left + (plotWidth / (numPoints - 1)) * idx;
     const y = baselineY - (Math.max(0, val) / max) * plotHeight;
-    return { x, y, value: val, origVal: targetValues[idx] || 0 };
+    return { x, y, value: val, origVal: targetSales[idx] || 0 };
   });
 
-  if (hasData && points.length > 1) {
-    ctx.save();
-    ctx.beginPath();
-    drawSmoothSpline(ctx, points, 0.25);
-    ctx.lineTo(points[points.length - 1].x, baselineY);
-    ctx.lineTo(points[0].x, baselineY);
-    ctx.closePath();
+  const purchasePoints = purchVals.map((val, idx) => {
+    const x = numPoints <= 1 ? pad.left + plotWidth / 2 : pad.left + (plotWidth / (numPoints - 1)) * idx;
+    const y = baselineY - (Math.max(0, val) / max) * plotHeight;
+    return { x, y, value: val, origVal: targetPurchases[idx] || 0 };
+  });
 
-    const gradient = ctx.createLinearGradient(0, pad.top, 0, baselineY);
-    gradient.addColorStop(0, "rgba(12, 126, 232, 0.22)");
-    gradient.addColorStop(0.55, "rgba(12, 126, 232, 0.06)");
-    gradient.addColorStop(1, "rgba(12, 126, 232, 0.00)");
-    ctx.fillStyle = gradient;
-    ctx.fill();
-    ctx.restore();
+  const hasPurchases = targetPurchases.some((v) => v > 0);
+  const hasSales = targetSales.some((v) => v > 0);
 
-    ctx.save();
-    ctx.beginPath();
-    drawSmoothSpline(ctx, points, 0.25);
-    ctx.strokeStyle = "#0c7ee8";
-    ctx.lineWidth = 2.75;
-    ctx.lineCap = "round";
-    ctx.lineJoin = "round";
-    ctx.shadowColor = "rgba(12, 126, 232, 0.35)";
-    ctx.shadowBlur = 8;
-    ctx.shadowOffsetY = 3;
-    ctx.stroke();
-    ctx.restore();
-
-    points.forEach((pt) => {
-      if (pt.origVal <= 0) return;
+  if (hasData && numPoints > 1) {
+    // 1. Draw Purchases Area & Spline first (underneath sales)
+    if (hasPurchases) {
+      ctx.save();
       ctx.beginPath();
-      ctx.arc(pt.x, pt.y, 3.5, 0, Math.PI * 2);
-      ctx.fillStyle = "#ffffff";
+      drawSmoothSpline(ctx, purchasePoints, 0.25);
+      ctx.lineTo(purchasePoints[purchasePoints.length - 1].x, baselineY);
+      ctx.lineTo(purchasePoints[0].x, baselineY);
+      ctx.closePath();
+
+      const gradientP = ctx.createLinearGradient(0, pad.top, 0, baselineY);
+      gradientP.addColorStop(0, "rgba(245, 158, 11, 0.16)");
+      gradientP.addColorStop(0.55, "rgba(245, 158, 11, 0.04)");
+      gradientP.addColorStop(1, "rgba(245, 158, 11, 0.00)");
+      ctx.fillStyle = gradientP;
       ctx.fill();
-      ctx.strokeStyle = "#0c7ee8";
-      ctx.lineWidth = 2;
+      ctx.restore();
+
+      ctx.save();
+      ctx.beginPath();
+      drawSmoothSpline(ctx, purchasePoints, 0.25);
+      ctx.strokeStyle = "#f59e0b";
+      ctx.lineWidth = 2.5;
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+      ctx.shadowColor = "rgba(245, 158, 11, 0.26)";
+      ctx.shadowBlur = 7;
+      ctx.shadowOffsetY = 2;
       ctx.stroke();
-    });
-  } else if (!hasData && points.length > 1) {
+      ctx.restore();
+
+      purchasePoints.forEach((pt) => {
+        if (pt.origVal <= 0) return;
+        ctx.beginPath();
+        ctx.arc(pt.x, pt.y, 3.5, 0, Math.PI * 2);
+        ctx.fillStyle = "#ffffff";
+        ctx.fill();
+        ctx.strokeStyle = "#f59e0b";
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      });
+    }
+
+    // 2. Draw Sales Area & Spline
+    if (hasSales) {
+      ctx.save();
+      ctx.beginPath();
+      drawSmoothSpline(ctx, salesPoints, 0.25);
+      ctx.lineTo(salesPoints[salesPoints.length - 1].x, baselineY);
+      ctx.lineTo(salesPoints[0].x, baselineY);
+      ctx.closePath();
+
+      const gradientS = ctx.createLinearGradient(0, pad.top, 0, baselineY);
+      gradientS.addColorStop(0, "rgba(12, 126, 232, 0.20)");
+      gradientS.addColorStop(0.55, "rgba(12, 126, 232, 0.05)");
+      gradientS.addColorStop(1, "rgba(12, 126, 232, 0.00)");
+      ctx.fillStyle = gradientS;
+      ctx.fill();
+      ctx.restore();
+
+      ctx.save();
+      ctx.beginPath();
+      drawSmoothSpline(ctx, salesPoints, 0.25);
+      ctx.strokeStyle = "#0c7ee8";
+      ctx.lineWidth = 2.75;
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+      ctx.shadowColor = "rgba(12, 126, 232, 0.35)";
+      ctx.shadowBlur = 8;
+      ctx.shadowOffsetY = 3;
+      ctx.stroke();
+      ctx.restore();
+
+      salesPoints.forEach((pt) => {
+        if (pt.origVal <= 0) return;
+        ctx.beginPath();
+        ctx.arc(pt.x, pt.y, 3.5, 0, Math.PI * 2);
+        ctx.fillStyle = "#ffffff";
+        ctx.fill();
+        ctx.strokeStyle = "#0c7ee8";
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      });
+    }
+  } else if (!hasData && numPoints > 1) {
     ctx.save();
     ctx.beginPath();
     ctx.setLineDash([5, 5]);
@@ -23138,7 +23243,7 @@ function renderChartCanvas() {
     ctx.setLineDash([]);
     ctx.restore();
 
-    const cardW = Math.min(320, plotWidth - 40);
+    const cardW = Math.min(360, plotWidth - 40);
     const cardH = 54;
     const cardX = pad.left + (plotWidth - cardW) / 2;
     const cardY = pad.top + (plotHeight - cardH) / 2 - 4;
@@ -23165,14 +23270,15 @@ function renderChartCanvas() {
     ctx.textAlign = "center";
     ctx.fillStyle = "#475569";
     ctx.font = "600 12.5px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
-    ctx.fillText("No sales recorded for this period", cardX + cardW / 2, cardY + 23);
+    ctx.fillText("No sales or purchases recorded for this period", cardX + cardW / 2, cardY + 23);
 
     ctx.fillStyle = "#94a3b8";
     ctx.font = "400 11px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
-    ctx.fillText("Sales trends will animate here once invoices are created", cardX + cardW / 2, cardY + 41);
+    ctx.fillText("Sales and purchase trends will animate here once transactions are recorded", cardX + cardW / 2, cardY + 41);
     ctx.restore();
   }
 
+  // X-axis date/time labels
   const labels = dashboardChartState.labels;
   if (labels && labels.length) {
     const labelStep = Math.max(1, Math.ceil(labels.length / 10));
@@ -23182,20 +23288,49 @@ function renderChartCanvas() {
 
     labels.forEach((label, index) => {
       if (index % labelStep !== 0 && index !== labels.length - 1) return;
-      const x = points[index] ? points[index].x : pad.left + (plotWidth / (labels.length - 1)) * index;
+      const x = salesPoints[index] ? salesPoints[index].x : pad.left + (plotWidth / (labels.length - 1)) * index;
       ctx.fillText(label, Math.max(pad.left, Math.min(width - pad.right, x)), baselineY + 18);
     });
   }
 
+  // Canvas Title (top-left)
   ctx.textAlign = "left";
   ctx.fillStyle = "#334155";
   ctx.font = "600 13px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
   ctx.fillText(dashboardChartState.title, pad.left, 16);
 
-  if (dashboardChartState.hoverOpacity > 0.01 && points.length > 0) {
+  // Canvas Legend (top-right)
+  ctx.save();
+  ctx.textAlign = "right";
+  ctx.font = "500 11px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+  const legendRight = width - pad.right;
+  const legendY = 16;
+
+  // Purchases indicator
+  ctx.fillStyle = "#64748b";
+  ctx.fillText("Purchases", legendRight, legendY);
+  const purchTextW = ctx.measureText("Purchases").width;
+  ctx.beginPath();
+  ctx.arc(legendRight - purchTextW - 7, legendY - 3.5, 4, 0, Math.PI * 2);
+  ctx.fillStyle = "#f59e0b";
+  ctx.fill();
+
+  // Sales indicator
+  const salesTextRight = legendRight - purchTextW - 22;
+  ctx.fillStyle = "#64748b";
+  ctx.fillText("Sales", salesTextRight, legendY);
+  const salesTextW = ctx.measureText("Sales").width;
+  ctx.beginPath();
+  ctx.arc(salesTextRight - salesTextW - 7, legendY - 3.5, 4, 0, Math.PI * 2);
+  ctx.fillStyle = "#0c7ee8";
+  ctx.fill();
+  ctx.restore();
+
+  // Hover Tooltip with Dual Values
+  if (dashboardChartState.hoverOpacity > 0.01 && salesPoints.length > 0) {
     let closestIdx = 0;
     let minDist = Infinity;
-    points.forEach((pt, i) => {
+    salesPoints.forEach((pt, i) => {
       const dist = Math.abs(pt.x - dashboardChartState.mouseX);
       if (dist < minDist) {
         minDist = dist;
@@ -23203,51 +23338,85 @@ function renderChartCanvas() {
       }
     });
 
-    const activePt = points[closestIdx];
+    const activeSalePt = salesPoints[closestIdx] || { x: pad.left, y: baselineY, origVal: 0 };
+    const activePurchPt = purchasePoints[closestIdx] || { x: pad.left, y: baselineY, origVal: 0 };
     const hoverAlpha = dashboardChartState.hoverOpacity;
 
     ctx.save();
     ctx.globalAlpha = hoverAlpha;
 
+    // Vertical dashed guideline
     ctx.beginPath();
     ctx.setLineDash([4, 4]);
-    ctx.moveTo(activePt.x, pad.top);
-    ctx.lineTo(activePt.x, baselineY);
-    ctx.strokeStyle = "rgba(12, 126, 232, 0.45)";
+    ctx.moveTo(activeSalePt.x, pad.top);
+    ctx.lineTo(activeSalePt.x, baselineY);
+    ctx.strokeStyle = "rgba(148, 163, 184, 0.45)";
     ctx.lineWidth = 1.25;
     ctx.stroke();
     ctx.setLineDash([]);
 
-    ctx.beginPath();
-    ctx.arc(activePt.x, activePt.y, 9, 0, Math.PI * 2);
-    ctx.fillStyle = "rgba(12, 126, 232, 0.22)";
-    ctx.fill();
+    // Highlight dot on Purchase point
+    if (activePurchPt.origVal > 0) {
+      ctx.beginPath();
+      ctx.arc(activePurchPt.x, activePurchPt.y, 8, 0, Math.PI * 2);
+      ctx.fillStyle = "rgba(245, 158, 11, 0.22)";
+      ctx.fill();
 
-    ctx.beginPath();
-    ctx.arc(activePt.x, activePt.y, 5, 0, Math.PI * 2);
-    ctx.fillStyle = "#ffffff";
-    ctx.fill();
-    ctx.strokeStyle = "#0c7ee8";
-    ctx.lineWidth = 2.5;
-    ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(activePurchPt.x, activePurchPt.y, 4.5, 0, Math.PI * 2);
+      ctx.fillStyle = "#ffffff";
+      ctx.fill();
+      ctx.strokeStyle = "#f59e0b";
+      ctx.lineWidth = 2.5;
+      ctx.stroke();
+    }
 
-    const labelText = labels[closestIdx] ? `${labels[closestIdx]} ${dashboardChartState.activePeriod === "This Month" ? new Date().toLocaleString("en-IN", { month: "short" }) : ""}`.trim() : "";
-    const amountVal = activePt.origVal || 0;
-    const amountText = formatCurrency(amountVal);
+    // Highlight dot on Sale point
+    if (activeSalePt.origVal > 0) {
+      ctx.beginPath();
+      ctx.arc(activeSalePt.x, activeSalePt.y, 8, 0, Math.PI * 2);
+      ctx.fillStyle = "rgba(12, 126, 232, 0.22)";
+      ctx.fill();
 
-    ctx.font = "500 10.5px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
-    const labelWidth = ctx.measureText(labelText).width;
-    ctx.font = "700 12.5px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
-    const amountWidth = ctx.measureText(amountText).width;
+      ctx.beginPath();
+      ctx.arc(activeSalePt.x, activeSalePt.y, 4.5, 0, Math.PI * 2);
+      ctx.fillStyle = "#ffffff";
+      ctx.fill();
+      ctx.strokeStyle = "#0c7ee8";
+      ctx.lineWidth = 2.5;
+      ctx.stroke();
+    }
 
-    const tipW = Math.max(105, Math.max(labelWidth, amountWidth) + 20);
-    const tipH = 46;
-    let tipX = activePt.x - tipW / 2;
+    // Dual-item Tooltip Box
+    const labelText = labels[closestIdx]
+      ? `${labels[closestIdx]} ${dashboardChartState.activePeriod === "This Month" ? new Date().toLocaleString("en-IN", { month: "short" }) : ""}`.trim()
+      : "";
+    const saleVal = activeSalePt.origVal || 0;
+    const purchVal = activePurchPt.origVal || 0;
+    const saleText = `Sale: ${formatCurrency(saleVal)}`;
+    const purchText = `Purchase: ${formatCurrency(purchVal)}`;
+
+    ctx.font = "600 11px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+    const titleWidth = ctx.measureText(labelText).width;
+    ctx.font = "600 12px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+    const saleWidth = ctx.measureText(saleText).width;
+    const purchWidth = ctx.measureText(purchText).width;
+
+    const maxTextW = Math.max(titleWidth, saleWidth, purchWidth);
+    const tipW = Math.max(145, maxTextW + 30);
+    const tipH = 68;
+
+    let tipX = activeSalePt.x - tipW / 2;
     tipX = Math.max(pad.left + 4, Math.min(width - pad.right - tipW - 4, tipX));
-    let tipY = activePt.y - tipH - 12;
-    if (tipY < pad.top + 2) tipY = activePt.y + 14;
+    const highestY = Math.min(
+      activeSalePt.origVal > 0 ? activeSalePt.y : baselineY,
+      activePurchPt.origVal > 0 ? activePurchPt.y : baselineY
+    );
+    let tipY = highestY - tipH - 12;
+    if (tipY < pad.top + 2) tipY = Math.max(activeSalePt.y, activePurchPt.y) + 14;
+    if (tipY + tipH > baselineY) tipY = pad.top + 8;
 
-    ctx.shadowColor = "rgba(15, 23, 42, 0.28)";
+    ctx.shadowColor = "rgba(15, 23, 42, 0.32)";
     ctx.shadowBlur = 12;
     ctx.shadowOffsetY = 4;
     ctx.fillStyle = "rgba(15, 23, 42, 0.94)";
@@ -23266,57 +23435,137 @@ function renderChartCanvas() {
     ctx.stroke();
 
     ctx.shadowColor = "transparent";
+
+    // Header date
     ctx.textAlign = "left";
     ctx.fillStyle = "#94a3b8";
-    ctx.font = "500 10.5px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
-    ctx.fillText(labelText, tipX + 10, tipY + 17);
+    ctx.font = "600 11px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+    ctx.fillText(labelText, tipX + 12, tipY + 16);
 
-    ctx.fillStyle = amountVal > 0 ? "#38bdf8" : "#ffffff";
-    ctx.font = "700 12.5px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
-    ctx.fillText(amountText, tipX + 10, tipY + 36);
+    // Subtle divider
+    ctx.beginPath();
+    ctx.moveTo(tipX + 12, tipY + 22);
+    ctx.lineTo(tipX + tipW - 12, tipY + 22);
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.08)";
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    // Sale row
+    ctx.beginPath();
+    ctx.arc(tipX + 16, tipY + 36, 3.5, 0, Math.PI * 2);
+    ctx.fillStyle = "#38bdf8";
+    ctx.fill();
+
+    ctx.fillStyle = "#e2e8f0";
+    ctx.font = "500 11.5px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+    ctx.fillText("Sale:", tipX + 25, tipY + 39);
+
+    ctx.fillStyle = saleVal > 0 ? "#38bdf8" : "#94a3b8";
+    ctx.font = "700 11.5px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+    ctx.textAlign = "right";
+    ctx.fillText(formatCurrency(saleVal), tipX + tipW - 12, tipY + 39);
+
+    // Purchase row
+    ctx.textAlign = "left";
+    ctx.beginPath();
+    ctx.arc(tipX + 16, tipY + 54, 3.5, 0, Math.PI * 2);
+    ctx.fillStyle = "#fbbf24";
+    ctx.fill();
+
+    ctx.fillStyle = "#e2e8f0";
+    ctx.font = "500 11.5px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+    ctx.fillText("Purchase:", tipX + 25, tipY + 57);
+
+    ctx.fillStyle = purchVal > 0 ? "#fbbf24" : "#94a3b8";
+    ctx.font = "700 11.5px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+    ctx.textAlign = "right";
+    ctx.fillText(formatCurrency(purchVal), tipX + tipW - 12, tipY + 57);
 
     ctx.restore();
   }
 }
 
-function dashboardSalesSeries(period) {
+function dashboardSeries(period) {
   const now = new Date();
   const sales = invoiceRowsForType("sale")
     .filter((entry) => invoiceStatusKey(entry) !== "cancelled")
     .map((entry) => ({ entry, date: dashboardEntryDate(entry), amount: invoiceTotalValue(entry) }))
     .filter((row) => row.date && Number.isFinite(row.amount));
 
+  const purchases = invoiceRowsForType("purchase")
+    .filter((entry) => invoiceStatusKey(entry) !== "cancelled")
+    .map((entry) => ({ entry, date: dashboardEntryDate(entry), amount: invoiceTotalValue(entry) }))
+    .filter((row) => row.date && Number.isFinite(row.amount));
+
   if (period === "Today") {
     const labels = ["12 AM", "3 AM", "6 AM", "9 AM", "12 PM", "3 PM", "6 PM", "9 PM"];
-    const values = Array(labels.length).fill(0);
+    const salesValues = Array(labels.length).fill(0);
+    const purchaseValues = Array(labels.length).fill(0);
     sales.forEach((row) => {
       if (!sameDate(row.date, now)) return;
       const index = Math.min(labels.length - 1, Math.floor(row.date.getHours() / 3));
-      values[index] += row.amount;
+      salesValues[index] += row.amount;
     });
-    return { title: "Sales Today", labels, values };
+    purchases.forEach((row) => {
+      if (!sameDate(row.date, now)) return;
+      const index = Math.min(labels.length - 1, Math.floor(row.date.getHours() / 3));
+      purchaseValues[index] += row.amount;
+    });
+    return {
+      title: "Sales & Purchases Today",
+      labels,
+      salesValues,
+      purchaseValues,
+      values: salesValues,
+    };
   }
 
   if (period === "This Year") {
     const labels = Array.from({ length: 12 }, (_, index) => new Date(now.getFullYear(), index, 1).toLocaleString("en-IN", { month: "short" }));
-    const values = Array(12).fill(0);
+    const salesValues = Array(12).fill(0);
+    const purchaseValues = Array(12).fill(0);
     sales.forEach((row) => {
       if (row.date.getFullYear() !== now.getFullYear()) return;
-      values[row.date.getMonth()] += row.amount;
+      salesValues[row.date.getMonth()] += row.amount;
     });
-    return { title: `Sales in ${now.getFullYear()}`, labels, values };
+    purchases.forEach((row) => {
+      if (row.date.getFullYear() !== now.getFullYear()) return;
+      purchaseValues[row.date.getMonth()] += row.amount;
+    });
+    return {
+      title: `Sales & Purchases in ${now.getFullYear()}`,
+      labels,
+      salesValues,
+      purchaseValues,
+      values: salesValues,
+    };
   }
 
   const year = now.getFullYear();
   const month = now.getMonth();
   const daysInMonth = new Date(year, month + 1, 0).getDate();
   const labels = Array.from({ length: daysInMonth }, (_, index) => String(index + 1));
-  const values = Array(daysInMonth).fill(0);
+  const salesValues = Array(daysInMonth).fill(0);
+  const purchaseValues = Array(daysInMonth).fill(0);
   sales.forEach((row) => {
     if (row.date.getFullYear() !== year || row.date.getMonth() !== month) return;
-    values[row.date.getDate() - 1] += row.amount;
+    salesValues[row.date.getDate() - 1] += row.amount;
   });
-  return { title: `Sales in ${now.toLocaleString("en-IN", { month: "long", year: "numeric" })}`, labels, values };
+  purchases.forEach((row) => {
+    if (row.date.getFullYear() !== year || row.date.getMonth() !== month) return;
+    purchaseValues[row.date.getDate() - 1] += row.amount;
+  });
+  return {
+    title: `Sales & Purchases in ${now.toLocaleString("en-IN", { month: "long", year: "numeric" })}`,
+    labels,
+    salesValues,
+    purchaseValues,
+    values: salesValues,
+  };
+}
+
+function dashboardSalesSeries(period) {
+  return dashboardSeries(period);
 }
 
 function dashboardEntryDate(entry) {

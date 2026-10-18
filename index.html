@@ -273,10 +273,23 @@
             </div>
 
             <article class="chart-panel">
-              <div class="panel-heading">
-                <div>
-                  <p>Total Sale</p>
-                  <strong id="saleTotal">₹ 0</strong>
+              <div class="panel-heading dashboard-chart-heading">
+                <div class="chart-metrics-row">
+                  <div class="chart-metric-item">
+                    <div class="chart-metric-label">
+                      <span class="chart-legend-dot legend-sale"></span>
+                      <span>Total Sale</span>
+                    </div>
+                    <strong id="saleTotal">₹ 0</strong>
+                  </div>
+                  <div class="chart-metric-divider"></div>
+                  <div class="chart-metric-item">
+                    <div class="chart-metric-label">
+                      <span class="chart-legend-dot legend-purchase"></span>
+                      <span>Total Purchase</span>
+                    </div>
+                    <strong id="purchaseTotal">₹ 0</strong>
+                  </div>
                 </div>
                 <select id="periodSelect" aria-label="Report period">
                   <option>This Month</option>
@@ -285,7 +298,7 @@
                 </select>
               </div>
               <div class="chart-wrap">
-                <canvas id="salesChart" width="920" height="260" aria-label="Sales chart"></canvas>
+                <canvas id="salesChart" width="920" height="260" aria-label="Sales and Purchases chart"></canvas>
               </div>
             </article>
 
