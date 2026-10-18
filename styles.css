@@ -8188,17 +8188,27 @@ body.privacy-mode-active .chart-wrap canvas,
 .item-search {
   display: grid;
   gap: 4px;
-  color: #64748b;
+  color: #657398;
   font-size: 11px;
-  font-weight: 500;
+}
+
+.item-search span {
+  font-size: 11px;
+  font-weight: 700;
+  color: #657398;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 
 .item-search input {
-  height: 32px;
-  border: 1px solid #cbd5e1;
-  border-radius: 5px;
-  padding: 0 10px;
-  font-size: 12px;
+  height: 36px;
+  border: 1px solid #cbd7e6;
+  border-radius: 6px;
+  padding: 0 12px;
+  font-size: 13px;
+  color: var(--ink);
+  background: #fff;
+  box-sizing: border-box;
 }
 
 .item-list-meta {
@@ -10458,15 +10468,17 @@ body .entry-form .item-tab-panel.active {
   border-color: var(--accent);
 }
 
-/* ── Party Filter Selects & Date Types ────────────────────────────────────── */
+/* ── Filter Selects & Date Types (Parties & Items) ────────────────────────── */
 
-.party-filter-select-field {
+.party-filter-select-field,
+.item-filter-select-field {
   display: flex;
   flex-direction: column;
   gap: 4px;
 }
 
-.party-filter-select-field span {
+.party-filter-select-field span,
+.item-filter-select-field span {
   font-size: 11px;
   font-weight: 700;
   color: #657398;
@@ -10474,7 +10486,8 @@ body .entry-form .item-tab-panel.active {
   letter-spacing: 0.04em;
 }
 
-.party-filter-select {
+.party-filter-select,
+.item-filter-select {
   height: 36px;
   border: 1px solid #cbd7e6;
   border-radius: 6px;
@@ -10490,23 +10503,27 @@ body .entry-form .item-tab-panel.active {
   transition: border-color 0.15s, box-shadow 0.15s;
 }
 
-.party-filter-select:hover {
+.party-filter-select:hover,
+.item-filter-select:hover {
   border-color: #94a3b8;
 }
 
-.party-filter-select:focus {
+.party-filter-select:focus,
+.item-filter-select:focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 2px rgba(12, 126, 232, 0.15);
   outline: none;
 }
 
-.party-filter-custom-dates {
+.party-filter-custom-dates,
+.item-filter-custom-dates {
   display: flex;
   align-items: flex-end;
   gap: 8px;
 }
 
-.party-filter-date {
+.party-filter-date,
+.item-filter-date {
   height: 36px;
   border: 1px solid #cbd7e6;
   border-radius: 6px;
@@ -10518,7 +10535,8 @@ body .entry-form .item-tab-panel.active {
   box-sizing: border-box;
 }
 
-.party-filter-range-badge {
+.party-filter-range-badge,
+.item-filter-range-badge {
   display: inline-flex;
   align-items: center;
   height: 36px;
@@ -10533,7 +10551,8 @@ body .entry-form .item-tab-panel.active {
   box-sizing: border-box;
 }
 
-.party-ledger-period-banner {
+.party-ledger-period-banner,
+.item-ledger-period-banner {
   display: flex;
   justify-content: space-between;
   align-items: center;

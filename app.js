@@ -94,7 +94,7 @@ let purchaseTopFilter = { preset: "thisMonth", dateFrom: "", dateTo: "", party: 
 let saleColumnFilters = {};    // { colKey: { category, value, value2 } }
 let purchaseColumnFilters = {}; // same
 let partyAdvancedFilter = { balanceType: "all", datePreset: "all", dateFrom: "", dateTo: "" };
-let itemAdvancedFilter = { category: "", itemType: "all", stockLevel: "all" };
+let itemAdvancedFilter = { category: "", itemType: "all", stockLevel: "all", datePreset: "all", dateFrom: "", dateTo: "" };
 
 let posCart = [];
 let posCustomerQuery = "";
@@ -7419,6 +7419,12 @@ function getPartyDateRange(f) {
   return datePresetRange(f.datePreset);
 }
 
+function getItemDateRange(f) {
+  if (!f || !f.datePreset || f.datePreset === "all") return { from: "", to: "" };
+  if (f.datePreset === "custom") return { from: f.dateFrom || "", to: f.dateTo || "" };
+  return datePresetRange(f.datePreset);
+}
+
 function formatLocalIsoDate(date) {
   if (!(date instanceof Date) || Number.isNaN(date.getTime())) return "";
   const year = date.getFullYear();
@@ -11297,6 +11303,62 @@ function bindFeatureActions() {
   });
 
   // ── Item Filters ──────────────────────────────────────────────────────────
+  const itemStockFilterSelect = elements.featureView.querySelector("#itemStockFilterSelect");
+  if (itemStockFilterSelect) {
+    itemStockFilterSelect.addEventListener("change", (e) => {
+      itemAdvancedFilter.stockLevel = e.target.value;
+      const selectedId = elements.featureView.querySelector(".item-list-item.active")?.dataset.itemId;
+      elements.featureView.innerHTML = itemsTemplate(selectedId ? Number(selectedId) : null, "overview", itemSearchQuery);
+      bindFeatureActions();
+    });
+  }
+
+  const itemTypeFilterSelect = elements.featureView.querySelector("#itemTypeFilterSelect");
+  if (itemTypeFilterSelect) {
+    itemTypeFilterSelect.addEventListener("change", (e) => {
+      itemAdvancedFilter.itemType = e.target.value;
+      const selectedId = elements.featureView.querySelector(".item-list-item.active")?.dataset.itemId;
+      elements.featureView.innerHTML = itemsTemplate(selectedId ? Number(selectedId) : null, "overview", itemSearchQuery);
+      bindFeatureActions();
+    });
+  }
+
+  const itemCategoryFilter = elements.featureView.querySelector("#itemCategoryFilter");
+  if (itemCategoryFilter) {
+    itemCategoryFilter.addEventListener("change", (e) => {
+      itemAdvancedFilter.category = itemCategoryFilter.value;
+      const selectedId = elements.featureView.querySelector(".item-list-item.active")?.dataset.itemId;
+      elements.featureView.innerHTML = itemsTemplate(selectedId ? Number(selectedId) : null, "overview", itemSearchQuery);
+      bindFeatureActions();
+    });
+  }
+
+  const itemDateTypeSelect = elements.featureView.querySelector("#itemDateTypeSelect");
+  if (itemDateTypeSelect) {
+    itemDateTypeSelect.addEventListener("change", (e) => {
+      itemAdvancedFilter.datePreset = e.target.value;
+      if (e.target.value !== "custom") {
+        itemAdvancedFilter.dateFrom = "";
+        itemAdvancedFilter.dateTo = "";
+      }
+      const selectedId = elements.featureView.querySelector(".item-list-item.active")?.dataset.itemId;
+      elements.featureView.innerHTML = itemsTemplate(selectedId ? Number(selectedId) : null, "overview", itemSearchQuery);
+      bindFeatureActions();
+    });
+  }
+
+  const itemDateFrom = elements.featureView.querySelector("#itemDateFrom");
+  const itemDateTo = elements.featureView.querySelector("#itemDateTo");
+  const onItemDateChange = () => {
+    itemAdvancedFilter.dateFrom = itemDateFrom?.value || "";
+    itemAdvancedFilter.dateTo = itemDateTo?.value || "";
+    const selectedId = elements.featureView.querySelector(".item-list-item.active")?.dataset.itemId;
+    elements.featureView.innerHTML = itemsTemplate(selectedId ? Number(selectedId) : null, "overview", itemSearchQuery);
+    bindFeatureActions();
+  };
+  itemDateFrom?.addEventListener("change", onItemDateChange);
+  itemDateTo?.addEventListener("change", onItemDateChange);
+
   elements.featureView.querySelectorAll("[data-item-type-filter]").forEach((btn) => {
     btn.addEventListener("click", () => {
       itemAdvancedFilter.itemType = btn.dataset.itemTypeFilter;
@@ -11315,17 +11377,11 @@ function bindFeatureActions() {
     });
   });
 
-  const itemCategoryFilter = elements.featureView.querySelector("#itemCategoryFilter");
-  itemCategoryFilter?.addEventListener("change", () => {
-    itemAdvancedFilter.category = itemCategoryFilter.value;
-    const selectedId = elements.featureView.querySelector(".item-list-item.active")?.dataset.itemId;
-    elements.featureView.innerHTML = itemsTemplate(selectedId ? Number(selectedId) : null, "overview", itemSearchQuery);
-    bindFeatureActions();
-  });
-
   elements.featureView.querySelector("#clearItemFilters")?.addEventListener("click", () => {
-    itemAdvancedFilter = { category: "", itemType: "all", stockLevel: "all" };
-    elements.featureView.innerHTML = itemsTemplate(null, "overview", itemSearchQuery);
+    itemAdvancedFilter = { category: "", itemType: "all", stockLevel: "all", datePreset: "all", dateFrom: "", dateTo: "" };
+    itemSearchQuery = "";
+    if (elements.searchInput) elements.searchInput.value = "";
+    elements.featureView.innerHTML = itemsTemplate(null, "overview", "");
     bindFeatureActions();
   });
 
@@ -16757,6 +16813,7 @@ function itemsTemplate(selectedItemId = null, activeTab = "overview", query = it
   const normalizedQuery = String(query || "").trim().toLowerCase();
   const allItems = (state.items || []).filter((item) => !isExpenseItem(item));
   const f = itemAdvancedFilter;
+  const range = getItemDateRange(f);
   const searchedItems = normalizedQuery
     ? allItems.filter((item) => itemMatchesQuery(item, normalizedQuery))
     : allItems;
@@ -16775,6 +16832,32 @@ function itemsTemplate(selectedItemId = null, activeTab = "overview", query = it
     .map((c) => c.name);
   const itemCategories = allItems.map((item) => item.category || "").filter(Boolean);
   const categories = mergeChoiceList(masterCategories, itemCategories).sort((a, b) => a.localeCompare(b));
+
+  const filterOptions = [
+    { value: "all", label: "All Items" },
+    { value: "instock", label: "In Stock" },
+    { value: "low", label: "Low Stock" },
+    { value: "out", label: "Out of Stock" },
+    { value: "active", label: "Active in Period" },
+  ];
+
+  const itemTypeOptions = [
+    { value: "all", label: "All Types" },
+    { value: "product", label: "Products" },
+    { value: "service", label: "Services" },
+  ];
+
+  const dateTypeOptions = [
+    { value: "all", label: "All Dates" },
+    { value: "today", label: "Today" },
+    { value: "yesterday", label: "Yesterday" },
+    { value: "thisWeek", label: "This Week" },
+    { value: "thisMonth", label: "This Month" },
+    { value: "lastMonth", label: "Last Month" },
+    { value: "thisQuarter", label: "This Quarter" },
+    { value: "thisYear", label: "This Financial Year" },
+    { value: "custom", label: "Custom Range" },
+  ];
 
   return `
     <section class="items-page">
@@ -16799,28 +16882,67 @@ function itemsTemplate(selectedItemId = null, activeTab = "overview", query = it
       </section>
 
       <div class="item-filter-bar">
-        <label class="item-search"><span>Search</span><input id="itemSearchInput" value="${escapeHtml(String(query || ""))}" placeholder="Name, SKU, HSN/SAC, category"></label>
-        <div class="party-filter-pills">
-          <button class="party-filter-pill ${f.itemType === "all" ? "active" : ""}" data-item-type-filter="all" type="button">All</button>
-          <button class="party-filter-pill ${f.itemType === "product" ? "active" : ""}" data-item-type-filter="product" type="button">Products</button>
-          <button class="party-filter-pill ${f.itemType === "service" ? "active" : ""}" data-item-type-filter="service" type="button">Services</button>
-        </div>
-        <div class="party-filter-pills">
-          <button class="party-filter-pill ${f.stockLevel === "all" ? "active" : ""}" data-item-stock-filter="all" type="button">All Stock</button>
-          <button class="party-filter-pill ${f.stockLevel === "instock" ? "active" : ""}" data-item-stock-filter="instock" type="button"><span class="pill-dot green"></span>In Stock</button>
-          <button class="party-filter-pill ${f.stockLevel === "low" ? "active" : ""}" data-item-stock-filter="low" type="button"><span class="pill-dot amber"></span>Low Stock</button>
-          <button class="party-filter-pill ${f.stockLevel === "out" ? "active" : ""}" data-item-stock-filter="out" type="button"><span class="pill-dot red"></span>Out of Stock</button>
-        </div>
+        <label class="item-search">
+          <span>Search</span>
+          <input id="itemSearchInput" value="${escapeHtml(String(query || ""))}" placeholder="Name, SKU, HSN/SAC, category">
+        </label>
+
+        <label class="adv-filter-field item-filter-select-field">
+          <span>Filter Options</span>
+          <select class="form-input compact-input item-filter-select" id="itemStockFilterSelect">
+            ${filterOptions.map((opt) => `
+              <option value="${opt.value}" ${f.stockLevel === opt.value ? "selected" : ""}>${escapeHtml(opt.label)}</option>
+            `).join("")}
+          </select>
+        </label>
+
+        <label class="adv-filter-field item-filter-select-field">
+          <span>Item Type</span>
+          <select class="form-input compact-input item-filter-select" id="itemTypeFilterSelect">
+            ${itemTypeOptions.map((opt) => `
+              <option value="${opt.value}" ${f.itemType === opt.value ? "selected" : ""}>${escapeHtml(opt.label)}</option>
+            `).join("")}
+          </select>
+        </label>
+
         ${categories.length ? `
-          <label class="adv-filter-field" style="min-width:160px">
+          <label class="adv-filter-field item-filter-select-field">
             <span>Category</span>
-            <select class="form-input compact-input" id="itemCategoryFilter">
+            <select class="form-input compact-input item-filter-select" id="itemCategoryFilter">
               <option value="">All Categories</option>
               ${categories.map((c) => `<option value="${escapeHtml(c)}" ${f.category === c ? "selected" : ""}>${escapeHtml(c)}</option>`).join("")}
             </select>
           </label>
         ` : ""}
-        ${activeFilterCount > 0 ? `<button class="filter-clear-btn" type="button" id="clearItemFilters">Clear</button>` : ""}
+
+        <label class="adv-filter-field item-filter-select-field">
+          <span>Date Type</span>
+          <select class="form-input compact-input item-filter-select" id="itemDateTypeSelect">
+            ${dateTypeOptions.map((opt) => `
+              <option value="${opt.value}" ${f.datePreset === opt.value ? "selected" : ""}>${escapeHtml(opt.label)}</option>
+            `).join("")}
+          </select>
+        </label>
+
+        ${f.datePreset === "custom" ? `
+          <div class="item-filter-custom-dates">
+            <label class="adv-filter-field">
+              <span>From</span>
+              <input type="date" class="form-input compact-input item-filter-date" id="itemDateFrom" value="${escapeHtml(f.dateFrom || "")}">
+            </label>
+            <label class="adv-filter-field">
+              <span>To</span>
+              <input type="date" class="form-input compact-input item-filter-date" id="itemDateTo" value="${escapeHtml(f.dateTo || "")}">
+            </label>
+          </div>
+        ` : (range.from || range.to) ? `
+          <div class="item-filter-range-badge" title="Active period date range">
+            <svg class="gi-icon" style="width:13px;height:13px;margin-right:4px;"><use href="#gi-calendar"></use></svg>
+            <span>${formatDate(range.from)} &ndash; ${formatDate(range.to)}</span>
+          </div>
+        ` : ""}
+
+        ${(activeFilterCount > 0 || normalizedQuery) ? `<button class="filter-clear-btn" type="button" id="clearItemFilters">Clear</button>` : ""}
       </div>
 
       <div class="items-layout">
@@ -16839,6 +16961,10 @@ function itemsTemplate(selectedItemId = null, activeTab = "overview", query = it
 }
 
 function applyItemAdvancedFilter(items, f) {
+  const range = getItemDateRange(f);
+  const fromDate = range.from ? parseLocalIsoDate(range.from) : null;
+  const toDate = range.to ? parseLocalIsoDate(range.to, true) : null;
+
   return items.filter((item) => {
     if (f.itemType && f.itemType !== "all") {
       if (String(item.itemType || "product") !== f.itemType) return false;
@@ -16851,7 +16977,38 @@ function applyItemAdvancedFilter(items, f) {
       if (f.stockLevel === "instock" && stock <= 0) return false;
       if (f.stockLevel === "low" && (stock <= 0 || stock > 10)) return false;
       if (f.stockLevel === "out" && stock > 0) return false;
+      if (f.stockLevel === "active") {
+        const hasActivity = itemHasActivityInRange(item, fromDate, toDate);
+        if (!hasActivity) return false;
+      }
     }
+    return true;
+  });
+}
+
+function itemHasActivityInRange(item, fromDate, toDate) {
+  const movements = (state.stockMovements || []).filter((m) => itemMovementMatchesItem(m, item));
+  const invoiceLines = (state.invoiceItems || []).filter((line) => itemLineMatchesItem(line, item));
+  if (!fromDate && !toDate) {
+    return movements.length > 0 || invoiceLines.length > 0;
+  }
+  const hasMovement = movements.some((m) => {
+    const d = parseLocalIsoDate(m.movementDate || m.date || "");
+    if (!d) return false;
+    if (fromDate && d < fromDate) return false;
+    if (toDate && d > toDate) return false;
+    return true;
+  });
+  if (hasMovement) return true;
+
+  const invoiceMap = new Map((state.invoices || []).map((inv) => [inv.id, inv]));
+  return invoiceLines.some((line) => {
+    const inv = invoiceMap.get(line.invoiceId);
+    if (!inv) return false;
+    const d = parseLocalIsoDate(inv.date || inv.invoiceDate || "");
+    if (!d) return false;
+    if (fromDate && d < fromDate) return false;
+    if (toDate && d > toDate) return false;
     return true;
   });
 }
@@ -17243,8 +17400,25 @@ function itemDetail(item) {
 
 function itemStockLedgerTable(item) {
   const invoiceMap = new Map((state.invoices || []).map((invoice) => [invoice.id, invoice]));
-  const rows = (state.stockMovements || [])
-    .filter((movement) => itemMovementMatchesItem(movement, item))
+  const f = itemAdvancedFilter;
+  const range = getItemDateRange(f);
+  const fromDate = range.from ? parseLocalIsoDate(range.from) : null;
+  const toDate = range.to ? parseLocalIsoDate(range.to, true) : null;
+
+  let movements = (state.stockMovements || [])
+    .filter((movement) => itemMovementMatchesItem(movement, item));
+
+  if (fromDate || toDate) {
+    movements = movements.filter((movement) => {
+      const d = parseLocalIsoDate(movement.movementDate || movement.date || "");
+      if (!d) return false;
+      if (fromDate && d < fromDate) return false;
+      if (toDate && d > toDate) return false;
+      return true;
+    });
+  }
+
+  const rows = movements
     .sort((a, b) => new Date(a.movementDate) - new Date(b.movementDate))
     .map((movement) => {
       const qty = Number(movement.quantity || 0);
@@ -17260,7 +17434,16 @@ function itemStockLedgerTable(item) {
         formatCurrency(movement.rate || 0),
       ];
     });
-  return basicPartyTable(["Date", "Type", "Reference", "Qty In", "Qty Out", "Rate"], rows, "No stock movements found.");
+
+  const periodBanner = (range.from || range.to)
+    ? `<div class="item-ledger-period-banner"><span>Period: <strong>${formatDate(range.from)} &ndash; ${formatDate(range.to)}</strong> (${rows.length} movement${rows.length === 1 ? "" : "s"})</span></div>`
+    : "";
+
+  return periodBanner + basicPartyTable(
+    ["Date", "Type", "Reference", "Qty In", "Qty Out", "Rate"],
+    rows,
+    (range.from || range.to) ? "No stock movements found for this period." : "No stock movements found."
+  );
 }
 
 function itemPricingPanel(item) {
