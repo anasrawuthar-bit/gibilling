@@ -14511,7 +14511,7 @@ function expenseModalTemplate(record = null) {
                 <input class="form-input uppercase-field" name="partyGstin" id="expensePartyGstin" value="${escapeHtml(meta.partyGstin || "")}" maxlength="15" placeholder="22AAAAA0000A1Z5">
               </label>
 
-              <label class="expense-field gst-only">
+              <label class="expense-field gst-only expense-pos-field">
                 <span class="field-label">Place of Supply</span>
                 <select class="form-input" name="placeOfSupply" id="expensePlaceOfSupply">${indianStateOptions(placeOfSupply)}</select>
               </label>

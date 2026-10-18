@@ -1986,18 +1986,646 @@ body.privacy-mode-active .chart-wrap canvas,
   background: #ffe4ea;
 }
 
+/* Screen reader only utility */
+.sr-only {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+}
+
+/* ==========================================================================
+   Modern Expense Modal (Add / Edit Expense & GST Mode)
+   ========================================================================== */
+
 .expense-modal {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
-  width: min(920px, calc(100vw - 64px));
-  max-height: calc(100vh - 72px);
+  width: min(860px, calc(100vw - 48px));
+  max-height: calc(100vh - 48px);
   overflow: hidden;
-  border-radius: 8px;
-  background: #fff;
-  box-shadow: 0 24px 70px rgba(15, 23, 42, 0.24);
+  border-radius: 12px;
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  box-shadow: 0 25px 50px -12px rgba(15, 23, 42, 0.28);
 }
 
-.expense-modal header,
+.expense-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 60px;
+  border-bottom: 1px solid #e2e8f0;
+  padding: 12px 22px;
+  background: #ffffff;
+}
+
+.expense-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  background: #ffe4e6;
+  color: #e11d48;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+}
+
+.expense-icon .gi-icon {
+  width: 22px;
+  height: 22px;
+}
+
+.expense-modal-header h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+  color: #0f172a;
+  line-height: 1.2;
+}
+
+.expense-modal-header .entry-modal-subtitle {
+  margin: 2px 0 0;
+  font-size: 12px;
+  color: #64748b;
+  line-height: 1.3;
+}
+
+.expense-header-right {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.expense-mode-toggle {
+  display: inline-flex;
+  background: #f1f5f9;
+  padding: 3px;
+  border-radius: 8px;
+  gap: 3px;
+  border: 1px solid #e2e8f0;
+}
+
+.expense-mode-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background: transparent;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  color: #64748b;
+  transition: all 0.15s ease;
+  font-family: inherit;
+}
+
+.expense-mode-chip:hover {
+  color: #0f172a;
+}
+
+.expense-mode-chip.active {
+  background: #ffffff;
+  color: #0284c7;
+  border-color: #cbd5e1;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
+}
+
+.expense-mode-chip .mode-name {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.expense-mode-chip .mode-badge {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: #e2e8f0;
+  color: #64748b;
+  letter-spacing: 0.02em;
+}
+
+.expense-mode-chip.active .mode-badge {
+  background: #e0f2fe;
+  color: #0284c7;
+}
+
+.expense-header-right .close-button {
+  width: 32px;
+  height: 32px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #64748b;
+  font-size: 20px;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  line-height: 1;
+  transition: all 0.15s ease;
+}
+
+.expense-header-right .close-button:hover {
+  background: #f1f5f9;
+  border-color: #cbd5e1;
+  color: #0f172a;
+}
+
+/* Visibility toggling based on Mode */
+.expense-modal.is-nongst-mode .gst-only {
+  display: none !important;
+}
+
+.expense-modal.is-gst-mode .nongst-only {
+  display: none !important;
+}
+
+/* Scrollable Modal Body */
+.expense-modal-body {
+  padding: 14px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow-y: auto;
+  background: #f8fafc;
+  min-height: 0;
+}
+
+.expense-card {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03);
+}
+
+.expense-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.expense-card-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #0f172a;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.expense-mode-hint {
+  font-size: 12px;
+  font-weight: 500;
+  color: #64748b;
+}
+
+/* Field Grid Layouts */
+.expense-form-grid-3 {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  width: 100%;
+}
+
+.expense-modal.is-nongst-mode .expense-amount-card .expense-form-grid-3 {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.expense-modal.is-gst-mode .expense-amount-card .expense-form-grid-3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.expense-field.expense-pos-field {
+  grid-column: span 2;
+}
+
+/* Form Fields */
+.expense-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+
+.expense-field .field-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #334155;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.expense-field .field-label .req {
+  color: #e11d48;
+  font-weight: 700;
+}
+
+.expense-field .form-input {
+  width: 100%;
+  height: 36px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  padding: 0 12px;
+  font-size: 13px;
+  color: #0f172a;
+  background: #ffffff;
+  box-sizing: border-box;
+  transition: border-color 0.15s, box-shadow 0.15s;
+  font-family: inherit;
+}
+
+.expense-field .form-input:focus {
+  border-color: #0284c7;
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(2, 132, 199, 0.12);
+}
+
+.expense-field select.form-input {
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%2364748b' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e");
+  background-position: right 10px center;
+  background-repeat: no-repeat;
+  background-size: 16px 16px;
+  padding-right: 30px;
+}
+
+.expense-field textarea.form-input {
+  height: auto;
+  min-height: 60px;
+  padding: 8px 12px;
+  resize: vertical;
+}
+
+.expense-field .input-with-prefix {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+
+.expense-field .input-with-prefix .prefix {
+  position: absolute;
+  left: 12px;
+  color: #64748b;
+  font-weight: 600;
+  font-size: 13px;
+  pointer-events: none;
+}
+
+.expense-field .input-with-prefix .form-input {
+  padding-left: 28px;
+  width: 100%;
+}
+
+/* Category Quick Chips */
+.expense-category-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding-top: 2px;
+}
+
+.expense-cat-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 11px;
+  border-radius: 14px;
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+  color: #475569;
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.12s ease;
+  font-family: inherit;
+}
+
+.expense-cat-chip:hover {
+  background: #f1f5f9;
+  border-color: #cbd5e1;
+  color: #0f172a;
+}
+
+.expense-cat-chip.active {
+  background: #eff6ff;
+  border-color: #93c5fd;
+  color: #1d4ed8;
+  font-weight: 600;
+}
+
+/* Payment Method & Status */
+.expense-payment-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  padding-top: 10px;
+  border-top: 1px solid #f1f5f9;
+}
+
+.expense-chips-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.expense-chip {
+  padding: 5px 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #475569;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.12s ease;
+  font-family: inherit;
+}
+
+.expense-chip:hover {
+  background: #f8fafc;
+  border-color: #cbd5e1;
+  color: #0f172a;
+}
+
+.expense-chip.active {
+  background: #0284c7;
+  color: #ffffff;
+  border-color: #0284c7;
+  box-shadow: 0 1px 3px rgba(2, 132, 199, 0.2);
+}
+
+.expense-chip.status-chip.paid.active {
+  background: #16a34a;
+  border-color: #16a34a;
+  color: #ffffff;
+}
+
+.expense-chip.status-chip.due.active {
+  background: #e11d48;
+  border-color: #e11d48;
+  color: #ffffff;
+}
+
+.expense-chip.status-chip.partial.active {
+  background: #d97706;
+  border-color: #d97706;
+  color: #ffffff;
+}
+
+.expense-paid-amount-row {
+  display: flex;
+  padding-top: 8px;
+  max-width: 320px;
+}
+
+.expense-paid-amount-row.hidden {
+  display: none !important;
+}
+
+/* Real-Time Tax Summary Breakdown */
+.expense-tax-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 8px;
+  padding-top: 10px;
+  border-top: 1px solid #f1f5f9;
+}
+
+.expense-tax-summary:empty {
+  display: none;
+}
+
+.expense-tax-summary .summary-chip {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 8px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.expense-tax-summary .summary-chip.highlight {
+  background: #f0fdf4;
+  border-color: #bbf7d0;
+}
+
+.expense-tax-summary .summary-chip span {
+  font-size: 11px;
+  font-weight: 600;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.expense-tax-summary .summary-chip strong {
+  font-size: 14px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.expense-tax-summary .summary-chip strong.text-success {
+  color: #16a34a;
+}
+
+.expense-tax-summary .summary-chip strong.text-danger {
+  color: #e11d48;
+}
+
+/* Extra Info / Notes & Attachment Grid */
+.expense-extra-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  align-items: stretch;
+}
+
+.expense-receipt-picker {
+  position: relative;
+  display: flex;
+  height: 100%;
+}
+
+.expense-receipt-dropzone {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  background: #f8fafc;
+  border: 1px dashed #cbd5e1;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  min-height: 60px;
+  box-sizing: border-box;
+}
+
+.expense-receipt-dropzone:hover {
+  background: #f1f5f9;
+  border-color: #0284c7;
+}
+
+.expense-receipt-dropzone .gi-icon {
+  width: 22px;
+  height: 22px;
+  color: #64748b;
+  flex-shrink: 0;
+}
+
+.expense-receipt-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow: hidden;
+}
+
+.expense-receipt-filename {
+  font-size: 12px;
+  font-weight: 600;
+  color: #1e293b;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.expense-receipt-subtext {
+  font-size: 11px;
+  color: #94a3b8;
+}
+
+.expense-receipt-clear-btn {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: none;
+  background: #e2e8f0;
+  color: #475569;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+}
+
+.expense-receipt-clear-btn:hover {
+  background: #fecdd3;
+  color: #e11d48;
+}
+
+/* Pinned Footer */
+.expense-modal-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 22px;
+  background: #ffffff;
+  border-top: 1px solid #e2e8f0;
+}
+
+.expense-footer-summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.expense-footer-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: #64748b;
+}
+
+.expense-footer-amount {
+  font-size: 18px;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.expense-footer-status-pill {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.expense-footer-status-pill.status-paid {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.expense-footer-status-pill.status-due {
+  background: #ffe4e6;
+  color: #e11d48;
+}
+
+.expense-footer-status-pill.status-partial {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.expense-modal-footer .entry-modal-footer-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.expense-modal-footer .purchase-button {
+  min-height: 36px;
+  padding: 0 20px;
+  background: #0284c7;
+  color: #ffffff;
+  border: none;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.expense-modal-footer .purchase-button:hover {
+  background: #0369a1;
+}
+
+.expense-modal-footer .secondary-button {
+  min-height: 36px;
+  padding: 0 16px;
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #475569;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.expense-modal-footer .secondary-button:hover {
+  background: #f1f5f9;
+  color: #0f172a;
+}
+
+/* Expense Voucher Styles */
 .expense-voucher header {
   display: flex;
   align-items: center;
@@ -2008,78 +2636,12 @@ body.privacy-mode-active .chart-wrap canvas,
   background: #edf7ff;
 }
 
-.expense-modal header h2,
 .expense-voucher header h2 {
   margin: 0;
   color: #17203f;
   font-size: 20px;
 }
 
-.expense-modal main {
-  display: grid;
-  gap: 14px;
-  min-height: 0;
-  overflow: auto;
-  padding: 16px 18px;
-}
-
-.expense-form-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(180px, 1fr));
-  gap: 12px;
-}
-
-.expense-form-grid label,
-.expense-notes {
-  display: grid;
-  gap: 6px;
-  color: #536281;
-  font-size: 12px;
-  font-weight: 700;
-}
-
-.expense-form-card {
-  display: grid;
-  gap: 12px;
-  border: 1px solid #dce5ef;
-  border-radius: 8px;
-  padding: 14px;
-  background: #fbfdff;
-}
-
-.expense-form-card h3 {
-  margin: 0;
-  color: #17203f;
-  font-size: 16px;
-}
-
-.expense-tax-summary {
-  display: grid;
-  grid-template-columns: repeat(6, minmax(110px, 1fr));
-  gap: 8px;
-}
-
-.expense-tax-summary article {
-  display: grid;
-  gap: 4px;
-  border: 1px solid #e4ebf3;
-  border-radius: 8px;
-  padding: 10px;
-  background: #fff;
-}
-
-.expense-tax-summary span {
-  color: #647491;
-  font-size: 11px;
-  font-weight: 800;
-}
-
-.expense-tax-summary strong {
-  color: #07132e;
-  font-size: 14px;
-}
-
-.expense-modal footer,
 .expense-voucher footer {
   display: flex;
   justify-content: flex-end;
