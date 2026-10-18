@@ -17344,7 +17344,6 @@ function bindMastersActions(rowsOnly = false) {
 
 function itemListButton(item, selectedId) {
   const kind = itemKind(item);
-  const meta = [item.sku ? `SKU ${item.sku}` : "", item.hsnSac ? `HSN/SAC ${item.hsnSac}` : "", item.category, item.unit ? `Unit ${item.unit}` : ""].filter(Boolean).join(" - ") || "No item details";
   const qty = Number(item.currentStock || 0);
   const salePrice = Number(item.salePrice || 0);
   const purchasePrice = Number(item.purchasePrice || 0);
@@ -17353,7 +17352,6 @@ function itemListButton(item, selectedId) {
     <button class="item-list-item ${Number(item.id) === Number(selectedId) ? "active" : ""}" data-item-id="${item.id}" type="button">
       <span class="item-list-main">
         <strong>${escapeHtml(item.name)}</strong>
-        <small>${escapeHtml(meta)}</small>
         <span class="item-list-prices-row">
           <span class="item-chip-sale" title="Selling Price">Sale: <b>${formatCurrency(salePrice)}</b></span>
           <span class="item-chip-pur" title="Purchase Cost Price">Cost: <b>${purchasePrice ? formatCurrency(purchasePrice) : "-"}</b></span>
