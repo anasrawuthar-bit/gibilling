@@ -432,6 +432,8 @@ button {
 }
 
 body[data-view$="Editor"] .app-shell,
+body[data-view*="Editor"] .app-shell,
+body[data-view*="editor"] .app-shell,
 body[data-view="saleEditor"] .app-shell,
 body[data-view="purchaseEditor"] .app-shell,
 body[data-view="estimateEditor"] .app-shell,
@@ -440,61 +442,139 @@ body[data-view="purchaseReturnEditor"] .app-shell,
 body[data-view="saleOrderEditor"] .app-shell,
 body[data-view="deliveryChallanEditor"] .app-shell,
 body[data-view="purchaseOrderEditor"] .app-shell,
-body[data-view="proformaEditor"] .app-shell {
-  grid-template-columns: 1fr;
+body[data-view="proformaEditor"] .app-shell,
+body.transaction-editor-open .app-shell,
+body.editor-view-active .app-shell,
+.app-shell.editor-active,
+body:has(.feature-view:not(.hidden) .transaction-editor) .app-shell,
+.app-shell:has(.feature-view:not(.hidden) .transaction-editor) {
+  grid-template-columns: 1fr !important;
 }
 
 body[data-view$="Editor"] .sidebar,
+body[data-view*="Editor"] .sidebar,
+body[data-view*="editor"] .sidebar,
 body[data-view$="Editor"] .window-bar,
 body[data-view="saleEditor"] .sidebar,
 body[data-view="purchaseEditor"] .sidebar,
 body[data-view="estimateEditor"] .sidebar,
 body[data-view="saleReturnEditor"] .sidebar,
 body[data-view="purchaseReturnEditor"] .sidebar,
+body[data-view="saleOrderEditor"] .sidebar,
+body[data-view="deliveryChallanEditor"] .sidebar,
+body[data-view="purchaseOrderEditor"] .sidebar,
+body[data-view="proformaEditor"] .sidebar,
 body[data-view="saleEditor"] .window-bar,
 body[data-view="purchaseEditor"] .window-bar,
 body[data-view="estimateEditor"] .window-bar,
 body[data-view="saleReturnEditor"] .window-bar,
-body[data-view="purchaseReturnEditor"] .window-bar {
-  display: none;
+body[data-view="purchaseReturnEditor"] .window-bar,
+body.transaction-editor-open .sidebar,
+body.transaction-editor-open .window-bar,
+body.editor-view-active .sidebar,
+body.editor-view-active .window-bar,
+.app-shell.editor-active .sidebar,
+.app-shell.editor-active .window-bar,
+body:has(.feature-view:not(.hidden) .transaction-editor) .sidebar,
+body:has(.feature-view:not(.hidden) .transaction-editor) .window-bar,
+.app-shell:has(.feature-view:not(.hidden) .transaction-editor) .sidebar,
+.app-shell:has(.feature-view:not(.hidden) .transaction-editor) .window-bar {
+  display: none !important;
 }
 
 body[data-view$="Editor"] .workspace,
+body[data-view*="Editor"] .workspace,
+body[data-view*="editor"] .workspace,
 body[data-view="saleEditor"] .workspace,
 body[data-view="purchaseEditor"] .workspace,
 body[data-view="estimateEditor"] .workspace,
 body[data-view="saleReturnEditor"] .workspace,
-body[data-view="purchaseReturnEditor"] .workspace {
-  display: block;
-  height: 100vh;
+body[data-view="purchaseReturnEditor"] .workspace,
+body[data-view="saleOrderEditor"] .workspace,
+body[data-view="deliveryChallanEditor"] .workspace,
+body[data-view="purchaseOrderEditor"] .workspace,
+body[data-view="proformaEditor"] .workspace,
+body.transaction-editor-open .workspace,
+body.editor-view-active .workspace,
+.app-shell.editor-active .workspace,
+body:has(.feature-view:not(.hidden) .transaction-editor) .workspace,
+.app-shell:has(.feature-view:not(.hidden) .transaction-editor) .workspace {
+  display: block !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  grid-column: 1 / -1 !important;
+  height: 100vh !important;
+  min-height: 0 !important;
 }
 
 body[data-view$="Editor"] .content-grid,
+body[data-view*="Editor"] .content-grid,
+body[data-view*="editor"] .content-grid,
 body[data-view="saleEditor"] .content-grid,
 body[data-view="purchaseEditor"] .content-grid,
 body[data-view="estimateEditor"] .content-grid,
 body[data-view="saleReturnEditor"] .content-grid,
-body[data-view="purchaseReturnEditor"] .content-grid {
-  display: block;
-  height: 100vh;
-  overflow: hidden;
-  padding: 0;
+body[data-view="purchaseReturnEditor"] .content-grid,
+body[data-view="saleOrderEditor"] .content-grid,
+body[data-view="deliveryChallanEditor"] .content-grid,
+body[data-view="purchaseOrderEditor"] .content-grid,
+body[data-view="proformaEditor"] .content-grid,
+body.transaction-editor-open .content-grid,
+body.editor-view-active .content-grid,
+.app-shell.editor-active .content-grid,
+body:has(.feature-view:not(.hidden) .transaction-editor) .content-grid,
+.app-shell:has(.feature-view:not(.hidden) .transaction-editor) .content-grid {
+  display: block !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  grid-column: 1 / -1 !important;
+  grid-template-columns: 1fr !important;
+  height: 100vh !important;
+  min-height: 0 !important;
+  overflow: hidden !important;
+  padding: 0 !important;
+  margin: 0 !important;
 }
 
 body[data-view$="Editor"] .feature-view,
 body[data-view$="Editor"] .transaction-editor,
+body[data-view*="Editor"] .feature-view,
+body[data-view*="Editor"] .transaction-editor,
+body[data-view*="editor"] .feature-view,
+body[data-view*="editor"] .transaction-editor,
 body[data-view="saleEditor"] .feature-view,
 body[data-view="purchaseEditor"] .feature-view,
 body[data-view="estimateEditor"] .feature-view,
 body[data-view="saleReturnEditor"] .feature-view,
 body[data-view="purchaseReturnEditor"] .feature-view,
+body[data-view="saleOrderEditor"] .feature-view,
+body[data-view="deliveryChallanEditor"] .feature-view,
+body[data-view="purchaseOrderEditor"] .feature-view,
+body[data-view="proformaEditor"] .feature-view,
 body[data-view="saleEditor"] .transaction-editor,
 body[data-view="purchaseEditor"] .transaction-editor,
 body[data-view="estimateEditor"] .transaction-editor,
 body[data-view="saleReturnEditor"] .transaction-editor,
-body[data-view="purchaseReturnEditor"] .transaction-editor {
-  height: 100vh;
-  min-height: 0;
+body[data-view="purchaseReturnEditor"] .transaction-editor,
+body[data-view="saleOrderEditor"] .transaction-editor,
+body[data-view="deliveryChallanEditor"] .transaction-editor,
+body[data-view="purchaseOrderEditor"] .transaction-editor,
+body[data-view="proformaEditor"] .transaction-editor,
+body.transaction-editor-open .feature-view,
+body.transaction-editor-open .transaction-editor,
+body.editor-view-active .feature-view,
+body.editor-view-active .transaction-editor,
+.app-shell.editor-active .feature-view,
+.app-shell.editor-active .transaction-editor,
+body:has(.feature-view:not(.hidden) .transaction-editor) .feature-view,
+body:has(.feature-view:not(.hidden) .transaction-editor) .transaction-editor,
+.app-shell:has(.feature-view:not(.hidden) .transaction-editor) .feature-view,
+.app-shell:has(.feature-view:not(.hidden) .transaction-editor) .transaction-editor {
+  display: grid !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  height: 100vh !important;
+  min-height: 0 !important;
 }
 
 
@@ -973,8 +1053,8 @@ body[data-view="purchaseReturnEditor"] .transaction-editor {
 }
 
 /* ─── Collapsed Sidebar State (60px Rail) ─────────────────────── */
-body.sidebar-collapsed .app-shell,
-.app-shell.sidebar-collapsed {
+body.sidebar-collapsed:not(.transaction-editor-open):not(.editor-view-active):not([data-view$="Editor"]):not([data-view*="Editor"]) .app-shell:not(.editor-active):not(:has(.feature-view:not(.hidden) .transaction-editor)),
+.app-shell.sidebar-collapsed:not(.editor-active):not(:has(.feature-view:not(.hidden) .transaction-editor)) {
   grid-template-columns: 60px 1fr;
 }
 
@@ -11165,7 +11245,8 @@ body .entry-form .item-tab-panel.active {
     padding: 14px;
   }
 
-  .app-shell {
+  body:not(.transaction-editor-open):not(.editor-view-active):not([data-view$="Editor"]):not([data-view*="Editor"]) .app-shell:not(.editor-active):not(:has(.feature-view:not(.hidden) .transaction-editor)),
+  .app-shell:not(.editor-active):not(:has(.feature-view:not(.hidden) .transaction-editor)) {
     grid-template-columns: 76px 1fr;
   }
 

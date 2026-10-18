@@ -1853,6 +1853,9 @@ function openTransactionEditor(type, options = {}) {
   activeTransactionEditorTabNo = activeTab.no || 1;
   currentView = `${type}Editor`;
   document.body.dataset.view = currentView;
+  document.body.classList.add("transaction-editor-open", "editor-view-active");
+  const appShellEl = document.getElementById("appShell");
+  if (appShellEl) appShellEl.classList.add("editor-active");
   document.querySelector(".topbar")?.classList.add("hidden");
   elements.homeView.classList.add("hidden");
   document.querySelector(".right-panel").classList.add("hidden");
@@ -10674,6 +10677,9 @@ function showView(view, title) {
   }
   activeTransactionEditInvoiceId = null;
   hideOpenAnythingResults();
+  document.body.classList.remove("transaction-editor-open", "editor-view-active");
+  const appShellEl = document.getElementById("appShell");
+  if (appShellEl) appShellEl.classList.remove("editor-active");
   currentView = view;
   document.body.dataset.view = view;
   document.querySelector(".topbar")?.classList.toggle("hidden", view !== "home");
@@ -10688,6 +10694,7 @@ function showView(view, title) {
     elements.saleInvoicesView.classList.add("hidden");
     elements.purchaseBillsView.classList.add("hidden");
     elements.featureView.classList.add("hidden");
+    elements.featureView.innerHTML = "";
     renderDashboard();
     scheduleDashboardChartDraw();
     return;
