@@ -431,13 +431,21 @@ button {
   transition: grid-template-columns 0.18s ease;
 }
 
+body[data-view$="Editor"] .app-shell,
 body[data-view="saleEditor"] .app-shell,
 body[data-view="purchaseEditor"] .app-shell,
 body[data-view="estimateEditor"] .app-shell,
-body[data-view="saleReturnEditor"] .app-shell {
+body[data-view="saleReturnEditor"] .app-shell,
+body[data-view="purchaseReturnEditor"] .app-shell,
+body[data-view="saleOrderEditor"] .app-shell,
+body[data-view="deliveryChallanEditor"] .app-shell,
+body[data-view="purchaseOrderEditor"] .app-shell,
+body[data-view="proformaEditor"] .app-shell {
   grid-template-columns: 1fr;
 }
 
+body[data-view$="Editor"] .sidebar,
+body[data-view$="Editor"] .window-bar,
 body[data-view="saleEditor"] .sidebar,
 body[data-view="purchaseEditor"] .sidebar,
 body[data-view="estimateEditor"] .sidebar,
@@ -451,6 +459,7 @@ body[data-view="purchaseReturnEditor"] .window-bar {
   display: none;
 }
 
+body[data-view$="Editor"] .workspace,
 body[data-view="saleEditor"] .workspace,
 body[data-view="purchaseEditor"] .workspace,
 body[data-view="estimateEditor"] .workspace,
@@ -460,6 +469,7 @@ body[data-view="purchaseReturnEditor"] .workspace {
   height: 100vh;
 }
 
+body[data-view$="Editor"] .content-grid,
 body[data-view="saleEditor"] .content-grid,
 body[data-view="purchaseEditor"] .content-grid,
 body[data-view="estimateEditor"] .content-grid,
@@ -468,8 +478,11 @@ body[data-view="purchaseReturnEditor"] .content-grid {
   display: block;
   height: 100vh;
   overflow: hidden;
+  padding: 0;
 }
 
+body[data-view$="Editor"] .feature-view,
+body[data-view$="Editor"] .transaction-editor,
 body[data-view="saleEditor"] .feature-view,
 body[data-view="purchaseEditor"] .feature-view,
 body[data-view="estimateEditor"] .feature-view,
@@ -483,6 +496,7 @@ body[data-view="purchaseReturnEditor"] .transaction-editor {
   height: 100vh;
   min-height: 0;
 }
+
 
 /* ─── Sidebar shell ───────────────────────────────────────────── */
 .sidebar {

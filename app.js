@@ -2047,7 +2047,7 @@ function transactionEditorTemplate(type = getTransactionEditorType()) {
         <div class="editor-mode-strip">
           <div class="editor-mode-left">
             <strong>${title}</strong>
-            ${isEstimate ? '<span class="editor-document-chip">Estimate / Quotation</span>' : isReturn ? '<span class="editor-document-chip return-chip">Sales Return / Credit Note</span>' : `<div class="editor-payment-toggle" role="group" aria-label="Payment type">
+            ${isEstimate ? '<span class="editor-document-chip">Estimate / Quotation</span>' : isReturn ? `<span class="editor-document-chip return-chip">${escapeHtml(meta.document)}</span>` : `<div class="editor-payment-toggle" role="group" aria-label="Payment type">
               <input id="editorPaymentQuickToggle" type="checkbox" class="hidden" checked aria-hidden="true" tabindex="-1">
               <button type="button" data-payment-mode="credit" aria-pressed="false">Credit</button>
               <button type="button" data-payment-mode="cash" aria-pressed="true">Paid</button>
