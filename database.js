@@ -2450,17 +2450,80 @@ function createParty({
   dueDays = 0,
 }) {
   const company = getCurrentCompany();
+  const cleanName = String(name || "").trim();
+  if (!cleanName) {
+    throw new Error("Party name is required.");
+  }
+
+  // 1. Check duplicate party name in company (case-insensitive & trimmed)
+  const duplicateName = one(
+    "SELECT id, name FROM parties WHERE company_id = ? AND LOWER(TRIM(name)) = LOWER(?)",
+    [company.id, cleanName],
+  );
+  if (duplicateName) {
+    throw new Error(`Party "${cleanName}" already exists. Please choose a different name.`);
+  }
+
+  // 2. Check duplicate phone (match trailing 10 digits if 10+ digits provided)
+  const cleanPhoneDigits = String(phone || "").replace(/\D/g, "");
+  if (cleanPhoneDigits.length >= 10) {
+    const last10 = cleanPhoneDigits.slice(-10);
+    const existingParties = all(
+      "SELECT id, name, phone FROM parties WHERE company_id = ? AND phone IS NOT NULL AND phone <> ''",
+      [company.id],
+    );
+    const duplicatePhone = existingParties.find((p) => {
+      const pDigits = String(p.phone || "").replace(/\D/g, "");
+      return pDigits.length >= 10 && pDigits.slice(-10) === last10;
+    });
+    if (duplicatePhone) {
+      throw new Error(`Mobile number "${phone}" is already registered for "${duplicatePhone.name}".`);
+    }
+  }
+
+  // 3. Check duplicate GSTIN in company (case-insensitive & trimmed)
+  const cleanGstin = String(gstin || "").trim().toUpperCase();
+  if (cleanGstin) {
+    const duplicateGstin = one(
+      "SELECT id, name, gstin FROM parties WHERE company_id = ? AND UPPER(TRIM(gstin)) = ?",
+      [company.id, cleanGstin],
+    );
+    if (duplicateGstin) {
+      throw new Error(`GSTIN "${cleanGstin}" is already registered for "${duplicateGstin.name}".`);
+    }
+  }
+
   const now = new Date().toISOString();
-  if (!name) return getState();
   run(
-    `INSERT OR IGNORE INTO parties
+    `INSERT INTO parties
       (company_id, name, type, phone, email, contact_person, tax_type, gstin, legal_name, state, pan, billing_address, shipping_address, opening_balance, opening_balance_type, credit_limit, payment_terms, due_days, notes, created_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [company.id, name, type, phone, email, contactPerson, taxType, gstin, legalName, state, pan, billingAddress, shippingAddress, openingBalance, openingBalanceType, creditLimit, paymentTerms, dueDays, notes, now],
+    [
+      company.id,
+      cleanName,
+      type,
+      phone,
+      email,
+      contactPerson,
+      taxType,
+      cleanGstin || gstin,
+      legalName,
+      state,
+      pan,
+      billingAddress,
+      shippingAddress,
+      openingBalance,
+      openingBalanceType,
+      creditLimit,
+      paymentTerms,
+      dueDays,
+      notes,
+      now,
+    ],
   );
-  updatePartyDetails(company.id, { name, type, phone, email, contactPerson, taxType, gstin, legalName, state, pan, billingAddress, shippingAddress, openingBalance, openingBalanceType, creditLimit, paymentTerms, dueDays, notes });
-  const partyRecord = one("SELECT id FROM parties WHERE company_id = ? AND LOWER(name) = LOWER(?)", [company.id, name]);
-  recordAuditLog(company.id, "CREATE", "party", partyRecord ? partyRecord.id : name, name, { type, phone, gstin });
+
+  const partyRecord = one("SELECT id FROM parties WHERE company_id = ? AND LOWER(TRIM(name)) = LOWER(?)", [company.id, cleanName]);
+  recordAuditLog(company.id, "CREATE", "party", partyRecord ? partyRecord.id : cleanName, cleanName, { type, phone, gstin: cleanGstin || gstin });
   persist();
   return getState();
 }
@@ -2487,12 +2550,50 @@ function updateParty({
   dueDays = 0,
 }) {
   const company = getCurrentCompany();
+  if (!id) throw new Error("Party ID is required.");
   const cleanName = String(name || "").trim();
-  if (!id || !cleanName) return getState();
+  if (!cleanName) throw new Error("Party name is required.");
+
   const existing = one("SELECT id, name FROM parties WHERE company_id = ? AND id = ?", [company.id, id]);
-  if (!existing) return getState();
-  const duplicate = one("SELECT id FROM parties WHERE company_id = ? AND LOWER(name) = LOWER(?) AND id <> ?", [company.id, cleanName, id]);
-  if (duplicate) throw new Error("A party with this name already exists.");
+  if (!existing) throw new Error("Party not found.");
+
+  // 1. Check duplicate party name
+  const duplicateName = one(
+    "SELECT id, name FROM parties WHERE company_id = ? AND LOWER(TRIM(name)) = LOWER(?) AND id <> ?",
+    [company.id, cleanName, id],
+  );
+  if (duplicateName) {
+    throw new Error(`Party "${cleanName}" already exists. Please choose a different name.`);
+  }
+
+  // 2. Check duplicate phone
+  const cleanPhoneDigits = String(phone || "").replace(/\D/g, "");
+  if (cleanPhoneDigits.length >= 10) {
+    const last10 = cleanPhoneDigits.slice(-10);
+    const existingParties = all(
+      "SELECT id, name, phone FROM parties WHERE company_id = ? AND id <> ? AND phone IS NOT NULL AND phone <> ''",
+      [company.id, id],
+    );
+    const duplicatePhone = existingParties.find((p) => {
+      const pDigits = String(p.phone || "").replace(/\D/g, "");
+      return pDigits.length >= 10 && pDigits.slice(-10) === last10;
+    });
+    if (duplicatePhone) {
+      throw new Error(`Mobile number "${phone}" is already registered for "${duplicatePhone.name}".`);
+    }
+  }
+
+  // 3. Check duplicate GSTIN
+  const cleanGstin = String(gstin || "").trim().toUpperCase();
+  if (cleanGstin) {
+    const duplicateGstin = one(
+      "SELECT id, name, gstin FROM parties WHERE company_id = ? AND UPPER(TRIM(gstin)) = ? AND id <> ?",
+      [company.id, cleanGstin, id],
+    );
+    if (duplicateGstin) {
+      throw new Error(`GSTIN "${cleanGstin}" is already registered for "${duplicateGstin.name}".`);
+    }
+  }
 
   run(
     `UPDATE parties SET
@@ -2522,7 +2623,7 @@ function updateParty({
       email,
       contactPerson,
       taxType,
-      gstin,
+      cleanGstin || gstin,
       legalName,
       state,
       pan,
@@ -2543,7 +2644,7 @@ function updateParty({
     // Historical documents retain the party name captured when they were issued.
   }
 
-  recordAuditLog(company.id, "UPDATE", "party", id, cleanName, { type, phone, gstin });
+  recordAuditLog(company.id, "UPDATE", "party", id, cleanName, { type, phone, gstin: cleanGstin || gstin });
   persist();
   return getState();
 }

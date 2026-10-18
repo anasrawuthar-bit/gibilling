@@ -6368,24 +6368,29 @@ function handleGstinInput(gstinVal) {
   }
 }
 
-function initPartyTabs() {
-  const tabButtons = elements.entryModal.querySelectorAll(".party-tab-btn");
-  const tabPanels = elements.entryModal.querySelectorAll(".party-tab-panel");
+function activatePartyTab(targetTab) {
+  const modal = elements.entryModal || document.getElementById("entryModal");
+  if (!modal) return;
+  const tabButtons = modal.querySelectorAll(".party-tab-btn");
+  const tabPanels = modal.querySelectorAll(".party-tab-panel");
+  tabButtons.forEach((b) => {
+    const isTarget = b.dataset.tab === targetTab;
+    b.classList.toggle("active", isTarget);
+    b.setAttribute("aria-selected", isTarget ? "true" : "false");
+  });
+  tabPanels.forEach((panel) => {
+    const isTarget = panel.id === `partyTab${targetTab.charAt(0).toUpperCase() + targetTab.slice(1)}`;
+    panel.classList.toggle("active", isTarget);
+    panel.classList.toggle("hidden", !isTarget);
+  });
+}
 
+function initPartyTabs() {
+  const modal = elements.entryModal || document.getElementById("entryModal");
+  if (!modal) return;
+  const tabButtons = modal.querySelectorAll(".party-tab-btn");
   tabButtons.forEach((btn) => {
-    btn.onclick = () => {
-      const targetTab = btn.dataset.tab;
-      tabButtons.forEach((b) => {
-        const isTarget = b === btn;
-        b.classList.toggle("active", isTarget);
-        b.setAttribute("aria-selected", isTarget ? "true" : "false");
-      });
-      tabPanels.forEach((panel) => {
-        const isTarget = panel.id === `partyTab${targetTab.charAt(0).toUpperCase() + targetTab.slice(1)}`;
-        panel.classList.toggle("active", isTarget);
-        panel.classList.toggle("hidden", !isTarget);
-      });
-    };
+    btn.onclick = () => activatePartyTab(btn.dataset.tab);
   });
 }
 
@@ -6875,17 +6880,68 @@ function updateItemEntryFields() {
 function validateEntryForm(form) {
   if (currentEntryType === "party") {
     const partyField = elements.entryForm.querySelector('[name="party"]');
+    const phoneField = elements.entryForm.querySelector('[name="phone"]');
     const gstinField = elements.entryForm.querySelector('[name="gstin"]');
+    const partyName = String(form.get("party") || "").trim();
+    const phoneRaw = String(form.get("phone") || "").trim();
+    const phoneDigits = phoneRaw.replace(/\D/g, "");
     const taxType = String(form.get("taxType") || "unregistered");
-    const gstin = String(form.get("gstin") || "").trim();
-    if (!String(form.get("party") || "").trim()) {
+    const gstin = String(form.get("gstin") || "").trim().toUpperCase();
+
+    // 1. Party name required
+    if (!partyName) {
+      activatePartyTab("basic");
       return { valid: false, field: partyField, message: "Party name is required." };
     }
+
+    // 2. Duplicate party name check
+    const duplicateParty = (state.parties || []).find((p) => {
+      if (currentEntryRecordId && String(p.id) === String(currentEntryRecordId)) return false;
+      return String(p.name || "").trim().toLowerCase() === partyName.toLowerCase();
+    });
+    if (duplicateParty) {
+      activatePartyTab("basic");
+      return { valid: false, field: partyField, message: `Party "${partyName}" already exists. Please choose a different name.` };
+    }
+
+    // 3. Mobile / Phone validation & duplicate check
+    if (phoneRaw) {
+      if (phoneDigits.length < 10) {
+        activatePartyTab("basic");
+        return { valid: false, field: phoneField, message: "Enter a valid 10-digit mobile number." };
+      }
+      const last10 = phoneDigits.slice(-10);
+      const duplicatePhone = (state.parties || []).find((p) => {
+        if (currentEntryRecordId && String(p.id) === String(currentEntryRecordId)) return false;
+        const pDigits = String(p.phone || "").replace(/\D/g, "");
+        return pDigits.length >= 10 && pDigits.slice(-10) === last10;
+      });
+      if (duplicatePhone) {
+        activatePartyTab("basic");
+        return { valid: false, field: phoneField, message: `Mobile number "${phoneRaw}" is already registered for "${duplicatePhone.name}".` };
+      }
+    }
+
+    // 4. GSTIN format & required check
     if ((taxType === "gst_registered" || taxType === "composition") && !gstin) {
+      activatePartyTab("gst");
       return { valid: false, field: gstinField, message: "GSTIN is required for registered parties." };
     }
     if (gstin && !isValidGstin(gstin)) {
+      activatePartyTab("gst");
       return { valid: false, field: gstinField, message: "Enter a valid 15-character GSTIN, e.g. 22AAAAA0000A1Z5." };
+    }
+
+    // 5. Duplicate GSTIN check
+    if (gstin) {
+      const duplicateGstin = (state.parties || []).find((p) => {
+        if (currentEntryRecordId && String(p.id) === String(currentEntryRecordId)) return false;
+        return String(p.gstin || "").trim().toUpperCase() === gstin;
+      });
+      if (duplicateGstin) {
+        activatePartyTab("gst");
+        return { valid: false, field: gstinField, message: `GSTIN "${gstin}" is already registered for "${duplicateGstin.name}".` };
+      }
     }
   }
 
@@ -7023,7 +7079,32 @@ async function handleEntrySubmit(event) {
     }
   }
   } catch (error) {
-    showToast(error.message || "Unable to save. Please check the details and try again.");
+    const errorMsg = error?.message || "Unable to save. Please check the details and try again.";
+    if (savedEntryType === "party") {
+      const partyField = elements.entryForm.querySelector('[name="party"]');
+      const phoneField = elements.entryForm.querySelector('[name="phone"]');
+      const gstinField = elements.entryForm.querySelector('[name="gstin"]');
+
+      if (/already exists/i.test(errorMsg) || /party name/i.test(errorMsg)) {
+        activatePartyTab("basic");
+        setInlineError(partyField, errorMsg);
+        partyField?.focus();
+        return;
+      }
+      if (/mobile number/i.test(errorMsg) || /phone/i.test(errorMsg)) {
+        activatePartyTab("basic");
+        setInlineError(phoneField, errorMsg);
+        phoneField?.focus();
+        return;
+      }
+      if (/gstin/i.test(errorMsg)) {
+        activatePartyTab("gst");
+        setInlineError(gstinField, errorMsg);
+        gstinField?.focus();
+        return;
+      }
+    }
+    showToast(errorMsg);
     return;
   }
 
