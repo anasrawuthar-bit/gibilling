@@ -8158,7 +8158,8 @@ body.privacy-mode-active .chart-wrap canvas,
 
 .editor-item-lookup.floating-editor-lookup {
   position: fixed;
-  top: var(--lookup-top, 0);
+  top: var(--lookup-top, auto);
+  bottom: var(--lookup-bottom, auto);
   left: var(--lookup-left, 0);
   right: auto;
   z-index: 1000;

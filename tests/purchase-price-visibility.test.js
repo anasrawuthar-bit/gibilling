@@ -69,18 +69,21 @@ app.whenReady().then(async () => {
           assertLog(purchaseMarkup.includes("Pur:"), "Markup displays 'Pur:' label in Purchase editor");
           assertLog(purchaseMarkup.includes("Sale:"), "Markup displays 'Sale:' label in Purchase editor");
 
-          // Test 3: Transaction Editor in Sale mode has 'Purchase Cost' table header
+          // Test 3: Transaction Editor in Sale mode omits 'Purchase Cost' table header & cell
           currentView = "saleEditor";
           activeTransactionEditorType = "sale";
           const editorHtml = transactionEditorTemplate();
-          assertLog(editorHtml.includes("Purchase Cost</th>"), "Transaction editor table header includes 'Purchase Cost'");
-          assertLog(editorHtml.includes("row-purchase-price"), "Transaction editor rows include 'row-purchase-price'");
+          assertLog(!editorHtml.includes("Purchase Cost</th>"), "Transaction editor table header omits 'Purchase Cost'");
+          assertLog(!editorHtml.includes("row-purchase-price"), "Transaction editor rows omit 'row-purchase-price'");
 
-          // Test 4: Transaction Editor in Purchase mode does NOT have redundant 'Purchase Cost' column
-          currentView = "purchaseEditor";
-          activeTransactionEditorType = "purchase";
-          const purchaseEditorHtml = transactionEditorTemplate();
-          assertLog(!purchaseEditorHtml.includes("Purchase Cost</th>"), "Purchase editor omits redundant Purchase Cost column");
+          // Test 4: Transaction Editor displays Cost on the stock hint line (.row-smart-hint)
+          const dummyTable = document.createElement("table");
+          dummyTable.innerHTML = '<tbody id="transactionRows">' + editorRowTemplate(1, testItem.name, "", 1, 750) + '</tbody>';
+          const dummyRow = dummyTable.querySelector("tr");
+          dummyRow.dataset.smartItem = testItem.name;
+          updateRowSmartHint(dummyRow);
+          const smartHintText = dummyRow.querySelector(".row-smart-hint")?.textContent || "";
+          assertLog(smartHintText.includes("Cost ₹500.00") || smartHintText.includes("Cost ₹500"), "Stock line (.row-smart-hint) displays 'Cost' price: " + smartHintText);
 
           // Test 5: itemListButton includes price chips for both Sale and Purchase Cost
           const btnHtml = itemListButton(testItem, 991);

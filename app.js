@@ -2331,7 +2331,6 @@ function transactionEditorTemplate(type = getTransactionEditorType()) {
                   <th>Qty</th>
                   <th>Unit</th>
                   <th>Price</th>
-                  ${isSaleLike ? '<th title="Purchase Cost Price">Purchase Cost</th>' : ''}
                   <th>Discount</th>
                   <th>Tax</th>
                   <th>Line Total</th>
@@ -2345,7 +2344,7 @@ function transactionEditorTemplate(type = getTransactionEditorType()) {
                 <tr>
                   <td colspan="3">Total Qty</td>
                   <td id="editorQtyTotal">0</td>
-                  <td colspan="${isSaleLike ? 5 : 4}">Total</td>
+                  <td colspan="4">Total</td>
                   <td id="editorTableTotal">0</td>
                   <td></td>
                 </tr>
@@ -2438,9 +2437,6 @@ function transactionCustomFieldControl(field, value = "") {
 }
 
 function editorRowTemplate(index, item = "", description = "", qty = "", price = "") {
-  const isSaleLike = currentView === "saleEditor" || currentView === "estimateEditor" || currentView === "saleReturnEditor";
-  const matchedItem = item ? findItemByName(item) : null;
-  const initialPurchasePrice = matchedItem && Number(matchedItem.purchasePrice || 0) ? formatCurrency(matchedItem.purchasePrice) : "-";
   return `
     <tr>
       <td>${index}</td>
@@ -2449,7 +2445,6 @@ function editorRowTemplate(index, item = "", description = "", qty = "", price =
       <td><input name="qty" aria-label="Quantity" placeholder="0" type="number" min="0" step="0.01" value="${qty}"></td>
       <td><select name="unit">${editorUnitOptionsMarkup()}</select></td>
       <td><input name="price" aria-label="Unit price" placeholder="0.00" type="number" min="0" step="0.01" value="${price}"></td>
-      ${isSaleLike ? `<td class="row-purchase-price" title="Purchase Cost Price">${initialPurchasePrice}</td>` : ''}
       <td><input name="discount" type="number" min="0" step="0.01" value="0"></td>
       <td><select name="tax">${editorTaxOptionsMarkup()}</select></td>
       <td class="row-amount">0</td>
@@ -2532,12 +2527,11 @@ function populateTransactionEditorDraft(draft) {
       if (itemInput && matchedItem && matchedItem.name === itemInput.value) {
         itemInput.dataset.selectedItemId = matchedItem.id;
         rowElement.dataset.smartItem = matchedItem.name;
-        const purchasePriceCell = rowElement.querySelector(".row-purchase-price");
-        if (purchasePriceCell) {
-          const purchasePrice = Number(matchedItem.purchasePrice || 0);
-          purchasePriceCell.textContent = purchasePrice ? formatCurrency(purchasePrice) : "-";
-        }
+        rowElement.dataset.currentStock = String(matchedItem.currentStock ?? "");
+        rowElement.dataset.purchasePrice = String(matchedItem.purchasePrice ?? "");
+        rowElement.dataset.itemType = matchedItem.itemType || "";
         renderPurchasePriceHistory(rowElement, matchedItem);
+        updateRowSmartHint(rowElement);
       }
       if (row.unit) ensureSelectValue(rowElement.querySelector('[name="unit"]'), row.unit);
       const discount = rowElement.querySelector('[name="discount"]');
@@ -2775,10 +2769,17 @@ function bindTransactionEditor() {
     if (event.target.matches('input[type="number"]:not([readonly])')) {
       lastCalculatorTarget = event.target;
     }
-    if (!event.target.closest(".editor-lookup") && !event.target.closest(".editor-item-cell")) {
+    const isSearchInput = event.target.matches?.('[name="item"], [name="party"], [name="phone"]');
+    if (!isSearchInput) {
       hideEditorLookupPanels();
     }
   });
+  const handleEditorLookupDismissClick = (event) => {
+    if (event.target.closest(".editor-lookup-panel")) return;
+    if (event.target.closest(".editor-item-cell") || event.target.closest(".editor-lookup")) return;
+    hideEditorLookupPanels();
+  };
+  document.addEventListener("pointerdown", handleEditorLookupDismissClick);
   bindTransactionEditorRows();
   syncEditorPartyRequirement();
   syncEditorPaymentQuickToggle();
@@ -5093,13 +5094,8 @@ function handleEditorPartyLookupInput(source) {
 function renderPartyLookupPanel(source = "party") {
   const input = elements.featureView.querySelector(source === "phone" ? '[name="phone"]' : '[name="party"]');
   const panel = elements.featureView.querySelector(source === "phone" ? "#editorPhoneLookup" : "#editorPartyLookup");
-  const otherPanel = elements.featureView.querySelector(source === "phone" ? "#editorPartyLookup" : "#editorPhoneLookup");
-  if (otherPanel) {
-    otherPanel.classList.add("hidden");
-    resetFloatingLookupPanel(otherPanel);
-    otherPanel.innerHTML = "";
-  }
   if (!input || !panel) return;
+  hideEditorLookupPanels(panel);
 
   const query = input.value.trim();
   const matches = searchPartiesByNameOrPhone(query).slice(0, 6);
@@ -5122,35 +5118,43 @@ function renderPartyLookupPanel(source = "party") {
     ${query && !exact ? `<button class="lookup-add-button" type="button" data-editor-add-party data-source="${source}">+ ${escapeHtml(addText)}</button>` : ""}
   `;
   panel.classList.toggle("hidden", !panel.innerHTML.trim());
-  if (panel.innerHTML.trim()) positionFloatingItemLookup(input, panel);
 }
 
 function positionFloatingItemLookup(field, panel) {
-  const isItem = panel.classList.contains("editor-item-lookup");
-  panel.classList.add("floating-editor-lookup");
+  if (!field || !panel || !panel.classList.contains("editor-item-lookup")) return;
   const fieldRect = field.getBoundingClientRect();
-  const columnRect = isItem ? field.closest('td').getBoundingClientRect() : fieldRect;
+  const columnRect = field.closest("td") ? field.closest("td").getBoundingClientRect() : fieldRect;
   const editorRect = elements.featureView.querySelector(".transaction-editor")?.getBoundingClientRect();
   const footerRect = elements.featureView.querySelector(".transaction-editor-actions")?.getBoundingClientRect();
+
   const viewportRight = Math.min(window.innerWidth, editorRect?.right || window.innerWidth) - 12;
   const viewportLeft = Math.max(12, editorRect?.left || 0);
-  const preferredWidth = isItem ? columnRect.width : Math.max(fieldRect.width, 320);
+  const preferredWidth = Math.max(columnRect.width, 340);
   const width = Math.min(preferredWidth, viewportRight - viewportLeft);
   const left = Math.min(Math.max(columnRect.left, viewportLeft), viewportRight - width);
+
   const footerTop = footerRect?.top || window.innerHeight;
-  const spaceBelow = footerTop - fieldRect.bottom - 10;
-  const spaceAbove = fieldRect.top - (editorRect?.top || 0) - 10;
-  const maxHeight = Math.min(260, Math.max(150, Math.max(spaceBelow, spaceAbove)));
+  const spaceBelow = footerTop - fieldRect.bottom - 12;
+  const spaceAbove = fieldRect.top - (editorRect?.top || 0) - 12;
+
+  // Only open above if space below is genuinely constrained (< 150px) AND space above offers more room
   const shouldOpenAbove = spaceBelow < 150 && spaceAbove > spaceBelow;
-  const top = shouldOpenAbove
-    ? Math.max((editorRect?.top || 0) + 8, fieldRect.top - maxHeight - 6)
-    : fieldRect.bottom + 5;
+  const maxHeight = Math.min(260, Math.max(140, shouldOpenAbove ? spaceAbove : spaceBelow));
 
   panel.classList.add("floating-editor-lookup");
   panel.style.setProperty("--lookup-left", `${left}px`);
-  panel.style.setProperty("--lookup-top", `${top}px`);
   panel.style.setProperty("--lookup-width", `${width}px`);
   panel.style.setProperty("--lookup-max-height", `${maxHeight}px`);
+
+  if (shouldOpenAbove) {
+    // Anchor the BOTTOM of the popup 4px above the input field
+    panel.style.setProperty("--lookup-top", "auto");
+    panel.style.setProperty("--lookup-bottom", `${Math.max(0, window.innerHeight - fieldRect.top + 4)}px`);
+  } else {
+    // Anchor the TOP of the popup 4px below the input field
+    panel.style.setProperty("--lookup-top", `${fieldRect.bottom + 4}px`);
+    panel.style.setProperty("--lookup-bottom", "auto");
+  }
 }
 
 function partyLookupButton(party) {
@@ -5275,6 +5279,7 @@ function selectTransactionParty(party, options = {}) {
 }
 
 function openTransactionPartyCreate(source) {
+  hideEditorLookupPanels();
   const transactionType = getTransactionEditorType();
   const partyInput = elements.featureView.querySelector('[name="party"]');
   const phoneInput = elements.featureView.querySelector('[name="phone"]');
@@ -5307,6 +5312,7 @@ function renderItemLookupPanel(field) {
   const row = field?.closest("tr");
   const panel = row?.querySelector(".editor-item-lookup");
   if (!field || !panel) return;
+  hideEditorLookupPanels(panel);
   const query = field.value.trim();
   const results = searchItemsForLookup(query);
   const matches = results.slice(0, 50);
@@ -5314,6 +5320,7 @@ function renderItemLookupPanel(field) {
 
   if (!query && !matches.length) {
     panel.classList.add("hidden");
+    resetFloatingLookupPanel(panel);
     panel.innerHTML = "";
     return;
   }
@@ -5325,7 +5332,11 @@ function renderItemLookupPanel(field) {
     ${query && !exact ? `<button class="lookup-add-button" type="button" data-editor-add-item>+ Add "${escapeHtml(query)}" as new item</button>` : ""}
   `;
   panel.classList.toggle("hidden", !panel.innerHTML.trim());
-  positionFloatingItemLookup(field, panel);
+  if (panel.innerHTML.trim()) {
+    positionFloatingItemLookup(field, panel);
+  } else {
+    resetFloatingLookupPanel(panel);
+  }
   field.setAttribute("aria-expanded", "true");
   field.onkeydown = panel.onkeydown = (event) => {
     if (panel.classList.contains("hidden")) return;
@@ -5429,6 +5440,7 @@ function getSelectedTransactionItem(row) {
 }
 
 function openTransactionItemCreate(row) {
+  hideEditorLookupPanels();
   const transactionType = getTransactionEditorType();
   const rows = [...elements.featureView.querySelectorAll("#transactionRows tr")];
   const itemInput = row.querySelector('[name="item"]');
@@ -5444,11 +5456,17 @@ function openTransactionItemCreate(row) {
   });
 }
 
-function hideEditorLookupPanels() {
-  elements.featureView.querySelectorAll('[name="item"]').forEach((field) => field.setAttribute("aria-expanded", "false"));
+function hideEditorLookupPanels(exceptPanel = null) {
+  elements.featureView.querySelectorAll('[name="item"]').forEach((field) => {
+    if (!exceptPanel || field.closest(".editor-item-cell") !== exceptPanel.closest(".editor-item-cell")) {
+      field.setAttribute("aria-expanded", "false");
+    }
+  });
   elements.featureView.querySelectorAll(".editor-lookup-panel").forEach((panel) => {
-    panel.classList.add("hidden");
-    resetFloatingLookupPanel(panel);
+    if (panel !== exceptPanel) {
+      panel.classList.add("hidden");
+      resetFloatingLookupPanel(panel);
+    }
   });
 }
 
@@ -5456,6 +5474,7 @@ function resetFloatingLookupPanel(panel) {
   panel.classList.remove("floating-editor-lookup");
   panel.style.removeProperty("--lookup-left");
   panel.style.removeProperty("--lookup-top");
+  panel.style.removeProperty("--lookup-bottom");
   panel.style.removeProperty("--lookup-width");
   panel.style.removeProperty("--lookup-max-height");
 }
@@ -5613,8 +5632,6 @@ function applyEditorItemIntelligence(row, initial = false) {
     delete row.dataset.smartItem;
     delete row.dataset.currentStock;
     delete row.dataset.purchasePrice;
-    const purchasePriceCell = row.querySelector(".row-purchase-price");
-    if (purchasePriceCell) purchasePriceCell.textContent = "-";
     updateRowSmartHint(row);
     recalcTransactionEditor();
     renderTransactionSmartChecks();
@@ -5627,12 +5644,6 @@ function applyEditorItemIntelligence(row, initial = false) {
   row.dataset.currentStock = String(item.currentStock ?? "");
   row.dataset.purchasePrice = String(item.purchasePrice ?? "");
   row.dataset.itemType = item.itemType || "";
-
-  const purchasePriceCell = row.querySelector(".row-purchase-price");
-  if (purchasePriceCell) {
-    const purchasePrice = Number(item.purchasePrice || 0);
-    purchasePriceCell.textContent = purchasePrice ? formatCurrency(purchasePrice) : "-";
-  }
 
   const description = row.querySelector('[name="description"]');
   const unit = row.querySelector('[name="unit"]');
