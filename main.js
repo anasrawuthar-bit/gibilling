@@ -341,6 +341,7 @@ function registerDatabaseHandlers() {
   ipcMain.handle("db:toggle-item-category-active", (_event, payload) => database.toggleItemCategoryActive(payload));
   ipcMain.handle("db:get-categories-with-hierarchy", () => database.getCategoriesWithHierarchy());
   ipcMain.handle("db:create-transaction", (_event, transaction) => database.createTransaction(transaction));
+  ipcMain.handle("db:preview-next-invoice-number", (_event, type, docDate) => database.previewNextInvoiceNumber(type, docDate));
   ipcMain.handle("db:update-transaction", (_event, transaction) => database.updateTransaction(transaction));
   ipcMain.handle("db:delete-transaction", (_event, payload) => database.deleteTransaction(payload));
   ipcMain.handle("db:update-invoice", (_event, transaction) => database.updateInvoice(transaction));

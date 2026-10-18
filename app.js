@@ -1874,6 +1874,18 @@ function openTransactionEditor(type, options = {}) {
   const savedDraft = options.draft || activeTab.draft || options.editInvoiceId || options.newTab ? null : loadTransactionDraft(type);
   const draft = options.draft || activeTab.draft || savedDraft;
   if (draft) populateTransactionEditorDraft(draft);
+  if (!activeTransactionEditInvoiceId && !draft?.invoiceNo && window.giDB?.previewNextInvoiceNumber) {
+    const invoiceDateVal = elements.featureView.querySelector('[name="invoiceDate"]')?.value;
+    window.giDB.previewNextInvoiceNumber(type, invoiceDateVal).then((dbNext) => {
+      if (dbNext && elements.featureView) {
+        const input = elements.featureView.querySelector('[name="invoiceNo"]');
+        if (input && !input.dataset.userEdited) {
+          input.value = dbNext;
+          input.placeholder = dbNext;
+        }
+      }
+    }).catch(() => {});
+  }
   recalcTransactionEditor();
   resetTransactionEditorDirtyState();
   if (savedDraft) showToast(transactionEditorMeta(type).draftMessage);
@@ -2020,6 +2032,181 @@ function editorPaymentMethodOptions(isReturn = false, currentValue = "") {
   return html;
 }
 
+function getFinancialYearCode(date = new Date()) {
+  let d;
+  if (typeof date === "string") {
+    const slashMatch = date.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+    if (slashMatch) {
+      d = new Date(Number(slashMatch[3]), Number(slashMatch[2]) - 1, Number(slashMatch[1]));
+    } else {
+      const isoMatch = date.match(/^(\d{4})-(\d{2})-(\d{2})/);
+      if (isoMatch) {
+        d = new Date(Number(isoMatch[1]), Number(isoMatch[2]) - 1, Number(isoMatch[3]));
+      } else {
+        d = new Date(date);
+      }
+    }
+  } else if (date instanceof Date) {
+    d = date;
+  } else {
+    d = new Date();
+  }
+  if (Number.isNaN(d.getTime())) d = new Date();
+  const year = d.getFullYear();
+  const month = d.getMonth() + 1;
+  const start = month >= 4 ? year : year - 1;
+  return `${String(start).slice(-2)}${String(start + 1).slice(-2)}`;
+}
+
+function getDocumentTypePrefix(type) {
+  const settings = state.businessSettings || {};
+  if (type === "sale") {
+    return settings.invoicePrefix || "INV";
+  }
+  return {
+    estimate: "QT",
+    proforma: "PI",
+    sale_order: "SO",
+    saleOrder: "SO",
+    delivery_challan: "DC",
+    deliveryChallan: "DC",
+    purchase_order: "PO",
+    purchaseOrder: "PO",
+    credit_note: "CN",
+    saleReturn: "CN",
+    debit_note: "DN",
+    purchaseReturn: "DN",
+    sale: "INV",
+    purchase: "PB",
+    expense: "EXP",
+    payment_in: "PIN",
+    payment_out: "POUT",
+  }[type] || "INV";
+}
+
+function findTransactionEditRecord(type, id) {
+  if (!id) return null;
+  const cleanId = String(id).trim();
+  if (type === "sale" || type === "purchase") {
+    return (state.invoices || []).find((inv) => String(inv.id) === cleanId || String(inv.transactionId) === cleanId) || null;
+  }
+  if (["estimate", "proforma", "saleOrder", "sale_order", "deliveryChallan", "delivery_challan", "purchaseOrder", "purchase_order"].includes(type)) {
+    return (state.estimates || []).find((e) => String(e.id) === cleanId || String(e.quoteId) === cleanId) || null;
+  }
+  if (type === "saleReturn" || type === "credit_note") {
+    return (state.creditNotes || []).find((cn) => String(cn.id) === cleanId || String(cn.creditNoteId) === cleanId) || null;
+  }
+  if (type === "purchaseReturn" || type === "debit_note") {
+    return (state.debitNotes || []).find((dn) => String(dn.id) === cleanId || String(dn.debitNoteId) === cleanId) || null;
+  }
+  return null;
+}
+
+function computeNextDocumentNumber(type, docDate = new Date()) {
+  const prefix = getDocumentTypePrefix(type);
+  const startNo = type === "sale" ? Math.max(1, Number(state.businessSettings?.startingNo || 1)) : 1;
+  const fy = getFinancialYearCode(docDate);
+  const pattern = new RegExp(`^${prefix}-${fy}-(\\d+)$`, "i");
+
+  let existingNumbers = [];
+  if (type === "sale" || type === "purchase") {
+    existingNumbers = (state.invoices || [])
+      .filter((inv) => inv.type === type)
+      .map((inv) => inv.invoiceNo);
+  } else if (["estimate", "proforma", "saleOrder", "sale_order", "deliveryChallan", "delivery_challan", "purchaseOrder", "purchase_order"].includes(type)) {
+    const docType = type === "saleOrder" ? "sale_order" : type === "deliveryChallan" ? "delivery_challan" : type === "purchaseOrder" ? "purchase_order" : type;
+    existingNumbers = (state.estimates || [])
+      .filter((e) => (e.documentType || "estimate") === docType)
+      .map((e) => e.quoteNo);
+  } else if (type === "saleReturn" || type === "credit_note") {
+    existingNumbers = (state.creditNotes || []).map((cn) => cn.creditNo);
+  } else if (type === "purchaseReturn" || type === "debit_note") {
+    existingNumbers = (state.debitNotes || []).map((dn) => dn.debitNo);
+  }
+
+  const openTabs = transactionEditorTabs[type] || [];
+  openTabs.forEach((tab) => {
+    if (tab.draft?.invoiceNo && tab.id !== activeTransactionEditorTabId) {
+      existingNumbers.push(tab.draft.invoiceNo);
+    }
+  });
+
+  let maxNum = startNo - 1;
+  existingNumbers.forEach((no) => {
+    if (!no) return;
+    const match = String(no).trim().match(pattern);
+    if (match) {
+      const n = parseInt(match[1], 10);
+      if (!isNaN(n) && n > maxNum) maxNum = n;
+    }
+  });
+
+  const nextNum = maxNum + 1;
+  return `${prefix}-${fy}-${String(nextNum).padStart(4, "0")}`;
+}
+
+function isDuplicateInvoiceNumber(invoiceNo, type, excludeId = null) {
+  const cleanNo = String(invoiceNo || "").trim().toLowerCase();
+  if (!cleanNo || cleanNo === "auto") return false;
+
+  if (type === "sale" || type === "purchase") {
+    return (state.invoices || []).some((inv) => {
+      if (inv.type !== type) return false;
+      if (excludeId && (String(inv.id) === String(excludeId) || String(inv.transactionId) === String(excludeId))) return false;
+      return String(inv.invoiceNo || "").trim().toLowerCase() === cleanNo;
+    });
+  }
+
+  if (["estimate", "proforma", "saleOrder", "sale_order", "deliveryChallan", "delivery_challan", "purchaseOrder", "purchase_order"].includes(type)) {
+    const docType = type === "saleOrder" ? "sale_order" : type === "deliveryChallan" ? "delivery_challan" : type === "purchaseOrder" ? "purchase_order" : type;
+    return (state.estimates || []).some((e) => {
+      if ((e.documentType || "estimate") !== docType) return false;
+      if (excludeId && (String(e.id) === String(excludeId) || String(e.quoteId) === String(excludeId))) return false;
+      return String(e.quoteNo || "").trim().toLowerCase() === cleanNo;
+    });
+  }
+
+  if (type === "saleReturn" || type === "credit_note") {
+    return (state.creditNotes || []).some((cn) => {
+      if (excludeId && (String(cn.id) === String(excludeId) || String(cn.creditNoteId) === String(excludeId))) return false;
+      return String(cn.creditNo || "").trim().toLowerCase() === cleanNo;
+    });
+  }
+
+  if (type === "purchaseReturn" || type === "debit_note") {
+    return (state.debitNotes || []).some((dn) => {
+      if (excludeId && (String(dn.id) === String(excludeId) || String(dn.debitNoteId) === String(excludeId))) return false;
+      return String(dn.debitNo || "").trim().toLowerCase() === cleanNo;
+    });
+  }
+
+  return false;
+}
+
+function validateInvoiceNumber(inputElement, { showInline = true } = {}) {
+  if (!inputElement) return { valid: true };
+  const val = String(inputElement.value || "").trim();
+  const type = getTransactionEditorType();
+  const docLabel = transactionEditorMeta(type).numberLabel || "Invoice Number";
+
+  inputElement.classList.remove("invalid-field");
+  inputElement.closest("label")?.querySelectorAll(".field-error").forEach((el) => el.remove());
+
+  if (!val) {
+    const message = `${docLabel} is required.`;
+    if (showInline) setInlineError(inputElement, message);
+    return { valid: false, message };
+  }
+
+  if (isDuplicateInvoiceNumber(val, type, activeTransactionEditInvoiceId)) {
+    const message = `${docLabel} "${val}" already exists. Please use a unique number.`;
+    if (showInline) setInlineError(inputElement, message);
+    return { valid: false, message };
+  }
+
+  return { valid: true };
+}
+
 function transactionEditorTemplate(type = getTransactionEditorType()) {
   const isSale = type === "sale";
   const isEstimate = type === "estimate";
@@ -2035,6 +2222,17 @@ function transactionEditorTemplate(type = getTransactionEditorType()) {
   const paymentLabel = meta.paymentAmountLabel;
   const today = new Date().toLocaleDateString("en-GB");
   const editorTabs = transactionEditorTabs[type] || [];
+
+  const activeTab = editorTabs.find((tab) => tab.id === activeTransactionEditorTabId);
+  let initialInvoiceNo = "";
+  if (isEditing) {
+    const editRecord = findTransactionEditRecord(type, activeTransactionEditInvoiceId);
+    initialInvoiceNo = editRecord?.invoiceNo || editRecord?.quoteNo || editRecord?.creditNo || editRecord?.debitNo || "";
+  } else if (activeTab?.draft?.invoiceNo && activeTab.draft.invoiceNo.toLowerCase() !== "auto") {
+    initialInvoiceNo = activeTab.draft.invoiceNo;
+  } else {
+    initialInvoiceNo = computeNextDocumentNumber(type, today);
+  }
 
   return `
     <section class="transaction-editor ${escapeHtml(type)}-editor">
@@ -2092,10 +2290,10 @@ function transactionEditorTemplate(type = getTransactionEditorType()) {
           <article class="editor-card editor-meta-card">
             <div class="editor-card-title">
               <strong>Document</strong>
-              <span>Auto numbered</span>
+              <span>${isEditing ? "Editing" : "Auto numbered"}</span>
             </div>
             <div class="editor-meta-grid">
-              <label>${invoiceLabel}<input class="form-input" name="invoiceNo" value="Auto"></label>
+              <label>${invoiceLabel}<input class="form-input" name="invoiceNo" value="${escapeHtml(initialInvoiceNo)}" placeholder="${escapeHtml(initialInvoiceNo)}" autocomplete="off" spellcheck="false"></label>
               <label>${dateLabel}<input class="form-input" name="invoiceDate" value="${today}"></label>
               <label>GST Supply<select class="form-input" name="supplyType"><option value="b2c">B2C / Unregistered</option><option value="b2b">B2B / Registered</option><option value="export">Export</option><option value="sez">SEZ</option></select></label>
               <label>Place of Supply<select class="form-input" name="state"><option value="">Select</option>${indianStateOptions(state.businessSettings?.state || "Karnataka")}</select></label>
@@ -2292,7 +2490,13 @@ function populateTransactionEditorDraft(draft) {
 
   if (phoneInput && draft.phone) phoneInput.value = draft.phone;
   if (addressInput && draft.billingAddress) addressInput.value = draft.billingAddress;
-  if (invoiceNoInput && draft.invoiceNo) invoiceNoInput.value = draft.invoiceNo;
+  if (invoiceNoInput) {
+    if (draft.invoiceNo && draft.invoiceNo.toLowerCase() !== "auto") {
+      invoiceNoInput.value = draft.invoiceNo;
+    } else if (!invoiceNoInput.value || invoiceNoInput.value.toLowerCase() === "auto") {
+      invoiceNoInput.value = computeNextDocumentNumber(getTransactionEditorType());
+    }
+  }
   if (invoiceDateInput && draft.invoiceDate) invoiceDateInput.value = toEditorDateString(draft.invoiceDate);
   if (paymentTermsInput && draft.paymentTerms) ensureSelectValue(paymentTermsInput, draft.paymentTerms);
   if (dueDateInput && draft.dueDate) dueDateInput.value = toEditorDateString(draft.dueDate);
@@ -2448,7 +2652,26 @@ function bindTransactionEditor() {
   phoneInput?.addEventListener("input", () => handleEditorPartyLookupInput("phone"));
   phoneInput?.addEventListener("focus", () => renderPartyLookupPanel("phone"));
   elements.featureView.querySelector('[name="paymentTerms"]')?.addEventListener("change", syncDueDateFromPaymentTerms);
-  elements.featureView.querySelector('[name="invoiceDate"]')?.addEventListener("change", syncDueDateFromPaymentTerms);
+  const invoiceNoInput = elements.featureView.querySelector('[name="invoiceNo"]');
+  if (invoiceNoInput) {
+    invoiceNoInput.addEventListener("input", () => {
+      invoiceNoInput.dataset.userEdited = "true";
+      validateInvoiceNumber(invoiceNoInput, { showInline: true });
+    });
+    invoiceNoInput.addEventListener("blur", () => {
+      validateInvoiceNumber(invoiceNoInput, { showInline: true });
+    });
+  }
+  const invoiceDateInput = elements.featureView.querySelector('[name="invoiceDate"]');
+  invoiceDateInput?.addEventListener("change", () => {
+    syncDueDateFromPaymentTerms();
+    if (invoiceNoInput && !invoiceNoInput.dataset.userEdited && !activeTransactionEditInvoiceId) {
+      const newNo = computeNextDocumentNumber(getTransactionEditorType(), invoiceDateInput.value);
+      invoiceNoInput.value = newNo;
+      invoiceNoInput.placeholder = newNo;
+      validateInvoiceNumber(invoiceNoInput, { showInline: false });
+    }
+  });
   elements.featureView.querySelector('[name="state"]')?.addEventListener("change", recalcTransactionEditor);
   elements.featureView.querySelector('[name="supplyType"]')?.addEventListener("change", renderTransactionSmartChecks);
   elements.featureView.querySelector("#editorPaymentType")?.addEventListener("change", () => {
@@ -5755,6 +5978,15 @@ async function saveTransactionEditor(event) {
   const saveMode = event.submitter?.dataset.saveMode || "close";
   clearInlineErrors(event.currentTarget);
   const form = new FormData(event.currentTarget);
+  const invoiceNoInput = event.currentTarget.querySelector('[name="invoiceNo"]');
+  if (invoiceNoInput) {
+    const invoiceValidation = validateInvoiceNumber(invoiceNoInput, { showInline: true });
+    if (!invoiceValidation.valid) {
+      invoiceNoInput.focus();
+      showToast(invoiceValidation.message);
+      return;
+    }
+  }
   const validation = validateTransactionEditorSelections();
   if (!validation.valid) {
     setInlineError(validation.field, validation.message);
@@ -5880,7 +6112,15 @@ async function saveTransactionEditor(event) {
     isTransactionEditorSaving = false;
     if (textSpan) textSpan.textContent = originalSaveText;
     actionButtons.forEach((btn) => { btn.disabled = false; });
-    showToast(error.message || "Unable to save invoice. Please select existing party and item records.");
+    const msg = error.message || "Unable to save invoice. Please select existing party and item records.";
+    if (msg.includes("already exists") || msg.includes("already in use")) {
+      const invInput = formElement.querySelector('[name="invoiceNo"]');
+      if (invInput) {
+        setInlineError(invInput, msg);
+        invInput.focus();
+      }
+    }
+    showToast(msg);
     return;
   }
   isTransactionEditorSaving = false;

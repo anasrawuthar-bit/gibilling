@@ -3126,6 +3126,9 @@ function createTransactionUnsafe(entry) {
     transaction.sgstTotal = invoiceTotals.sgstTotal;
     transaction.igstTotal = invoiceTotals.igstTotal;
     transaction.cessTotal = invoiceTotals.cessTotal;
+    if (transaction.invoiceNo) {
+      syncDocumentSequence(company.id, transaction.type, transaction.invoiceNo, transaction.date);
+    }
   }
 
   if (transaction.party && transaction.party.toLowerCase() !== "expense" && transaction.type !== "sale" && transaction.type !== "purchase" && transaction.type !== "expense") {
@@ -3587,6 +3590,7 @@ function createEstimateUnsafe(entry) {
     quoteNo,
     { documentType: docType, total: totals.total, party: entry.party }
   );
+  syncDocumentSequence(company.id, docType, quoteNo, quoteDate);
   persist();
   return getState();
 }
@@ -3806,6 +3810,7 @@ function createCreditNoteUnsafe(entry) {
   postCreditNoteLedger(company.id, creditNote, totals);
   postCreditNoteTaxEntries(company.id, creditNote, creditItems, now);
   recordAuditLog(company.id, "create", "credit_note", creditNote.id, creditNote.creditNo, { total: totals.total, party: creditNote.party });
+  syncDocumentSequence(company.id, "credit_note", creditNote.creditNo, creditNote.date);
   persist();
   return getState();
 }
@@ -4266,6 +4271,7 @@ function createDebitNoteUnsafe(entry) {
   postDebitNoteLedger(company.id, debitNote, totals);
   postDebitNoteTaxEntries(company.id, debitNote, debitItems, now);
   recordAuditLog(company.id, "create", "debit_note", debitNote.id, debitNote.debitNo, { total: totals.total, party: debitNote.party });
+  syncDocumentSequence(company.id, "debit_note", debitNote.debitNo, debitNote.date);
   persist();
   return getState();
 }
@@ -6212,12 +6218,108 @@ function nextInvoiceNumber(companyIdOrType, maybeType, docDate = new Date()) {
     "SELECT next_number AS nextNumber FROM document_sequences WHERE company_id = ? AND document_type = ? AND financial_year = ? AND prefix = ?",
     [companyId, source[2], financialYear, prefix],
   );
-  const number = Number(sequence.nextNumber);
+  const number = Math.max(startNo, Number(sequence?.nextNumber || 0), Number(existing?.maximum || 0) + 1);
   run(
     "UPDATE document_sequences SET next_number = ?, updated_at = ? WHERE company_id = ? AND document_type = ? AND financial_year = ? AND prefix = ?",
     [number + 1, new Date().toISOString(), companyId, source[2], financialYear, prefix],
   );
   return `${prefix}-${financialYear}-${String(number).padStart(4, "0")}`;
+}
+
+function previewNextInvoiceNumber(companyIdOrType, maybeType, docDate = new Date()) {
+  let companyId;
+  let type;
+  if (typeof companyIdOrType === "string" && (!maybeType || maybeType instanceof Date)) {
+    type = companyIdOrType;
+    if (maybeType instanceof Date) docDate = maybeType;
+    companyId = getCurrentCompany()?.id || 1;
+  } else {
+    companyId = companyIdOrType || getCurrentCompany()?.id || 1;
+    type = maybeType;
+  }
+  const settings = getBusinessSettings();
+  const prefix = type === "sale" && settings.invoicePrefix
+    ? settings.invoicePrefix
+    : {
+    estimate: "QT",
+    proforma: "PI",
+    sale_order: "SO",
+    saleOrder: "SO",
+    delivery_challan: "DC",
+    deliveryChallan: "DC",
+    purchase_order: "PO",
+    purchaseOrder: "PO",
+    credit_note: "CN",
+    debit_note: "DN",
+    sale: "INV",
+    purchase: "PB",
+    expense: "EXP",
+    payment_in: "PIN",
+    payment_out: "POUT",
+  }[type] || "TXN";
+  const startNo = type === "sale" ? Math.max(1, Number(settings.startingNo || 1)) : 1;
+  const financialYear = currentFinancialYear(docDate);
+  const pattern = `${prefix}-${financialYear}-%`;
+  const isEstimateLike = ["estimate", "proforma", "sale_order", "saleOrder", "delivery_challan", "deliveryChallan", "purchase_order", "purchaseOrder"].includes(type);
+  const source = isEstimateLike
+    ? ["estimates", "quote_no", type]
+    : type === "credit_note"
+      ? ["credit_notes", "credit_no", "credit_note"]
+      : type === "debit_note"
+        ? ["debit_notes", "debit_no", "debit_note"]
+        : ["transactions", "invoice_no", type];
+  const existing = one(
+    `SELECT MAX(CAST(SUBSTR(${source[1]}, LENGTH(?) + 2) AS INTEGER)) AS maximum
+     FROM ${source[0]} WHERE company_id = ? AND ${source[1]} LIKE ?${source[0] === "transactions" ? " AND type = ?" : ""}`,
+    source[0] === "transactions" ? [`${prefix}-${financialYear}`, companyId, pattern, type] : [`${prefix}-${financialYear}`, companyId, pattern],
+  );
+  const sequence = one(
+    "SELECT next_number AS nextNumber FROM document_sequences WHERE company_id = ? AND document_type = ? AND financial_year = ? AND prefix = ?",
+    [companyId, source[2], financialYear, prefix],
+  );
+  const number = Math.max(startNo, Number(sequence?.nextNumber || 0), Number(existing?.maximum || 0) + 1);
+  return `${prefix}-${financialYear}-${String(number).padStart(4, "0")}`;
+}
+
+function syncDocumentSequence(companyId, docType, invoiceNo, docDate = new Date()) {
+  if (!invoiceNo || typeof invoiceNo !== "string") return;
+  const settings = getBusinessSettings();
+  const prefix = docType === "sale" && settings.invoicePrefix
+    ? settings.invoicePrefix
+    : {
+    estimate: "QT",
+    proforma: "PI",
+    sale_order: "SO",
+    saleOrder: "SO",
+    delivery_challan: "DC",
+    deliveryChallan: "DC",
+    purchase_order: "PO",
+    purchaseOrder: "PO",
+    credit_note: "CN",
+    debit_note: "DN",
+    sale: "INV",
+    purchase: "PB",
+    expense: "EXP",
+    payment_in: "PIN",
+    payment_out: "POUT",
+  }[docType] || "TXN";
+  const financialYear = currentFinancialYear(docDate);
+  const regex = new RegExp(`^${prefix}-${financialYear}-(\\d+)$`, "i");
+  const match = invoiceNo.trim().match(regex);
+  if (match) {
+    const num = parseInt(match[1], 10);
+    if (!isNaN(num) && num > 0) {
+      const isEstimateLike = ["estimate", "proforma", "sale_order", "saleOrder", "delivery_challan", "deliveryChallan", "purchase_order", "purchaseOrder"].includes(docType);
+      const sequenceType = isEstimateLike ? docType : docType === "credit_note" ? "credit_note" : docType === "debit_note" ? "debit_note" : docType;
+      run(
+        `INSERT INTO document_sequences (company_id, document_type, financial_year, prefix, next_number, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?)
+         ON CONFLICT (company_id, document_type, financial_year, prefix)
+         DO UPDATE SET next_number = MAX(document_sequences.next_number, ?), updated_at = ?`,
+        [companyId, sequenceType, financialYear, prefix, num + 1, new Date().toISOString(), num + 1, new Date().toISOString()],
+      );
+    }
+  }
 }
 
 function currentFinancialYear(date = new Date()) {
@@ -6879,6 +6981,8 @@ module.exports = {
   updateCompanyProfile,
   getTaxEntries,
   nextInvoiceNumber,
+  previewNextInvoiceNumber,
+  syncDocumentSequence,
   currentFinancialYear,
   getAuditTrail,
   saveJournalVoucher,

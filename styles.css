@@ -7932,6 +7932,14 @@ body.privacy-mode-active .chart-wrap canvas,
   color: #d9234a;
 }
 
+.editor-meta-grid label .field-error {
+  color: #e11d48;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.2;
+  margin-top: 2px;
+}
+
 .editor-gst-split {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

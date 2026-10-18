@@ -27,6 +27,7 @@ contextBridge.exposeInMainWorld("giDB", {
   toggleItemCategoryActive: (payload) => ipcRenderer.invoke("db:toggle-item-category-active", payload),
   getCategoriesWithHierarchy: () => ipcRenderer.invoke("db:get-categories-with-hierarchy"),
   createTransaction: (transaction) => ipcRenderer.invoke("db:create-transaction", transaction),
+  previewNextInvoiceNumber: (type, docDate) => ipcRenderer.invoke("db:preview-next-invoice-number", type, docDate),
   updateTransaction: (transaction) => ipcRenderer.invoke("db:update-transaction", transaction),
   deleteTransaction: (payload) => ipcRenderer.invoke("db:delete-transaction", payload),
   updateInvoice: (transaction) => ipcRenderer.invoke("db:update-invoice", transaction),
