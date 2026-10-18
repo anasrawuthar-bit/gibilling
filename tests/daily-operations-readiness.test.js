@@ -402,7 +402,8 @@ async function runDailyOperationsReadinessTest() {
     console.log(`  ✓ Net GST Balance: Excess ITC of ₹${netInputCredit - netOutputLiability}`);
 
     // 10b. Double-Entry Trial Balance
-    const rawLedger = database.getState().ledger || [];
+    const rawLedger = database.getState().ledgerEntries || [];
+    assert.ok(rawLedger.length > 0, "Daily operations must create double-entry ledger postings");
     const trialBalance = {};
     rawLedger.forEach((entry) => {
       const acct = entry.account || "General";
@@ -419,7 +420,7 @@ async function runDailyOperationsReadinessTest() {
     }
     const diff = Math.abs(totalDebitSum - totalCreditSum);
     assert.ok(diff < 0.01, `Trial balance must balance! Debit: ₹${totalDebitSum}, Credit: ₹${totalCreditSum}, Diff: ₹${diff}`);
-    console.log(`  ✓ Double-Entry Trial Balance verified: Total Debit ₹${totalDebitSum.toFixed(2)} === Total Credit ₹${totalCreditSum.toFixed(2)} (Diff: ₹0.00)`);
+    console.log(`  ✓ Double-Entry Trial Balance verified: Total Debit ₹${totalDebitSum.toFixed(2)} === Total Credit ₹${totalCreditSum.toFixed(2)} (Diff: ₹${diff.toFixed(2)})`);
 
     // 10c. Outstanding Balances Check
     assert.equal(customerAfterCredit.receivable, 4942, "Customer outstanding must be ₹4,942");

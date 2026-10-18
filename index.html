@@ -481,7 +481,7 @@
             <span class="entry-modal-icon item-only"><svg class="gi-icon"><use href="#gi-box"></use></svg></span>
             <div>
               <h2 id="entryTitle">Add Party</h2>
-              <p class="entry-modal-subtitle" id="entrySubtitle">Create customer or supplier account</p>
+              <p class="entry-modal-subtitle" id="entrySubtitle">Create a party profile for sales and purchases</p>
             </div>
           </div>
           <button class="close-button" id="closeEntryButton" type="button" aria-label="Close dialog">×</button>
@@ -535,24 +535,8 @@
                 <input id="partyNameInput" name="party" required placeholder="Business or person name (e.g. Sharma Enterprises)">
               </label>
 
-              <div class="party-field-group full-width">
-                <span class="field-label">Party Type</span>
-                <div class="party-type-chips" role="radiogroup" aria-label="Party Type">
-                  <button type="button" class="party-type-chip active" data-type="customer">
-                    <svg class="gi-icon"><use href="#gi-receipt"></use></svg>
-                    <span>Customer</span>
-                  </button>
-                  <button type="button" class="party-type-chip" data-type="supplier">
-                    <svg class="gi-icon"><use href="#gi-cart"></use></svg>
-                    <span>Supplier</span>
-                  </button>
-                  <button type="button" class="party-type-chip" data-type="party">
-                    <svg class="gi-icon"><use href="#gi-users"></use></svg>
-                    <span>Both (Customer &amp; Supplier)</span>
-                  </button>
-                </div>
-                <input type="hidden" name="type" id="partyTypeHidden" value="customer">
-              </div>
+              <!-- Party type fixed to "party" — no Customer/Supplier distinction needed -->
+              <input type="hidden" name="type" id="partyTypeHidden" value="party">
 
               <div class="party-grid-2">
                 <label class="party-field-group">

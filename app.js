@@ -93,7 +93,7 @@ let saleTopFilter = { preset: "thisMonth", dateFrom: "", dateTo: "", party: "" }
 let purchaseTopFilter = { preset: "thisMonth", dateFrom: "", dateTo: "", party: "" };
 let saleColumnFilters = {};    // { colKey: { category, value, value2 } }
 let purchaseColumnFilters = {}; // same
-let partyAdvancedFilter = { balanceType: "all", state: "" };
+let partyAdvancedFilter = { balanceType: "all" };
 let itemAdvancedFilter = { category: "", itemType: "all", stockLevel: "all" };
 
 let posCart = [];
@@ -1270,7 +1270,7 @@ function renderOpenAnythingResults() {
 function buildOpenAnythingResults(query) {
   const pages = [
     { group: "Pages", title: "Home", meta: "Dashboard", kind: "view", view: "home", keywords: "home dashboard" },
-    { group: "Pages", title: "Parties", meta: "Customers, suppliers, ledger", kind: "view", view: "parties", keywords: "party parties customer supplier ledger" },
+    { group: "Pages", title: "Parties", meta: "Contacts, balances, ledger", kind: "view", view: "parties", keywords: "party parties customer supplier ledger" },
     { group: "Pages", title: "Items", meta: "Inventory and stock ledger", kind: "view", view: "items", keywords: "item items inventory stock product service" },
     { group: "Pages", title: "Sale Invoices", meta: "Sales and receivables", kind: "view", view: "sales", keywords: "sale sales invoice customer receivable" },
     { group: "Pages", title: "Proforma Invoice", meta: "Preliminary invoices before tax invoice", kind: "view", view: "proforma", keywords: "proforma preliminary invoice" },
@@ -1286,7 +1286,7 @@ function buildOpenAnythingResults(query) {
   ];
 
   const actions = [
-    { group: "Actions", title: "Add Party", meta: "Create customer, supplier or GST party", kind: "modal", modal: "party", keywords: "add party customer supplier gst" },
+    { group: "Actions", title: "Add Party", meta: "Create a contact with GST and balance details", kind: "modal", modal: "party", keywords: "add party customer supplier gst" },
     { group: "Actions", title: "Add Item", meta: "Create product or service", kind: "modal", modal: "item", keywords: "add item product service stock" },
     { group: "Actions", title: "Add Sale", meta: "Create sale invoice", kind: "modal", modal: "sale", keywords: "add sale invoice customer" },
     { group: "Actions", title: "Add Purchase", meta: "Create purchase bill", kind: "modal", modal: "purchase", keywords: "add purchase bill supplier" },
@@ -1410,7 +1410,7 @@ function executeOpenAnythingResult(index) {
     elements.searchInput.value = result.title;
     partySearchQuery = result.title;
     showView("parties");
-    elements.featureView.innerHTML = partiesTemplate(result.partyId, "overview", partySearchQuery);
+    elements.featureView.innerHTML = partiesTemplate(result.partyId, "ledger", partySearchQuery);
     bindFeatureActions();
     return;
   }
@@ -1791,7 +1791,7 @@ function openEntryModal(type, record = null, options = {}) {
   if (type === "party") {
     resetPartyTabs();
     if (!currentEntryRecordId) {
-      setPartyTypeChip("customer");
+      setPartyTypeChip("party");
       setBalanceTypeChip("receivable");
       const sameAsBilling = elements.entryForm.querySelector('[name="sameAsBilling"]');
       const shippingRow = document.getElementById("shippingAddressRow");
@@ -1810,7 +1810,7 @@ function openEntryModal(type, record = null, options = {}) {
   const entrySubtitle = document.getElementById("entrySubtitle");
   if (entrySubtitle) {
     if (type === "party") {
-      entrySubtitle.textContent = currentEntryRecordId ? "Update party contact, tax & credit details" : "Create customer or supplier account";
+      entrySubtitle.textContent = currentEntryRecordId ? "Update party contact, tax & credit details" : "Create a party profile for sales and purchases";
     } else {
       entrySubtitle.textContent = currentEntryRecordId ? "Update item details & pricing" : "Add product or service to inventory";
     }
@@ -6517,7 +6517,7 @@ function populateEntryForm(type, record) {
   if (!record) return;
   if (type === "party") {
     setEntryValue("party", record.name);
-    setPartyTypeChip(record.type || "customer");
+    setPartyTypeChip("party");
     setEntryValue("phone", record.phone);
     setEntryValue("email", record.email);
     setEntryValue("contactPerson", record.contactPerson);
@@ -7029,7 +7029,7 @@ async function handleEntrySubmit(event) {
 
   if (!window.giDB) saveState();
   closeEntryModal();
-  if (savedEntryType === "party") showToast(editingRecordId ? "Customer updated." : "Customer added.");
+  if (savedEntryType === "party") showToast(editingRecordId ? "Party updated." : "Party added.");
   if (savedEntryType === "item") showToast(editingRecordId ? "Item updated." : "Item added.");
   if (savedEntryType === "sale" || savedEntryType === "purchase") showToast("Invoice saved.");
   if (returnContext?.type === "transactionParty") {
@@ -7068,7 +7068,7 @@ async function handleEntrySubmit(event) {
   }
   renderDashboard();
   if (currentView === "parties") {
-    elements.featureView.innerHTML = partiesTemplate(editingRecordId || null, "overview", partySearchQuery);
+    elements.featureView.innerHTML = partiesTemplate(editingRecordId || null, "ledger", partySearchQuery);
     bindFeatureActions();
   }
   if (currentView === "items") {
@@ -7128,8 +7128,8 @@ function renderDashboard() {
   updateSidebarBadges();
   const sales = activeInvoiceRowsForType("sale");
   const purchases = activeInvoiceRowsForType("purchase");
-  const partyReceivable = (state.parties || []).filter((p) => p.type === "customer").reduce((sum, p) => sum + Math.max(0, Number(p.receivable || 0)), 0);
-  const partyPayable = (state.parties || []).filter((p) => p.type === "supplier").reduce((sum, p) => sum + Math.max(0, Number(p.payable || 0)), 0);
+  const partyReceivable = (state.parties || []).reduce((sum, p) => sum + Math.max(0, Number(p.receivable || 0)), 0);
+  const partyPayable = (state.parties || []).reduce((sum, p) => sum + Math.max(0, Number(p.payable || 0)), 0);
   const receivable = (state.parties || []).length ? partyReceivable : sales.reduce((total, entry) => total + invoiceBalanceValue(entry), 0);
   const payable = (state.parties || []).length ? partyPayable : purchases.reduce((total, entry) => total + invoiceBalanceValue(entry), 0);
   const saleTotal = sales.reduce((total, entry) => total + invoiceTotalValue(entry), 0);
@@ -11110,24 +11110,15 @@ function bindFeatureActions() {
     btn.addEventListener("click", () => {
       partyAdvancedFilter.balanceType = btn.dataset.partyBalanceFilter;
       const selectedId = elements.featureView.querySelector(".party-list-item.active")?.dataset.partyId;
-      const activeTab = elements.featureView.querySelector(".party-tabs button.active")?.dataset.partyTab || "overview";
+      const activeTab = elements.featureView.querySelector(".party-tabs button.active")?.dataset.partyTab || "ledger";
       elements.featureView.innerHTML = partiesTemplate(selectedId ? Number(selectedId) : null, activeTab, partySearchQuery);
       bindFeatureActions();
     });
   });
 
-  const partyStateFilter = elements.featureView.querySelector("#partyStateFilter");
-  partyStateFilter?.addEventListener("change", () => {
-    partyAdvancedFilter.state = partyStateFilter.value;
-    const selectedId = elements.featureView.querySelector(".party-list-item.active")?.dataset.partyId;
-    const activeTab = elements.featureView.querySelector(".party-tabs button.active")?.dataset.partyTab || "overview";
-    elements.featureView.innerHTML = partiesTemplate(selectedId ? Number(selectedId) : null, activeTab, partySearchQuery);
-    bindFeatureActions();
-  });
-
   elements.featureView.querySelector("#clearPartyFilters")?.addEventListener("click", () => {
-    partyAdvancedFilter = { balanceType: "all", state: "" };
-    elements.featureView.innerHTML = partiesTemplate(null, "overview", partySearchQuery);
+    partyAdvancedFilter = { balanceType: "all" };
+    elements.featureView.innerHTML = partiesTemplate(null, "ledger", partySearchQuery);
     bindFeatureActions();
   });
 
@@ -11607,16 +11598,16 @@ function bindFeatureActions() {
       }
     });
   }
-  elements.featureView.querySelectorAll("[data-party-id]:not([data-action='edit-party']):not([data-action='wa-party-reminder'])").forEach((button) => {
+  elements.featureView.querySelectorAll("[data-party-id]:not([data-action='edit-party'])").forEach((button) => {
     button.addEventListener("click", () => {
-      elements.featureView.innerHTML = partiesTemplate(Number(button.dataset.partyId), button.dataset.partyTab || "overview", partySearchQuery);
+      elements.featureView.innerHTML = partiesTemplate(Number(button.dataset.partyId), button.dataset.partyTab || "ledger", partySearchQuery);
       bindFeatureActions();
     });
   });
   const partySearchInput = elements.featureView.querySelector("#partySearchInput");
   partySearchInput?.addEventListener("input", () => {
     const selectedId = elements.featureView.querySelector(".party-list-item.active")?.dataset.partyId;
-    const activeTab = elements.featureView.querySelector(".party-tabs button.active")?.dataset.partyTab || "overview";
+    const activeTab = elements.featureView.querySelector(".party-tabs button.active")?.dataset.partyTab || "ledger";
     partySearchQuery = partySearchInput.value;
     elements.searchInput.value = partySearchQuery;
     elements.featureView.innerHTML = partiesTemplate(selectedId ? Number(selectedId) : null, activeTab, partySearchQuery);
@@ -11631,10 +11622,8 @@ function bindFeatureActions() {
     const party = (state.parties || []).find((item) => Number(item.id) === id);
     if (party) openEntryModal("party", party);
   });
-  elements.featureView.querySelector("[data-action='wa-party-reminder']")?.addEventListener("click", (event) => {
-    const id = Number(event.currentTarget.dataset.partyId);
-    const party = (state.parties || []).find((item) => Number(item.id) === id);
-    if (party) openWhatsAppPaymentReminder(party);
+  elements.featureView.querySelectorAll("[data-party-invoice-id]").forEach((button) => {
+    button.addEventListener("click", () => handleInvoiceListAction("view", button.dataset.partyInvoiceId));
   });
   elements.featureView.querySelectorAll("[data-item-id]:not([data-action='edit-item']):not([data-action='print-item-barcode'])").forEach((button) => {
     button.addEventListener("click", () => {
@@ -16153,7 +16142,7 @@ function bindSyncEvents() {
   });
 }
 
-function partiesTemplate(selectedPartyId = null, activeTab = "overview", query = partySearchQuery) {
+function partiesTemplate(selectedPartyId = null, activeTab = "ledger", query = partySearchQuery) {
   const normalizedQuery = String(query || "").trim().toLowerCase();
   const allParties = state.parties || [];
   const f = partyAdvancedFilter;
@@ -16168,14 +16157,16 @@ function partiesTemplate(selectedPartyId = null, activeTab = "overview", query =
     ? `${parties.length} of ${allParties.length} parties`
     : `${allParties.length} part${allParties.length === 1 ? "y" : "ies"}`;
 
-  // Build state options from existing party states
-  const partyStates = [...new Set((allParties).map((p) => p.state || "").filter(Boolean))].sort();
+  // (state filter removed — not needed)
 
   return `
     <section class="parties-page">
       <header class="feature-titlebar">
         <h1>Parties</h1>
-        <button class="primary-button square" type="button" data-action="add-party">+ Add Party</button>
+        <div class="feature-titlebar-actions">
+          ${selectedParty ? `<button class="secondary-button" type="button" data-action="edit-party" data-party-id="${selectedParty.id}">Edit Party</button>` : ""}
+          <button class="primary-button square" type="button" data-action="add-party">+ Add Party</button>
+        </div>
       </header>
 
       <div class="party-filter-bar">
@@ -16186,15 +16177,6 @@ function partiesTemplate(selectedPartyId = null, activeTab = "overview", query =
           <button class="party-filter-pill ${f.balanceType === "payable" ? "active" : ""}" data-party-balance-filter="payable" type="button"><span class="pill-dot red"></span>Payable</button>
           <button class="party-filter-pill ${f.balanceType === "zero" ? "active" : ""}" data-party-balance-filter="zero" type="button">Zero Balance</button>
         </div>
-        ${partyStates.length ? `
-          <label class="adv-filter-field" style="min-width:160px">
-            <span>State</span>
-            <select class="form-input compact-input" id="partyStateFilter">
-              <option value="">All States</option>
-              ${partyStates.map((s) => `<option value="${escapeHtml(s)}" ${f.state === s ? "selected" : ""}>${escapeHtml(s)}</option>`).join("")}
-            </select>
-          </label>
-        ` : ""}
         ${activeFilterCount > 0 ? `<button class="filter-clear-btn" type="button" id="clearPartyFilters">Clear</button>` : ""}
       </div>
 
@@ -16219,7 +16201,6 @@ function applyPartyAdvancedFilter(parties, f) {
     if (f.balanceType === "receivable" && balance <= 0) return false;
     if (f.balanceType === "payable" && balance >= 0) return false;
     if (f.balanceType === "zero" && balance !== 0) return false;
-    if (f.state && String(party.state || "").toLowerCase() !== f.state.toLowerCase()) return false;
     return true;
   });
 }
@@ -16227,19 +16208,17 @@ function applyPartyAdvancedFilter(parties, f) {
 function partyListButton(party, selectedId) {
   const balance = Number(party.balance || 0);
   const balanceClass = balance >= 0 ? "receivable-text" : "payable-text";
-  const role = partyRole(party);
   const contact = party.phone || party.email || party.gstin || "No contact details";
   return `
     <button class="party-list-item ${Number(party.id) === Number(selectedId) ? "active" : ""}" data-party-id="${party.id}" type="button">
       <span class="party-list-main"><strong>${escapeHtml(party.name)}</strong><small>${escapeHtml(contact)}</small></span>
-      <span class="party-list-side"><em class="party-role-badge ${role.className}">${role.label}</em><b class="${balanceClass}">${formatCurrency(Math.abs(balance))}</b></span>
+      <span class="party-list-side"><b class="${balanceClass}">${formatCurrency(Math.abs(balance))}</b></span>
     </button>
   `;
 }
 
 function partyDetail(party, activeTab) {
-  const tabs = ["overview", "ledger", "transactions", "payments", "notes"];
-  const role = partyRole(party);
+  const tabs = ["ledger", "overview", "transactions", "payments", "notes"];
   const safeActiveTab = activeTab === "statement" ? "ledger" : activeTab;
   const partyMeta = [party.phone, party.gstin ? `GSTIN ${party.gstin}` : ""]
     .filter(Boolean)
@@ -16249,17 +16228,8 @@ function partyDetail(party, activeTab) {
     <section class="party-detail">
       <header class="party-detail-head">
         <div>
-          <h2>${escapeHtml(party.name)} <span class="party-role-badge ${role.className}">${role.label}</span></h2>
+          <h2>${escapeHtml(party.name)}</h2>
           <p>${partyMeta || "No contact details"}</p>
-        </div>
-        <div style="display:flex;gap:8px;align-items:center;">
-          ${(Number(party.balance || 0) > 0 || Number(party.receivable || 0) > 0) ? `
-            <button class="secondary-button compact-button wa-reminder-btn" type="button" data-action="wa-party-reminder" data-party-id="${party.id}" style="color:#059669;border-color:#10b981;background:#ecfdf5;font-weight:700;display:inline-flex;align-items:center;gap:6px;">
-              <svg class="gi-icon" style="width:14px;height:14px;color:#25d366;"><use href="#gi-whatsapp"></use></svg>
-              WhatsApp Reminder
-            </button>
-          ` : ""}
-          <button class="secondary-button" type="button" data-action="edit-party" data-party-id="${party.id}">Edit Party</button>
         </div>
       </header>
       <div class="party-balance-grid">
@@ -16303,9 +16273,26 @@ function partyTabContent(party, activeTab) {
 
 function partyTransactionsTable(party) {
   const rows = (state.invoices || []).filter((invoice) => invoice.party === party.name);
-  return basicPartyTable(["Date", "No", "Type", "Status", "Total", "Balance"], rows.map((row) => [
-    formatDate(row.date), row.invoiceNo, row.type, row.status, formatCurrency(row.total), formatCurrency(row.balance),
-  ]), "No transactions found.");
+  return `
+    <div class="table-card party-transactions-table">
+      <table>
+        <thead><tr><th>Date</th><th>Bill No.</th><th>Type</th><th>Status</th><th>Total</th><th>Balance</th></tr></thead>
+        <tbody>${rows.map((row) => {
+          const invoiceId = row.id || row.invoiceId || row.transactionId || "";
+          return `
+            <tr>
+              <td>${formatDate(row.date)}</td>
+              <td><button class="party-invoice-link" type="button" data-party-invoice-id="${escapeHtml(invoiceId)}" title="View bill">${escapeHtml(row.invoiceNo || "-")}</button></td>
+              <td>${escapeHtml(titleCase(row.type || ""))}</td>
+              <td>${invoiceStatusBadge(row)}</td>
+              <td class="amount-cell">${formatCurrency(row.total)}</td>
+              <td class="amount-cell ${Number(row.balance || 0) > 0 ? "danger" : ""}">${formatCurrency(row.balance)}</td>
+            </tr>`;
+        }).join("")}</tbody>
+      </table>
+      <div class="empty-table ${rows.length ? "hidden" : ""}">No transactions found.</div>
+    </div>
+  `;
 }
 
 function partyLedgerTable(party) {
@@ -16344,13 +16331,7 @@ function partyTaxLabel(value) {
   }[value] || "Unregistered / Consumer";
 }
 
-function partyRole(party) {
-  const invoices = state.invoices || [];
-  const hasSale = invoices.some((invoice) => invoice.party === party.name && invoice.type === "sale");
-  const hasPurchase = invoices.some((invoice) => invoice.party === party.name && invoice.type === "purchase");
-  if (hasSale && hasPurchase) return { label: "Both", className: "both" };
-  if (hasSale) return { label: "Customer", className: "customer" };
-  if (hasPurchase) return { label: "Supplier", className: "supplier" };
+function partyRole() {
   return { label: "Party", className: "neutral" };
 }
 
@@ -22484,23 +22465,199 @@ function globalSearchQuery() {
   return String(elements.searchInput?.value || "").trim().toLowerCase();
 }
 
-function scheduleDashboardChartDraw() {
-  if (dashboardChartFrame) cancelAnimationFrame(dashboardChartFrame);
-  dashboardChartFrame = requestAnimationFrame(() => {
-    dashboardChartFrame = 0;
-    drawChart();
-    setTimeout(drawChart, 80);
+// ── Dashboard Smooth Animated Graph Engine ──────────────────────────────────
+let dashboardChartState = {
+  frameId: 0,
+  isAnimating: false,
+  startTime: 0,
+  duration: 650,
+  activePeriod: "This Month",
+  fromValues: [],
+  targetValues: [],
+  currentValues: [],
+  labels: [],
+  title: "",
+  maxValue: 0,
+  niceMax: 1,
+  mouseX: -1,
+  mouseY: -1,
+  isHovered: false,
+  hoverOpacity: 0,
+  listenersAttached: false,
+};
+
+function resampleChartArray(source, targetLen) {
+  if (!source || !source.length) return new Array(targetLen).fill(0);
+  if (source.length === targetLen) return [...source];
+  const result = new Array(targetLen);
+  for (let i = 0; i < targetLen; i++) {
+    const srcIdx = (i / Math.max(1, targetLen - 1)) * (source.length - 1);
+    const low = Math.floor(srcIdx);
+    const high = Math.min(source.length - 1, Math.ceil(srcIdx));
+    const frac = srcIdx - low;
+    result[i] = (source[low] || 0) * (1 - frac) + (source[high] || 0) * frac;
+  }
+  return result;
+}
+
+function ensureChartCanvasListeners() {
+  const canvas = elements.salesChart;
+  if (!canvas || dashboardChartState.listenersAttached) return;
+  dashboardChartState.listenersAttached = true;
+
+  canvas.addEventListener("mousemove", (e) => {
+    const rect = canvas.getBoundingClientRect();
+    dashboardChartState.mouseX = e.clientX - rect.left;
+    dashboardChartState.mouseY = e.clientY - rect.top;
+    dashboardChartState.isHovered = true;
+    startChartRenderLoop();
+  });
+
+  canvas.addEventListener("mouseleave", () => {
+    dashboardChartState.isHovered = false;
+    startChartRenderLoop();
   });
 }
 
-function drawChart() {
+function scheduleDashboardChartDraw() {
   const canvas = elements.salesChart;
   if (!canvas || elements.homeView?.classList.contains("hidden")) return;
+
+  const period = document.getElementById("periodSelect")?.value || "This Month";
+  const series = dashboardSalesSeries(period);
+  const newTarget = series.values;
+  const maxVal = Math.max(...newTarget, 0);
+  const niceMax = niceChartMax(maxVal);
+
+  const periodTotal = newTarget.reduce((sum, v) => sum + v, 0);
+  if (elements.saleTotal) {
+    elements.saleTotal.dataset.actualValue = formatCurrency(periodTotal);
+    updateDashboardPrivacyAmounts();
+  }
+
+  const periodChanged = dashboardChartState.activePeriod !== period;
+  dashboardChartState.activePeriod = period;
+  dashboardChartState.labels = series.labels;
+  dashboardChartState.title = series.title;
+  dashboardChartState.maxValue = maxVal;
+  dashboardChartState.niceMax = niceMax;
+
+  if (dashboardChartState.currentValues.length === newTarget.length && !periodChanged) {
+    dashboardChartState.fromValues = [...dashboardChartState.currentValues];
+  } else if (dashboardChartState.currentValues.length > 0 && periodChanged) {
+    dashboardChartState.fromValues = resampleChartArray(dashboardChartState.currentValues, newTarget.length);
+  } else {
+    dashboardChartState.fromValues = new Array(newTarget.length).fill(0);
+    dashboardChartState.currentValues = [...dashboardChartState.fromValues];
+  }
+
+  dashboardChartState.targetValues = [...newTarget];
+  dashboardChartState.startTime = performance.now();
+  dashboardChartState.isAnimating = true;
+
+  ensureChartCanvasListeners();
+  startChartRenderLoop();
+}
+
+function drawChart() {
+  scheduleDashboardChartDraw();
+}
+
+function startChartRenderLoop() {
+  if (dashboardChartState.frameId) cancelAnimationFrame(dashboardChartState.frameId);
+
+  function frame(now) {
+    dashboardChartState.frameId = 0;
+    const canvas = elements.salesChart;
+    if (!canvas || elements.homeView?.classList.contains("hidden")) return;
+
+    let needsNext = false;
+
+    if (dashboardChartState.isAnimating) {
+      const elapsed = now - dashboardChartState.startTime;
+      const progress = Math.min(1, Math.max(0, elapsed / dashboardChartState.duration));
+      const ease = 1 - Math.pow(1 - progress, 3);
+
+      const from = dashboardChartState.fromValues;
+      const to = dashboardChartState.targetValues;
+      dashboardChartState.currentValues = to.map((targetVal, i) => {
+        const fromVal = from[i] ?? 0;
+        return fromVal + (targetVal - fromVal) * ease;
+      });
+
+      if (progress < 1) {
+        needsNext = true;
+      } else {
+        dashboardChartState.isAnimating = false;
+        dashboardChartState.currentValues = [...dashboardChartState.targetValues];
+      }
+    }
+
+    if (dashboardChartState.isHovered) {
+      if (dashboardChartState.hoverOpacity < 1) {
+        dashboardChartState.hoverOpacity = Math.min(1, dashboardChartState.hoverOpacity + 0.16);
+        needsNext = true;
+      }
+    } else {
+      if (dashboardChartState.hoverOpacity > 0) {
+        dashboardChartState.hoverOpacity = Math.max(0, dashboardChartState.hoverOpacity - 0.14);
+        needsNext = true;
+      }
+    }
+
+    renderChartCanvas();
+
+    if (needsNext) {
+      dashboardChartState.frameId = requestAnimationFrame(frame);
+    }
+  }
+
+  dashboardChartState.frameId = requestAnimationFrame(frame);
+}
+
+function drawSmoothSpline(ctx, points, tension = 0.25) {
+  if (!points || !points.length) return;
+  if (points.length === 1) {
+    ctx.moveTo(points[0].x, points[0].y);
+    return;
+  }
+  if (points.length === 2) {
+    ctx.moveTo(points[0].x, points[0].y);
+    ctx.lineTo(points[1].x, points[1].y);
+    return;
+  }
+
+  ctx.moveTo(points[0].x, points[0].y);
+
+  for (let i = 0; i < points.length - 1; i++) {
+    const p0 = i > 0 ? points[i - 1] : points[i];
+    const p1 = points[i];
+    const p2 = points[i + 1];
+    const p3 = i < points.length - 2 ? points[i + 2] : p2;
+
+    let cp1x = p1.x + (p2.x - p0.x) * tension;
+    let cp1y = p1.y + (p2.y - p0.y) * tension;
+
+    let cp2x = p2.x - (p3.x - p1.x) * tension;
+    let cp2y = p2.y - (p3.y - p1.y) * tension;
+
+    if (Math.abs(p1.y - p2.y) < 0.5) {
+      cp1y = p1.y;
+      cp2y = p2.y;
+    }
+
+    ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, p2.x, p2.y);
+  }
+}
+
+function renderChartCanvas() {
+  const canvas = elements.salesChart;
+  if (!canvas) return;
 
   const ctx = canvas.getContext("2d");
   const bounds = canvas.getBoundingClientRect();
   const width = Math.max(360, Math.floor(bounds.width || canvas.clientWidth || 920));
-  const height = Math.max(220, Math.floor(bounds.height || canvas.clientHeight || 260));
+  const height = Math.max(200, Math.floor(bounds.height || canvas.clientHeight || 220));
   const dpr = Math.max(1, window.devicePixelRatio || 1);
 
   if (canvas.width !== Math.floor(width * dpr) || canvas.height !== Math.floor(height * dpr)) {
@@ -22509,89 +22666,238 @@ function drawChart() {
   }
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-  const pad = { top: 24, right: 24, bottom: 42, left: 58 };
+  const pad = { top: 28, right: 28, bottom: 36, left: 56 };
   const plotWidth = width - pad.left - pad.right;
   const plotHeight = height - pad.top - pad.bottom;
-  const period = document.getElementById("periodSelect")?.value || "This Month";
-  const series = dashboardSalesSeries(period);
-  const values = series.values;
-  const maxValue = Math.max(...values, 0);
-  const max = niceChartMax(maxValue);
+  const baselineY = pad.top + plotHeight;
+
+  const values = dashboardChartState.currentValues;
+  const targetValues = dashboardChartState.targetValues;
+  const max = dashboardChartState.niceMax;
+  const hasData = dashboardChartState.maxValue > 0;
 
   ctx.clearRect(0, 0, width, height);
+
   ctx.fillStyle = "#ffffff";
   ctx.fillRect(0, 0, width, height);
-  ctx.font = "12px Segoe UI";
-  ctx.lineWidth = 1;
 
-  for (let i = 0; i <= 4; i += 1) {
-    const y = pad.top + (plotHeight / 4) * i;
-    ctx.strokeStyle = "#e2e8f0";
+  const steps = 4;
+  ctx.font = "500 11px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+  ctx.textAlign = "right";
+
+  for (let i = 0; i <= steps; i++) {
+    const y = pad.top + (plotHeight / steps) * i;
+    const gridVal = max - (max / steps) * i;
+
     ctx.beginPath();
+    ctx.setLineDash([4, 4]);
+    ctx.strokeStyle = i === steps ? "#cbd5e1" : "#f1f5f9";
+    ctx.lineWidth = i === steps ? 1.25 : 1;
     ctx.moveTo(pad.left, y);
     ctx.lineTo(width - pad.right, y);
     ctx.stroke();
-    ctx.fillStyle = "#7a86a5";
-    ctx.fillText(compactNumber(max - (max / 4) * i), 10, y + 4);
+    ctx.setLineDash([]);
+
+    ctx.fillStyle = "#94a3b8";
+    const labelStr = compactNumber(gridVal);
+    ctx.fillText(labelStr, pad.left - 10, y + 4);
   }
 
-  const xForIndex = (index) => {
-    if (values.length <= 1) return pad.left + plotWidth / 2;
-    return pad.left + (plotWidth / (values.length - 1)) * index;
-  };
-  const yForValue = (value) => pad.top + plotHeight - (Number(value || 0) / max) * plotHeight;
-
-  ctx.strokeStyle = "#0c7ee8";
-  ctx.lineWidth = 2.5;
-  ctx.beginPath();
-  values.forEach((value, index) => {
-    const x = xForIndex(index);
-    const y = yForValue(value);
-    if (index === 0) ctx.moveTo(x, y);
-    else ctx.lineTo(x, y);
+  const points = values.map((val, idx) => {
+    const x = values.length <= 1 ? pad.left + plotWidth / 2 : pad.left + (plotWidth / (values.length - 1)) * idx;
+    const y = baselineY - (Math.max(0, val) / max) * plotHeight;
+    return { x, y, value: val, origVal: targetValues[idx] || 0 };
   });
-  ctx.stroke();
 
-  if (values.length > 1) {
-    const gradient = ctx.createLinearGradient(0, pad.top, 0, height - pad.bottom);
-    gradient.addColorStop(0, "rgba(12, 126, 232, 0.18)");
-    gradient.addColorStop(1, "rgba(12, 126, 232, 0.02)");
+  if (hasData && points.length > 1) {
+    ctx.save();
+    ctx.beginPath();
+    drawSmoothSpline(ctx, points, 0.25);
+    ctx.lineTo(points[points.length - 1].x, baselineY);
+    ctx.lineTo(points[0].x, baselineY);
+    ctx.closePath();
+
+    const gradient = ctx.createLinearGradient(0, pad.top, 0, baselineY);
+    gradient.addColorStop(0, "rgba(12, 126, 232, 0.22)");
+    gradient.addColorStop(0.55, "rgba(12, 126, 232, 0.06)");
+    gradient.addColorStop(1, "rgba(12, 126, 232, 0.00)");
     ctx.fillStyle = gradient;
-    ctx.lineTo(xForIndex(values.length - 1), height - pad.bottom);
-    ctx.lineTo(xForIndex(0), height - pad.bottom);
+    ctx.fill();
+    ctx.restore();
+
+    ctx.save();
+    ctx.beginPath();
+    drawSmoothSpline(ctx, points, 0.25);
+    ctx.strokeStyle = "#0c7ee8";
+    ctx.lineWidth = 2.75;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    ctx.shadowColor = "rgba(12, 126, 232, 0.35)";
+    ctx.shadowBlur = 8;
+    ctx.shadowOffsetY = 3;
+    ctx.stroke();
+    ctx.restore();
+
+    points.forEach((pt) => {
+      if (pt.origVal <= 0) return;
+      ctx.beginPath();
+      ctx.arc(pt.x, pt.y, 3.5, 0, Math.PI * 2);
+      ctx.fillStyle = "#ffffff";
+      ctx.fill();
+      ctx.strokeStyle = "#0c7ee8";
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    });
+  } else if (!hasData && points.length > 1) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.setLineDash([5, 5]);
+    ctx.moveTo(pad.left, baselineY);
+    ctx.lineTo(width - pad.right, baselineY);
+    ctx.strokeStyle = "rgba(148, 163, 184, 0.4)";
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.restore();
+
+    const cardW = Math.min(320, plotWidth - 40);
+    const cardH = 54;
+    const cardX = pad.left + (plotWidth - cardW) / 2;
+    const cardY = pad.top + (plotHeight - cardH) / 2 - 4;
+
+    ctx.save();
+    ctx.fillStyle = "rgba(248, 250, 252, 0.95)";
+    ctx.strokeStyle = "#e2e8f0";
+    ctx.lineWidth = 1;
+    ctx.shadowColor = "rgba(15, 23, 42, 0.04)";
+    ctx.shadowBlur = 8;
+    ctx.shadowOffsetY = 2;
+
+    const r = 8;
+    ctx.beginPath();
+    ctx.moveTo(cardX + r, cardY);
+    ctx.arcTo(cardX + cardW, cardY, cardX + cardW, cardY + cardH, r);
+    ctx.arcTo(cardX + cardW, cardY + cardH, cardX, cardY + cardH, r);
+    ctx.arcTo(cardX, cardY + cardH, cardX, cardY, r);
+    ctx.arcTo(cardX, cardY, cardX + cardW, cardY, r);
     ctx.closePath();
     ctx.fill();
+    ctx.stroke();
+
+    ctx.textAlign = "center";
+    ctx.fillStyle = "#475569";
+    ctx.font = "600 12.5px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+    ctx.fillText("No sales recorded for this period", cardX + cardW / 2, cardY + 23);
+
+    ctx.fillStyle = "#94a3b8";
+    ctx.font = "400 11px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+    ctx.fillText("Sales trends will animate here once invoices are created", cardX + cardW / 2, cardY + 41);
+    ctx.restore();
   }
 
-  values.forEach((value, index) => {
-    if (!value && maxValue > 0) return;
-    const x = xForIndex(index);
-    const y = yForValue(value);
+  const labels = dashboardChartState.labels;
+  if (labels && labels.length) {
+    const labelStep = Math.max(1, Math.ceil(labels.length / 10));
+    ctx.textAlign = "center";
+    ctx.fillStyle = "#94a3b8";
+    ctx.font = "500 11px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+
+    labels.forEach((label, index) => {
+      if (index % labelStep !== 0 && index !== labels.length - 1) return;
+      const x = points[index] ? points[index].x : pad.left + (plotWidth / (labels.length - 1)) * index;
+      ctx.fillText(label, Math.max(pad.left, Math.min(width - pad.right, x)), baselineY + 18);
+    });
+  }
+
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#334155";
+  ctx.font = "600 13px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+  ctx.fillText(dashboardChartState.title, pad.left, 16);
+
+  if (dashboardChartState.hoverOpacity > 0.01 && points.length > 0) {
+    let closestIdx = 0;
+    let minDist = Infinity;
+    points.forEach((pt, i) => {
+      const dist = Math.abs(pt.x - dashboardChartState.mouseX);
+      if (dist < minDist) {
+        minDist = dist;
+        closestIdx = i;
+      }
+    });
+
+    const activePt = points[closestIdx];
+    const hoverAlpha = dashboardChartState.hoverOpacity;
+
+    ctx.save();
+    ctx.globalAlpha = hoverAlpha;
+
     ctx.beginPath();
+    ctx.setLineDash([4, 4]);
+    ctx.moveTo(activePt.x, pad.top);
+    ctx.lineTo(activePt.x, baselineY);
+    ctx.strokeStyle = "rgba(12, 126, 232, 0.45)";
+    ctx.lineWidth = 1.25;
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    ctx.beginPath();
+    ctx.arc(activePt.x, activePt.y, 9, 0, Math.PI * 2);
+    ctx.fillStyle = "rgba(12, 126, 232, 0.22)";
+    ctx.fill();
+
+    ctx.beginPath();
+    ctx.arc(activePt.x, activePt.y, 5, 0, Math.PI * 2);
     ctx.fillStyle = "#ffffff";
+    ctx.fill();
     ctx.strokeStyle = "#0c7ee8";
-    ctx.lineWidth = 2;
-    ctx.arc(x, y, value ? 4 : 2.5, 0, Math.PI * 2);
+    ctx.lineWidth = 2.5;
+    ctx.stroke();
+
+    const labelText = labels[closestIdx] ? `${labels[closestIdx]} ${dashboardChartState.activePeriod === "This Month" ? new Date().toLocaleString("en-IN", { month: "short" }) : ""}`.trim() : "";
+    const amountVal = activePt.origVal || 0;
+    const amountText = formatCurrency(amountVal);
+
+    ctx.font = "500 10.5px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+    const labelWidth = ctx.measureText(labelText).width;
+    ctx.font = "700 12.5px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+    const amountWidth = ctx.measureText(amountText).width;
+
+    const tipW = Math.max(105, Math.max(labelWidth, amountWidth) + 20);
+    const tipH = 46;
+    let tipX = activePt.x - tipW / 2;
+    tipX = Math.max(pad.left + 4, Math.min(width - pad.right - tipW - 4, tipX));
+    let tipY = activePt.y - tipH - 12;
+    if (tipY < pad.top + 2) tipY = activePt.y + 14;
+
+    ctx.shadowColor = "rgba(15, 23, 42, 0.28)";
+    ctx.shadowBlur = 12;
+    ctx.shadowOffsetY = 4;
+    ctx.fillStyle = "rgba(15, 23, 42, 0.94)";
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.12)";
+    ctx.lineWidth = 1;
+
+    const tr = 7;
+    ctx.beginPath();
+    ctx.moveTo(tipX + tr, tipY);
+    ctx.arcTo(tipX + tipW, tipY, tipX + tipW, tipY + tipH, tr);
+    ctx.arcTo(tipX + tipW, tipY + tipH, tipX, tipY + tipH, tr);
+    ctx.arcTo(tipX, tipY + tipH, tipX, tipY, tr);
+    ctx.arcTo(tipX, tipY, tipX + tipW, tipY, tr);
+    ctx.closePath();
     ctx.fill();
     ctx.stroke();
-  });
 
-  const labelStep = Math.max(1, Math.ceil(series.labels.length / 8));
-  ctx.fillStyle = "#7a86a5";
-  series.labels.forEach((label, index) => {
-    if (index % labelStep !== 0 && index !== series.labels.length - 1) return;
-    const x = xForIndex(index);
-    ctx.fillText(label, Math.max(4, Math.min(width - 64, x - 18)), height - 12);
-  });
+    ctx.shadowColor = "transparent";
+    ctx.textAlign = "left";
+    ctx.fillStyle = "#94a3b8";
+    ctx.font = "500 10.5px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+    ctx.fillText(labelText, tipX + 10, tipY + 17);
 
-  ctx.fillStyle = "#415174";
-  ctx.font = "600 13px Segoe UI";
-  ctx.fillText(series.title, pad.left, 16);
+    ctx.fillStyle = amountVal > 0 ? "#38bdf8" : "#ffffff";
+    ctx.font = "700 12.5px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+    ctx.fillText(amountText, tipX + 10, tipY + 36);
 
-  if (maxValue <= 0) {
-    ctx.fillStyle = "#7a86a5";
-    ctx.font = "600 14px Segoe UI";
-    ctx.fillText("No sales recorded for this period", pad.left + Math.max(0, plotWidth / 2 - 95), pad.top + plotHeight / 2);
+    ctx.restore();
   }
 }
 

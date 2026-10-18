@@ -28,6 +28,7 @@ app.whenReady().then(async () => {
     ipcMain.handle("db:set-current-company", (_e, name) => database.setCurrentCompany(name));
     ipcMain.handle("db:get-units-list", () => database.getUnitsList ? database.getUnitsList() : []);
     ipcMain.handle("db:get-categories-with-hierarchy", () => database.getCategoriesWithHierarchy ? database.getCategoriesWithHierarchy() : []);
+    ipcMain.handle("db:create-snapshot", async () => ({ success: true, filename: "snapshot.sqlite" }));
 
     console.log("[VERIFY] Creating BrowserWindow...");
     const window = new BrowserWindow({

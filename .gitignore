@@ -4,3 +4,6 @@ migration-backups/
 *.tmp
 *.sqlite
 *.db
+*.log
+*.err
+scratch/
