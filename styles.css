@@ -8539,7 +8539,8 @@ td {
   z-index: 1400;
   display: grid;
   place-items: center;
-  background: rgba(15, 23, 42, 0.22);
+  background: rgba(15, 23, 42, 0.45);
+  backdrop-filter: blur(2px);
 }
 
 .invoice-settings-backdrop {
@@ -9148,16 +9149,23 @@ td {
 }
 
 .entry-modal {
-  width: min(620px, calc(100vw - 30px));
-  border-radius: 8px;
+  width: min(600px, calc(100vw - 32px));
+  max-width: 600px;
+  background: #ffffff !important;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  box-shadow: 0 20px 45px -10px rgba(15, 23, 42, 0.25), 0 0 0 1px rgba(0, 0, 0, 0.05);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  position: relative;
+  z-index: 1401;
 }
 
-body[data-entry-type="party"] .entry-modal {
-  width: min(820px, calc(100vw - 30px));
-}
-
+body[data-entry-type="party"] .entry-modal,
 body[data-entry-type="item"] .entry-modal {
-  width: min(820px, calc(100vw - 30px));
+  width: min(840px, calc(100vw - 32px)) !important;
+  max-width: 840px !important;
 }
 
 .entry-form {
@@ -9167,6 +9175,21 @@ body[data-entry-type="item"] .entry-modal {
   max-height: calc(100vh - 130px);
   padding: 18px;
   overflow: auto;
+}
+
+.entry-form-body {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: 100%;
+}
+
+.entry-form-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  width: 100%;
 }
 
 .entry-form label {
@@ -10290,10 +10313,153 @@ body .entry-form .item-tab-panel.active {
   font-size: 15px;
 }
 
-/* ── Payment-In Modal ─────────────────────────────────────────────────────── */
+/* ── Payment & Quick Entry Modals ────────────────────────────────────────── */
 
-#paymentInModal .entry-modal {
-  max-width: 520px;
+.payment-modal-shell {
+  width: min(580px, calc(100vw - 32px)) !important;
+  max-width: 580px !important;
+  background: #ffffff !important;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  box-shadow: 0 20px 45px -10px rgba(15, 23, 42, 0.25), 0 0 0 1px rgba(0, 0, 0, 0.05);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  position: relative;
+  z-index: 1401;
+}
+
+.payment-entry-form {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  background: #ffffff;
+}
+
+.payment-modal-body {
+  padding: 20px 24px;
+  overflow-y: auto;
+  max-height: calc(100vh - 200px);
+  background: #ffffff;
+}
+
+.payment-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  width: 100%;
+}
+
+.payment-modal-shell input,
+.payment-modal-shell select,
+.payment-modal-shell textarea {
+  border: 1px solid #cbd5e1;
+  border-radius: 7px;
+  padding: 8px 11px;
+  font-size: 13px;
+  color: #0f172a;
+  background: #ffffff;
+  width: 100%;
+  box-sizing: border-box;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.payment-modal-shell input:focus,
+.payment-modal-shell select:focus,
+.payment-modal-shell textarea:focus {
+  outline: none;
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.12);
+}
+
+.payment-out-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  color: #e11d48;
+  background: #ffe4e6;
+  border: 1px solid #fecdd3;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.payment-out-icon .gi-icon {
+  width: 16px;
+  height: 16px;
+}
+
+.payment-in-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  color: #059669;
+  background: #d1fae5;
+  border: 1px solid #a7f3d0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.payment-in-icon .gi-icon {
+  width: 16px;
+  height: 16px;
+}
+
+.payment-out-submit-btn {
+  background: #e11d48 !important;
+  border-color: #be123c !important;
+  color: #ffffff !important;
+  padding: 9px 18px;
+  font-weight: 600;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.payment-out-submit-btn:hover {
+  background: #be123c !important;
+  border-color: #9f1239 !important;
+}
+
+.payment-in-submit-btn {
+  background: #059669 !important;
+  border-color: #047857 !important;
+  color: #ffffff !important;
+  padding: 9px 18px;
+  font-weight: 600;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.payment-in-submit-btn:hover {
+  background: #047857 !important;
+  border-color: #065f46 !important;
+}
+
+.entry-modal-header .close-button {
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #64748b;
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  transition: background 0.15s, color 0.15s;
+}
+
+.entry-modal-header .close-button:hover {
+  background: #f1f5f9;
+  color: #0f172a;
 }
 
 /* ── Settings / Logo section spacing ─────────────────────────────────────── */

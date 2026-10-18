@@ -15110,49 +15110,71 @@ function openPaymentOutModal() {
   modal.className = "modal-backdrop";
   modal.id = "paymentOutModal";
   modal.innerHTML = `
-    <section class="entry-modal" role="dialog" aria-modal="true" aria-label="Record Payment-Out">
-      <header>
-        <h2>Record Payment-Out</h2>
-        <button class="close-button" type="button" data-close-payment-out-modal>&times;</button>
-      </header>
-      <form id="paymentOutForm" class="entry-form" novalidate>
-        <div class="entry-form-body">
-          <label>Supplier *
-            <input class="form-input" name="party" list="paymentOutPartyList" placeholder="Supplier name" autocomplete="off" required>
-            <datalist id="paymentOutPartyList">
-              ${(suppliers.length ? suppliers : state.parties || []).map((p) => `<option value="${escapeHtml(p.name)}">`).join("")}
-            </datalist>
-          </label>
-          <label>Purchase Bill Reference
-            <select class="form-input" name="invoiceRef">
-              <option value="">— On-Account Advance (no specific bill) —</option>
-              ${purchaseInvoices.map((inv) => `<option value="${escapeHtml(inv.invoiceNo || inv.id)}" data-party="${escapeHtml(inv.party)}" data-balance="${invoiceBalanceValue(inv)}">${escapeHtml(inv.invoiceNo || inv.id)} — ${escapeHtml(inv.party)} — Due: ${formatCurrency(invoiceBalanceValue(inv))}</option>`).join("")}
-            </select>
-          </label>
-          <div class="entry-form-row">
-            <label>Amount *
-              <input class="form-input" name="amount" type="number" step="0.01" min="0.01" placeholder="0.00" required>
-            </label>
-            <label>Payment Date
-              <input class="form-input" name="paymentDate" type="date" value="${new Date().toISOString().slice(0, 10)}">
-            </label>
+    <section class="entry-modal payment-modal-shell" role="dialog" aria-modal="true" aria-labelledby="paymentOutTitle">
+      <header class="entry-modal-header">
+        <div class="entry-modal-title-wrap">
+          <span class="entry-modal-icon payment-out-icon">
+            <svg class="gi-icon"><use href="#gi-arrow-up"></use></svg>
+          </span>
+          <div>
+            <h2 id="paymentOutTitle">Record Payment-Out</h2>
+            <p class="entry-modal-subtitle">Record payment made to a supplier for purchase bills or advances</p>
           </div>
-          <div class="entry-form-row">
-            <label>Payment Method
+        </div>
+        <button class="close-button" type="button" data-close-payment-out-modal title="Close">&times;</button>
+      </header>
+      <form id="paymentOutForm" class="payment-entry-form" novalidate>
+        <div class="payment-modal-body">
+          <div class="payment-form-grid">
+            <div class="party-field-group full-width">
+              <label class="field-label">Supplier <span class="req">*</span></label>
+              <input class="form-input" name="party" list="paymentOutPartyList" placeholder="Select or type supplier name" autocomplete="off" required>
+              <datalist id="paymentOutPartyList">
+                ${(suppliers.length ? suppliers : state.parties || []).map((p) => `<option value="${escapeHtml(p.name)}">`).join("")}
+              </datalist>
+            </div>
+
+            <div class="party-field-group full-width">
+              <label class="field-label">Purchase Bill Reference</label>
+              <select class="form-input" name="invoiceRef">
+                <option value="">— On-Account Advance (no specific bill) —</option>
+                ${purchaseInvoices.map((inv) => `<option value="${escapeHtml(inv.invoiceNo || inv.id)}" data-party="${escapeHtml(inv.party)}" data-balance="${invoiceBalanceValue(inv)}">${escapeHtml(inv.invoiceNo || inv.id)} — ${escapeHtml(inv.party)} — Due: ${formatCurrency(invoiceBalanceValue(inv))}</option>`).join("")}
+              </select>
+            </div>
+
+            <div class="party-field-group">
+              <label class="field-label">Amount (₹) <span class="req">*</span></label>
+              <div class="input-with-prefix">
+                <span class="prefix">₹</span>
+                <input class="form-input" name="amount" type="number" step="0.01" min="0.01" placeholder="0.00" required>
+              </div>
+            </div>
+
+            <div class="party-field-group">
+              <label class="field-label">Payment Date</label>
+              <input class="form-input" name="paymentDate" type="date" value="${new Date().toISOString().slice(0, 10)}">
+            </div>
+
+            <div class="party-field-group">
+              <label class="field-label">Payment Method</label>
               <select class="form-input" name="method">
                 ${editorPaymentMethodOptions(false)}
               </select>
-            </label>
-            <label>Notes
+            </div>
+
+            <div class="party-field-group">
+              <label class="field-label">Notes / Remarks</label>
               <input class="form-input" name="notes" placeholder="Reference number, cheque no, transaction details">
-            </label>
+            </div>
           </div>
         </div>
-        <footer>
-          <span id="paymentOutStatus"></span>
-          <div>
+        <footer class="entry-modal-footer">
+          <div class="entry-modal-footer-left">
+            <span id="paymentOutStatus"></span>
+          </div>
+          <div class="entry-modal-footer-right">
             <button class="secondary-button" type="button" data-close-payment-out-modal>Cancel</button>
-            <button class="sale-button" type="submit">Save Payment-Out</button>
+            <button class="primary-button payment-out-submit-btn" type="submit">Save Payment-Out</button>
           </div>
         </footer>
       </form>
@@ -15220,6 +15242,20 @@ function openPaymentOutModal() {
           notes: String(form.get("notes") || "").trim(),
           paymentDate: String(form.get("paymentDate") || new Date().toISOString().slice(0, 10)),
         }));
+      } else {
+        const id = "pmt-" + Date.now();
+        state.payments = state.payments || [];
+        state.payments.push({
+          id,
+          type: "payment_out",
+          invoiceId,
+          party,
+          amount,
+          method: String(form.get("method") || "Cash"),
+          notes: String(form.get("notes") || "").trim(),
+          paymentDate: String(form.get("paymentDate") || new Date().toISOString().slice(0, 10)),
+          createdAt: new Date().toISOString(),
+        });
       }
       modal.remove();
       renderDashboard();
@@ -23936,55 +23972,78 @@ function paymentInTemplate() {
 
 function openPaymentInModal() {
   const invoices = activeInvoiceRowsForType("sale").filter((inv) => invoiceBalanceValue(inv) > 0);
+  const customers = (state.parties || []).filter((p) => p.type === "customer" || p.type === "both");
   const existingModal = document.getElementById("paymentInModal");
   if (existingModal) existingModal.remove();
   const modal = document.createElement("div");
   modal.className = "modal-backdrop";
   modal.id = "paymentInModal";
   modal.innerHTML = `
-    <section class="entry-modal" role="dialog" aria-modal="true" aria-label="Record Payment-In">
-      <header>
-        <h2>Record Payment-In</h2>
-        <button class="close-button" type="button" data-close-payment-modal>&times;</button>
-      </header>
-      <form id="paymentInForm" class="entry-form" novalidate>
-        <div class="entry-form-body">
-          <label>Customer
-            <input class="form-input" name="party" list="paymentPartyList" placeholder="Customer name" autocomplete="off">
-            <datalist id="paymentPartyList">
-              ${(state.parties || []).map((p) => `<option value="${escapeHtml(p.name)}">`).join("")}
-            </datalist>
-          </label>
-          <label>Invoice Reference
-            <select class="form-input" name="invoiceRef">
-              <option value="">— Select invoice (optional) —</option>
-              ${invoices.map((inv) => `<option value="${escapeHtml(inv.invoiceNo || inv.id)}" data-party="${escapeHtml(inv.party)}" data-balance="${invoiceBalanceValue(inv)}">${escapeHtml(inv.invoiceNo || inv.id)} — ${escapeHtml(inv.party)} — Due: ${formatCurrency(invoiceBalanceValue(inv))}</option>`).join("")}
-            </select>
-          </label>
-          <div class="entry-form-row">
-            <label>Amount *
-              <input class="form-input" name="amount" type="number" step="0.01" min="0.01" placeholder="0.00" required>
-            </label>
-            <label>Payment Date
-              <input class="form-input" name="paymentDate" type="date" value="${new Date().toISOString().slice(0, 10)}">
-            </label>
+    <section class="entry-modal payment-modal-shell" role="dialog" aria-modal="true" aria-labelledby="paymentInTitle">
+      <header class="entry-modal-header">
+        <div class="entry-modal-title-wrap">
+          <span class="entry-modal-icon payment-in-icon">
+            <svg class="gi-icon"><use href="#gi-arrow-down"></use></svg>
+          </span>
+          <div>
+            <h2 id="paymentInTitle">Record Payment-In</h2>
+            <p class="entry-modal-subtitle">Record money received from a customer for invoices or advances</p>
           </div>
-          <div class="entry-form-row">
-            <label>Payment Method
+        </div>
+        <button class="close-button" type="button" data-close-payment-modal title="Close">&times;</button>
+      </header>
+      <form id="paymentInForm" class="payment-entry-form" novalidate>
+        <div class="payment-modal-body">
+          <div class="payment-form-grid">
+            <div class="party-field-group full-width">
+              <label class="field-label">Customer <span class="req">*</span></label>
+              <input class="form-input" name="party" list="paymentPartyList" placeholder="Select or enter customer name" autocomplete="off" required>
+              <datalist id="paymentPartyList">
+                ${(customers.length ? customers : state.parties || []).map((p) => `<option value="${escapeHtml(p.name)}">`).join("")}
+              </datalist>
+            </div>
+
+            <div class="party-field-group full-width">
+              <label class="field-label">Invoice Reference</label>
+              <select class="form-input" name="invoiceRef">
+                <option value="">— Select invoice (optional) —</option>
+                ${invoices.map((inv) => `<option value="${escapeHtml(inv.invoiceNo || inv.id)}" data-party="${escapeHtml(inv.party)}" data-balance="${invoiceBalanceValue(inv)}">${escapeHtml(inv.invoiceNo || inv.id)} — ${escapeHtml(inv.party)} — Due: ${formatCurrency(invoiceBalanceValue(inv))}</option>`).join("")}
+              </select>
+            </div>
+
+            <div class="party-field-group">
+              <label class="field-label">Amount (₹) <span class="req">*</span></label>
+              <div class="input-with-prefix">
+                <span class="prefix">₹</span>
+                <input class="form-input" name="amount" type="number" step="0.01" min="0.01" placeholder="0.00" required>
+              </div>
+            </div>
+
+            <div class="party-field-group">
+              <label class="field-label">Payment Date</label>
+              <input class="form-input" name="paymentDate" type="date" value="${new Date().toISOString().slice(0, 10)}">
+            </div>
+
+            <div class="party-field-group">
+              <label class="field-label">Payment Method</label>
               <select class="form-input" name="method">
                 ${editorPaymentMethodOptions(false)}
               </select>
-            </label>
-            <label>Notes
+            </div>
+
+            <div class="party-field-group">
+              <label class="field-label">Notes / Remarks</label>
               <input class="form-input" name="notes" placeholder="Reference number, cheque no, etc.">
-            </label>
+            </div>
           </div>
         </div>
-        <footer>
-          <span id="paymentInStatus"></span>
-          <div>
+        <footer class="entry-modal-footer">
+          <div class="entry-modal-footer-left">
+            <span id="paymentInStatus"></span>
+          </div>
+          <div class="entry-modal-footer-right">
             <button class="secondary-button" type="button" data-close-payment-modal>Cancel</button>
-            <button class="sale-button" type="submit">Save Payment</button>
+            <button class="primary-button payment-in-submit-btn" type="submit">Save Payment</button>
           </div>
         </footer>
       </form>
