@@ -93,7 +93,7 @@ let saleTopFilter = { preset: "thisMonth", dateFrom: "", dateTo: "", party: "" }
 let purchaseTopFilter = { preset: "thisMonth", dateFrom: "", dateTo: "", party: "" };
 let saleColumnFilters = {};    // { colKey: { category, value, value2 } }
 let purchaseColumnFilters = {}; // same
-let partyAdvancedFilter = { balanceType: "all" };
+let partyAdvancedFilter = { balanceType: "all", datePreset: "all", dateFrom: "", dateTo: "" };
 let itemAdvancedFilter = { category: "", itemType: "all", stockLevel: "all" };
 
 let posCart = [];
@@ -7268,6 +7268,24 @@ function datePresetRange(preset) {
   const m = now.getMonth();
   const fmt = formatLocalIsoDate;
 
+  if (preset === "today") {
+    return { from: fmt(now), to: fmt(now) };
+  }
+  if (preset === "yesterday") {
+    const yest = new Date(now);
+    yest.setDate(yest.getDate() - 1);
+    return { from: fmt(yest), to: fmt(yest) };
+  }
+  if (preset === "thisWeek") {
+    const d = new Date(now);
+    const day = d.getDay();
+    const diffToMonday = d.getDate() - day + (day === 0 ? -6 : 1);
+    const monday = new Date(now);
+    monday.setDate(diffToMonday);
+    const sunday = new Date(monday);
+    sunday.setDate(monday.getDate() + 6);
+    return { from: fmt(monday), to: fmt(sunday) };
+  }
   if (preset === "thisMonth") {
     return { from: fmt(new Date(y, m, 1)), to: fmt(new Date(y, m + 1, 0)) };
   }
@@ -7287,6 +7305,12 @@ function datePresetRange(preset) {
     return { from: "", to: "" };
   }
   return { from: "", to: "" };
+}
+
+function getPartyDateRange(f) {
+  if (!f || !f.datePreset || f.datePreset === "all") return { from: "", to: "" };
+  if (f.datePreset === "custom") return { from: f.dateFrom || "", to: f.dateTo || "" };
+  return datePresetRange(f.datePreset);
 }
 
 function formatLocalIsoDate(date) {
@@ -7324,6 +7348,9 @@ function topFilterBarHTML(type, topFilter) {
 
   const presetLabels = {
     all: type === "purchase" ? "All Purchase Bills" : "All Sale Invoices",
+    today: "Today",
+    yesterday: "Yesterday",
+    thisWeek: "This Week",
     thisMonth: "This Month",
     lastMonth: "Last Month",
     thisQuarter: "This Quarter",
@@ -11106,6 +11133,45 @@ function bindFeatureActions() {
 
 
   // ── Party Filters ─────────────────────────────────────────────────────────
+  const partyBalanceSelect = elements.featureView.querySelector("#partyBalanceFilterSelect");
+  if (partyBalanceSelect) {
+    partyBalanceSelect.addEventListener("change", (e) => {
+      partyAdvancedFilter.balanceType = e.target.value;
+      const selectedId = elements.featureView.querySelector(".party-list-item.active")?.dataset.partyId;
+      const activeTab = elements.featureView.querySelector(".party-tabs button.active")?.dataset.partyTab || "ledger";
+      elements.featureView.innerHTML = partiesTemplate(selectedId ? Number(selectedId) : null, activeTab, partySearchQuery);
+      bindFeatureActions();
+    });
+  }
+
+  const partyDateTypeSelect = elements.featureView.querySelector("#partyDateTypeSelect");
+  if (partyDateTypeSelect) {
+    partyDateTypeSelect.addEventListener("change", (e) => {
+      partyAdvancedFilter.datePreset = e.target.value;
+      if (e.target.value !== "custom") {
+        partyAdvancedFilter.dateFrom = "";
+        partyAdvancedFilter.dateTo = "";
+      }
+      const selectedId = elements.featureView.querySelector(".party-list-item.active")?.dataset.partyId;
+      const activeTab = elements.featureView.querySelector(".party-tabs button.active")?.dataset.partyTab || "ledger";
+      elements.featureView.innerHTML = partiesTemplate(selectedId ? Number(selectedId) : null, activeTab, partySearchQuery);
+      bindFeatureActions();
+    });
+  }
+
+  const partyDateFrom = elements.featureView.querySelector("#partyDateFrom");
+  const partyDateTo = elements.featureView.querySelector("#partyDateTo");
+  const onPartyDateChange = () => {
+    partyAdvancedFilter.dateFrom = partyDateFrom?.value || "";
+    partyAdvancedFilter.dateTo = partyDateTo?.value || "";
+    const selectedId = elements.featureView.querySelector(".party-list-item.active")?.dataset.partyId;
+    const activeTab = elements.featureView.querySelector(".party-tabs button.active")?.dataset.partyTab || "ledger";
+    elements.featureView.innerHTML = partiesTemplate(selectedId ? Number(selectedId) : null, activeTab, partySearchQuery);
+    bindFeatureActions();
+  };
+  partyDateFrom?.addEventListener("change", onPartyDateChange);
+  partyDateTo?.addEventListener("change", onPartyDateChange);
+
   elements.featureView.querySelectorAll("[data-party-balance-filter]").forEach((btn) => {
     btn.addEventListener("click", () => {
       partyAdvancedFilter.balanceType = btn.dataset.partyBalanceFilter;
@@ -11117,8 +11183,10 @@ function bindFeatureActions() {
   });
 
   elements.featureView.querySelector("#clearPartyFilters")?.addEventListener("click", () => {
-    partyAdvancedFilter = { balanceType: "all" };
-    elements.featureView.innerHTML = partiesTemplate(null, "ledger", partySearchQuery);
+    partyAdvancedFilter = { balanceType: "all", datePreset: "all", dateFrom: "", dateTo: "" };
+    partySearchQuery = "";
+    if (elements.searchInput) elements.searchInput.value = "";
+    elements.featureView.innerHTML = partiesTemplate(null, "ledger", "");
     bindFeatureActions();
   });
 
@@ -16146,6 +16214,7 @@ function partiesTemplate(selectedPartyId = null, activeTab = "ledger", query = p
   const normalizedQuery = String(query || "").trim().toLowerCase();
   const allParties = state.parties || [];
   const f = partyAdvancedFilter;
+  const range = getPartyDateRange(f);
   const searchedParties = normalizedQuery
     ? allParties.filter((party) => partyMatchesQuery(party, normalizedQuery))
     : allParties;
@@ -16157,7 +16226,25 @@ function partiesTemplate(selectedPartyId = null, activeTab = "ledger", query = p
     ? `${parties.length} of ${allParties.length} parties`
     : `${allParties.length} part${allParties.length === 1 ? "y" : "ies"}`;
 
-  // (state filter removed — not needed)
+  const balanceFilterOptions = [
+    { value: "all", label: "All Parties" },
+    { value: "receivable", label: "Receivable (To Collect)" },
+    { value: "payable", label: "Payable (To Pay)" },
+    { value: "zero", label: "Zero Balance" },
+    { value: "active", label: "Active in Period" },
+  ];
+
+  const dateTypeOptions = [
+    { value: "all", label: "All Dates" },
+    { value: "today", label: "Today" },
+    { value: "yesterday", label: "Yesterday" },
+    { value: "thisWeek", label: "This Week" },
+    { value: "thisMonth", label: "This Month" },
+    { value: "lastMonth", label: "Last Month" },
+    { value: "thisQuarter", label: "This Quarter" },
+    { value: "thisYear", label: "This Financial Year" },
+    { value: "custom", label: "Custom Range" },
+  ];
 
   return `
     <section class="parties-page">
@@ -16170,14 +16257,48 @@ function partiesTemplate(selectedPartyId = null, activeTab = "ledger", query = p
       </header>
 
       <div class="party-filter-bar">
-        <label class="party-search"><span>Search</span><input id="partySearchInput" value="${escapeHtml(String(query || ""))}" placeholder="Name, phone"></label>
-        <div class="party-filter-pills">
-          <button class="party-filter-pill ${f.balanceType === "all" ? "active" : ""}" data-party-balance-filter="all" type="button">All</button>
-          <button class="party-filter-pill ${f.balanceType === "receivable" ? "active" : ""}" data-party-balance-filter="receivable" type="button"><span class="pill-dot green"></span>Receivable</button>
-          <button class="party-filter-pill ${f.balanceType === "payable" ? "active" : ""}" data-party-balance-filter="payable" type="button"><span class="pill-dot red"></span>Payable</button>
-          <button class="party-filter-pill ${f.balanceType === "zero" ? "active" : ""}" data-party-balance-filter="zero" type="button">Zero Balance</button>
-        </div>
-        ${activeFilterCount > 0 ? `<button class="filter-clear-btn" type="button" id="clearPartyFilters">Clear</button>` : ""}
+        <label class="party-search">
+          <span>Search</span>
+          <input id="partySearchInput" value="${escapeHtml(String(query || ""))}" placeholder="Name, phone">
+        </label>
+
+        <label class="adv-filter-field party-filter-select-field">
+          <span>Filter Options</span>
+          <select class="form-input compact-input party-filter-select" id="partyBalanceFilterSelect">
+            ${balanceFilterOptions.map((opt) => `
+              <option value="${opt.value}" ${f.balanceType === opt.value ? "selected" : ""}>${escapeHtml(opt.label)}</option>
+            `).join("")}
+          </select>
+        </label>
+
+        <label class="adv-filter-field party-filter-select-field">
+          <span>Date Type</span>
+          <select class="form-input compact-input party-filter-select" id="partyDateTypeSelect">
+            ${dateTypeOptions.map((opt) => `
+              <option value="${opt.value}" ${f.datePreset === opt.value ? "selected" : ""}>${escapeHtml(opt.label)}</option>
+            `).join("")}
+          </select>
+        </label>
+
+        ${f.datePreset === "custom" ? `
+          <div class="party-filter-custom-dates">
+            <label class="adv-filter-field">
+              <span>From</span>
+              <input type="date" class="form-input compact-input party-filter-date" id="partyDateFrom" value="${escapeHtml(f.dateFrom || "")}">
+            </label>
+            <label class="adv-filter-field">
+              <span>To</span>
+              <input type="date" class="form-input compact-input party-filter-date" id="partyDateTo" value="${escapeHtml(f.dateTo || "")}">
+            </label>
+          </div>
+        ` : (range.from || range.to) ? `
+          <div class="party-filter-range-badge" title="Active period date range">
+            <svg class="gi-icon" style="width:13px;height:13px;margin-right:4px;"><use href="#gi-calendar"></use></svg>
+            <span>${formatDate(range.from)} &ndash; ${formatDate(range.to)}</span>
+          </div>
+        ` : ""}
+
+        ${(activeFilterCount > 0 || normalizedQuery) ? `<button class="filter-clear-btn" type="button" id="clearPartyFilters">Clear</button>` : ""}
       </div>
 
       <div class="parties-layout">
@@ -16196,11 +16317,42 @@ function partiesTemplate(selectedPartyId = null, activeTab = "ledger", query = p
 }
 
 function applyPartyAdvancedFilter(parties, f) {
+  const range = getPartyDateRange(f);
+  const fromDate = range.from ? parseLocalIsoDate(range.from) : null;
+  const toDate = range.to ? parseLocalIsoDate(range.to, true) : null;
+
   return parties.filter((party) => {
     const balance = Number(party.balance || 0);
     if (f.balanceType === "receivable" && balance <= 0) return false;
     if (f.balanceType === "payable" && balance >= 0) return false;
     if (f.balanceType === "zero" && balance !== 0) return false;
+    if (f.balanceType === "active") {
+      const hasActivity = partyHasActivityInRange(party, fromDate, toDate);
+      if (!hasActivity) return false;
+    }
+    return true;
+  });
+}
+
+function partyHasActivityInRange(party, fromDate, toDate) {
+  const invoices = (state.invoices || []).filter((inv) => inv.party === party.name);
+  const payments = (state.payments || []).filter((pmt) => pmt.party === party.name);
+  if (!fromDate && !toDate) {
+    return invoices.length > 0 || payments.length > 0;
+  }
+  const hasInv = invoices.some((inv) => {
+    const d = parseLocalIsoDate(inv.date || inv.invoiceDate || "");
+    if (!d) return false;
+    if (fromDate && d < fromDate) return false;
+    if (toDate && d > toDate) return false;
+    return true;
+  });
+  if (hasInv) return true;
+  return payments.some((pmt) => {
+    const d = parseLocalIsoDate(pmt.paymentDate || pmt.date || "");
+    if (!d) return false;
+    if (fromDate && d < fromDate) return false;
+    if (toDate && d > toDate) return false;
     return true;
   });
 }
@@ -16272,9 +16424,29 @@ function partyTabContent(party, activeTab) {
 }
 
 function partyTransactionsTable(party) {
-  const rows = (state.invoices || []).filter((invoice) => invoice.party === party.name);
+  const f = partyAdvancedFilter;
+  const range = getPartyDateRange(f);
+  const fromDate = range.from ? parseLocalIsoDate(range.from) : null;
+  const toDate = range.to ? parseLocalIsoDate(range.to, true) : null;
+
+  let rows = (state.invoices || []).filter((invoice) => invoice.party === party.name);
+  if (fromDate || toDate) {
+    rows = rows.filter((row) => {
+      const d = parseLocalIsoDate(row.date || row.invoiceDate || "");
+      if (!d) return false;
+      if (fromDate && d < fromDate) return false;
+      if (toDate && d > toDate) return false;
+      return true;
+    });
+  }
+
   return `
     <div class="table-card party-transactions-table">
+      ${(range.from || range.to) ? `
+        <div class="party-ledger-period-banner">
+          <span>Period: <strong>${formatDate(range.from)} &ndash; ${formatDate(range.to)}</strong> (${rows.length} invoice${rows.length === 1 ? "" : "s"})</span>
+        </div>
+      ` : ""}
       <table>
         <thead><tr><th>Date</th><th>Bill No.</th><th>Type</th><th>Status</th><th>Total</th><th>Balance</th></tr></thead>
         <tbody>${rows.map((row) => {
@@ -16290,7 +16462,7 @@ function partyTransactionsTable(party) {
             </tr>`;
         }).join("")}</tbody>
       </table>
-      <div class="empty-table ${rows.length ? "hidden" : ""}">No transactions found.</div>
+      <div class="empty-table ${rows.length ? "hidden" : ""}">No transactions found for this period.</div>
     </div>
   `;
 }
@@ -16298,15 +16470,95 @@ function partyTransactionsTable(party) {
 function partyLedgerTable(party) {
   const invoices = (state.invoices || []).filter((invoice) => invoice.party === party.name);
   const payments = (state.payments || []).filter((payment) => payment.party === party.name);
-  const rows = [
-    ...invoices.map((invoice) => ({ date: invoice.date, type: invoice.type, ref: invoice.invoiceNo, debit: invoice.type === "sale" ? invoice.total : 0, credit: invoice.type === "purchase" ? invoice.total : 0 })),
-    ...payments.map((payment) => ({ date: payment.paymentDate, type: payment.type, ref: payment.method, debit: payment.type === "payment_out" ? payment.amount : 0, credit: payment.type === "payment_in" ? payment.amount : 0 })),
+  const allRows = [
+    ...invoices.map((invoice) => ({
+      date: invoice.date,
+      type: invoice.type,
+      ref: invoice.invoiceNo,
+      debit: invoice.type === "sale" ? Number(invoice.total || 0) : 0,
+      credit: invoice.type === "purchase" ? Number(invoice.total || 0) : 0,
+    })),
+    ...payments.map((payment) => ({
+      date: payment.paymentDate,
+      type: payment.type,
+      ref: payment.method,
+      debit: payment.type === "payment_out" ? Number(payment.amount || 0) : 0,
+      credit: payment.type === "payment_in" ? Number(payment.amount || 0) : 0,
+    })),
   ].sort((a, b) => new Date(a.date) - new Date(b.date));
+
+  const f = partyAdvancedFilter;
+  const range = getPartyDateRange(f);
+  const fromDate = range.from ? parseLocalIsoDate(range.from) : null;
+  const toDate = range.to ? parseLocalIsoDate(range.to, true) : null;
+
   let running = Number(party.openingBalance || 0);
-  return basicPartyTable(["Date", "Type", "Ref", "Debit", "Credit", "Balance"], rows.map((row) => {
+  let periodDebit = 0;
+  let periodCredit = 0;
+  const tableRows = [];
+
+  if (fromDate) {
+    for (const row of allRows) {
+      const rowDate = parseLocalIsoDate(row.date);
+      if (rowDate && rowDate < fromDate) {
+        running += Number(row.debit || 0) - Number(row.credit || 0);
+      }
+    }
+    tableRows.push([
+      formatDate(range.from),
+      "Opening Balance",
+      "B/F",
+      "-",
+      "-",
+      formatCurrency(Math.abs(running)),
+    ]);
+  }
+
+  let countInPeriod = 0;
+  for (const row of allRows) {
+    const rowDate = parseLocalIsoDate(row.date);
+    if (fromDate && rowDate && rowDate < fromDate) continue;
+    if (toDate && rowDate && rowDate > toDate) continue;
+
     running += Number(row.debit || 0) - Number(row.credit || 0);
-    return [formatDate(row.date), row.type, row.ref, formatCurrency(row.debit), formatCurrency(row.credit), formatCurrency(Math.abs(running))];
-  }), "No ledger entries found.");
+    periodDebit += Number(row.debit || 0);
+    periodCredit += Number(row.credit || 0);
+    countInPeriod++;
+
+    tableRows.push([
+      formatDate(row.date),
+      row.type,
+      row.ref,
+      row.debit ? formatCurrency(row.debit) : "₹ 0",
+      row.credit ? formatCurrency(row.credit) : "₹ 0",
+      formatCurrency(Math.abs(running)),
+    ]);
+  }
+
+  if (fromDate || toDate) {
+    tableRows.push([
+      toDate ? formatDate(range.to) : "Total / Closing",
+      "Closing Balance",
+      "C/F",
+      formatCurrency(periodDebit),
+      formatCurrency(periodCredit),
+      formatCurrency(Math.abs(running)),
+    ]);
+  }
+
+  const emptyText = fromDate || toDate
+    ? `No transactions recorded between ${formatDate(range.from || "")} and ${formatDate(range.to || "")}.`
+    : "No ledger entries found.";
+
+  return `
+    ${(range.from || range.to) ? `
+      <div class="party-ledger-period-banner">
+        <span>Showing ledger from <strong>${formatDate(range.from)}</strong> to <strong>${formatDate(range.to)}</strong> (${countInPeriod} record${countInPeriod === 1 ? "" : "s"})</span>
+        <span>Period Movement: <strong class="${(periodDebit - periodCredit) >= 0 ? "receivable-text" : "payable-text"}">${formatCurrency(Math.abs(periodDebit - periodCredit))}</strong></span>
+      </div>
+    ` : ""}
+    ${basicPartyTable(["Date", "Type", "Ref", "Debit", "Credit", "Balance"], tableRows, emptyText)}
+  `;
 }
 
 function partyMatchesQuery(party, query) {
@@ -16336,10 +16588,42 @@ function partyRole() {
 }
 
 function partyPaymentsTable(party) {
-  const rows = (state.payments || []).filter((payment) => payment.party === party.name);
-  return basicPartyTable(["Date", "Type", "Method", "Amount", "Notes"], rows.map((row) => [
-    formatDate(row.paymentDate), row.type, row.method, formatCurrency(row.amount), row.notes || "-",
-  ]), "No payments found.");
+  const f = partyAdvancedFilter;
+  const range = getPartyDateRange(f);
+  const fromDate = range.from ? parseLocalIsoDate(range.from) : null;
+  const toDate = range.to ? parseLocalIsoDate(range.to, true) : null;
+
+  let rows = (state.payments || []).filter((payment) => payment.party === party.name);
+  if (fromDate || toDate) {
+    rows = rows.filter((row) => {
+      const d = parseLocalIsoDate(row.paymentDate || row.date || "");
+      if (!d) return false;
+      if (fromDate && d < fromDate) return false;
+      if (toDate && d > toDate) return false;
+      return true;
+    });
+  }
+
+  return `
+    <div class="table-card">
+      ${(range.from || range.to) ? `
+        <div class="party-ledger-period-banner">
+          <span>Period: <strong>${formatDate(range.from)} &ndash; ${formatDate(range.to)}</strong> (${rows.length} payment${rows.length === 1 ? "" : "s"})</span>
+        </div>
+      ` : ""}
+      <table>
+        <thead><tr><th>Date</th><th>Type</th><th>Method</th><th>Amount</th><th>Notes</th></tr></thead>
+        <tbody>${rows.map((row) => `<tr>
+          <td>${formatDate(row.paymentDate)}</td>
+          <td>${escapeHtml(row.type || "")}</td>
+          <td>${escapeHtml(row.method || "")}</td>
+          <td>${formatCurrency(row.amount)}</td>
+          <td>${escapeHtml(row.notes || "-")}</td>
+        </tr>`).join("")}</tbody>
+      </table>
+      <div class="empty-table ${rows.length ? "hidden" : ""}">No payments found for this period.</div>
+    </div>
+  `;
 }
 
 function basicPartyTable(headers, rows, emptyText) {
