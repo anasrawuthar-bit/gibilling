@@ -2635,7 +2635,7 @@ function populateTransactionEditorDraft(draft) {
       const discount = rowElement.querySelector('[name="discount"]');
       if (discount && row.discount !== undefined) discount.value = Number(row.discount || 0);
       const tax = rowElement.querySelector('[name="tax"]');
-      if (tax) ensureSelectValue(tax, taxOptionLabel(row.taxRate));
+      if (tax) ensureSelectValue(tax, taxOptionLabel(row.taxRate, editorTaxSplitMode() === "igst"));
     });
   }
 
@@ -6095,7 +6095,7 @@ function applyEditorItemIntelligence(row, initial = false) {
   if (discount && Number(item.discount || 0) && (isNewSmartItem || Number(discount.value || 0) === 0)) {
     discount.value = Number(item.discount || 0);
   }
-  if (tax) ensureSelectValue(tax, taxOptionLabel(item.taxRate));
+  if (tax) ensureSelectValue(tax, taxOptionLabel(item.taxRate, editorTaxSplitMode() === "igst"));
 
   renderPurchasePriceHistory(row, item);
   updateRowSmartHint(row);
@@ -6142,14 +6142,49 @@ function editorUnitOptionsMarkup(selected = "Pcs") {
   return units.map((unit) => `<option value="${escapeHtml(unit)}" ${unit === selected ? "selected" : ""}>${escapeHtml(unit)}</option>`).join("");
 }
 
-function editorTaxOptionsMarkup(selected = "NONE") {
-  const options = ["NONE", "GST 0%", "GST 5%", "GST 12%", "GST 18%", "GST 28%"];
-  return options.map((option) => `<option value="${escapeHtml(option)}" ${option === selected ? "selected" : ""}>${escapeHtml(option)}</option>`).join("");
+const STANDARD_GST_TAX_OPTIONS = [
+  "None",
+  "IGST@0%",
+  "GST@0%",
+  "IGST@0.25%",
+  "GST@0.25%",
+  "IGST@3%",
+  "GST@3%",
+  "IGST@5%",
+  "GST@5%",
+  "IGST@12%",
+  "GST@12%",
+  "IGST@18%",
+  "GST@18%",
+  "IGST@28%",
+  "GST@28%",
+  "IGST@40%",
+  "GST@40%",
+  "Exempt",
+];
+
+function editorTaxOptionsMarkup(selected = "None") {
+  const normalized = String(selected || "None").trim();
+  const list = [...STANDARD_GST_TAX_OPTIONS];
+  if (normalized && !list.some((opt) => opt.toLowerCase() === normalized.toLowerCase())) {
+    list.unshift(normalized);
+  }
+  return list
+    .map((option) => `<option value="${escapeHtml(option)}" ${option.toLowerCase() === normalized.toLowerCase() ? "selected" : ""}>${escapeHtml(option)}</option>`)
+    .join("");
 }
 
-function taxOptionLabel(rate) {
+function taxOptionLabel(rate, isIgst = false) {
+  if (typeof rate === "string") {
+    const trimmed = rate.trim();
+    if (trimmed.toLowerCase() === "exempt") return "Exempt";
+    if (trimmed.toLowerCase() === "none" || trimmed === "0" || trimmed === "0%") return "None";
+    if (trimmed.toUpperCase().startsWith("IGST@") || trimmed.toUpperCase().startsWith("GST@")) return trimmed;
+  }
   const numericRate = Number(rate || 0);
-  return numericRate ? `GST ${numericRate}%` : "NONE";
+  if (!numericRate) return "None";
+  const prefix = isIgst ? "IGST" : "GST";
+  return `${prefix}@${numericRate}%`;
 }
 
 function updateRowSmartHint(row) {
@@ -6248,7 +6283,8 @@ function recalcTransactionEditor() {
     const qty = Number(row.querySelector('[name="qty"]').value || 0);
     const price = Number(row.querySelector('[name="price"]').value || 0);
     const discount = Number(row.querySelector('[name="discount"]').value || 0);
-    const taxRate = parseTaxRate(row.querySelector('[name="tax"]').value);
+    const taxValue = String(row.querySelector('[name="tax"]').value || "").trim();
+    const taxRate = parseTaxRate(taxValue);
     const gross = Math.max(0, qty * price);
     const taxable = Math.max(0, gross - discount);
     const taxAmount = taxable * taxRate / 100;
@@ -6257,7 +6293,9 @@ function recalcTransactionEditor() {
     subtotal += gross;
     discountTotal += discount;
     taxTotal += taxAmount;
-    if (taxSplitMode === "igst") {
+    const isExplicitIgst = taxValue.toUpperCase().startsWith("IGST");
+    const isExplicitGst = taxValue.toUpperCase().startsWith("GST");
+    if (isExplicitIgst || (taxSplitMode === "igst" && !isExplicitGst)) {
       igstTotal += taxAmount;
     } else {
       cgstTotal += taxAmount / 2;
@@ -7921,7 +7959,7 @@ async function handleEntrySubmit(event) {
       saleTaxType: String(form.get("saleTaxType") || "without_tax"),
       purchasePrice: Number(form.get("purchasePrice") || 0),
       purchaseTaxType: String(form.get("purchaseTaxType") || "without_tax"),
-      taxRate: Number(form.get("taxRate") || 0),
+      taxRate: parseTaxRate(form.get("taxRate")),
       discount: Number(form.get("discount") || 0),
       openingStock: isService ? 0 : Number(form.get("openingStock") || 0),
       openingStockDate: isService ? "" : String(form.get("openingStockDate") || ""),
@@ -15452,7 +15490,7 @@ function expenseModalTemplate(record = null) {
               <label class="expense-field gst-only">
                 <span class="field-label">GST Rate <span class="req">*</span></span>
                 <select class="form-input" name="taxRate" id="expenseTaxRate">
-                  ${[0, 5, 12, 18, 28].map((rate) => `<option value="${rate}" ${Number(rate) === taxRate ? "selected" : ""}>${rate}% GST</option>`).join("")}
+                  ${[0, 0.25, 3, 5, 12, 18, 28, 40].map((rate) => `<option value="${rate}" ${Number(rate) === taxRate ? "selected" : ""}>${rate}% GST</option>`).join("")}
                 </select>
               </label>
 
