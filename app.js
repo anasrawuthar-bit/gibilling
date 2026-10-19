@@ -123,6 +123,7 @@ let transactionEditorTabCounters = { sale: 1, purchase: 1, estimate: 1, saleRetu
 let transactionEditorTabs = { sale: [], purchase: [], estimate: [], saleReturn: [], purchaseReturn: [] };
 let activeTransactionEditorTabId = null;
 let lastCalculatorTarget = null;
+let activeCalculatorKeyHandler = null;
 let collapsedSidebarGroups = new Set();
 
 const CODE128_PATTERNS = [
@@ -3210,13 +3211,26 @@ function handleEditorAction(action) {
   showToast(labels[action] || "Action coming soon.");
 }
 
+function closeInvoiceCalculator() {
+  if (activeCalculatorKeyHandler) {
+    document.removeEventListener("keydown", activeCalculatorKeyHandler);
+    activeCalculatorKeyHandler = null;
+  }
+  const existing = document.getElementById("invoiceCalculatorPopover");
+  if (existing) {
+    existing.remove();
+  }
+}
+
 function openInvoiceCalculator() {
   document.getElementById("invoiceSettingsDrawer")?.remove();
   const existing = document.getElementById("invoiceCalculatorPopover");
   if (existing) {
-    existing.remove();
+    closeInvoiceCalculator();
     return;
   }
+
+  closeInvoiceCalculator();
 
   const panel = document.createElement("section");
   panel.className = "invoice-calculator-popover";
@@ -3292,11 +3306,10 @@ function bindInvoiceCalculator(panel) {
   };
 
   const closeCalculator = () => {
-    document.removeEventListener("keydown", handleKeyDown);
-    panel.remove();
+    closeInvoiceCalculator();
   };
 
-  panel.querySelector("[data-calc-close]")?.addEventListener("click", closeCalculator);
+  panel.querySelector("[data-calc-close]")?.addEventListener("click", closeInvoiceCalculator);
 
   // Dragging support
   const header = panel.querySelector("header");
@@ -3428,9 +3441,32 @@ function bindInvoiceCalculator(panel) {
   });
 
   const handleKeyDown = (e) => {
+    if (!document.getElementById("invoiceCalculatorPopover")) {
+      closeInvoiceCalculator();
+      return;
+    }
+
+    const target = e.target;
+    const isEditingField = target && (
+      target.tagName === "INPUT" ||
+      target.tagName === "TEXTAREA" ||
+      target.tagName === "SELECT" ||
+      target.isContentEditable
+    );
+    if (isEditingField) {
+      if (e.key === "Escape") {
+        closeInvoiceCalculator();
+      }
+      return;
+    }
+
+    if (e.ctrlKey || e.altKey || e.metaKey) {
+      return;
+    }
+
     if (e.key === "Escape") {
       e.preventDefault();
-      closeCalculator();
+      closeInvoiceCalculator();
       return;
     }
     if (e.key === "Enter" || e.key === "=") {
@@ -3464,6 +3500,7 @@ function bindInvoiceCalculator(panel) {
       return;
     }
   };
+  activeCalculatorKeyHandler = handleKeyDown;
   document.addEventListener("keydown", handleKeyDown);
 
   panel.querySelector("[data-calc-copy]")?.addEventListener("click", async () => {
@@ -3504,15 +3541,79 @@ function calculateExpression(expression) {
   expr = expr.replace(/[+\-*/.]+$/, "").trim();
   if (!expr) throw new Error("Empty expression");
 
+  // Handle percentages
   expr = expr.replace(/(\d+(?:\.\d+)?)\s*([+\-])\s*(\d+(?:\.\d+)?)%/g, "($1 $2 ($1 * $3 / 100))");
   expr = expr.replace(/(\d+(?:\.\d+)?)\s*([*/])\s*(\d+(?:\.\d+)?)%/g, "($1 $2 ($3 / 100))");
   expr = expr.replace(/(\d+(?:\.\d+)?)%/g, "($1 / 100)");
 
-  if (!/^[0-9+\-*/().\s]+$/.test(expr)) {
-    throw new Error("Invalid expression");
+  // Tokenize using safe regex
+  const tokens = [];
+  const regex = /\s*([0-9]+(?:\.[0-9]+)?|[+\-*/()])\s*/g;
+  let match;
+  let lastIndex = 0;
+  while ((match = regex.exec(expr)) !== null) {
+    if (match.index !== lastIndex) throw new Error("Invalid token: " + expr.slice(lastIndex, match.index));
+    tokens.push(match[1]);
+    lastIndex = regex.lastIndex;
+  }
+  if (lastIndex !== expr.length) throw new Error("Invalid expression");
+
+  let pos = 0;
+  function peek() { return tokens[pos]; }
+  function consume(expected) {
+    const t = tokens[pos++];
+    if (expected && t !== expected) throw new Error(`Expected ${expected} but got ${t}`);
+    return t;
   }
 
-  const result = Function(`"use strict"; return (${expr});`)();
+  function parseExpression() {
+    let val = parseTerm();
+    while (pos < tokens.length && (peek() === "+" || peek() === "-")) {
+      const op = consume();
+      const right = parseTerm();
+      val = op === "+" ? val + right : val - right;
+    }
+    return val;
+  }
+
+  function parseTerm() {
+    let val = parseFactor();
+    while (pos < tokens.length && (peek() === "*" || peek() === "/")) {
+      const op = consume();
+      const right = parseFactor();
+      if (op === "/") {
+        if (right === 0) throw new Error("Division by zero");
+        val = val / right;
+      } else {
+        val = val * right;
+      }
+    }
+    return val;
+  }
+
+  function parseFactor() {
+    if (peek() === "-") {
+      consume();
+      return -parseFactor();
+    }
+    if (peek() === "+") {
+      consume();
+      return parseFactor();
+    }
+    if (peek() === "(") {
+      consume("(");
+      const val = parseExpression();
+      consume(")");
+      return val;
+    }
+    const token = consume();
+    const num = Number(token);
+    if (Number.isNaN(num)) throw new Error("Invalid number: " + token);
+    return num;
+  }
+
+  const result = parseExpression();
+  if (pos !== tokens.length) throw new Error("Unexpected trailing tokens: " + tokens.slice(pos).join(" "));
   if (!Number.isFinite(result)) throw new Error("Invalid result");
 
   const rounded = Number(Math.round(result + "e+8") + "e-8");
@@ -11177,6 +11278,7 @@ function showView(view, title) {
   }
   activeTransactionEditInvoiceId = null;
   hideOpenAnythingResults();
+  closeInvoiceCalculator();
   document.body.classList.remove("transaction-editor-open", "editor-view-active");
   const appShellEl = document.getElementById("appShell");
   if (appShellEl) appShellEl.classList.remove("editor-active");
