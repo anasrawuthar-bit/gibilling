@@ -16496,13 +16496,12 @@ function bankModalTemplate(account = null) {
   const currentBalanceValue = isEdit ? String(Number(account?.currentBalance ?? account?.openingBalance ?? 0)) : "";
 
   return `
-    <div class="bank-modal-backdrop modal-backdrop">
-      <div class="app-modal bank-modal-revamp" role="dialog" aria-modal="true" aria-labelledby="bankModalTitle">
-        <header class="bank-modal-header">
-          <div class="bank-modal-title-group">
-            <div class="bank-modal-badge">
-              <svg class="icon" aria-hidden="true"><use href="#gi-bank"></use></svg>
-            </div>
+    <div class="app-modal bank-modal-revamp" role="dialog" aria-modal="true" aria-labelledby="bankModalTitle">
+      <header class="bank-modal-header">
+        <div class="bank-modal-title-group">
+          <div class="bank-modal-badge">
+            <svg class="gi-icon icon" aria-hidden="true"><use href="#gi-bank"></use></svg>
+          </div>
             <div>
               <h2 id="bankModalTitle">${isEdit ? "Edit Bank Account" : "Add Bank Account"}</h2>
               <p>Configure bank details &amp; UPI QR for invoice printing and payments</p>
@@ -16592,7 +16591,7 @@ function bankModalTemplate(account = null) {
                 <!-- Live Invoice Preview Card -->
                 <div class="bank-preview-container">
                   <div class="bank-preview-header">
-                    <svg class="icon icon-xs" aria-hidden="true"><use href="#gi-receipt"></use></svg>
+                    <svg class="gi-icon icon icon-xs" aria-hidden="true"><use href="#gi-receipt"></use></svg>
                     <span>Live Invoice Print Preview</span>
                   </div>
                   <div class="bank-preview-box" id="bankLivePreviewBox">
@@ -16618,14 +16617,13 @@ function bankModalTemplate(account = null) {
             <div class="bank-footer-actions">
               <button class="secondary-button" data-action="cancel-bank" type="button">Cancel</button>
               <button class="primary-button bank-save-btn" type="submit">
-                <svg class="icon icon-sm" aria-hidden="true"><use href="#gi-check"></use></svg>
+                <svg class="gi-icon icon icon-sm" aria-hidden="true"><use href="#gi-check"></use></svg>
                 <span>${isEdit ? "Update Bank Account" : "Save Bank Account"}</span>
               </button>
             </div>
           </footer>
         </form>
       </div>
-    </div>
   `;
 }
 

@@ -5259,9 +5259,19 @@ body.privacy-mode-active .chart-wrap canvas,
 }
 
 .bank-main-content {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding: 20px 24px 32px;
+  max-width: 1300px;
+  width: 100%;
+  box-sizing: border-box;
+}
 
 .bank-workspace-revamp svg.icon,
+.bank-workspace-revamp .gi-icon,
 .bank-modal-revamp svg.icon,
+.bank-modal-revamp .gi-icon,
 .cash-badge svg,
 .bac-bank-icon svg,
 .empty-icon-wrap svg,
@@ -5277,27 +5287,27 @@ body.privacy-mode-active .chart-wrap canvas,
 }
 
 .bank-workspace-revamp svg.icon-xs,
-.bank-modal-revamp svg.icon-xs {
+.bank-workspace-revamp .icon-xs,
+.bank-modal-revamp svg.icon-xs,
+.bank-modal-revamp .icon-xs {
   width: 14px;
   height: 14px;
 }
 
-.bank-workspace-revamp svg.icon-sm {
+.bank-workspace-revamp svg.icon-sm,
+.bank-workspace-revamp .icon-sm,
+.bank-modal-revamp svg.icon-sm,
+.bank-modal-revamp .icon-sm {
   width: 16px;
   height: 16px;
 }
 
-.bank-workspace-revamp svg.icon-lg {
+.bank-workspace-revamp svg.icon-lg,
+.bank-workspace-revamp .icon-lg,
+.bank-modal-revamp svg.icon-lg,
+.bank-modal-revamp .icon-lg {
   width: 28px;
   height: 28px;
-}
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-  padding: 20px 24px 32px;
-  max-width: 1300px;
-  width: 100%;
-  box-sizing: border-box;
 }
 
 /* ── Cash in Hand Card ──────────────────────────────────────────────────────── */
@@ -5953,6 +5963,16 @@ body.privacy-mode-active .chart-wrap canvas,
   margin-bottom: 8px;
 }
 
+.bank-preview-header svg,
+.bank-preview-header .gi-icon {
+  width: 14px !important;
+  height: 14px !important;
+  stroke: currentColor !important;
+  fill: none !important;
+  stroke-width: 1.8 !important;
+  flex-shrink: 0;
+}
+
 .bank-preview-box {
   background: #ffffff;
   border: 1px solid #bfdbfe;
@@ -6017,20 +6037,37 @@ body.privacy-mode-active .chart-wrap canvas,
 .bank-save-btn {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 6px;
   background: #2563eb !important;
   color: #ffffff !important;
   border: none;
   border-radius: 8px;
-  padding: 8px 18px;
+  padding: 0 18px;
+  height: 36px;
+  min-height: 36px;
+  max-height: 36px;
   font-size: 13px;
   font-weight: 700;
   cursor: pointer;
-  transition: background 0.15s ease;
+  transition: background 0.15s ease, transform 0.1s ease;
+  width: auto;
+  box-sizing: border-box;
+  flex-shrink: 0;
 }
 
 .bank-save-btn:hover {
   background: #1d4ed8 !important;
+}
+
+.bank-save-btn svg,
+.bank-save-btn .gi-icon {
+  width: 16px !important;
+  height: 16px !important;
+  stroke: currentColor !important;
+  fill: none !important;
+  stroke-width: 2 !important;
+  flex-shrink: 0;
 }
 
 
