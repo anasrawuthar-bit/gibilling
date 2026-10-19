@@ -2334,7 +2334,6 @@ function transactionEditorTemplate(type = getTransactionEditorType()) {
                   <th>Discount</th>
                   <th>Tax</th>
                   <th>Line Total</th>
-                  <th></th>
                 </tr>
               </thead>
               <tbody id="transactionRows">
@@ -2346,7 +2345,6 @@ function transactionEditorTemplate(type = getTransactionEditorType()) {
                   <td id="editorQtyTotal">0</td>
                   <td colspan="4">Total</td>
                   <td id="editorTableTotal">0</td>
-                  <td></td>
                 </tr>
               </tfoot>
             </table>
@@ -2439,7 +2437,10 @@ function transactionCustomFieldControl(field, value = "") {
 function editorRowTemplate(index, item = "", description = "", qty = "", price = "") {
   return `
     <tr>
-      <td>${index}</td>
+      <td class="row-num-cell">
+        <span class="row-num-text">${index}</span>
+        <button class="row-delete-button" type="button" aria-label="Remove item row" title="Delete row">${icon("trash")}</button>
+      </td>
       <td class="editor-item-field"><div class="editor-item-cell"><input name="item" value="${escapeHtml(item)}" placeholder="Search item or SKU" autocomplete="off"><div class="editor-lookup-panel editor-item-lookup hidden"></div><small class="row-smart-hint"></small><div class="purchase-price-history"></div></div></td>
       <td><details class="editor-row-description" ${description ? "open" : ""}><summary>Description</summary><input name="description" aria-label="Item description" value="${escapeHtml(description)}" placeholder="Optional description"></details></td>
       <td><input name="qty" aria-label="Quantity" placeholder="0" type="number" min="0" step="0.01" value="${qty}"></td>
@@ -2448,7 +2449,6 @@ function editorRowTemplate(index, item = "", description = "", qty = "", price =
       <td><input name="discount" type="number" min="0" step="0.01" value="0"></td>
       <td><select name="tax">${editorTaxOptionsMarkup()}</select></td>
       <td class="row-amount">0</td>
-      <td><button class="row-delete-button" type="button" aria-label="Remove item row">${icon("trash")}</button></td>
     </tr>
   `;
 }
@@ -2570,7 +2570,7 @@ function bindEditorColumnResize() {
   if (!table || table.querySelector('colgroup')) return;
   const headers = [...table.querySelectorAll('thead th')];
   const key = 'gi-editor-column-widths-v1';
-  const minimums = [36, 180, 110, 70, 76, 90, 90, 90, 110, 36];
+  const minimums = [38, 180, 110, 70, 76, 90, 90, 90, 110];
   const group = document.createElement('colgroup');
   headers.forEach(() => group.append(document.createElement('col')));
   table.prepend(group);
@@ -5790,7 +5790,12 @@ function updateRowSmartHint(row) {
 
 function renumberEditorRows() {
   elements.featureView.querySelectorAll("#transactionRows tr").forEach((row, index) => {
-    row.cells[0].textContent = index + 1;
+    const numText = row.querySelector(".row-num-text");
+    if (numText) {
+      numText.textContent = index + 1;
+    } else if (row.cells[0]) {
+      row.cells[0].textContent = index + 1;
+    }
   });
 }
 

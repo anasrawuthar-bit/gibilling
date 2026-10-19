@@ -8227,11 +8227,71 @@ body.privacy-mode-active .chart-wrap canvas,
   font-weight: 700;
 }
 
-.row-delete-button {
+.row-num-cell {
+  position: relative;
+  text-align: center;
+  vertical-align: middle;
+  width: 42px;
+  min-width: 42px;
+  padding: 0 !important;
+}
+
+.row-num-cell .row-num-text {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 28px;
+  font-variant-numeric: tabular-nums;
+  color: #64748b;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.row-num-cell .row-delete-button {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  margin: 0 auto;
+  padding: 0;
   border: 0;
-  color: #8a94a8;
+  border-radius: 4px;
   background: transparent;
-  font-size: 16px;
+  color: #8b98ad;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.row-num-cell .row-delete-button .gi-icon {
+  width: 14px;
+  height: 14px;
+}
+
+.row-num-cell .row-delete-button:hover {
+  background: #fee2e2;
+  color: #e11d48;
+}
+
+.editor-table tbody tr:hover .row-num-cell .row-num-text {
+  display: none;
+}
+
+.editor-table tbody tr:hover .row-num-cell .row-delete-button {
+  display: inline-flex;
+}
+
+.row-num-cell .row-delete-button:focus-visible {
+  display: inline-flex;
+  outline: 2px solid #e11d48;
+  outline-offset: 1px;
+}
+.editor-table tbody tr:focus-within .row-num-cell:focus-within .row-num-text {
+  display: none;
+}
+.editor-table tbody tr:focus-within .row-num-cell:focus-within .row-delete-button {
+  display: inline-flex;
 }
 
 .editor-bottom-grid {
@@ -12403,17 +12463,16 @@ textarea:focus-visible {
 .editor-column-resizer { position: absolute; top: 0; right: -3px; bottom: 0; width: 7px; cursor: col-resize; touch-action: none; z-index: 2; }
 .editor-column-resizer:hover, .editor-column-resizer:focus-visible { background: #087de3; outline: none; }
 .transaction-editor .editor-table { min-width: 960px; table-layout: fixed; }
-.transaction-editor .editor-table th:nth-child(1) { width: 36px; text-align: center; }
+.transaction-editor .editor-table th:nth-child(1) { width: 42px; text-align: center; }
 .transaction-editor .editor-table th:nth-child(2) { width: 28%; }
 .transaction-editor .editor-table th:nth-child(3) { width: 12%; }
 .transaction-editor .editor-table th:nth-child(4) { width: 68px; text-align: right; }
 .transaction-editor .editor-table th:nth-child(5) { width: 76px; }
 .transaction-editor .editor-table th:nth-child(6) { width: 92px; text-align: right; }
-.transaction-editor .editor-table th:nth-child(7) { width: 110px; min-width: 104px; text-align: right; }
-.transaction-editor .editor-table th:nth-child(8) { width: 86px; text-align: right; }
-.transaction-editor .editor-table th:nth-last-child(3) { width: 86px; text-align: right; }
-.transaction-editor .editor-table th:nth-last-child(2) { width: 110px; min-width: 100px; text-align: right; }
-.transaction-editor .editor-table th:last-child { width: 38px; text-align: center; }
+.transaction-editor .editor-table th:nth-child(7) { width: 90px; text-align: right; }
+.transaction-editor .editor-table th:nth-child(8) { width: 100px; text-align: right; }
+.transaction-editor .editor-table th:last-child,
+.transaction-editor .editor-table td:last-child { width: 110px; min-width: 100px; text-align: right; font-variant-numeric: tabular-nums; }
 .transaction-editor .editor-table td { height: 44px; }
 .transaction-editor .editor-table tfoot td[colspan] { text-align: right; padding-right: 12px; color: #64748b; font-size: 11.5px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; }
 .transaction-editor .editor-table tfoot #editorQtyTotal,
@@ -12425,8 +12484,7 @@ textarea:focus-visible {
 .editor-payment-toggle:has([data-payment-mode]) { gap: 2px; padding: 3px; background: #edf2f6; border-radius: 6px; }
 .editor-payment-toggle [data-payment-mode] { width: 64px; height: 28px; border: 0; border-radius: 4px; background: transparent; color: #46576a; cursor: pointer; }
 .editor-payment-toggle [aria-pressed="true"] { background: #fff; color: #086bc2; box-shadow: 0 1px 3px #0002; font-weight: 600; }
-.transaction-editor .editor-table input[type=number],
-.transaction-editor .editor-table td:nth-last-child(2) { text-align: right; font-variant-numeric: tabular-nums; }
+.transaction-editor .editor-table input[type=number] { text-align: right; font-variant-numeric: tabular-nums; }
 .transaction-editor .editor-table input:focus-visible,
 .transaction-editor .editor-table select:focus-visible { outline: 2px solid #087de3; outline-offset: -2px; border-radius: 3px; }
 .transaction-editor .editor-bottom-grid {
