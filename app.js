@@ -3865,6 +3865,12 @@ function ensureToastHost() {
   return host;
 }
 
+function cleanErrorMessage(msg) {
+  return String(msg || "")
+    .replace(/^Error invoking remote method '[^']+':\s*(?:Error:\s*)?/i, "")
+    .trim();
+}
+
 let lastToastTime = 0;
 let lastToastEl = null;
 
@@ -3877,11 +3883,11 @@ function showToast(messageOrOptions, options = {}) {
 
   if (typeof messageOrOptions === "object" && messageOrOptions !== null) {
     title = messageOrOptions.title || "";
-    message = messageOrOptions.message || messageOrOptions.text || "";
+    message = cleanErrorMessage(messageOrOptions.message || messageOrOptions.text || "");
     type = messageOrOptions.type || "success";
     isTransaction = Boolean(messageOrOptions.isTransaction);
   } else {
-    const raw = String(messageOrOptions || "").trim();
+    const raw = cleanErrorMessage(String(messageOrOptions || "").trim());
     if (typeof options === "string") {
       type = options;
     } else if (options && typeof options === "object") {
@@ -6607,7 +6613,7 @@ async function saveTransactionEditor(event) {
     isTransactionEditorSaving = false;
     if (textSpan) textSpan.textContent = originalSaveText;
     actionButtons.forEach((btn) => { btn.disabled = false; });
-    const msg = error.message || "Unable to save invoice. Please select existing party and item records.";
+    const msg = cleanErrorMessage(error.message || "Unable to save invoice. Please select existing party and item records.");
     if (msg.includes("already exists") || msg.includes("already in use")) {
       const invInput = formElement.querySelector('[name="invoiceNo"]');
       if (invInput) {

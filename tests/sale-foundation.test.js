@@ -81,6 +81,7 @@ async function run() {
       }),
       /not configured as a customer/i,
     );
+    database.updateBusinessSettings({ stopSaleOnNegativeStock: true });
     assert.throws(
       () => database.createTransaction({
         ...sale,
@@ -91,6 +92,7 @@ async function run() {
       }),
       /only 8 in stock/i,
     );
+    database.updateBusinessSettings({ stopSaleOnNegativeStock: false });
     assert.throws(
       () => database.createTransaction({ ...sale, invoiceNo: "INV-DUPLICATE-ID" }),
       /UNIQUE constraint failed/i,
@@ -103,10 +105,12 @@ async function run() {
     state = database.updateInvoice({ ...sale, items: [{ ...sale.items[0], qty: 9 }] });
     assert.equal(currentStock(state, item.id), 1, "edit should replace the original stock movement");
     assert.equal(invoiceLine(state, sale.invoiceId).qty, 9, "edit should replace the invoice line");
+    database.updateBusinessSettings({ stopSaleOnNegativeStock: true });
     assert.throws(
       () => database.updateInvoice({ ...sale, items: [{ ...sale.items[0], qty: 11 }] }),
       /only 10 in stock/i,
     );
+    database.updateBusinessSettings({ stopSaleOnNegativeStock: false });
     state = database.getState();
     assert.equal(currentStock(state, item.id), 1, "rejected edit should preserve stock");
     assert.equal(invoiceLine(state, sale.invoiceId).qty, 9, "rejected edit should preserve invoice lines");

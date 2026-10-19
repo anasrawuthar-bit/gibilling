@@ -4751,6 +4751,9 @@ function validatePurchaseRemoval(companyId, invoiceId, replacement = []) {
 }
 
 function validateSaleStock(companyId, invoiceItems, excludedInvoiceId = "") {
+  const settings = getBusinessSettings(companyId);
+  if (!settings || !settings.stopSaleOnNegativeStock) return;
+
   const requestedByItem = new Map();
   invoiceItems.forEach((item) => {
     if (!item.itemId || Number(item.qty || 0) <= 0) return;
