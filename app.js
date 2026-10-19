@@ -783,6 +783,9 @@ function syncSidebarNavigation(view) {
   document.querySelectorAll(".submenu-item").forEach((button) => {
     button.classList.toggle("active", button.dataset.view === view);
   });
+  document.querySelectorAll(".collapsed-flyout-item").forEach((button) => {
+    button.classList.toggle("active", button.dataset.view === view);
+  });
 
   const companySwitchBtn = document.querySelector(".company-switch");
   if (companySwitchBtn) {
@@ -823,6 +826,8 @@ function updateSidebarBadges() {
   }
 }
 
+var hideCollapsedFlyoutGlobal = null;
+
 function initSidebarToggle() {
   const toggleBtn = document.getElementById("sidebarToggleBtn");
   const STORAGE_KEY = "gi_sidebar_collapsed";
@@ -839,6 +844,10 @@ function initSidebarToggle() {
       if (iconUse) {
         iconUse.setAttribute("href", collapsed ? "#gi-sidebar-expand" : "#gi-sidebar-collapse");
       }
+    }
+
+    if (!collapsed && typeof hideCollapsedFlyoutGlobal === "function") {
+      hideCollapsedFlyoutGlobal();
     }
 
     try {
@@ -875,6 +884,198 @@ function initSidebarToggle() {
       e.preventDefault();
       const isCurrentlyCollapsed = document.body.classList.contains("sidebar-collapsed");
       setSidebarCollapsed(!isCurrentlyCollapsed);
+    }
+  });
+}
+
+function initCollapsedSidebarFlyouts() {
+  const flyout = document.getElementById("collapsedFlyout");
+  const flyoutIcon = document.getElementById("collapsedFlyoutIcon");
+  const flyoutTitle = document.getElementById("collapsedFlyoutTitle");
+  const flyoutItems = document.getElementById("collapsedFlyoutItems");
+  const tooltip = document.getElementById("collapsedTooltip");
+
+  if (!flyout) return;
+
+  let hideFlyoutTimeout = null;
+  let hideTooltipTimeout = null;
+  let activeGroupButton = null;
+
+  function cancelHideFlyout() {
+    if (hideFlyoutTimeout) {
+      clearTimeout(hideFlyoutTimeout);
+      hideFlyoutTimeout = null;
+    }
+  }
+
+  function scheduleHideFlyout(delay = 180) {
+    cancelHideFlyout();
+    hideFlyoutTimeout = setTimeout(() => {
+      flyout.classList.add("hidden");
+      activeGroupButton = null;
+    }, delay);
+  }
+
+  function hideFlyoutImmediately() {
+    cancelHideFlyout();
+    flyout.classList.add("hidden");
+    activeGroupButton = null;
+  }
+  hideCollapsedFlyoutGlobal = hideFlyoutImmediately;
+
+  function cancelHideTooltip() {
+    if (hideTooltipTimeout) {
+      clearTimeout(hideTooltipTimeout);
+      hideTooltipTimeout = null;
+    }
+  }
+
+  function hideTooltipImmediately() {
+    cancelHideTooltip();
+    if (tooltip) tooltip.classList.add("hidden");
+  }
+
+  function isSidebarCollapsed() {
+    return document.body.classList.contains("sidebar-collapsed") ||
+           Boolean(document.getElementById("appShell")?.classList.contains("sidebar-collapsed"));
+  }
+
+  function positionFlyout(button) {
+    const rect = button.getBoundingClientRect();
+    const left = rect.right + 4;
+    flyout.style.left = `${left}px`;
+    flyout.style.top = `${rect.top}px`;
+
+    requestAnimationFrame(() => {
+      const flyoutRect = flyout.getBoundingClientRect();
+      const viewportHeight = window.innerHeight;
+      if (flyoutRect.bottom > viewportHeight - 12) {
+        const adjustedTop = Math.max(12, viewportHeight - flyoutRect.height - 12);
+        flyout.style.top = `${adjustedTop}px`;
+      }
+    });
+  }
+
+  function showFlyoutForButton(button, groupName) {
+    if (!isSidebarCollapsed()) return;
+    hideTooltipImmediately();
+    cancelHideFlyout();
+
+    const parentGroup = SIDEBAR_GROUPS[groupName];
+    if (!parentGroup) return;
+
+    activeGroupButton = button;
+    const submenu = submenuForSidebarGroup(groupName);
+    const subItems = submenu ? Array.from(submenu.querySelectorAll(".submenu-item")) : [];
+
+    const labelSpan = button.querySelector(".nav-label");
+    flyoutTitle.textContent = labelSpan ? labelSpan.textContent.trim() : groupName;
+    const iconSvg = button.querySelector(".gi-icon");
+    flyoutIcon.innerHTML = iconSvg ? iconSvg.outerHTML : "";
+
+    flyoutItems.innerHTML = "";
+    subItems.forEach((item) => {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "collapsed-flyout-item";
+      const targetView = item.dataset.view;
+      btn.dataset.view = targetView;
+      const isActive = item.classList.contains("active") || targetView === currentView;
+      if (isActive) btn.classList.add("active");
+      btn.textContent = item.textContent.trim();
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        hideFlyoutImmediately();
+        showView(targetView);
+      });
+      flyoutItems.appendChild(btn);
+    });
+
+    flyout.classList.remove("hidden");
+    positionFlyout(button);
+  }
+
+  function showTooltipForButton(button) {
+    if (!isSidebarCollapsed() || !tooltip) return;
+    if (!flyout.classList.contains("hidden")) return;
+    cancelHideTooltip();
+
+    const labelSpan = button.querySelector(".nav-label");
+    const text = labelSpan ? labelSpan.textContent.trim() : button.getAttribute("title");
+    if (!text) return;
+
+    tooltip.textContent = text;
+    tooltip.classList.remove("hidden");
+
+    const rect = button.getBoundingClientRect();
+    const tooltipRect = tooltip.getBoundingClientRect();
+    tooltip.style.left = `${rect.right + 6}px`;
+    tooltip.style.top = `${rect.top + (rect.height - tooltipRect.height) / 2}px`;
+  }
+
+  document.querySelectorAll(".side-nav .nav-item").forEach((btn) => {
+    const view = btn.dataset.view;
+    const hasSub = Boolean(SIDEBAR_GROUPS[view]);
+
+    btn.addEventListener("mouseenter", () => {
+      if (!isSidebarCollapsed()) return;
+      if (hasSub) {
+        showFlyoutForButton(btn, view);
+      } else {
+        hideFlyoutImmediately();
+        showTooltipForButton(btn);
+      }
+    });
+
+    btn.addEventListener("mouseleave", () => {
+      if (!isSidebarCollapsed()) return;
+      if (hasSub) {
+        scheduleHideFlyout(200);
+      } else {
+        hideTooltipImmediately();
+      }
+    });
+
+    btn.addEventListener("click", () => {
+      if (!isSidebarCollapsed()) return;
+      if (hasSub) {
+        if (activeGroupButton === btn && !flyout.classList.contains("hidden")) {
+          hideFlyoutImmediately();
+        } else {
+          showFlyoutForButton(btn, view);
+        }
+      } else {
+        hideFlyoutImmediately();
+      }
+    });
+  });
+
+  flyout.addEventListener("mouseenter", () => {
+    cancelHideFlyout();
+  });
+  flyout.addEventListener("mouseleave", () => {
+    scheduleHideFlyout(200);
+  });
+
+  document.addEventListener("click", (e) => {
+    if (!isSidebarCollapsed()) return;
+    if (flyout.contains(e.target) || e.target.closest(".nav-item")) return;
+    hideFlyoutImmediately();
+  });
+
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+      hideFlyoutImmediately();
+      hideTooltipImmediately();
+    }
+  });
+
+  window.addEventListener("resize", () => {
+    if (!isSidebarCollapsed()) {
+      hideFlyoutImmediately();
+      hideTooltipImmediately();
+    } else if (activeGroupButton && !flyout.classList.contains("hidden")) {
+      positionFlyout(activeGroupButton);
     }
   });
 }
@@ -1048,6 +1249,9 @@ function handleSidebarNavigation(button) {
   const view = button.dataset.view;
   const parentGroup = SIDEBAR_GROUPS[view];
   if (parentGroup && button.classList.contains("nav-item")) {
+    if (document.body.classList.contains("sidebar-collapsed")) {
+      return true;
+    }
     const isCurrentGroup = sidebarGroupForView(currentView) === view;
     const submenu = submenuForSidebarGroup(view);
     const isOpen = isCurrentGroup && submenu && !submenu.classList.contains("hidden");
@@ -1071,6 +1275,7 @@ function handleSidebarNavigation(button) {
 
 function bindEvents() {
   initSidebarToggle();
+  initCollapsedSidebarFlyouts();
   initPrivacyModeToggle();
   initDashboardAttentionHandlers();
   document.querySelector('.company-switch')?.addEventListener('click', () => {
@@ -6731,14 +6936,36 @@ function updateLocalInvoice(transaction) {
   if (invoiceIndex >= 0) {
     const total = Number(transaction.amount || 0);
     const received = Number(transaction.received || 0);
+    const prev = state.invoices[invoiceIndex];
+    const prevMeta = prev.meta || {};
+    const editHistory = Array.isArray(prevMeta.editHistory) ? [...prevMeta.editHistory] : [];
+    const now = new Date().toISOString();
+    const docName = prev.type === "purchase" ? "Purchase Bill" : "Invoice";
+    const prevTotal = Number(prev.total || 0);
+    const totalDiffText = prevTotal !== total ? `Total updated from ${formatCurrency(prevTotal)} to ${formatCurrency(total)}` : `Total: ${formatCurrency(total)}`;
+
+    editHistory.push({
+      date: now,
+      timestamp: now,
+      action: `${docName} Edited & Saved`,
+      detail: `${totalDiffText} • ${(transaction.items || []).length} line item${(transaction.items || []).length === 1 ? '' : 's'}`,
+      total,
+      itemCount: (transaction.items || []).length,
+    });
+
     state.invoices[invoiceIndex] = {
-      ...state.invoices[invoiceIndex],
+      ...prev,
       ...transaction,
       id: transaction.invoiceId,
       total,
       received,
       balance: Math.max(0, total - received),
       status: received >= total ? "paid" : received > 0 ? "partially_paid" : "unpaid",
+      meta: {
+        ...prevMeta,
+        ...(transaction.meta || {}),
+        editHistory,
+      },
     };
   }
   state.invoiceItems = (state.invoiceItems || []).filter((line) => String(line.invoiceId) !== String(transaction.invoiceId));
@@ -8268,7 +8495,7 @@ function invoiceWorkspaceTemplate(type) {
         ${kpiCard("GST / Tax", formatCurrency(taxTotal), `${openCount} open, ${cancelledCount} cancelled`, "info")}
       </section>
 
-      <section class="data-table-card invoice-data-card">
+      <section class="data-table-card invoice-data-card" data-table-width="${currentTableWidthMode}">
         ${rows.length ? invoiceRowsTable(rows, { isSale, partyLabel, numberLabel, paidLabel, colFilters, type }) : emptyWorkspace(emptyTitle, emptyCopy)}
       </section>
     </section>
@@ -9169,10 +9396,17 @@ function estimateActionMenu(quote, view = "estimate") {
     purchaseOrder:   "Cancel PO",
   }[view] || "Cancel";
 
-  const groups = [
-    ["Primary",  [["viewEdit", "View / Edit"], ["preview", "Preview"], ["print", "Print"], ["whatsapp", "Share WhatsApp"]]],
-    ["Status",   [["markSent", "Mark Sent"], ["markAccepted", "Mark Accepted"], ["convert", convertLabel]]],
-    ["More",     [["duplicate", "Duplicate"], ["cancel", cancelLabel], ["delete", "Delete"]]],
+  const actions = [
+    ["viewEdit", "View / Edit"],
+    ["preview", "Preview"],
+    ["print", "Print"],
+    ["whatsapp", "Share WhatsApp"],
+    ["markSent", "Mark Sent"],
+    ["markAccepted", "Mark Accepted"],
+    ["convert", convertLabel],
+    ["duplicate", "Duplicate"],
+    ["cancel", cancelLabel],
+    ["delete", "Delete"],
   ];
 
   return `
@@ -9181,11 +9415,8 @@ function estimateActionMenu(quote, view = "estimate") {
       <details>
         <summary aria-label="${escapeHtml(view)} actions">⋮</summary>
         <div class="invoice-action-menu">
-          ${groups.map(([group, actions]) => `
-            <section>
-              <span>${escapeHtml(group)}</span>
-              ${actions.map(([action, label]) => `<button type="button" data-estimate-action="${action}" data-estimate-id="${id}">${escapeHtml(label)}</button>`).join("")}
-            </section>
+          ${actions.map(([action, label]) => `
+            <button type="button" data-estimate-action="${action}" data-estimate-id="${id}" class="${action === 'delete' || action === 'cancel' ? 'danger-action' : ''}">${escapeHtml(label)}</button>
           `).join("")}
         </div>
       </details>
@@ -10327,65 +10558,226 @@ async function deleteEstimateRecord(quote) {
   }
 }
 
+let currentTableWidthMode = "fit";
+try {
+  const saved = localStorage.getItem("gi-invoice-table-width-mode");
+  if (saved) currentTableWidthMode = saved;
+} catch {}
+
 function invoiceRowsTable(rows, { isSale, partyLabel, numberLabel, paidLabel, colFilters = {}, type = "sale" }) {
   const cf = (col) => `<button class="col-filter-icon ${colFilters[col]?.value ? "active" : ""}" type="button" data-col-filter-btn="${col}" data-col-filter-type="${type}" title="Filter by ${col}">▽</button>`;
   return `
-    <table class="data-table">
-      <thead>
-        <tr>
-          <th>Date ${cf("date")}</th>
-          <th>${numberLabel} ${cf("invoiceNo")}</th>
-          <th>${partyLabel} ${cf("party")}</th>
-          <th>Total ${cf("total")}</th>
-          <th>${paidLabel} ${cf("received")}</th>
-          <th>Balance ${cf("balance")}</th>
-          <th>Status</th>
-          <th>Actions</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${rows.map((entry, index) => `
-          <tr data-invoice-row="${escapeHtml(entry.id || entry.invoiceId || entry.transactionId || "")}">
-            <td>${formatDate(entry.date)}</td>
-            <td><strong class="invoice-no-cell">${escapeHtml(entry.invoiceNo || `${isSale ? "INV" : "PB"}-${String(index + 1).padStart(4, "0")}`)}</strong><small>${escapeHtml(entry.item || invoiceItemSummary(entry.id))}</small></td>
-            <td><strong>${escapeHtml(entry.party || "-")}</strong><small>${escapeHtml(entry.phone || "")}</small></td>
-            <td class="amount-cell strong">${formatCurrency(invoiceTotalValue(entry))}</td>
-            <td class="amount-cell">${formatCurrency(invoiceReceivedValue(entry))}</td>
-            <td class="amount-cell ${invoiceBalanceValue(entry) > 0 ? "danger" : ""}">${formatCurrency(invoiceBalanceValue(entry))}</td>
-            <td>${invoiceStatusBadge(entry)}</td>
-            <td>${invoiceRowActions(entry, { isSale })}</td>
+    <div class="data-table-toolbar">
+      <div class="data-table-toolbar-left">
+        <span class="data-table-count">${rows.length} ${isSale ? "sale invoice" : "purchase bill"}${rows.length === 1 ? "" : "s"}</span>
+      </div>
+      <div class="data-table-toolbar-right">
+        <div class="table-width-segmented">
+          <span class="table-width-label">Table:</span>
+          <button type="button" class="table-width-btn ${currentTableWidthMode === 'fit' ? 'active' : ''}" data-table-width-set="fit" title="Fit table neatly to available screen width (100%)">Fit Screen</button>
+          <button type="button" class="table-width-btn ${currentTableWidthMode === 'standard' ? 'active' : ''}" data-table-width-set="standard" title="Standard width (1200px)">Standard</button>
+          <button type="button" class="table-width-btn ${currentTableWidthMode === 'wide' ? 'active' : ''}" data-table-width-set="wide" title="Wide table (1500px)">Wide</button>
+          <button type="button" class="table-width-btn table-reset-btn" data-table-width-reset title="Reset column widths to default">Reset Columns</button>
+        </div>
+      </div>
+    </div>
+    <div class="data-table-scroll-wrap">
+      <table class="data-table" data-table-width="${currentTableWidthMode}">
+        <thead>
+          <tr>
+            <th>Date ${cf("date")}<span class="data-table-column-resizer" title="Drag to resize column"></span></th>
+            <th>${numberLabel} ${cf("invoiceNo")}<span class="data-table-column-resizer" title="Drag to resize column"></span></th>
+            <th>${partyLabel} ${cf("party")}<span class="data-table-column-resizer" title="Drag to resize column"></span></th>
+            <th>Total ${cf("total")}<span class="data-table-column-resizer" title="Drag to resize column"></span></th>
+            <th>${paidLabel} ${cf("received")}<span class="data-table-column-resizer" title="Drag to resize column"></span></th>
+            <th>Balance ${cf("balance")}<span class="data-table-column-resizer" title="Drag to resize column"></span></th>
+            <th>Status<span class="data-table-column-resizer" title="Drag to resize column"></span></th>
+            <th>Actions</th>
           </tr>
-        `).join("")}
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          ${rows.map((entry, index) => `
+            <tr data-invoice-row="${escapeHtml(entry.id || entry.invoiceId || entry.transactionId || "")}">
+              <td>${formatDate(entry.date)}</td>
+              <td><strong class="invoice-no-cell">${escapeHtml(entry.invoiceNo || `${isSale ? "INV" : "PB"}-${String(index + 1).padStart(4, "0")}`)}</strong><small>${escapeHtml(entry.item || invoiceItemSummary(entry.id))}</small></td>
+              <td><strong>${escapeHtml(entry.party || "-")}</strong><small>${escapeHtml(entry.phone || "")}</small></td>
+              <td class="amount-cell strong">${formatCurrency(invoiceTotalValue(entry))}</td>
+              <td class="amount-cell">${formatCurrency(invoiceReceivedValue(entry))}</td>
+              <td class="amount-cell ${invoiceBalanceValue(entry) > 0 ? "danger" : ""}">${formatCurrency(invoiceBalanceValue(entry))}</td>
+              <td>${invoiceStatusBadge(entry)}</td>
+              <td>${invoiceRowActions(entry, { isSale })}</td>
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>
+    </div>
   `;
+}
+
+function bindInvoiceTableWidthAndResize(root = elements.featureView) {
+  if (!root) return;
+
+  const card = root.querySelector(".invoice-data-card");
+  const table = root.querySelector(".invoice-data-card .data-table");
+  if (!table) return;
+
+  // 1. Table width switcher buttons
+  root.querySelectorAll("[data-table-width-set]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const mode = btn.dataset.tableWidthSet;
+      currentTableWidthMode = mode;
+      try {
+        localStorage.setItem("gi-invoice-table-width-mode", mode);
+      } catch {}
+      root.querySelectorAll("[data-table-width-set]").forEach((b) => b.classList.toggle("active", b === btn));
+      if (card) card.dataset.tableWidth = mode;
+      table.dataset.tableWidth = mode;
+      if (mode === "fit") {
+        table.style.tableLayout = "";
+        table.querySelectorAll("thead th").forEach((th) => {
+          th.style.width = "";
+        });
+        try {
+          localStorage.removeItem("gi-invoice-col-widths");
+        } catch {}
+      }
+    });
+  });
+
+  // 2. Reset columns button
+  root.querySelectorAll("[data-table-width-reset]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      try {
+        localStorage.removeItem("gi-invoice-col-widths");
+        localStorage.setItem("gi-invoice-table-width-mode", "fit");
+      } catch {}
+      currentTableWidthMode = "fit";
+      table.style.tableLayout = "";
+      table.querySelectorAll("thead th").forEach((th) => {
+        th.style.width = "";
+      });
+      if (card) card.dataset.tableWidth = "fit";
+      table.dataset.tableWidth = "fit";
+      root.querySelectorAll("[data-table-width-set]").forEach((b) => {
+        b.classList.toggle("active", b.dataset.tableWidthSet === "fit");
+      });
+      showToast("Table column widths reset to default.");
+    });
+  });
+
+  // 3. Restore saved column widths if available
+  try {
+    const savedColWidths = JSON.parse(localStorage.getItem("gi-invoice-col-widths") || "null");
+    if (Array.isArray(savedColWidths) && savedColWidths.length) {
+      table.style.tableLayout = "fixed";
+      const ths = table.querySelectorAll("thead th");
+      ths.forEach((th, idx) => {
+        if (savedColWidths[idx]) {
+          th.style.width = savedColWidths[idx] + "px";
+        }
+      });
+    }
+  } catch {}
+
+  // 4. Interactive column resizing via draggable divider handles
+  const resizers = table.querySelectorAll(".data-table-column-resizer");
+  resizers.forEach((resizer) => {
+    const th = resizer.parentElement;
+    if (!th) return;
+
+    // Double-click on divider resets this column's width
+    resizer.addEventListener("dblclick", (e) => {
+      e.stopPropagation();
+      th.style.width = "";
+      const widths = Array.from(table.querySelectorAll("thead th")).map((col) => col.offsetWidth);
+      try {
+        localStorage.setItem("gi-invoice-col-widths", JSON.stringify(widths));
+      } catch {}
+    });
+
+    resizer.addEventListener("pointerdown", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      try {
+        resizer.setPointerCapture(e.pointerId);
+      } catch {}
+      resizer.classList.add("resizing");
+
+      const startX = e.clientX;
+      const startWidth = th.offsetWidth;
+      const allThs = Array.from(table.querySelectorAll("thead th"));
+
+      // Lock current column widths so other columns stay steady
+      table.style.tableLayout = "fixed";
+      allThs.forEach((col) => {
+        if (!col.style.width) col.style.width = col.offsetWidth + "px";
+      });
+
+      const onPointerMove = (moveEvent) => {
+        const delta = moveEvent.clientX - startX;
+        const newWidth = Math.max(60, startWidth + delta);
+        th.style.width = newWidth + "px";
+      };
+
+      const onPointerUp = (upEvent) => {
+        try {
+          resizer.releasePointerCapture(upEvent.pointerId);
+        } catch {}
+        resizer.classList.remove("resizing");
+        resizer.removeEventListener("pointermove", onPointerMove);
+        resizer.removeEventListener("pointerup", onPointerUp);
+
+        // Persist column widths
+        const widths = allThs.map((col) => col.offsetWidth);
+        try {
+          localStorage.setItem("gi-invoice-col-widths", JSON.stringify(widths));
+        } catch {}
+      };
+
+      resizer.addEventListener("pointermove", onPointerMove);
+      resizer.addEventListener("pointerup", onPointerUp);
+    });
+  });
 }
 
 function invoiceRowActions(entry, { isSale = true } = {}) {
   const id = escapeHtml(entry.id || entry.invoiceId || entry.transactionId || "");
-  const groups = isSale
+  const actions = isSale
     ? [
-        ["Primary", [["viewEdit", "View/Edit"], ["preview", "Preview"], ["print", "Print"]]],
-        ["Payment", [["receivePayment", "Receive Payment"], ...(invoiceBalanceValue(entry) > 0 ? [["waReminder", "💬 WhatsApp Reminder"]] : [])]],
-        ["Documents", [["openPdf", "Open PDF"], ["whatsapp", "Share on WhatsApp"]]],
-        ["More", [["duplicate", "Duplicate"], ["return", "Convert To Return"], ["history", "View History"], ["cancel", "Cancel Invoice"], ["delete", "Delete"]]],
+        ["viewEdit", "View/Edit"],
+        ["preview", "Preview"],
+        ["print", "Print"],
+        ["receivePayment", "Receive Payment"],
+        ...(invoiceBalanceValue(entry) > 0 ? [["waReminder", "💬 WhatsApp Reminder"]] : []),
+        ["history", "Editing History"],
+        ["openPdf", "Open PDF"],
+        ["whatsapp", "Share on WhatsApp"],
+        ["duplicate", "Duplicate"],
+        ["return", "Convert To Return"],
+        ["cancel", "Cancel Invoice"],
+        ["delete", "Delete"],
       ]
     : [
-        ["Primary", [["viewEdit", "View/Edit"], ["preview", "Preview"], ["print", "Print"]]],
-        ["Payment", [["receivePayment", "Record Payment"]]],
-        ["Documents", [["openPdf", "Open PDF"], ["whatsapp", "Share on WhatsApp"]]],
-        ["More", [["duplicate", "Duplicate"], ["return", "Convert To Return / Dr. Note"], ["history", "View History"], ["cancel", "Cancel Bill"], ["delete", "Delete"]]],
+        ["viewEdit", "View/Edit"],
+        ["preview", "Preview"],
+        ["print", "Print"],
+        ["receivePayment", "Record Payment"],
+        ["history", "Editing History"],
+        ["openPdf", "Open PDF"],
+        ["whatsapp", "Share on WhatsApp"],
+        ["duplicate", "Duplicate"],
+        ["return", "Convert To Return / Dr. Note"],
+        ["cancel", "Cancel Bill"],
+        ["delete", "Delete"],
       ];
+
   return `
     <div class="invoice-row-actions">
       <details>
         <summary aria-label="Invoice actions">⋮</summary>
         <div class="invoice-action-menu">
-          ${groups.map(([group, actions]) => `
-            <section>
-              <span>${escapeHtml(group)}</span>
-              ${actions.map(([action, label]) => `<button type="button" data-invoice-action="${action}" data-invoice-id="${id}">${label}</button>`).join("")}
-            </section>
+          ${actions.map(([action, label]) => `
+            <button type="button" data-invoice-action="${action}" data-invoice-id="${id}" class="${action === 'delete' || action === 'cancel' ? 'danger-action' : ''}">${label}</button>
           `).join("")}
         </div>
       </details>
@@ -10873,38 +11265,142 @@ function openEInvoicePayloadModal(invoice) {
 }
 
 function openInvoiceHistoryModal(invoice) {
+  const isSale = invoice.type === "sale" || !invoice.type;
+  const docType = isSale ? "Sale Invoice" : "Purchase Bill";
   const payments = (state.payments || []).filter((row) => String(row.invoiceId) === String(invoice.id || invoice.invoiceId));
   const stockRows = (state.stockMovements || []).filter((row) => String(row.invoiceId) === String(invoice.id || invoice.invoiceId));
   const ledgerRows = (state.ledgerEntries || []).filter((row) => String(row.transactionId) === String(invoice.transactionId));
-  const events = [
-    { date: invoice.createdAt || invoice.date, title: "Invoice Created", detail: `${invoice.invoiceNo || "-"} for ${formatCurrency(invoiceTotalValue(invoice))}` },
-    ...payments.map((payment) => ({ date: payment.paymentDate || payment.createdAt, title: payment.type === "payment_out" ? "Payment Made" : "Payment Received", detail: `${formatCurrency(payment.amount)} via ${payment.method || "Cash"}` })),
-    ...stockRows.map((row) => ({ date: row.movementDate || row.createdAt, title: `Stock ${row.movementType === "in" ? "In" : "Out"}`, detail: `${row.item}: ${formatQuantity(row.quantity)} ${row.unit || ""}` })),
-    ...ledgerRows.map((row) => ({ date: row.entryDate, title: "Ledger Entry", detail: `${row.account}: Dr ${formatCurrency(row.debit)} / Cr ${formatCurrency(row.credit)}` })),
-  ].sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
+
+  let meta = invoice.meta;
+  if (!meta && invoice.metaJson) {
+    try {
+      meta = typeof invoice.metaJson === "string" ? JSON.parse(invoice.metaJson) : invoice.metaJson;
+    } catch {}
+  }
+  meta = meta || {};
+  const editHistory = Array.isArray(meta.editHistory) ? meta.editHistory : [];
+
+  const events = [];
+
+  // 1. Creation event
+  events.push({
+    date: invoice.createdAt || invoice.date,
+    title: `${docType} Created`,
+    chipClass: "chip-created",
+    chipText: "Created",
+    detail: `${invoice.invoiceNo || "-"} created for ${formatCurrency(invoiceTotalValue(invoice))}${invoice.party ? ` • Party: ${invoice.party}` : ""}`,
+  });
+
+  // 2. Edit History entries
+  editHistory.forEach((edit) => {
+    events.push({
+      date: edit.date || edit.timestamp || invoice.updatedAt,
+      title: edit.action || `${docType} Edited`,
+      chipClass: "chip-edit",
+      chipText: "Edited",
+      detail: edit.detail || `Document updated. Total: ${formatCurrency(edit.total || invoiceTotalValue(invoice))}`,
+    });
+  });
+
+  // 3. Payment transactions
+  payments.forEach((payment) => {
+    events.push({
+      date: payment.paymentDate || payment.createdAt,
+      title: payment.type === "payment_out" ? "Payment Made" : "Payment Received",
+      chipClass: "chip-payment",
+      chipText: "Payment",
+      detail: `${formatCurrency(payment.amount)} via ${payment.method || "Cash"}${payment.notes ? ` (${payment.notes})` : ""}`,
+    });
+  });
+
+  // 4. Stock movements
+  stockRows.forEach((row) => {
+    events.push({
+      date: row.movementDate || row.createdAt,
+      title: `Stock ${row.movementType === "in" ? "In" : "Out"}`,
+      chipClass: "chip-stock",
+      chipText: "Stock",
+      detail: `${row.item}: ${formatQuantity(row.quantity)} ${row.unit || ""}`,
+    });
+  });
+
+  // 5. Ledger entries
+  ledgerRows.forEach((row) => {
+    events.push({
+      date: row.entryDate,
+      title: "Ledger Entry",
+      chipClass: "chip-ledger",
+      chipText: "Ledger",
+      detail: `${row.account}: Dr ${formatCurrency(row.debit)} / Cr ${formatCurrency(row.credit)}`,
+    });
+  });
+
+  // 6. Cancelled event
+  if (invoice.status === "cancelled") {
+    events.push({
+      date: meta.cancelledAt || invoice.date,
+      title: `${docType} Cancelled`,
+      chipClass: "chip-cancelled",
+      chipText: "Cancelled",
+      detail: meta.cancelReason || invoice.notes || "Document was marked as cancelled.",
+    });
+  }
+
+  // Sort newest first
+  events.sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
+
+  const formatEventTime = (dStr) => {
+    try {
+      const d = new Date(dStr);
+      if (!isNaN(d.getTime())) {
+        return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+      }
+    } catch {}
+    return "";
+  };
 
   document.getElementById("invoiceActionModal")?.remove();
   const backdrop = document.createElement("div");
   backdrop.className = "modal-backdrop invoice-action-backdrop";
   backdrop.id = "invoiceActionModal";
   backdrop.innerHTML = `
-    <section class="invoice-action-modal" role="dialog" aria-modal="true" aria-label="Invoice history">
-      <header>
+    <section class="invoice-history-dialog" role="dialog" aria-modal="true" aria-label="Editing history">
+      <div class="invoice-history-dialog-header">
         <div>
-          <span>${escapeHtml(invoice.invoiceNo || "-")}</span>
-          <strong>View History</strong>
+          <div style="font-size: 11px; text-transform: uppercase; font-weight: 700; color: #64748b; letter-spacing: 0.04em;">${escapeHtml(docType)} • ${escapeHtml(invoice.invoiceNo || "-")}</div>
+          <h3 style="margin: 3px 0 0; font-size: 16px; font-weight: 700; color: #0f172a;">Editing & Document History</h3>
+          <div style="font-size: 12px; color: #64748b; margin-top: 3px;">
+            Party: <strong>${escapeHtml(invoice.party || "-")}</strong> &nbsp;|&nbsp; 
+            Total: <strong>${formatCurrency(invoiceTotalValue(invoice))}</strong> &nbsp;|&nbsp; 
+            Status: <span style="text-transform: capitalize; font-weight: 600;">${escapeHtml(invoice.status || "unpaid")}</span>
+          </div>
         </div>
-        <button class="close-button" type="button" data-action-modal-close>&times;</button>
-      </header>
+        <button class="close-button" type="button" data-action-modal-close aria-label="Close history">&times;</button>
+      </div>
       <div class="invoice-history-list">
-        ${events.map((event) => `
-          <article>
-            <time>${formatDate(event.date)}</time>
-            <div><strong>${escapeHtml(event.title)}</strong><p>${escapeHtml(event.detail)}</p></div>
+        ${events.length === 0 ? `
+          <div style="text-align: center; color: #94a3b8; padding: 32px 16px;">
+            <p>No recorded history events for this document.</p>
+          </div>
+        ` : events.map((event) => `
+          <article class="history-timeline-card">
+            <div class="history-timeline-time">
+              <time>${formatDate(event.date)}</time>
+              <small>${formatEventTime(event.date)}</small>
+            </div>
+            <div class="history-timeline-content">
+              <div class="history-timeline-head">
+                <strong>${escapeHtml(event.title)}</strong>
+                <span class="history-chip ${event.chipClass}">${escapeHtml(event.chipText)}</span>
+              </div>
+              <p>${escapeHtml(event.detail)}</p>
+            </div>
           </article>
         `).join("")}
       </div>
-      <footer><button class="primary-button square" type="button" data-action-modal-close>Done</button></footer>
+      <div class="invoice-history-dialog-footer">
+        <button class="primary-button square" type="button" data-action-modal-close>Close</button>
+      </div>
     </section>
   `;
   document.body.append(backdrop);
@@ -11475,6 +11971,9 @@ function showView(view, title) {
   activeTransactionEditInvoiceId = null;
   hideOpenAnythingResults();
   closeInvoiceCalculator();
+  if (typeof hideCollapsedFlyoutGlobal === "function") {
+    hideCollapsedFlyoutGlobal();
+  }
   document.body.classList.remove("transaction-editor-open", "editor-view-active");
   const appShellEl = document.getElementById("appShell");
   if (appShellEl) appShellEl.classList.remove("editor-active");
@@ -12979,6 +13478,8 @@ function bindFeatureActions() {
       }
     });
   });
+
+  bindInvoiceTableWidthAndResize();
 }
 
 function modulePageTemplate(config) {
@@ -13535,7 +14036,7 @@ function barcodeGeneratorTemplate() {
         </article>
         <article class="barcode-metric-btn ${barcodeQuickFilter === "missing" ? "active" : ""}" data-barcode-filter="missing" title="Click to filter products missing an SKU">
           <span>Missing SKU</span>
-          <strong style="${noSkuItems > 0 ? "color:#e11d48;" : ""}">${noSkuItems}</strong>
+          <strong class="${noSkuItems > 0 ? "text-danger" : ""}">${noSkuItems}</strong>
           <p>${noSkuItems > 0 ? "Click to assign SKUs" : "All products ready"}</p>
         </article>
         <article class="barcode-metric-btn" data-action="add-all-instock-queue" title="Click to load all in-stock products into queue">
@@ -13564,14 +14065,14 @@ function barcodeGeneratorTemplate() {
           <div class="barcode-tab-pane ${barcodeActiveTab === 'items' ? 'active' : ''}" data-pane="items">
             <!-- QUEUE CARD -->
             <section class="barcode-panel-card barcode-queue-card">
-              <div class="barcode-section-head" style="margin-bottom:8px;">
+              <div class="barcode-section-head">
                 <div>
-                  <h2 style="font-size:14px;">Print Queue</h2>
-                  <p id="barcodeQueueSubtext" style="font-size:11px;">${barcodeQueue.length} product(s) • ${totalLabels} total label(s)</p>
+                  <h2>Print Queue</h2>
+                  <p id="barcodeQueueSubtext">${barcodeQueue.length} product(s) • ${totalLabels} total label(s)</p>
                 </div>
-                <div style="display:flex;gap:6px;">
-                  <button class="secondary-button" type="button" data-action="add-all-instock-queue" style="font-size:11px;padding:3px 8px;" title="Add all products with stock > 0">+ All In-Stock</button>
-                  ${barcodeQueue.length ? `<button class="secondary-button" type="button" data-action="clear-barcode-queue" style="font-size:11px;padding:3px 8px;">Clear</button>` : ""}
+                <div class="barcode-card-actions">
+                  <button class="secondary-button" type="button" data-action="add-all-instock-queue" title="Add all products with stock > 0">+ All In-Stock</button>
+                  ${barcodeQueue.length ? `<button class="secondary-button" type="button" data-action="clear-barcode-queue">Clear</button>` : ""}
                 </div>
               </div>
               ${barcodeQueue.length ? `
@@ -13583,23 +14084,32 @@ function barcodeGeneratorTemplate() {
                     return `
                       <div class="barcode-queue-item" data-queue-index="${index}">
                         <div class="barcode-queue-item-info">
-                          <strong>${escapeHtml(item.name)}</strong>
-                          <small>SKU: ${escapeHtml(code)} • ₹${formatCurrency(item.salePrice || 0).replace("₹", "").trim()} • Stock: ${item.currentStock || 0}</small>
+                          <strong title="${escapeHtml(item.name)}">${escapeHtml(item.name)}</strong>
+                          <div class="barcode-queue-item-meta">
+                            <span class="barcode-sku-pill">${escapeHtml(code)}</span>
+                            <span class="barcode-queue-price">₹${formatCurrency(item.salePrice || 0).replace("₹", "").trim()}</span>
+                            <span class="barcode-queue-stock ${Number(item.currentStock || 0) > 0 ? "in-stock" : "out-of-stock"}">Stock: ${item.currentStock || 0}</span>
+                          </div>
                         </div>
-                        <div class="barcode-queue-stepper">
-                          <button type="button" data-action="queue-dec" data-index="${index}" title="Decrease copies">-</button>
-                          <input type="number" min="1" max="200" value="${entry.copies}" data-queue-input="${index}">
-                          <button type="button" data-action="queue-inc" data-index="${index}" title="Increase copies">+</button>
+                        <div class="barcode-queue-actions">
+                          <div class="barcode-queue-stepper">
+                            <button type="button" data-action="queue-dec" data-index="${index}" title="Decrease copies">−</button>
+                            <input type="number" min="1" max="200" value="${entry.copies}" data-queue-input="${index}" aria-label="Label copies">
+                            <button type="button" data-action="queue-inc" data-index="${index}" title="Increase copies">+</button>
+                          </div>
+                          <button class="barcode-queue-delete" type="button" data-action="queue-remove" data-index="${index}" title="Remove from queue">
+                            <svg class="gi-icon"><use href="#gi-trash"></use></svg>
+                          </button>
                         </div>
-                        <button class="barcode-queue-delete" type="button" data-action="queue-remove" data-index="${index}" title="Remove from queue">✕</button>
                       </div>
                     `;
                   }).join("")}
                 </div>
               ` : `
-                <div style="padding:10px;background:#f8fafc;border:1px dashed #cbd5e1;border-radius:6px;text-align:center;">
-                  <p style="color:#64748b;font-size:11px;margin:0 0 6px;">No products queued for printing.</p>
-                  <button class="secondary-button" type="button" data-action="add-all-instock-queue" style="font-size:11px;padding:3px 8px;">+ Add All In-Stock Products</button>
+                <div class="barcode-queue-empty-box">
+                  <svg class="gi-icon" style="width:32px;height:32px;color:#94a3b8;margin-bottom:6px;"><use href="#gi-box"></use></svg>
+                  <p>No products queued for printing.</p>
+                  <button class="secondary-button" type="button" data-action="add-all-instock-queue">+ Add All In-Stock Products</button>
                 </div>
               `}
             </section>
@@ -13819,8 +14329,8 @@ function barcodeGeneratorTemplate() {
                 <h2>Print Sheet Preview</h2>
                 <p id="barcodeSheetMetaSub">${totalLabels} labels across ${barcodeQueue.length} queued product(s) • Preset: ${currentPreset.name}${barcodeStartOffset > 1 ? ` • Start #${barcodeStartOffset}` : ""}</p>
               </div>
-              <div style="display:flex;gap:8px;align-items:center;">
-                <span id="barcodeSheetMeta" class="badge" style="font-size:12px;padding:5px 10px;background:#e0f2fe;color:#0369a1;border-radius:999px;font-weight:700;">
+              <div class="barcode-preview-header-actions">
+                <span id="barcodeSheetMeta" class="barcode-count-badge">
                   ${totalLabels} label${totalLabels === 1 ? "" : "s"}${currentPreset.isThermal ? " (Roll)" : ` • ${sheetsCount} sheet(s)`}
                 </span>
                 <button class="primary-button square" type="button" data-action="print-barcodes">
@@ -13949,11 +14459,11 @@ function barcodeLabelMarkup(item, config, preset = BARCODE_PRESETS[config?.prese
   return `
     <article class="barcode-label barcode-label-${size} ${preset.labelClass || 'barcode-preset-a4-24'}">
       ${config.showShopName && shopName ? `<span class="barcode-shop-name">${escapeHtml(shopName)}</span>` : ""}
-      ${config.showName ? `<strong class="barcode-item-title">${escapeHtml(itemName)}</strong>` : ""}
+      ${config.showName ? `<strong class="barcode-item-title" title="${escapeHtml(itemName)}">${escapeHtml(itemName)}</strong>` : ""}
       <div class="barcode-svg-wrap">${barcodeSvg(code)}</div>
       <div class="barcode-label-row">
-        ${config.showSku ? `<span>${escapeHtml(code)}</span>` : "<span></span>"}
-        ${priceDisplay ? `<b>${escapeHtml(priceDisplay)}</b>` : ""}
+        ${config.showSku ? `<span class="barcode-label-sku">${escapeHtml(code)}</span>` : "<span></span>"}
+        ${priceDisplay ? `<b class="barcode-label-price">${escapeHtml(priceDisplay)}</b>` : ""}
       </div>
       ${(config.showHsn && hsn) || (config.showDate && config.packedDate) ? `
         <div class="barcode-label-subrow">
@@ -14507,6 +15017,7 @@ function updateBarcodePreview(page = elements.featureView.querySelector(".barcod
     sheet.className = `barcode-sheet barcode-sheet-${config.preset}`;
     sheet.innerHTML = barcodeSheetMarkup(barcodeQueue, config);
   }
+  syncQueueMetrics(page);
 }
 
 
@@ -25567,3 +26078,9 @@ function openKeyboardShortcutsDialog() {
     }
   });
 }
+
+document.addEventListener("click", (e) => {
+  if (!e.target.closest(".invoice-row-actions")) {
+    document.querySelectorAll(".invoice-row-actions details[open]").forEach((d) => d.removeAttribute("open"));
+  }
+});

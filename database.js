@@ -3327,7 +3327,7 @@ function updateInvoiceUnsafe(entry) {
   const invoiceId = String(entry.invoiceId || "").trim();
   if (!invoiceId) throw new Error("Invoice id is required for editing.");
   const existing = one(
-    `SELECT i.id, i.transaction_id AS transactionId, i.type, i.invoice_no AS invoiceNo, i.status, i.party_id AS partyId
+    `SELECT i.id, i.transaction_id AS transactionId, i.type, i.invoice_no AS invoiceNo, i.status, i.party_id AS partyId, i.meta_json AS metaJson, i.total, i.balance
      FROM invoices i
      WHERE i.company_id = ? AND i.id = ?`,
     [company.id, invoiceId],
@@ -3352,7 +3352,6 @@ function updateInvoiceUnsafe(entry) {
     }
   }
   const transactionDate = entry.date || now;
-  const metaJson = normalizeMetaJson(entry.meta ?? entry.metaJson ?? {});
   const taxContext = invoiceTaxContext(company.id, entry);
   const invoiceItems = normalizeInvoiceItems(company.id, type, entry.items || [], taxContext);
   if (type === "sale") validateSaleStock(company.id, invoiceItems, invoiceId);
@@ -3366,6 +3365,34 @@ function updateInvoiceUnsafe(entry) {
   validateWalkInBalance(entry, resolvePartyId(company.id, entry.partyId, entry.party), invoiceTotals);
   if (type === 'purchase') validatePurchaseRemoval(company.id, invoiceId, invoiceItems);
   if (recordedAmount > invoiceTotals.total) throw new Error('Invoice total cannot be less than recorded payments.');
+
+  let meta = typeof entry.meta === "object" && entry.meta !== null ? { ...entry.meta } : {};
+  let existingMeta = {};
+  try {
+    existingMeta = JSON.parse(existing.metaJson || "{}");
+  } catch {}
+  let editHistory = Array.isArray(meta.editHistory)
+    ? [...meta.editHistory]
+    : Array.isArray(existingMeta.editHistory)
+      ? [...existingMeta.editHistory]
+      : [];
+
+  const prevTotal = Number(existing.total || 0);
+  const newTotal = Number(invoiceTotals.total || 0);
+  const totalDiffText = prevTotal !== newTotal ? `Total updated from ₹${prevTotal.toFixed(2)} to ₹${newTotal.toFixed(2)}` : `Total: ₹${newTotal.toFixed(2)}`;
+  const docName = type === "sale" ? "Invoice" : "Purchase Bill";
+
+  editHistory.push({
+    date: now,
+    timestamp: now,
+    action: `${docName} Edited & Saved`,
+    detail: `${totalDiffText} • ${invoiceItems.length} line item${invoiceItems.length === 1 ? '' : 's'}`,
+    total: newTotal,
+    itemCount: invoiceItems.length,
+  });
+
+  meta.editHistory = editHistory;
+  const metaJson = normalizeMetaJson(meta);
   const transaction = {
     id: transactionId,
     invoiceId,
