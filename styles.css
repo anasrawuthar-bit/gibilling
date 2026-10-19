@@ -47,8 +47,8 @@
   --line: #dce5ee;
   --panel: #ffffff;
   --app-bg: #eef3f8;
-  --nav: #111226;
-  --nav-active: #28294f;
+  --nav: #ffffff;
+  --nav-active: #eff6ff;
   --accent: #0c7ee8;
   --danger: #f01446;
   --soft-blue: #e7f3ff;
@@ -660,14 +660,14 @@ body:has(.feature-view:not(.hidden) .transaction-editor) .transaction-editor,
 
 /* ─── Sidebar shell ───────────────────────────────────────────── */
 .sidebar {
-  --sidebar-bg: #0f1120;
-  --sidebar-accent: #3b82f6;       /* Royal Blue — active indicator */
-  --sidebar-accent-bg: rgba(59, 130, 246, 0.14);
-  --sidebar-accent-glow: rgba(59, 130, 246, 0.08);
-  --sidebar-hover: rgba(255, 255, 255, 0.06);
-  --sidebar-text: #c8d3ee;
-  --sidebar-muted: rgba(255, 255, 255, 0.38);
-  --sidebar-border: rgba(255, 255, 255, 0.08);
+  --sidebar-bg: #ffffff;
+  --sidebar-accent: #2563eb;       /* Royal Blue — active indicator */
+  --sidebar-accent-bg: #eff6ff;
+  --sidebar-accent-glow: rgba(37, 99, 235, 0.08);
+  --sidebar-hover: #f1f5f9;
+  --sidebar-text: #334155;
+  --sidebar-muted: #64748b;
+  --sidebar-border: #e2e8f0;
 
   display: flex;
   flex-direction: column;
@@ -678,8 +678,8 @@ body:has(.feature-view:not(.hidden) .transaction-editor) .transaction-editor,
   padding: 10px 8px 6px;
   color: var(--sidebar-text);
   background: var(--sidebar-bg);
-  border-right: 1px solid rgba(255, 255, 255, 0.05);
-  box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.04);
+  border-right: 1px solid var(--sidebar-border);
+  box-shadow: 1px 0 2px rgba(0, 0, 0, 0.02);
 }
 
 /* ─── Search bar & Toggle Header ──────────────────────────────── */
@@ -700,28 +700,29 @@ body:has(.feature-view:not(.hidden) .transaction-editor) .transaction-editor,
   height: 34px;
   border: 1px solid var(--sidebar-border);
   border-radius: 8px;
-  color: #e2eaff;
-  background: rgba(255, 255, 255, 0.06);
+  color: #0f172a;
+  background: #f8fafc;
   text-align: left;
   padding: 0 10px 0 32px;
   font-size: 12px;
   font-weight: 500;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236b7db3' stroke-width='2'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cpath d='m20 20-4-4'/%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cpath d='m20 20-4-4'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: 9px center;
   background-size: 14px;
-  transition: border-color 0.15s, background-color 0.15s;
+  transition: border-color 0.15s, background-color 0.15s, box-shadow 0.15s;
 }
 
 .quick-search::placeholder {
-  color: rgba(180, 196, 235, 0.55);
+  color: #94a3b8;
   opacity: 1;
 }
 
 .quick-search:focus {
   outline: none;
   border-color: var(--sidebar-accent);
-  background-color: rgba(59, 130, 246, 0.08);
+  background-color: #ffffff;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
 }
 
 .sidebar-toggle-btn {
@@ -731,8 +732,8 @@ body:has(.feature-view:not(.hidden) .transaction-editor) .transaction-editor,
   height: 34px;
   border: 1px solid var(--sidebar-border);
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.06);
-  color: rgba(180, 200, 245, 0.75);
+  background: #f8fafc;
+  color: #64748b;
   cursor: pointer;
   flex-shrink: 0;
   padding: 0;
@@ -740,9 +741,9 @@ body:has(.feature-view:not(.hidden) .transaction-editor) .transaction-editor,
 }
 
 .sidebar-toggle-btn:hover {
-  background: rgba(255, 255, 255, 0.12);
-  color: #fff;
-  border-color: rgba(255, 255, 255, 0.18);
+  background: #f1f5f9;
+  color: #0f172a;
+  border-color: #cbd5e1;
 }
 
 .sidebar-toggle-btn .gi-icon {
@@ -757,17 +758,17 @@ body:has(.feature-view:not(.hidden) .transaction-editor) .transaction-editor,
   width: min(380px, calc(100vw - 24px));
   max-height: min(540px, calc(100vh - 92px));
   overflow: auto;
-  border: 1px solid #33406f;
+  border: 1px solid var(--sidebar-border);
   border-radius: 8px;
   padding: 8px;
   background: #ffffff;
   color: #17203f;
-  box-shadow: 0 18px 36px rgba(15, 23, 42, 0.32);
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
 }
 
 .open-result-group {
   padding: 8px 8px 5px;
-  color: #657398;
+  color: #64748b;
   font-size: 11px;
   font-weight: 700;
   text-transform: uppercase;
@@ -788,7 +789,7 @@ body:has(.feature-view:not(.hidden) .transaction-editor) .transaction-editor,
 
 .open-result.active,
 .open-result:hover {
-  background: #eef6ff;
+  background: #eff6ff;
 }
 
 .open-result span {
@@ -796,12 +797,12 @@ body:has(.feature-view:not(.hidden) .transaction-editor) .transaction-editor,
 }
 
 .open-result small {
-  color: #657398;
+  color: #64748b;
 }
 
 .open-anything-empty {
   padding: 14px 10px;
-  color: #657398;
+  color: #64748b;
 }
 
 /* ─── Navigation Scroll List ──────────────────────────────────── */
@@ -816,7 +817,7 @@ body:has(.feature-view:not(.hidden) .transaction-editor) .transaction-editor,
   overflow-y: auto;
   overflow-x: hidden;
   scrollbar-width: thin;
-  scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
+  scrollbar-color: #cbd5e1 transparent;
 }
 
 .side-nav::-webkit-scrollbar {
@@ -828,24 +829,24 @@ body:has(.feature-view:not(.hidden) .transaction-editor) .transaction-editor,
 }
 
 .side-nav::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.16);
+  background: #cbd5e1;
   border-radius: 999px;
   border: 1px solid transparent;
   background-clip: padding-box;
 }
 
 .side-nav::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.28);
+  background: #94a3b8;
 }
 
 /* ─── Section Micro-Typography ────────────────────────────────── */
 .nav-section-label {
   margin: 10px 0 3px 8px;
   padding: 0;
-  color: rgba(160, 180, 220, 0.45);
-  font-size: 9.5px;
-  font-weight: 800;
-  letter-spacing: 0.08em;
+  color: #64748b;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
   line-height: 1;
   user-select: none;
@@ -884,8 +885,8 @@ body:has(.feature-view:not(.hidden) .transaction-editor) .transaction-editor,
   width: 26px;
   height: 26px;
   border-radius: 7px;
-  color: rgba(180, 200, 245, 0.75);
-  background: rgba(255, 255, 255, 0.06);
+  color: #64748b;
+  background: #f8fafc;
   flex-shrink: 0;
   transition: background 100ms ease, color 100ms ease;
 }
@@ -910,7 +911,7 @@ body:has(.feature-view:not(.hidden) .transaction-editor) .transaction-editor,
   place-items: center;
   width: 16px;
   height: 16px;
-  color: rgba(160, 180, 220, 0.4);
+  color: #94a3b8;
   font-size: 0;
   font-weight: 400;
   transition: transform 0.18s ease, color 0.1s ease;
@@ -923,30 +924,38 @@ body:has(.feature-view:not(.hidden) .transaction-editor) .transaction-editor,
 
 .nav-item.has-submenu.submenu-open b {
   transform: rotate(180deg);
-  color: rgba(160, 180, 220, 0.7);
+  color: #475569;
 }
 
 /* Hover */
 .nav-item:hover {
   background: var(--sidebar-hover);
-  color: #e8eeff;
+  color: #0f172a;
 }
 
 .nav-item:hover > span:first-child {
-  background: rgba(255, 255, 255, 0.1);
-  color: #c5d8ff;
+  background: #e2e8f0;
+  color: #0f172a;
 }
 
-/* Active — Blue Accent, no harsh red */
+.nav-item:hover b {
+  color: #475569;
+}
+
+/* Active — Blue Accent, crisp and prominent */
 .nav-item.active {
   background: var(--sidebar-accent-bg);
-  color: #e0eeff;
+  color: #1d4ed8;
   font-weight: 600;
 }
 
 .nav-item.active > span:first-child {
-  background: rgba(59, 130, 246, 0.25);
-  color: #93c5fd;
+  background: #dbeafe;
+  color: #2563eb;
+}
+
+.nav-item.active b {
+  color: #2563eb;
 }
 
 .nav-item.active::before {
@@ -967,7 +976,7 @@ body:has(.feature-view:not(.hidden) .transaction-editor) .transaction-editor,
   gap: 1px;
   margin: 1px 0 4px 34px;
   padding: 3px 0 3px 10px;
-  border-left: 1px solid rgba(255, 255, 255, 0.07);
+  border-left: 1.5px solid var(--sidebar-border);
 }
 
 .submenu.hidden {
@@ -981,7 +990,7 @@ body:has(.feature-view:not(.hidden) .transaction-editor) .transaction-editor,
   border: 0;
   border-radius: 6px;
   padding: 4px 10px;
-  color: rgba(190, 210, 250, 0.72);
+  color: #64748b;
   background: transparent;
   text-align: left;
   font-size: 12.5px;
@@ -998,12 +1007,12 @@ body:has(.feature-view:not(.hidden) .transaction-editor) .transaction-editor,
 
 .submenu-item:hover {
   background: var(--sidebar-hover);
-  color: #dce8ff;
+  color: #0f172a;
 }
 
 .submenu-item.active {
   background: var(--sidebar-accent-bg);
-  color: #c5daff;
+  color: #1d4ed8;
   font-weight: 600;
 }
 
@@ -1040,18 +1049,21 @@ body:has(.feature-view:not(.hidden) .transaction-editor) .transaction-editor,
 }
 
 .nav-badge--danger {
-  color: #fecdd3;
-  background: rgba(225, 29, 72, 0.35);
+  color: #b91c1c;
+  background: #fee2e2;
+  border: 1px solid #fecaca;
 }
 
 .nav-badge--blue {
-  color: #bfdbfe;
-  background: rgba(37, 99, 235, 0.35);
+  color: #1d4ed8;
+  background: #dbeafe;
+  border: 1px solid #bfdbfe;
 }
 
 .nav-badge--warn {
-  color: #fde68a;
-  background: rgba(217, 119, 6, 0.35);
+  color: #b45309;
+  background: #fef3c7;
+  border: 1px solid #fde68a;
 }
 
 /* ─── Company Switcher Footer ─────────────────────────────────── */
@@ -1067,7 +1079,7 @@ body:has(.feature-view:not(.hidden) .transaction-editor) .transaction-editor,
   border-top: 1px solid var(--sidebar-border);
   border-radius: 0;
   padding: 6px 8px 6px 6px;
-  color: rgba(190, 210, 250, 0.75);
+  color: #475569;
   background: transparent;
   text-align: left;
   cursor: pointer;
@@ -1076,27 +1088,28 @@ body:has(.feature-view:not(.hidden) .transaction-editor) .transaction-editor,
 
 .company-switch:hover,
 .company-switch.active {
-  background: var(--sidebar-hover);
-  color: #dce8ff;
+  background: #f8fafc;
+  color: #0f172a;
 }
 
 .company-switch .gi-icon {
   width: 12px;
   height: 12px;
-  color: rgba(160, 180, 220, 0.4);
+  color: #94a3b8;
 }
 
 .avatar {
   width: 26px;
   height: 26px;
   border-radius: 8px;
-  background: linear-gradient(135deg, #3b82f6 0%, #6366f1 100%);
+  background: linear-gradient(135deg, #2563eb 0%, #4f46e5 100%);
   display: grid;
   place-items: center;
   font-size: 11px;
   font-weight: 800;
   color: #fff;
   flex-shrink: 0;
+  box-shadow: 0 1px 3px rgba(37, 99, 235, 0.25);
 }
 
 .nav-company-details {
@@ -1111,7 +1124,7 @@ body:has(.feature-view:not(.hidden) .transaction-editor) .transaction-editor,
 .nav-company-name {
   font-weight: 700;
   font-size: 13px;
-  color: #f1f5f9;
+  color: #0f172a;
   line-height: 1.2;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1123,9 +1136,9 @@ body:has(.feature-view:not(.hidden) .transaction-editor) .transaction-editor,
   display: inline-block;
   font-size: 10px;
   font-weight: 700;
-  color: #38bdf8;
-  background: rgba(56, 189, 248, 0.15);
-  border: 1px solid rgba(56, 189, 248, 0.25);
+  color: #0284c7;
+  background: #e0f2fe;
+  border: 1px solid #bae6fd;
   border-radius: 4px;
   padding: 1px 5px;
   line-height: 1.2;
@@ -12544,25 +12557,10 @@ textarea:focus-visible {
   height: 13px;
 }
 
-.nav-item span {
-  color: #dce7ff;
-  background: rgba(255, 255, 255, 0.045);
-}
-
-.nav-item span .gi-icon {
-  width: 17px;
-  height: 17px;
-}
-
 .nav-item b .gi-icon,
 .submenu-item b .gi-icon {
   width: 15px;
   height: 15px;
-}
-
-.nav-item.active span {
-  color: #fff;
-  background: rgba(255, 255, 255, 0.1);
 }
 
 .company-refresh .gi-icon,
