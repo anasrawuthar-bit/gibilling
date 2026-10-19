@@ -3865,17 +3865,138 @@ function ensureToastHost() {
   return host;
 }
 
-function showToast(message) {
+let lastToastTime = 0;
+let lastToastEl = null;
+
+function showToast(messageOrOptions, options = {}) {
   const host = ensureToastHost();
+  let title = "";
+  let message = "";
+  let type = "success";
+  let isTransaction = false;
+
+  if (typeof messageOrOptions === "object" && messageOrOptions !== null) {
+    title = messageOrOptions.title || "";
+    message = messageOrOptions.message || messageOrOptions.text || "";
+    type = messageOrOptions.type || "success";
+    isTransaction = Boolean(messageOrOptions.isTransaction);
+  } else {
+    const raw = String(messageOrOptions || "").trim();
+    if (typeof options === "string") {
+      type = options;
+    } else if (options && typeof options === "object") {
+      title = options.title || "";
+      type = options.type || "info";
+    }
+
+    const lower = raw.toLowerCase();
+    if (
+      lower.includes("unable") ||
+      lower.includes("failed") ||
+      lower.includes("error") ||
+      lower.includes("already exists") ||
+      lower.includes("required") ||
+      lower.includes("blocked") ||
+      lower.includes("invalid")
+    ) {
+      type = "error";
+      title = title || "Action Failed";
+      message = raw;
+    } else if (
+      lower.includes("saved") ||
+      lower.includes("updated") ||
+      lower.includes("created") ||
+      lower.includes("recorded") ||
+      lower.includes("restored") ||
+      lower.includes("copied") ||
+      lower.includes("applied") ||
+      lower.includes("deleted") ||
+      lower.includes("removed") ||
+      lower.includes("cleared")
+    ) {
+      type = "success";
+      if (!title) {
+        if (
+          lower.includes("invoice saved") ||
+          lower.includes("invoice updated") ||
+          lower.includes("payment recorded") ||
+          lower.includes("purchase bill") ||
+          lower.includes("debit note") ||
+          lower.includes("credit note")
+        ) {
+          isTransaction = true;
+        }
+        title = raw;
+        message = "";
+      } else {
+        message = raw;
+      }
+    } else {
+      title = title || raw;
+      message = "";
+    }
+  }
+
+  // De-duplicate / Merge: If two transaction toasts fire close together (e.g. "Invoice saved" + "Payment recorded")
+  const now = Date.now();
+  if (lastToastEl && document.body.contains(lastToastEl) && (now - lastToastTime) < 800) {
+    const textToMerge = message || title;
+    if (
+      (lastToastEl.dataset.isTransaction === "true" && (textToMerge.includes("Payment") || textToMerge.includes("recorded"))) ||
+      (lastToastEl.textContent.includes("saved") && (textToMerge.includes("Payment") || textToMerge.includes("recorded")))
+    ) {
+      const detailEl = lastToastEl.querySelector(".toast-detail");
+      if (detailEl) {
+        detailEl.textContent = textToMerge;
+      } else {
+        const contentEl = lastToastEl.querySelector(".toast-content");
+        if (contentEl) {
+          const newDetail = document.createElement("div");
+          newDetail.className = "toast-detail";
+          newDetail.textContent = textToMerge;
+          contentEl.appendChild(newDetail);
+        }
+      }
+      lastToastTime = now;
+      return;
+    }
+  }
+
   const toast = document.createElement("div");
   toast.className = "toast-message";
-  toast.textContent = message;
-  host.append(toast);
+  toast.setAttribute("role", "status");
+  toast.setAttribute("aria-live", "polite");
+  if (isTransaction) toast.dataset.isTransaction = "true";
+
+  const iconName = type === "error" ? "gi-ban" : type === "info" ? "gi-receipt" : "gi-check";
+  const iconClass = type === "error" ? "toast-error" : type === "info" ? "toast-info" : "toast-success";
+
+  toast.innerHTML = `
+    <div class="toast-icon-wrap ${iconClass}" aria-hidden="true">
+      <svg class="gi-icon"><use href="#${iconName}"></use></svg>
+    </div>
+    <div class="toast-content">
+      <div class="toast-title">${escapeHtml(title || message)}</div>
+      ${message && title && title !== message ? `<div class="toast-detail">${escapeHtml(message)}</div>` : ""}
+    </div>
+    <button type="button" class="toast-close-btn" aria-label="Dismiss">&times;</button>
+  `;
+
+  const dismiss = () => {
+    toast.classList.remove("show");
+    setTimeout(() => toast.remove(), 200);
+  };
+
+  toast.querySelector(".toast-close-btn")?.addEventListener("click", dismiss);
+
+  host.prepend(toast);
+  lastToastTime = now;
+  lastToastEl = toast;
+
   setTimeout(() => toast.classList.add("show"), 20);
   setTimeout(() => {
-    toast.classList.remove("show");
-    setTimeout(() => toast.remove(), 180);
-  }, 2600);
+    if (document.body.contains(toast)) dismiss();
+  }, 3500);
 }
 
 function appPrompt(title, message, defaultValue = "") {
@@ -6479,7 +6600,12 @@ async function saveTransactionEditor(event) {
   resetTransactionEditorDirtyState();
   if (isOpDoc) {
     const meta = transactionEditorMeta(editorType);
-    showToast(activeTransactionEditInvoiceId ? `${meta.noun} updated.` : `${meta.noun} saved.`);
+    showToast({
+      title: `${meta.noun} ${activeTransactionEditInvoiceId ? "Updated" : "Saved"}`,
+      message: `${meta.noun} has been ${activeTransactionEditInvoiceId ? "updated" : "saved"} successfully.`,
+      type: "success",
+      isTransaction: true,
+    });
     if (saveMode === "print") {
       openInvoicePreviewModal(printPreview);
       return;
@@ -6492,7 +6618,12 @@ async function saveTransactionEditor(event) {
     return;
   }
   if (editorType === "saleReturn") {
-    showToast(activeTransactionEditInvoiceId ? "Credit note updated." : "Credit note saved.");
+    showToast({
+      title: `Credit Note ${activeTransactionEditInvoiceId ? "Updated" : "Saved"}`,
+      message: "Credit note has been saved successfully.",
+      type: "success",
+      isTransaction: true,
+    });
     if (saveMode === "print") {
       openInvoicePreviewModal(printPreview);
       return;
@@ -6505,7 +6636,12 @@ async function saveTransactionEditor(event) {
     return;
   }
   if (editorType === "purchaseReturn") {
-    showToast(activeTransactionEditInvoiceId ? "Debit note updated." : "Debit note saved.");
+    showToast({
+      title: `Debit Note ${activeTransactionEditInvoiceId ? "Updated" : "Saved"}`,
+      message: "Debit note has been saved successfully.",
+      type: "success",
+      isTransaction: true,
+    });
     if (saveMode === "print") {
       openInvoicePreviewModal(printPreview);
       return;
@@ -6517,8 +6653,24 @@ async function saveTransactionEditor(event) {
     }
     return;
   }
-  showToast(activeTransactionEditInvoiceId ? "Invoice updated." : "Invoice saved.");
-  if (received > 0) showToast("Payment recorded.");
+  const meta = transactionEditorMeta(editorType);
+  const docNoun = meta?.noun || (editorType === "purchase" ? "Purchase Bill" : "Invoice");
+  const actionText = activeTransactionEditInvoiceId ? "Updated" : "Saved";
+  if (received > 0) {
+    showToast({
+      title: `${docNoun} ${actionText}`,
+      message: `Payment of ${formatCurrency(received)} recorded.`,
+      type: "success",
+      isTransaction: true,
+    });
+  } else {
+    showToast({
+      title: `${docNoun} ${actionText}`,
+      message: `${docNoun} has been ${actionText.toLowerCase()} successfully.`,
+      type: "success",
+      isTransaction: true,
+    });
+  }
   if (saveMode === "print") {
     openInvoicePreviewModal(printPreview);
     return;
