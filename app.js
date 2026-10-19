@@ -1086,6 +1086,14 @@ function bindEvents() {
   elements.closeCompanyModalButton?.addEventListener("click", closeCompanyModal);
   elements.cancelCompanyModalButton?.addEventListener("click", closeCompanyModal);
   elements.companyForm?.addEventListener("submit", handleCompanyFormSubmit);
+  elements.companyForm?.querySelector('[name="gstin"]')?.addEventListener("input", (e) => {
+    const val = e.target.value.trim().toUpperCase();
+    const st = getStateByGstin(val);
+    const stateEl = elements.companyForm?.querySelector('[name="state"]');
+    if (st && stateEl) ensureSelectValue(stateEl, st);
+    const panEl = elements.companyForm?.querySelector('[name="pan"]');
+    if (val.length >= 12 && panEl && !panEl.value) panEl.value = val.slice(2, 12);
+  });
 
   elements.companySearchInput?.addEventListener("input", renderCompanyList);
   elements.companyRefreshButton?.addEventListener("click", refreshCompanyList);
@@ -1513,8 +1521,8 @@ async function handleCompanyFormSubmit(event) {
     businessName,
     legalName: String(formData.get("legalName") || "").trim(),
     gstin: String(formData.get("gstin") || "").trim().toUpperCase(),
-    pan: String(formData.get("pan") || "").trim().toUpperCase(),
-    state: String(formData.get("state") || "Karnataka").trim(),
+    pan: String(formData.get("pan") || (String(formData.get("gstin") || "").trim().length >= 12 ? String(formData.get("gstin") || "").trim().slice(2, 12) : "")).trim().toUpperCase(),
+    state: String(formData.get("state") || getStateByGstin(formData.get("gstin")) || "Karnataka").trim(),
     phone: String(formData.get("phone") || "").trim(),
     email: String(formData.get("email") || "").trim(),
     address: String(formData.get("address") || "").trim(),
@@ -2307,7 +2315,7 @@ function transactionEditorTemplate(type = getTransactionEditorType()) {
               <label>Billing Address<textarea name="address" rows="3" placeholder="Auto-filled from selected ${escapeHtml(meta.partyRole)}"></textarea></label>
               <label>Payment Terms<select class="form-input" name="paymentTerms"><option>Due on receipt</option><option>Net 7</option><option>Net 15</option><option selected>Net 30</option><option>Net 45</option><option>Net 60</option></select></label>
               <label>${meta.dueDateLabel}<input class="form-input" name="dueDate" value="${today}"></label>
-              <label>Party GSTIN<input class="form-input" name="partyGstin" readonly placeholder="Auto from party master"></label>
+              <label>Party GSTIN<input class="form-input uppercase-field" name="partyGstin" maxlength="15" placeholder="e.g. 27AAAAA0000A1Z5" autocomplete="off" spellcheck="false"></label>
               <label class="editor-more-notes">${isEstimate ? "Quote Notes" : "Invoice Notes"}<textarea name="invoiceDescription" rows="3" placeholder="Optional notes printed on the document"></textarea></label>
             </div>
             ${transactionCustomFieldsSection(type)}
@@ -2495,9 +2503,11 @@ function populateTransactionEditorDraft(draft) {
   if (invoiceDateInput && draft.invoiceDate) invoiceDateInput.value = toEditorDateString(draft.invoiceDate);
   if (paymentTermsInput && draft.paymentTerms) ensureSelectValue(paymentTermsInput, draft.paymentTerms);
   if (dueDateInput && draft.dueDate) dueDateInput.value = toEditorDateString(draft.dueDate);
-  if (stateInput && draft.state) ensureSelectValue(stateInput, draft.state);
-  if (supplyTypeInput && draft.supplyType) supplyTypeInput.value = draft.supplyType;
-  if (partyGstinInput && draft.partyGstin) partyGstinInput.value = draft.partyGstin;
+  const draftGstin = String(draft.partyGstin || "").trim().toUpperCase();
+  const draftState = draft.state || getStateByGstin(draftGstin);
+  if (stateInput && draftState) ensureSelectValue(stateInput, draftState);
+  if (supplyTypeInput && (draft.supplyType || draftGstin)) supplyTypeInput.value = draft.supplyType || (draftGstin ? "b2b" : "b2c");
+  if (partyGstinInput && draftGstin) partyGstinInput.value = draftGstin;
   if (originalInvoiceIdInput && draft.originalInvoiceId) originalInvoiceIdInput.value = draft.originalInvoiceId;
   if (originalInvoiceNoInput && draft.originalInvoiceNo) originalInvoiceNoInput.value = draft.originalInvoiceNo;
   if (descriptionInput && draft.invoiceDescription) {
@@ -2667,7 +2677,29 @@ function bindTransactionEditor() {
     }
   });
   elements.featureView.querySelector('[name="state"]')?.addEventListener("change", recalcTransactionEditor);
-  elements.featureView.querySelector('[name="supplyType"]')?.addEventListener("change", renderTransactionSmartChecks);
+  elements.featureView.querySelector('[name="supplyType"]')?.addEventListener("change", () => {
+    recalcTransactionEditor();
+    renderTransactionSmartChecks();
+  });
+  const editorPartyGstin = elements.featureView.querySelector('[name="partyGstin"]');
+  if (editorPartyGstin) {
+    editorPartyGstin.addEventListener("input", () => {
+      const gstinVal = editorPartyGstin.value.trim().toUpperCase();
+      editorPartyGstin.value = gstinVal;
+      const derivedState = getStateByGstin(gstinVal);
+      const stateInput = elements.featureView.querySelector('[name="state"]');
+      const supplyType = elements.featureView.querySelector('[name="supplyType"]');
+      if (derivedState && stateInput) {
+        ensureSelectValue(stateInput, derivedState);
+      }
+      if (supplyType && gstinVal) {
+        supplyType.value = "b2b";
+      }
+      recalcTransactionEditor();
+      renderTransactionSmartChecks();
+      updateTransactionEditorDirtyState();
+    });
+  }
   elements.featureView.querySelector("#editorPaymentType")?.addEventListener("change", () => {
     const paymentAmount = elements.featureView.querySelector("#editorReceived");
     if (paymentAmount) paymentAmount.dataset.manualPayment = "";
@@ -3403,9 +3435,14 @@ async function handleBusinessSettingsSubmit(event) {
 
   const stateField = event.currentTarget.querySelector('[name="state"]');
   if (stateField && !String(form.get("state") || "").trim()) {
-    setInlineError(stateField, "State is required for GST split.");
-    stateField.focus();
-    return;
+    const derived = getStateByGstin(form.get("gstin"));
+    if (derived) {
+      ensureSelectValue(stateField, derived);
+    } else {
+      setInlineError(stateField, "State is required for GST split.");
+      stateField.focus();
+      return;
+    }
   }
 
   const gstinField = event.currentTarget.querySelector('[name="gstin"]');
@@ -3705,6 +3742,55 @@ function setInlineError(field, message) {
 function isValidGstin(value) {
   const gstin = String(value || "").trim().toUpperCase();
   return /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][A-Z0-9]Z[A-Z0-9]$/.test(gstin);
+}
+
+const GST_STATE_CODES = {
+  "01": "Jammu and Kashmir",
+  "02": "Himachal Pradesh",
+  "03": "Punjab",
+  "04": "Chandigarh",
+  "05": "Uttarakhand",
+  "06": "Haryana",
+  "07": "Delhi",
+  "08": "Rajasthan",
+  "09": "Uttar Pradesh",
+  "10": "Bihar",
+  "11": "Sikkim",
+  "12": "Arunachal Pradesh",
+  "13": "Nagaland",
+  "14": "Manipur",
+  "15": "Mizoram",
+  "16": "Tripura",
+  "17": "Meghalaya",
+  "18": "Assam",
+  "19": "West Bengal",
+  "20": "Jharkhand",
+  "21": "Odisha",
+  "22": "Chhattisgarh",
+  "23": "Madhya Pradesh",
+  "24": "Gujarat",
+  "25": "Dadra and Nagar Haveli and Daman and Diu",
+  "26": "Dadra and Nagar Haveli and Daman and Diu",
+  "27": "Maharashtra",
+  "28": "Andhra Pradesh",
+  "29": "Karnataka",
+  "30": "Goa",
+  "31": "Lakshadweep",
+  "32": "Kerala",
+  "33": "Tamil Nadu",
+  "34": "Puducherry",
+  "35": "Andaman and Nicobar Islands",
+  "36": "Telangana",
+  "37": "Andhra Pradesh",
+  "38": "Ladakh",
+  "97": "Other Territory",
+};
+
+function getStateByGstin(gstin) {
+  const clean = String(gstin || "").trim().toUpperCase();
+  if (clean.length < 2) return "";
+  const code = clean.slice(0, 2);
+  return GST_STATE_CODES[code] || "";
 }
 
 function openInvoicePreviewModal(previewData = null, options = {}) {
@@ -5260,6 +5346,7 @@ function selectTransactionParty(party, options = {}) {
   const stateInput = elements.featureView.querySelector('[name="state"]');
   const paymentTerms = elements.featureView.querySelector('[name="paymentTerms"]');
   const dueDate = elements.featureView.querySelector('[name="dueDate"]');
+  const partyGstin = elements.featureView.querySelector('[name="partyGstin"]');
 
   if (partyInput) {
     partyInput.value = party.name || "";
@@ -5267,7 +5354,9 @@ function selectTransactionParty(party, options = {}) {
   }
   if (phoneInput) phoneInput.value = party.phone || "";
   if (addressInput) addressInput.value = party.billingAddress || party.shippingAddress || "";
-  if (stateInput && party.state) ensureSelectValue(stateInput, party.state);
+  if (partyGstin) partyGstin.value = party.gstin || "";
+  const targetState = getStateByGstin(party.gstin) || party.state;
+  if (stateInput && targetState) ensureSelectValue(stateInput, targetState);
   const terms = party.paymentTerms || (Number(party.dueDays || 0) ? `Net ${Number(party.dueDays || 0)}` : "");
   if (paymentTerms && terms) {
     ensureSelectValue(paymentTerms, terms);
@@ -5275,6 +5364,7 @@ function selectTransactionParty(party, options = {}) {
   }
   if (!options.keepLookupOpen) hideEditorLookupPanels();
   applyEditorPartyIntelligence();
+  recalcTransactionEditor();
   updateTransactionEditorDirtyState();
 }
 
@@ -5564,15 +5654,17 @@ function applyEditorPartyIntelligence() {
 
   if (!party) {
     if (balanceLabel) balanceLabel.innerHTML = "Balance: <b>-</b>";
+    const partyInput = elements.featureView.querySelector('[name="party"]');
     const partyGstin = elements.featureView.querySelector('[name="partyGstin"]');
-    if (partyGstin) partyGstin.value = "";
+    if (partyGstin && (!partyInput || !partyInput.value.trim())) partyGstin.value = "";
     renderTransactionSmartChecks();
     return;
   }
 
   if (phoneInput && !phoneInput.value.trim()) phoneInput.value = party.phone || "";
   if (addressInput && !addressInput.value.trim()) addressInput.value = party.billingAddress || party.shippingAddress || "";
-  if (stateInput && party.state) ensureSelectValue(stateInput, party.state);
+  const targetState = getStateByGstin(party.gstin) || party.state;
+  if (stateInput && targetState) ensureSelectValue(stateInput, targetState);
   if (partyGstin) partyGstin.value = party.gstin || "";
   if (supplyType) supplyType.value = party.gstin ? "b2b" : "b2c";
 
@@ -5600,6 +5692,7 @@ function applyEditorPartyIntelligence() {
     }
     balanceLabel.innerHTML = `${label}: <b>${formatCurrency(Math.abs(balance))}</b>`;
   }
+  recalcTransactionEditor();
   renderTransactionSmartChecks();
 }
 
@@ -5922,10 +6015,11 @@ function renderTransactionSmartChecks(grandTotal = null, received = null) {
     if (party.creditLimit && editorType === "sale" && balance + total > Number(party.creditLimit)) {
       checks.push({ type: "danger", text: `Credit limit may exceed by ${formatCurrency(balance + total - Number(party.creditLimit))}.` });
     }
-    if (supplyType === "b2b" && !party.gstin) {
+    const activeGstin = elements.featureView.querySelector('[name="partyGstin"]')?.value.trim() || party.gstin || "";
+    if (supplyType === "b2b" && !activeGstin) {
       checks.push({ type: "danger", text: `${party.name}: GSTIN is required for B2B GST reporting.` });
     }
-    if (party.gstin && supplyType === "b2c") {
+    if (activeGstin && supplyType === "b2c") {
       checks.push({ type: "warn", text: `${party.name} has GSTIN. Use B2B supply for GSTR reporting.` });
     }
   }
@@ -6071,8 +6165,8 @@ async function saveTransactionEditor(event) {
     paymentTerms: String(form.get("paymentTerms") || "Net 30"),
     paymentMethod: String(form.get("paymentMethod") || "Cash"),
     supplyType: String(form.get("supplyType") || "b2c"),
-    placeOfSupply: String(form.get("state") || "").trim(),
-    partyGstin: String(form.get("partyGstin") || validation.party.gstin || "").trim(),
+    placeOfSupply: String(form.get("state") || getStateByGstin(form.get("partyGstin") || validation.party.gstin) || "").trim(),
+    partyGstin: String(form.get("partyGstin") || validation.party.gstin || "").trim().toUpperCase(),
     partyTaxType: String(validation.party.taxType || "unregistered"),
     firmState: state.businessSettings?.state || "Karnataka",
     dueDate: parseEditorDate(String(form.get("dueDate") || "")) || new Date().toISOString(),
@@ -6469,6 +6563,13 @@ function validateTransactionEditorSelections() {
     };
   }
   if (!stateInput?.value) {
+    const derivedState = getStateByGstin(gstinInput?.value || party?.gstin);
+    if (derivedState && stateInput) {
+      ensureSelectValue(stateInput, derivedState);
+      recalcTransactionEditor();
+    }
+  }
+  if (!stateInput?.value) {
     return {
       valid: false,
       message: "State/place of supply is required for GST split.",
@@ -6594,57 +6695,15 @@ function closeEntryModal() {
   if (submitButton) submitButton.textContent = "Save";
 }
 
-const GST_STATE_CODES = {
-  "01": "Jammu and Kashmir",
-  "02": "Himachal Pradesh",
-  "03": "Punjab",
-  "04": "Chandigarh",
-  "05": "Uttarakhand",
-  "06": "Haryana",
-  "07": "Delhi",
-  "08": "Rajasthan",
-  "09": "Uttar Pradesh",
-  "10": "Bihar",
-  "11": "Sikkim",
-  "12": "Arunachal Pradesh",
-  "13": "Nagaland",
-  "14": "Manipur",
-  "15": "Mizoram",
-  "16": "Tripura",
-  "17": "Meghalaya",
-  "18": "Assam",
-  "19": "West Bengal",
-  "20": "Jharkhand",
-  "21": "Odisha",
-  "22": "Chhattisgarh",
-  "23": "Madhya Pradesh",
-  "24": "Gujarat",
-  "26": "Dadra and Nagar Haveli and Daman and Diu",
-  "27": "Maharashtra",
-  "29": "Karnataka",
-  "30": "Goa",
-  "31": "Lakshadweep",
-  "32": "Kerala",
-  "33": "Tamil Nadu",
-  "34": "Puducherry",
-  "35": "Andaman and Nicobar Islands",
-  "36": "Telangana",
-  "37": "Andhra Pradesh",
-  "38": "Ladakh",
-};
-
 function handleGstinInput(gstinVal) {
   const clean = String(gstinVal || "").trim().toUpperCase();
-  if (clean.length >= 2) {
-    const code = clean.slice(0, 2);
-    const matchedState = GST_STATE_CODES[code];
-    const stateInput = elements.entryForm.querySelector('[name="state"]');
-    if (matchedState && stateInput && (!stateInput.value || stateInput.dataset.autoFilled === "1")) {
-      stateInput.value = matchedState;
-      stateInput.dataset.autoFilled = "1";
-    }
+  const matchedState = getStateByGstin(clean);
+  const stateInput = elements.entryForm.querySelector('[name="state"]');
+  if (matchedState && stateInput) {
+    stateInput.value = matchedState;
+    stateInput.dataset.autoFilled = "1";
   }
-  if (clean.length >= 12) {
+  if (clean.length >= 10) {
     const pan = clean.slice(2, 12);
     const panInput = elements.entryForm.querySelector('[name="pan"]');
     if (panInput && (!panInput.value || panInput.dataset.autoFilled === "1")) {
@@ -6652,6 +6711,14 @@ function handleGstinInput(gstinVal) {
       panInput.dataset.autoFilled = "1";
     }
   }
+  if (clean.length >= 2) {
+    const taxType = elements.entryForm.querySelector('[name="taxType"]');
+    if (taxType && taxType.value === "unregistered") {
+      taxType.value = "gst_registered";
+      updatePartyTaxFields();
+    }
+  }
+  updatePartySummaryPills();
 }
 
 function activatePartyTab(targetTab) {
@@ -6815,9 +6882,11 @@ function populateEntryForm(type, record) {
     setEntryValue("phone", record.phone);
     setEntryValue("email", record.email);
     setEntryValue("contactPerson", record.contactPerson);
-    setEntryValue("taxType", record.taxType || "unregistered");
-    setEntryValue("state", record.state);
-    setEntryValue("gstin", record.gstin);
+    const resolvedGstin = String(record.gstin || "").trim().toUpperCase();
+    const resolvedState = record.state || getStateByGstin(resolvedGstin);
+    setEntryValue("taxType", record.taxType || (resolvedGstin ? "gst_registered" : "unregistered"));
+    setEntryValue("state", resolvedState);
+    setEntryValue("gstin", resolvedGstin);
     setEntryValue("legalName", record.legalName);
     setEntryValue("pan", record.pan);
     setEntryValue("billingAddress", record.billingAddress);
@@ -7423,11 +7492,11 @@ async function handleEntrySubmit(event) {
       phone: String(form.get("phone") || "").trim(),
       email: String(form.get("email") || "").trim(),
       contactPerson: String(form.get("contactPerson") || "").trim(),
-      taxType: String(form.get("taxType") || "unregistered"),
-      gstin: String(form.get("gstin") || "").trim(),
+      taxType: String(form.get("taxType") || (form.get("gstin") ? "gst_registered" : "unregistered")),
+      gstin: String(form.get("gstin") || "").trim().toUpperCase(),
       legalName: String(form.get("legalName") || "").trim(),
-      state: String(form.get("state") || "").trim(),
-      pan: String(form.get("pan") || "").trim(),
+      state: String(form.get("state") || getStateByGstin(form.get("gstin")) || "").trim(),
+      pan: String(form.get("pan") || (String(form.get("gstin") || "").trim().length >= 12 ? String(form.get("gstin") || "").trim().slice(2, 12) : "")).trim().toUpperCase(),
       billingAddress,
       shippingAddress,
       openingBalance: normalizedOpeningBalance,
@@ -11853,6 +11922,21 @@ function bindFeatureActions() {
     });
   });
   elements.featureView.querySelector("#businessSettingsForm")?.addEventListener("submit", handleBusinessSettingsSubmit);
+  const settingsGstinInput = elements.featureView.querySelector('#businessSettingsForm [name="gstin"]');
+  if (settingsGstinInput) {
+    settingsGstinInput.addEventListener("input", () => {
+      const gstinVal = settingsGstinInput.value.trim().toUpperCase();
+      const derivedState = getStateByGstin(gstinVal);
+      const stateInput = elements.featureView.querySelector('#businessSettingsForm [name="state"]');
+      if (derivedState && stateInput) {
+        ensureSelectValue(stateInput, derivedState);
+      }
+      const panInput = elements.featureView.querySelector('#businessSettingsForm [name="pan"]');
+      if (panInput && gstinVal.length >= 12 && !panInput.value) {
+        panInput.value = gstinVal.slice(2, 12);
+      }
+    });
+  }
   elements.featureView.querySelector("#customFieldCreateForm")?.addEventListener("submit", handleCustomFieldCreate);
   elements.featureView.querySelectorAll("[data-custom-field-toggle]").forEach((input) => {
     input.addEventListener("change", () => handleCustomFieldToggle(input.dataset.customFieldToggle, input.dataset.customFieldProp, input.checked));
@@ -15186,10 +15270,14 @@ function bindExpenseModal() {
     receiptClearBtn?.classList.add("hidden");
   });
 
-  // 7. Auto-uppercase Vendor GSTIN
+  // 7. Auto-uppercase Vendor GSTIN and derive place of supply
   const gstinInput = form.elements.partyGstin;
   gstinInput?.addEventListener("input", () => {
     gstinInput.value = gstinInput.value.toUpperCase();
+    const st = getStateByGstin(gstinInput.value);
+    if (st && form.elements.placeOfSupply) {
+      ensureSelectValue(form.elements.placeOfSupply, st);
+    }
   });
 
   // 8. Calculation events
