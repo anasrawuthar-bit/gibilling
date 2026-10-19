@@ -2274,52 +2274,139 @@ function transactionEditorTemplate(type = getTransactionEditorType()) {
       </header>
 
       <form id="transactionEditorForm" class="transaction-editor-form">
-        <section class="editor-top-grid">
-          <article class="editor-card editor-party-card">
-            <div class="editor-card-title">
-              <strong>${partyLabel}</strong>
-              <span>${meta.balanceLabel}: <b>-</b></span>
-            </div>
-            <label class="editor-party-name-label"><span>${meta.partyLabel} Name <span data-party-required-marker></span></span>
-              <div class="editor-lookup">
-                <input class="form-input" name="party" placeholder="${meta.partyPlaceholder}" autocomplete="off">
-                <div class="editor-lookup-panel hidden" id="editorPartyLookup"></div>
+        <section class="editor-top-grid editor-unified-section">
+          <article class="editor-card editor-party-card editor-meta-card editor-unified-card">
+            <div class="editor-card-title editor-unified-card-title">
+              <div class="editor-unified-title-left">
+                <strong class="editor-unified-heading">${partyLabel} &amp; Document</strong>
+                <span class="editor-unified-balance-pill" title="Party Balance">${meta.balanceLabel}: <b>-</b></span>
               </div>
-              <small class="editor-field-hint" data-party-required-hint></small>
-            </label>
-            <label>Phone
-              <div class="editor-lookup">
-                <input class="form-input" name="phone" placeholder="Search phone to select">
-                <div class="editor-lookup-panel hidden" id="editorPhoneLookup"></div>
+              <div class="editor-unified-title-right">
+                <span class="editor-unified-doc-pill">${isEditing ? "Editing" : "Auto numbered"}</span>
+                <button type="button" class="editor-unified-more-toggle" data-editor-action="toggle-more-details" title="Toggle extra party and document details">
+                  <span>More details</span>
+                  ${icon("chevron-down")}
+                </button>
               </div>
-            </label>
-          </article>
+            </div>
 
-          <article class="editor-card editor-meta-card">
-            <div class="editor-card-title">
-              <strong>Document</strong>
-              <span>${isEditing ? "Editing" : "Auto numbered"}</span>
-            </div>
-            <div class="editor-meta-grid">
-              <label>${invoiceLabel}<input class="form-input" name="invoiceNo" value="${escapeHtml(initialInvoiceNo)}" placeholder="${escapeHtml(initialInvoiceNo)}" autocomplete="off" spellcheck="false"></label>
-              <label>${dateLabel}<input class="form-input" name="invoiceDate" value="${today}"></label>
-              <label>GST Supply<select class="form-input" name="supplyType"><option value="b2c">B2C / Unregistered</option><option value="b2b">B2B / Registered</option><option value="export">Export</option><option value="sez">SEZ</option></select></label>
-              <label>Place of Supply<select class="form-input" name="state"><option value="">Select</option>${indianStateOptions(state.businessSettings?.state || "Karnataka")}</select></label>
-              ${isReturn ? '<label>Against Invoice<input class="form-input" name="originalInvoiceNo" placeholder="Original invoice no"></label><input type="hidden" name="originalInvoiceId">' : ""}
-            </div>
-          </article>
+            <div class="editor-unified-primary-row ${isReturn ? "has-return" : ""}">
+              <div class="editor-compact-col col-party-name">
+                <label class="editor-compact-label">
+                  <span>${meta.partyLabel} Name <span data-party-required-marker></span></span>
+                  <div class="editor-lookup">
+                    <input class="form-input compact-input" name="party" placeholder="${meta.partyPlaceholder}" autocomplete="off">
+                    <div class="editor-lookup-panel hidden" id="editorPartyLookup"></div>
+                  </div>
+                  <small class="editor-field-hint" data-party-required-hint></small>
+                </label>
+              </div>
 
-          <details class="editor-more-details">
-            <summary><span>${icon("file-plus")} More details</span><small></small>${icon("chevron-down")}</summary>
-            <div class="editor-more-details-grid">
-              <label>Billing Address<textarea name="address" rows="3" placeholder="Auto-filled from selected ${escapeHtml(meta.partyRole)}"></textarea></label>
-              <label>Payment Terms<select class="form-input" name="paymentTerms"><option>Due on receipt</option><option>Net 7</option><option>Net 15</option><option selected>Net 30</option><option>Net 45</option><option>Net 60</option></select></label>
-              <label>${meta.dueDateLabel}<input class="form-input" name="dueDate" value="${today}"></label>
-              <label>Party GSTIN<input class="form-input uppercase-field" name="partyGstin" maxlength="15" placeholder="e.g. 27AAAAA0000A1Z5" autocomplete="off" spellcheck="false"></label>
-              <label class="editor-more-notes">${isEstimate ? "Quote Notes" : "Invoice Notes"}<textarea name="invoiceDescription" rows="3" placeholder="Optional notes printed on the document"></textarea></label>
+              <div class="editor-compact-col col-party-phone">
+                <label class="editor-compact-label">
+                  <span>Phone</span>
+                  <div class="editor-lookup">
+                    <input class="form-input compact-input" name="phone" placeholder="Search phone to select">
+                    <div class="editor-lookup-panel hidden" id="editorPhoneLookup"></div>
+                  </div>
+                </label>
+              </div>
+
+              <div class="editor-compact-col col-doc-no">
+                <label class="editor-compact-label">
+                  <span>${invoiceLabel}</span>
+                  <input class="form-input compact-input" name="invoiceNo" value="${escapeHtml(initialInvoiceNo)}" placeholder="${escapeHtml(initialInvoiceNo)}" autocomplete="off" spellcheck="false">
+                </label>
+              </div>
+
+              <div class="editor-compact-col col-doc-date">
+                <label class="editor-compact-label">
+                  <span>${dateLabel}</span>
+                  <input class="form-input compact-input" name="invoiceDate" value="${today}">
+                </label>
+              </div>
+
+              <div class="editor-compact-col col-doc-supply">
+                <label class="editor-compact-label">
+                  <span>GST Supply</span>
+                  <select class="form-input compact-input" name="supplyType">
+                    <option value="b2c">B2C / Unregistered</option>
+                    <option value="b2b">B2B / Registered</option>
+                    <option value="export">Export</option>
+                    <option value="sez">SEZ</option>
+                  </select>
+                </label>
+              </div>
+
+              <div class="editor-compact-col col-doc-state">
+                <label class="editor-compact-label">
+                  <span>Place of Supply</span>
+                  <select class="form-input compact-input" name="state">
+                    <option value="">Select</option>
+                    ${indianStateOptions(state.businessSettings?.state || "Karnataka")}
+                  </select>
+                </label>
+              </div>
+
+              ${isReturn ? `
+              <div class="editor-compact-col col-doc-return">
+                <label class="editor-compact-label">
+                  <span>Against Invoice</span>
+                  <input class="form-input compact-input" name="originalInvoiceNo" placeholder="Original invoice no">
+                </label>
+                <input type="hidden" name="originalInvoiceId">
+              </div>
+              ` : ""}
             </div>
-            ${transactionCustomFieldsSection(type)}
-          </details>
+
+            <details class="editor-more-details editor-unified-more-details">
+              <summary class="editor-unified-details-summary" style="display:none;"><span>More details</span></summary>
+              <div class="editor-unified-secondary-row">
+                <div class="editor-compact-col col-address">
+                  <label class="editor-compact-label">
+                    <span>Billing Address</span>
+                    <textarea class="form-input compact-textarea" name="address" rows="1" placeholder="Auto-filled from selected ${escapeHtml(meta.partyRole)}"></textarea>
+                  </label>
+                </div>
+
+                <div class="editor-compact-col col-terms">
+                  <label class="editor-compact-label">
+                    <span>Payment Terms</span>
+                    <select class="form-input compact-input" name="paymentTerms">
+                      <option>Due on receipt</option>
+                      <option>Net 7</option>
+                      <option>Net 15</option>
+                      <option selected>Net 30</option>
+                      <option>Net 45</option>
+                      <option>Net 60</option>
+                    </select>
+                  </label>
+                </div>
+
+                <div class="editor-compact-col col-due-date">
+                  <label class="editor-compact-label">
+                    <span>${meta.dueDateLabel}</span>
+                    <input class="form-input compact-input" name="dueDate" value="${today}">
+                  </label>
+                </div>
+
+                <div class="editor-compact-col col-gstin">
+                  <label class="editor-compact-label">
+                    <span>Party GSTIN</span>
+                    <input class="form-input compact-input uppercase-field" name="partyGstin" maxlength="15" placeholder="e.g. 27AAAAA0000A1Z5" autocomplete="off" spellcheck="false">
+                  </label>
+                </div>
+
+                <div class="editor-compact-col col-notes">
+                  <label class="editor-compact-label">
+                    <span>${isEstimate ? "Quote Notes" : "Invoice Notes"}</span>
+                    <textarea class="form-input compact-textarea" name="invoiceDescription" rows="1" placeholder="Optional notes printed on document"></textarea>
+                  </label>
+                </div>
+              </div>
+              ${transactionCustomFieldsSection(type)}
+            </details>
+          </article>
         </section>
 
 
@@ -2730,6 +2817,13 @@ function bindTransactionEditor() {
   elements.featureView.querySelectorAll("[data-editor-action]").forEach((button) => {
     button.addEventListener("click", () => handleEditorAction(button.dataset.editorAction));
   });
+  const moreDetailsEl = elements.featureView.querySelector(".editor-more-details");
+  if (moreDetailsEl) {
+    moreDetailsEl.addEventListener("toggle", () => {
+      const btn = elements.featureView.querySelector('[data-editor-action="toggle-more-details"]');
+      if (btn) btn.classList.toggle("open", moreDetailsEl.open);
+    });
+  }
   elements.featureView.querySelectorAll("[data-editor-tab-id]").forEach((tab) => {
     tab.addEventListener("click", (event) => {
       if (event.target.closest("[data-editor-tab-close]")) return;
@@ -3098,6 +3192,15 @@ function handleEditorAction(action) {
   }
   if (action === "preview") {
     openInvoicePreviewModal();
+    return;
+  }
+  if (action === "toggle-more-details") {
+    const details = elements.featureView.querySelector(".editor-more-details");
+    if (details) {
+      details.open = !details.open;
+      const btn = elements.featureView.querySelector('[data-editor-action="toggle-more-details"]');
+      if (btn) btn.classList.toggle("open", details.open);
+    }
     return;
   }
   const labels = {
@@ -5484,7 +5587,15 @@ function itemLookupButton(item) {
       <span><strong>${escapeHtml(item.name)}</strong><small>${escapeHtml(details)}</small></span>
       <span class="item-picker-numbers">
         ${priceStackMarkup}
-        <small class="${service ? "service" : stock <= 0 ? "out-of-stock" : "in-stock"}">${service ? "Service" : stock <= 0 ? "Out of stock" : `${formatQuantity(stock)} ${escapeHtml(item.unit || "")} available`}</small>
+        <small class="${service ? "service" : stock <= 0 ? "out-of-stock" : "in-stock"}">${
+          service
+            ? "Service"
+            : stock < 0
+            ? `Stock: ${formatQuantity(stock)} (Negative)`
+            : stock === 0
+            ? "Out of stock (Negative sale)"
+            : `${formatQuantity(stock)} ${escapeHtml(item.unit || "")} available`
+        }</small>
       </span>
     </button>
   `;
@@ -5649,7 +5760,7 @@ function applyEditorPartyIntelligence() {
   const stateInput = elements.featureView.querySelector('[name="state"]');
   const supplyType = elements.featureView.querySelector('[name="supplyType"]');
   const partyGstin = elements.featureView.querySelector('[name="partyGstin"]');
-  const balanceLabel = elements.featureView.querySelector(".editor-party-card .editor-card-title span");
+  const balanceLabel = elements.featureView.querySelector(".editor-unified-balance-pill") || elements.featureView.querySelector(".editor-party-card .editor-card-title span");
   const party = getSelectedTransactionParty();
 
   if (!party) {
@@ -5849,8 +5960,17 @@ function updateRowSmartHint(row) {
   const editorType = getTransactionEditorType();
   const isSaleLike = editorType === "sale" || editorType === "estimate" || editorType === "saleReturn";
   if ((editorType === "sale" || editorType === "estimate") && !isService) {
-    parts.push(`Stock ${formatQuantity(stock)}`);
-    if (qty > stock) hint.classList.add("danger");
+    if (qty > stock) {
+      const projected = stock - qty;
+      parts.push(`Stock ${formatQuantity(stock)} → ${formatQuantity(projected)} (Negative)`);
+      if (state.businessSettings?.stopSaleOnNegativeStock) {
+        hint.classList.add("danger");
+      } else {
+        hint.classList.add("warn");
+      }
+    } else {
+      parts.push(`Stock ${formatQuantity(stock)}`);
+    }
   }
   if (isSaleLike && salePrice) parts.push(`Sale ${formatCurrency(salePrice)}`);
   if (purchasePrice) parts.push(`Cost ${formatCurrency(purchasePrice)}`);
@@ -6043,7 +6163,12 @@ function renderTransactionSmartChecks(grandTotal = null, received = null) {
     const isService = String(item.itemType || "").toLowerCase() === "service";
 
     if ((editorType === "sale" || isEstimate) && !isService && qty > stock) {
-      checks.push({ type: "danger", text: `${item.name}: stock ${formatQuantity(stock)}, invoice qty ${formatQuantity(qty)}.` });
+      if (state.businessSettings?.stopSaleOnNegativeStock) {
+        checks.push({ type: "danger", text: `${item.name}: negative stock restricted by settings (Stock: ${formatQuantity(stock)}, Qty: ${formatQuantity(qty)}).` });
+      } else {
+        const afterStock = stock - qty;
+        checks.push({ type: "info", text: `${item.name}: currently out of stock (${formatQuantity(stock)}). Sale will record negative stock (${formatQuantity(afterStock)}).` });
+      }
     }
     if ((editorType === "sale" || isEstimate || isReturn) && purchasePrice && price && price < purchasePrice) {
       checks.push({ type: "danger", text: `${item.name}: sale price is below purchase price.` });
@@ -6620,7 +6745,8 @@ function validateTransactionEditorSelections() {
         field: entry.row.querySelector('[name="item"]'),
       };
     }
-    if (Number(qtyField?.value || 0) <= 0) {
+    const qtyVal = Number(qtyField?.value || 0);
+    if (qtyVal <= 0) {
       return {
         valid: false,
         message: "Quantity must be greater than zero.",
@@ -6633,6 +6759,17 @@ function validateTransactionEditorSelections() {
         message: "Price cannot be negative.",
         field: priceField,
       };
+    }
+    const isService = String(item.itemType || "").toLowerCase() === "service";
+    if (editorType === "sale" && !isService && state.businessSettings?.stopSaleOnNegativeStock) {
+      const stock = Number(item.currentStock ?? item.stock ?? 0);
+      if (qtyVal > stock) {
+        return {
+          valid: false,
+          message: `Cannot sell "${item.name}": Available stock is ${formatQuantity(stock)}, but invoice quantity is ${formatQuantity(qtyVal)}. Negative stock sales are blocked in settings.`,
+          field: qtyField,
+        };
+      }
     }
     rows.push({ row: entry.row, item });
   }
@@ -9088,12 +9225,31 @@ function posProductCard(item) {
   const unit = item.unit || "Pcs";
   const taxRate = Number(item.taxRate || 0);
 
+  let stockBadgeText = "";
+  let stockBadgeClass = "";
+  if (isService) {
+    stockBadgeText = "Service";
+    stockBadgeClass = "service";
+  } else if (stock < 0) {
+    stockBadgeText = `Stock: ${formatQuantity(stock)} (Neg)`;
+    stockBadgeClass = "zero";
+  } else if (stock === 0) {
+    stockBadgeText = "Out of Stock (Neg OK)";
+    stockBadgeClass = "zero";
+  } else if (stock <= 5) {
+    stockBadgeText = `${formatQuantity(stock)} ${escapeHtml(unit)}`;
+    stockBadgeClass = "low";
+  } else {
+    stockBadgeText = `${formatQuantity(stock)} ${escapeHtml(unit)}`;
+    stockBadgeClass = "available";
+  }
+
   return `
     <button class="pos-product-card ${isOutOfStock ? "out-of-stock" : ""}" data-pos-add-item="${item.id}" type="button" title="${escapeHtml(item.name || "")}">
       <div class="pos-card-top">
         <span class="pos-card-cat" title="${escapeHtml(category)}">${escapeHtml(category)}</span>
-        <span class="pos-card-stock ${isService ? "service" : isOutOfStock ? "zero" : stock <= 5 ? "low" : "available"}">
-          ${isService ? "Service" : isOutOfStock ? "Out of Stock" : `${formatQuantity(stock)} ${escapeHtml(unit)}`}
+        <span class="pos-card-stock ${stockBadgeClass}">
+          ${stockBadgeText}
         </span>
       </div>
       <div class="pos-card-main">
@@ -9602,6 +9758,19 @@ async function savePosSale({ print = false } = {}) {
   if (received < totals.total && !party) {
     showToast("Credit POS sale needs an existing customer.");
     return;
+  }
+  if (state.businessSettings?.stopSaleOnNegativeStock) {
+    for (const line of posCart) {
+      const item = (state.items || []).find((r) => Number(r.id) === Number(line.itemId));
+      if (!item) continue;
+      const isService = String(item.itemType || "").toLowerCase() === "service";
+      if (isService) continue;
+      const stock = Number(item.currentStock ?? item.openingStock ?? 0);
+      if (Number(line.qty || 0) > stock) {
+        showToast(`Cannot sell "${item.name}": Available stock is ${formatQuantity(stock)}. Negative stock sales are blocked in settings.`);
+        return;
+      }
+    }
   }
   const transaction = {
     id: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`,
@@ -17500,6 +17669,7 @@ function itemsTemplate(selectedItemId = null, activeTab = "overview", query = it
     { value: "instock", label: "In Stock" },
     { value: "low", label: "Low Stock" },
     { value: "out", label: "Out of Stock" },
+    { value: "negative", label: "Negative Stock (< 0)" },
     { value: "active", label: "Active in Period" },
   ];
 
@@ -17639,6 +17809,7 @@ function applyItemAdvancedFilter(items, f) {
       if (f.stockLevel === "instock" && stock <= 0) return false;
       if (f.stockLevel === "low" && (stock <= 0 || stock > 10)) return false;
       if (f.stockLevel === "out" && stock > 0) return false;
+      if (f.stockLevel === "negative" && stock >= 0) return false;
       if (f.stockLevel === "active") {
         const hasActivity = itemHasActivityInRange(item, fromDate, toDate);
         if (!hasActivity) return false;
@@ -18009,6 +18180,7 @@ function itemListButton(item, selectedId) {
   const qty = Number(item.currentStock || 0);
   const salePrice = Number(item.salePrice || 0);
   const purchasePrice = Number(item.purchasePrice || 0);
+  const isNegative = kind.label !== "Service" && qty < 0;
 
   return `
     <button class="item-list-item ${Number(item.id) === Number(selectedId) ? "active" : ""}" data-item-id="${item.id}" type="button">
@@ -18019,14 +18191,16 @@ function itemListButton(item, selectedId) {
           <span class="item-chip-pur" title="Purchase Cost Price">Cost: <b>${purchasePrice ? formatCurrency(purchasePrice) : "-"}</b></span>
         </span>
       </span>
-      <span class="item-list-side"><em class="item-kind-badge ${kind.className}">${kind.label}</em><b>${formatQuantity(qty)}</b></span>
+      <span class="item-list-side"><em class="item-kind-badge ${kind.className}">${kind.label}</em><b class="${isNegative ? "stock-negative" : ""}">${formatQuantity(qty)}</b></span>
     </button>
   `;
 }
 
 function itemDetail(item) {
   const kind = itemKind(item);
-  const stockValue = Number(item.currentStock || 0) * Number(item.purchasePrice || 0);
+  const stock = Number(item.currentStock || 0);
+  const isNegative = kind.label !== "Service" && stock < 0;
+  const stockValue = stock * Number(item.purchasePrice || 0);
   const meta = [item.sku ? `SKU ${item.sku}` : "", item.hsnSac ? `HSN/SAC ${item.hsnSac}` : "", item.category, item.unit ? `Unit ${item.unit}` : ""].filter(Boolean).join(" - ");
 
   return `
@@ -18045,7 +18219,7 @@ function itemDetail(item) {
         </div>
       </header>
       <div class="item-metric-grid">
-        <article><span>Current Stock</span><strong>${formatQuantity(item.currentStock || 0)}</strong></article>
+        <article><span>Current Stock</span><strong class="${isNegative ? "stock-negative" : ""}">${formatQuantity(stock)}${isNegative ? " (Negative)" : ""}</strong></article>
         <article><span>Sale Price</span><strong>${formatCurrency(item.salePrice || 0)}</strong></article>
         <article><span>Purchase Price</span><strong>${formatCurrency(item.purchasePrice || 0)}</strong></article>
         <article><span>Stock Value</span><strong>${formatCurrency(stockValue)}</strong></article>
@@ -21206,7 +21380,10 @@ function lowStockReport() {
     totalDeficitCost += replenishCost;
 
     let badge = `<span class="status-pill status-warn">Low Stock</span>`;
-    if (stock <= 0) {
+    if (stock < 0) {
+      outOfStockCount += 1;
+      badge = `<span class="status-pill status-danger">Negative (${formatQuantity(stock)})</span>`;
+    } else if (stock === 0) {
       outOfStockCount += 1;
       badge = `<span class="status-pill status-danger">Out of Stock</span>`;
     } else if (stock <= minAlert * 0.4) {
@@ -21217,7 +21394,7 @@ function lowStockReport() {
       item.name,
       item.sku || "-",
       item.category || "-",
-      `${formatQuantity(stock)} ${item.unit || "PCS"}`,
+      `<span class="${stock < 0 ? "stock-negative" : ""}">${formatQuantity(stock)} ${item.unit || "PCS"}</span>`,
       `${formatQuantity(minAlert)} ${item.unit || "PCS"}`,
       `${formatQuantity(deficit)} ${item.unit || "PCS"}`,
       formatCurrency(costRate),
@@ -21233,7 +21410,7 @@ function lowStockReport() {
     summary: "Products at or below minimum inventory reorder threshold needing replenishment.",
     kpis: [
       { label: "Low Stock Items", value: String(items.length), note: "Requiring reorder", tone: items.length > 0 ? "danger" : "success" },
-      { label: "Out of Stock", value: String(outOfStockCount), note: "Zero quantity available", tone: outOfStockCount > 0 ? "danger" : "neutral" },
+      { label: "Out / Neg Stock", value: String(outOfStockCount), note: "Zero or negative available", tone: outOfStockCount > 0 ? "danger" : "neutral" },
       { label: "Deficit Value", value: formatCurrency(totalDeficitCost), note: "Estimated restocking cost", tone: "info" },
       { label: "Max Deficit Item", value: items[0]?.name || "None", note: items[0] ? `Deficit: ${Math.max(0, (items[0].minStockAlert || 5) - items[0].currentStock)}` : "-", tone: "neutral" },
     ],
@@ -22833,7 +23010,7 @@ function settingsTaxInventoryTemplate() {
               <input type="checkbox" name="stopSaleOnNegativeStock" ${settings.stopSaleOnNegativeStock ? "checked" : ""}>
               <div class="settings-toggle-info">
                 <strong>Restrict / Stop Sale on Zero or Negative Stock</strong>
-                <span>Warns and prevents users from issuing a sale invoice for products with zero or insufficient inventory.</span>
+                <span>When disabled (default), products with zero or low stock can be sold smoothly with negative inventory. Enable this to strictly block sales when inventory is insufficient.</span>
               </div>
             </label>
           </div>
