@@ -6931,25 +6931,156 @@ async function saveTransactionEditor(event) {
   }
 }
 
+function computeInvoiceEditDiff(prevInvoice, prevItems = [], newInvoice, newItems = []) {
+  const changes = [];
+
+  // Total amount diff
+  const prevTotal = Number(prevInvoice?.total || 0);
+  const newTotal = Number(newInvoice?.total || 0);
+  const diffTotal = newTotal - prevTotal;
+  if (Math.abs(diffTotal) > 0.001) {
+    const sign = diffTotal > 0 ? "+" : "";
+    changes.push(`Total Amount: ₹${prevTotal.toFixed(2)} → ₹${newTotal.toFixed(2)} (${sign}₹${diffTotal.toFixed(2)})`);
+  }
+
+  // Party diff
+  const prevParty = String(prevInvoice?.party || "").trim();
+  const newParty = String(newInvoice?.party || "").trim();
+  if (prevParty && newParty && prevParty.toLowerCase() !== newParty.toLowerCase()) {
+    changes.push(`Party: "${prevParty}" → "${newParty}"`);
+  }
+
+  // Date diff
+  const prevDate = String(prevInvoice?.invoiceDate || prevInvoice?.date || "").slice(0, 10);
+  const newDate = String(newInvoice?.invoiceDate || newInvoice?.date || "").slice(0, 10);
+  if (prevDate && newDate && prevDate !== newDate) {
+    changes.push(`Invoice Date: ${prevDate} → ${newDate}`);
+  }
+
+  // Payment type diff
+  const prevPayType = String(prevInvoice?.paymentType || prevInvoice?.payment_type || "").trim();
+  const newPayType = String(newInvoice?.paymentType || newInvoice?.payment_type || "").trim();
+  if (prevPayType && newPayType && prevPayType.toLowerCase() !== newPayType.toLowerCase()) {
+    changes.push(`Payment Mode: ${prevPayType} → ${newPayType}`);
+  }
+
+  // Line items diff
+  const prevMap = new Map();
+  for (const item of prevItems) {
+    const name = String(item.itemName || item.item || item.item_name || "").trim();
+    const key = name.toLowerCase();
+    if (!prevMap.has(key)) prevMap.set(key, []);
+    prevMap.get(key).push({
+      name: name || "Item",
+      qty: Number(item.quantity ?? item.qty ?? 0),
+      unit: item.unit || "",
+      price: Number(item.price ?? 0),
+      discount: Number(item.discount ?? 0),
+      taxRate: Number(item.taxRate ?? item.tax_rate ?? 0),
+    });
+  }
+
+  const newMap = new Map();
+  for (const item of newItems) {
+    const name = String(item.itemName || item.item || item.item_name || "").trim();
+    const key = name.toLowerCase();
+    if (!newMap.has(key)) newMap.set(key, []);
+    newMap.get(key).push({
+      name: name || "Item",
+      qty: Number(item.quantity ?? item.qty ?? 0),
+      unit: item.unit || "",
+      price: Number(item.price ?? 0),
+      discount: Number(item.discount ?? 0),
+      taxRate: Number(item.taxRate ?? item.tax_rate ?? 0),
+    });
+  }
+
+  const handledKeys = new Set();
+  for (const [key, prevList] of prevMap.entries()) {
+    handledKeys.add(key);
+    const newList = newMap.get(key) || [];
+    const maxLen = Math.max(prevList.length, newList.length);
+    for (let i = 0; i < maxLen; i++) {
+      const p = prevList[i];
+      const n = newList[i];
+      if (p && !n) {
+        changes.push(`Removed item: "${p.name}" (was ${p.qty} ${p.unit} @ ₹${p.price.toFixed(2)})`);
+      } else if (!p && n) {
+        changes.push(`Added item: "${n.name}" (${n.qty} ${n.unit} @ ₹${n.price.toFixed(2)})`);
+      } else if (p && n) {
+        const itemMods = [];
+        if (Math.abs(p.qty - n.qty) > 0.0001) {
+          itemMods.push(`Qty ${p.qty} → ${n.qty} ${n.unit || ""}`.trim());
+        }
+        if (Math.abs(p.price - n.price) > 0.01) {
+          itemMods.push(`Rate ₹${p.price.toFixed(2)} → ₹${n.price.toFixed(2)}`);
+        }
+        if (Math.abs(p.discount - n.discount) > 0.01) {
+          itemMods.push(`Discount ₹${p.discount.toFixed(2)} → ₹${n.discount.toFixed(2)}`);
+        }
+        if (Math.abs(p.taxRate - n.taxRate) > 0.01) {
+          itemMods.push(`Tax ${p.taxRate}% → ${n.taxRate}%`);
+        }
+        if (itemMods.length > 0) {
+          changes.push(`"${n.name}": ${itemMods.join(", ")}`);
+        }
+      }
+    }
+  }
+
+  for (const [key, newList] of newMap.entries()) {
+    if (handledKeys.has(key)) continue;
+    for (const n of newList) {
+      changes.push(`Added item: "${n.name}" (${n.qty} ${n.unit} @ ₹${n.price.toFixed(2)})`);
+    }
+  }
+
+  if (changes.length === 0) {
+    changes.push("Invoice details re-saved (no line item or amount changes).");
+  }
+
+  return changes;
+}
+
 function updateLocalInvoice(transaction) {
   const invoiceIndex = (state.invoices || []).findIndex((invoice) => String(invoice.id) === String(transaction.invoiceId));
   if (invoiceIndex >= 0) {
+    const prev = state.invoices[invoiceIndex];
+    const prevItems = (state.invoiceItems || []).filter((line) => String(line.invoiceId) === String(transaction.invoiceId));
     const total = Number(transaction.amount || 0);
     const received = Number(transaction.received || 0);
-    const prev = state.invoices[invoiceIndex];
     const prevMeta = prev.meta || {};
     const editHistory = Array.isArray(prevMeta.editHistory) ? [...prevMeta.editHistory] : [];
     const now = new Date().toISOString();
     const docName = prev.type === "purchase" ? "Purchase Bill" : "Invoice";
     const prevTotal = Number(prev.total || 0);
-    const totalDiffText = prevTotal !== total ? `Total updated from ${formatCurrency(prevTotal)} to ${formatCurrency(total)}` : `Total: ${formatCurrency(total)}`;
+    const diffTotal = total - prevTotal;
+    const totalDiffText = Math.abs(diffTotal) > 0.001
+      ? `Total: ₹${prevTotal.toFixed(2)} → ₹${total.toFixed(2)} (${diffTotal > 0 ? "+" : ""}₹${diffTotal.toFixed(2)})`
+      : `Total: ₹${total.toFixed(2)}`;
+    const revisionNumber = editHistory.length + 1;
+
+    const changes = computeInvoiceEditDiff(
+      prev,
+      prevItems,
+      {
+        total,
+        party: transaction.party || "Cash",
+        invoiceDate: transaction.date || now,
+        paymentType: transaction.paymentType || "cash",
+      },
+      transaction.items || []
+    );
 
     editHistory.push({
+      revision: revisionNumber,
       date: now,
       timestamp: now,
-      action: `${docName} Edited & Saved`,
-      detail: `${totalDiffText} • ${(transaction.items || []).length} line item${(transaction.items || []).length === 1 ? '' : 's'}`,
-      total,
+      action: `Revision #${revisionNumber} Saved`,
+      summary: `${totalDiffText} • ${(transaction.items || []).length} line item${(transaction.items || []).length === 1 ? '' : 's'}`,
+      changes,
+      prevTotal,
+      newTotal: total,
       itemCount: (transaction.items || []).length,
     });
 
@@ -11267,9 +11398,6 @@ function openEInvoicePayloadModal(invoice) {
 function openInvoiceHistoryModal(invoice) {
   const isSale = invoice.type === "sale" || !invoice.type;
   const docType = isSale ? "Sale Invoice" : "Purchase Bill";
-  const payments = (state.payments || []).filter((row) => String(row.invoiceId) === String(invoice.id || invoice.invoiceId));
-  const stockRows = (state.stockMovements || []).filter((row) => String(row.invoiceId) === String(invoice.id || invoice.invoiceId));
-  const ledgerRows = (state.ledgerEntries || []).filter((row) => String(row.transactionId) === String(invoice.transactionId));
 
   let meta = invoice.meta;
   if (!meta && invoice.metaJson) {
@@ -11279,75 +11407,6 @@ function openInvoiceHistoryModal(invoice) {
   }
   meta = meta || {};
   const editHistory = Array.isArray(meta.editHistory) ? meta.editHistory : [];
-
-  const events = [];
-
-  // 1. Creation event
-  events.push({
-    date: invoice.createdAt || invoice.date,
-    title: `${docType} Created`,
-    chipClass: "chip-created",
-    chipText: "Created",
-    detail: `${invoice.invoiceNo || "-"} created for ${formatCurrency(invoiceTotalValue(invoice))}${invoice.party ? ` • Party: ${invoice.party}` : ""}`,
-  });
-
-  // 2. Edit History entries
-  editHistory.forEach((edit) => {
-    events.push({
-      date: edit.date || edit.timestamp || invoice.updatedAt,
-      title: edit.action || `${docType} Edited`,
-      chipClass: "chip-edit",
-      chipText: "Edited",
-      detail: edit.detail || `Document updated. Total: ${formatCurrency(edit.total || invoiceTotalValue(invoice))}`,
-    });
-  });
-
-  // 3. Payment transactions
-  payments.forEach((payment) => {
-    events.push({
-      date: payment.paymentDate || payment.createdAt,
-      title: payment.type === "payment_out" ? "Payment Made" : "Payment Received",
-      chipClass: "chip-payment",
-      chipText: "Payment",
-      detail: `${formatCurrency(payment.amount)} via ${payment.method || "Cash"}${payment.notes ? ` (${payment.notes})` : ""}`,
-    });
-  });
-
-  // 4. Stock movements
-  stockRows.forEach((row) => {
-    events.push({
-      date: row.movementDate || row.createdAt,
-      title: `Stock ${row.movementType === "in" ? "In" : "Out"}`,
-      chipClass: "chip-stock",
-      chipText: "Stock",
-      detail: `${row.item}: ${formatQuantity(row.quantity)} ${row.unit || ""}`,
-    });
-  });
-
-  // 5. Ledger entries
-  ledgerRows.forEach((row) => {
-    events.push({
-      date: row.entryDate,
-      title: "Ledger Entry",
-      chipClass: "chip-ledger",
-      chipText: "Ledger",
-      detail: `${row.account}: Dr ${formatCurrency(row.debit)} / Cr ${formatCurrency(row.credit)}`,
-    });
-  });
-
-  // 6. Cancelled event
-  if (invoice.status === "cancelled") {
-    events.push({
-      date: meta.cancelledAt || invoice.date,
-      title: `${docType} Cancelled`,
-      chipClass: "chip-cancelled",
-      chipText: "Cancelled",
-      detail: meta.cancelReason || invoice.notes || "Document was marked as cancelled.",
-    });
-  }
-
-  // Sort newest first
-  events.sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
 
   const formatEventTime = (dStr) => {
     try {
@@ -11359,44 +11418,113 @@ function openInvoiceHistoryModal(invoice) {
     return "";
   };
 
+  const revisionCount = editHistory.length;
+  const subtitleRevisionText = revisionCount === 0
+    ? "Original State (0 edits)"
+    : `${revisionCount} Saved Revision${revisionCount === 1 ? "" : "s"}`;
+
   document.getElementById("invoiceActionModal")?.remove();
   const backdrop = document.createElement("div");
   backdrop.className = "modal-backdrop invoice-action-backdrop";
   backdrop.id = "invoiceActionModal";
   backdrop.innerHTML = `
-    <section class="invoice-history-dialog" role="dialog" aria-modal="true" aria-label="Editing history">
+    <section class="invoice-history-dialog" role="dialog" aria-modal="true" aria-label="Invoice editing history">
       <div class="invoice-history-dialog-header">
         <div>
           <div style="font-size: 11px; text-transform: uppercase; font-weight: 700; color: #64748b; letter-spacing: 0.04em;">${escapeHtml(docType)} • ${escapeHtml(invoice.invoiceNo || "-")}</div>
-          <h3 style="margin: 3px 0 0; font-size: 16px; font-weight: 700; color: #0f172a;">Editing & Document History</h3>
+          <h3 style="margin: 3px 0 0; font-size: 16px; font-weight: 700; color: #0f172a;">Invoice Editing History</h3>
           <div style="font-size: 12px; color: #64748b; margin-top: 3px;">
             Party: <strong>${escapeHtml(invoice.party || "-")}</strong> &nbsp;|&nbsp; 
-            Total: <strong>${formatCurrency(invoiceTotalValue(invoice))}</strong> &nbsp;|&nbsp; 
-            Status: <span style="text-transform: capitalize; font-weight: 600;">${escapeHtml(invoice.status || "unpaid")}</span>
+            Current Total: <strong>${formatCurrency(invoiceTotalValue(invoice))}</strong> &nbsp;|&nbsp; 
+            Status: <span style="text-transform: capitalize; font-weight: 600;">${escapeHtml(invoice.status || "unpaid")}</span> &nbsp;|&nbsp;
+            <span style="font-weight: 600; color: ${revisionCount > 0 ? '#1d4ed8' : '#64748b'};">${subtitleRevisionText}</span>
           </div>
         </div>
         <button class="close-button" type="button" data-action-modal-close aria-label="Close history">&times;</button>
       </div>
       <div class="invoice-history-list">
-        ${events.length === 0 ? `
-          <div style="text-align: center; color: #94a3b8; padding: 32px 16px;">
-            <p>No recorded history events for this document.</p>
-          </div>
-        ` : events.map((event) => `
-          <article class="history-timeline-card">
+        ${invoice.status === "cancelled" ? `
+          <article class="history-timeline-card" style="border-left: 3px solid #ef4444;">
             <div class="history-timeline-time">
-              <time>${formatDate(event.date)}</time>
-              <small>${formatEventTime(event.date)}</small>
+              <time>${formatDate(meta.cancelledAt || invoice.date)}</time>
+              <small>${formatEventTime(meta.cancelledAt || invoice.date)}</small>
             </div>
             <div class="history-timeline-content">
               <div class="history-timeline-head">
-                <strong>${escapeHtml(event.title)}</strong>
-                <span class="history-chip ${event.chipClass}">${escapeHtml(event.chipText)}</span>
+                <strong>${escapeHtml(docType)} Cancelled</strong>
+                <span class="history-chip chip-cancelled">Cancelled</span>
               </div>
-              <p>${escapeHtml(event.detail)}</p>
+              <p>${escapeHtml(meta.cancelReason || invoice.notes || "Document was marked as cancelled.")}</p>
             </div>
           </article>
-        `).join("")}
+        ` : ""}
+
+        ${revisionCount === 0 ? `
+          <div class="history-empty-notice">
+            <div class="history-empty-notice-icon">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="10"></circle>
+                <line x1="12" y1="8" x2="12" y2="12"></line>
+                <line x1="12" y1="16" x2="12.01" y2="16"></line>
+              </svg>
+            </div>
+            <div>
+              <div style="font-weight: 700; color: #0369a1; font-size: 13px;">No Edits Saved Yet</div>
+              <p style="margin: 3px 0 0; color: #475569; font-size: 12px; line-height: 1.45;">
+                This ${isSale ? "sale invoice" : "purchase bill"} is currently in its original state. When you modify and save changes via <strong>View/Edit</strong>, each revision with full change details (quantities, prices, items added or removed) will be logged here.
+              </p>
+            </div>
+          </div>
+        ` : ""}
+
+        ${[...editHistory].reverse().map((edit, idx) => {
+          const revNo = edit.revision || (revisionCount - idx);
+          const changes = Array.isArray(edit.changes) ? edit.changes : [];
+          return `
+            <article class="history-timeline-card" style="border-left: 3px solid #3b82f6;">
+              <div class="history-timeline-time">
+                <time>${formatDate(edit.date || edit.timestamp)}</time>
+                <small>${formatEventTime(edit.date || edit.timestamp)}</small>
+              </div>
+              <div class="history-timeline-content">
+                <div class="history-timeline-head">
+                  <strong>${escapeHtml(edit.action || `Revision #${revNo} Saved`)}</strong>
+                  <span class="history-chip chip-edit">Revision #${revNo}</span>
+                </div>
+                <div style="font-size: 12px; font-weight: 600; color: #1e293b; margin-top: 2px;">
+                  ${escapeHtml(edit.summary || edit.detail || "Invoice details modified")}
+                </div>
+                ${changes.length > 0 ? `
+                  <ul class="history-change-list">
+                    ${changes.map((c) => `
+                      <li class="history-change-item">
+                        <span class="change-bullet">•</span>
+                        <span>${escapeHtml(c)}</span>
+                      </li>
+                    `).join("")}
+                  </ul>
+                ` : ""}
+              </div>
+            </article>
+          `;
+        }).join("")}
+
+        <article class="history-timeline-card original-document-card">
+          <div class="history-timeline-time">
+            <time>${formatDate(invoice.createdAt || invoice.date)}</time>
+            <small>${formatEventTime(invoice.createdAt || invoice.date)}</small>
+          </div>
+          <div class="history-timeline-content">
+            <div class="history-timeline-head">
+              <strong>Initial ${escapeHtml(docType)} Created</strong>
+              <span class="history-chip chip-created">Original</span>
+            </div>
+            <p style="margin-top: 3px; font-size: 12px; color: #475569;">
+              Document <strong>${escapeHtml(invoice.invoiceNo || "-")}</strong> created for <strong>${formatCurrency(invoiceTotalValue(invoice))}</strong>
+              ${invoice.party ? ` • Party: <strong>${escapeHtml(invoice.party)}</strong>` : ""}
+            </p>
+          </div>
+        </article>
       </div>
       <div class="invoice-history-dialog-footer">
         <button class="primary-button square" type="button" data-action-modal-close>Close</button>

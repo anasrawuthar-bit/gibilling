@@ -3317,6 +3317,117 @@ function deleteTransactionUnsafe({ transactionId, id }) {
   return getState();
 }
 
+function computeInvoiceEditDiff(prevInvoice, prevItems = [], newInvoice, newItems = []) {
+  const changes = [];
+
+  // Total amount diff
+  const prevTotal = Number(prevInvoice?.total || 0);
+  const newTotal = Number(newInvoice?.total || 0);
+  const diffTotal = newTotal - prevTotal;
+  if (Math.abs(diffTotal) > 0.001) {
+    const sign = diffTotal > 0 ? "+" : "";
+    changes.push(`Total Amount: ₹${prevTotal.toFixed(2)} → ₹${newTotal.toFixed(2)} (${sign}₹${diffTotal.toFixed(2)})`);
+  }
+
+  // Party diff
+  const prevParty = String(prevInvoice?.party || "").trim();
+  const newParty = String(newInvoice?.party || "").trim();
+  if (prevParty && newParty && prevParty.toLowerCase() !== newParty.toLowerCase()) {
+    changes.push(`Party: "${prevParty}" → "${newParty}"`);
+  }
+
+  // Date diff
+  const prevDate = String(prevInvoice?.invoiceDate || prevInvoice?.date || "").slice(0, 10);
+  const newDate = String(newInvoice?.invoiceDate || newInvoice?.date || "").slice(0, 10);
+  if (prevDate && newDate && prevDate !== newDate) {
+    changes.push(`Invoice Date: ${prevDate} → ${newDate}`);
+  }
+
+  // Payment type diff
+  const prevPayType = String(prevInvoice?.paymentType || prevInvoice?.payment_type || "").trim();
+  const newPayType = String(newInvoice?.paymentType || newInvoice?.payment_type || "").trim();
+  if (prevPayType && newPayType && prevPayType.toLowerCase() !== newPayType.toLowerCase()) {
+    changes.push(`Payment Mode: ${prevPayType} → ${newPayType}`);
+  }
+
+  // Line items diff
+  const prevMap = new Map();
+  for (const item of prevItems) {
+    const name = String(item.itemName || item.item || item.item_name || "").trim();
+    const key = name.toLowerCase();
+    if (!prevMap.has(key)) prevMap.set(key, []);
+    prevMap.get(key).push({
+      name: name || "Item",
+      qty: Number(item.quantity ?? item.qty ?? 0),
+      unit: item.unit || "",
+      price: Number(item.price ?? 0),
+      discount: Number(item.discount ?? 0),
+      taxRate: Number(item.taxRate ?? item.tax_rate ?? 0),
+    });
+  }
+
+  const newMap = new Map();
+  for (const item of newItems) {
+    const name = String(item.itemName || item.item || item.item_name || "").trim();
+    const key = name.toLowerCase();
+    if (!newMap.has(key)) newMap.set(key, []);
+    newMap.get(key).push({
+      name: name || "Item",
+      qty: Number(item.quantity ?? item.qty ?? 0),
+      unit: item.unit || "",
+      price: Number(item.price ?? 0),
+      discount: Number(item.discount ?? 0),
+      taxRate: Number(item.taxRate ?? item.tax_rate ?? 0),
+    });
+  }
+
+  const handledKeys = new Set();
+  for (const [key, prevList] of prevMap.entries()) {
+    handledKeys.add(key);
+    const newList = newMap.get(key) || [];
+    const maxLen = Math.max(prevList.length, newList.length);
+    for (let i = 0; i < maxLen; i++) {
+      const p = prevList[i];
+      const n = newList[i];
+      if (p && !n) {
+        changes.push(`Removed item: "${p.name}" (was ${p.qty} ${p.unit} @ ₹${p.price.toFixed(2)})`);
+      } else if (!p && n) {
+        changes.push(`Added item: "${n.name}" (${n.qty} ${n.unit} @ ₹${n.price.toFixed(2)})`);
+      } else if (p && n) {
+        const itemMods = [];
+        if (Math.abs(p.qty - n.qty) > 0.0001) {
+          itemMods.push(`Qty ${p.qty} → ${n.qty} ${n.unit || ""}`.trim());
+        }
+        if (Math.abs(p.price - n.price) > 0.01) {
+          itemMods.push(`Rate ₹${p.price.toFixed(2)} → ₹${n.price.toFixed(2)}`);
+        }
+        if (Math.abs(p.discount - n.discount) > 0.01) {
+          itemMods.push(`Discount ₹${p.discount.toFixed(2)} → ₹${n.discount.toFixed(2)}`);
+        }
+        if (Math.abs(p.taxRate - n.taxRate) > 0.01) {
+          itemMods.push(`Tax ${p.taxRate}% → ${n.taxRate}%`);
+        }
+        if (itemMods.length > 0) {
+          changes.push(`"${n.name}": ${itemMods.join(", ")}`);
+        }
+      }
+    }
+  }
+
+  for (const [key, newList] of newMap.entries()) {
+    if (handledKeys.has(key)) continue;
+    for (const n of newList) {
+      changes.push(`Added item: "${n.name}" (${n.qty} ${n.unit} @ ₹${n.price.toFixed(2)})`);
+    }
+  }
+
+  if (changes.length === 0) {
+    changes.push("Invoice details re-saved (no line item or amount changes).");
+  }
+
+  return changes;
+}
+
 function updateInvoice(entry) {
   return inDatabaseTransaction(() => updateInvoiceUnsafe(entry));
 }
@@ -3327,7 +3438,7 @@ function updateInvoiceUnsafe(entry) {
   const invoiceId = String(entry.invoiceId || "").trim();
   if (!invoiceId) throw new Error("Invoice id is required for editing.");
   const existing = one(
-    `SELECT i.id, i.transaction_id AS transactionId, i.type, i.invoice_no AS invoiceNo, i.status, i.party_id AS partyId, i.meta_json AS metaJson, i.total, i.balance
+    `SELECT i.id, i.transaction_id AS transactionId, i.type, i.invoice_no AS invoiceNo, i.status, i.party_id AS partyId, i.party, i.meta_json AS metaJson, i.total, i.balance, i.invoice_date AS invoiceDate, i.payment_type AS paymentType
      FROM invoices i
      WHERE i.company_id = ? AND i.id = ?`,
     [company.id, invoiceId],
@@ -3366,6 +3477,14 @@ function updateInvoiceUnsafe(entry) {
   if (type === 'purchase') validatePurchaseRemoval(company.id, invoiceId, invoiceItems);
   if (recordedAmount > invoiceTotals.total) throw new Error('Invoice total cannot be less than recorded payments.');
 
+  const prevItems = all(
+    `SELECT item_name AS itemName, quantity, unit, price, discount, tax_rate AS taxRate, line_total AS lineTotal
+     FROM invoice_items
+     WHERE invoice_id = ?
+     ORDER BY line_no ASC`,
+    [invoiceId]
+  );
+
   let meta = typeof entry.meta === "object" && entry.meta !== null ? { ...entry.meta } : {};
   let existingMeta = {};
   try {
@@ -3377,17 +3496,36 @@ function updateInvoiceUnsafe(entry) {
       ? [...existingMeta.editHistory]
       : [];
 
+  const changes = computeInvoiceEditDiff(
+    existing,
+    prevItems,
+    {
+      total: invoiceTotals.total,
+      party: entry.party || "Cash",
+      invoiceDate: transactionDate,
+      paymentType: entry.paymentType || "cash",
+    },
+    invoiceItems
+  );
+
   const prevTotal = Number(existing.total || 0);
   const newTotal = Number(invoiceTotals.total || 0);
-  const totalDiffText = prevTotal !== newTotal ? `Total updated from ₹${prevTotal.toFixed(2)} to ₹${newTotal.toFixed(2)}` : `Total: ₹${newTotal.toFixed(2)}`;
+  const diffTotal = newTotal - prevTotal;
+  const totalDiffText = Math.abs(diffTotal) > 0.001
+    ? `Total: ₹${prevTotal.toFixed(2)} → ₹${newTotal.toFixed(2)} (${diffTotal > 0 ? "+" : ""}₹${diffTotal.toFixed(2)})`
+    : `Total: ₹${newTotal.toFixed(2)}`;
+  const revisionNumber = editHistory.length + 1;
   const docName = type === "sale" ? "Invoice" : "Purchase Bill";
 
   editHistory.push({
+    revision: revisionNumber,
     date: now,
     timestamp: now,
-    action: `${docName} Edited & Saved`,
-    detail: `${totalDiffText} • ${invoiceItems.length} line item${invoiceItems.length === 1 ? '' : 's'}`,
-    total: newTotal,
+    action: `Revision #${revisionNumber} Saved`,
+    summary: `${totalDiffText} • ${invoiceItems.length} line item${invoiceItems.length === 1 ? '' : 's'}`,
+    changes,
+    prevTotal,
+    newTotal,
     itemCount: invoiceItems.length,
   });
 
