@@ -68,11 +68,10 @@ contextBridge.exposeInMainWorld("giDB", {
 });
 
 contextBridge.exposeInMainWorld("giApp", {
+  getVersion: () => ipcRenderer.invoke("app:get-version"),
   exportPdf: (payload) => ipcRenderer.invoke("app:export-pdf", payload),
   saveTempPdf: (payload) => ipcRenderer.invoke("whatsapp:save-temp-pdf", payload),
   showItemInFolder: (filePath) => ipcRenderer.invoke("whatsapp:show-in-folder", filePath),
   openExternal: (url) => ipcRenderer.invoke("whatsapp:open-link", url),
-  testWhatsAppConnection: (payload) => ipcRenderer.invoke("whatsapp:test-connection", payload),
-  sendWhatsAppCloudMessage: (payload) => ipcRenderer.invoke("whatsapp:send-cloud-message", payload),
   generateQrSvg: (payload) => ipcRenderer.invoke("app:generate-qr-svg", payload),
 });

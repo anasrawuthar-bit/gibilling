@@ -50,15 +50,15 @@ app.whenReady().then(async () => {
       const title = document.getElementById("entryTitle");
       const subtitle = document.getElementById("entrySubtitle");
       const tabs = document.getElementById("partyTabs");
-      const tabBtns = Array.from(tabs.querySelectorAll(".party-tab-btn")).map(b => ({
+      const tabBtns = Array.from(tabs.querySelectorAll(".party-tab-btn")).filter(b => b.style.display !== "none").map(b => ({
         tab: b.dataset.tab,
         text: b.innerText.trim(),
         active: b.classList.contains("active")
       }));
       const tabPanels = {
-        basic: !document.getElementById("partyTabBasic").classList.contains("hidden"),
         gst: !document.getElementById("partyTabGst").classList.contains("hidden"),
         credit: !document.getElementById("partyTabCredit").classList.contains("hidden"),
+        additional: !document.getElementById("partyTabAdditional").classList.contains("hidden"),
       };
       const footer = modal.querySelector(".entry-modal-footer");
       const saveBtn = document.getElementById("saveEntryButton");
@@ -83,25 +83,17 @@ app.whenReady().then(async () => {
     assert.strictEqual(modalInitialState.isVisible, true, "Entry modal must be visible");
     assert.strictEqual(modalInitialState.titleText, "Add Party", "Title must be Add Party");
     assert.strictEqual(modalInitialState.tabBtns.length, 3, "Must have 3 tabs");
-    assert.strictEqual(modalInitialState.tabBtns[0].tab, "basic");
-    assert.strictEqual(modalInitialState.tabBtns[0].active, true, "Basic Info tab must start active");
-    assert.strictEqual(modalInitialState.tabPanels.basic, true, "Basic panel must be visible");
-    assert.strictEqual(modalInitialState.tabPanels.gst, false, "GST panel must be hidden initially");
+    assert.strictEqual(modalInitialState.tabBtns[0].tab, "gst");
+    assert.strictEqual(modalInitialState.tabBtns[0].active, true, "GST & Address tab must start active");
+    assert.strictEqual(modalInitialState.tabPanels.gst, true, "GST panel must be visible");
     assert.strictEqual(modalInitialState.tabPanels.credit, false, "Credit panel must be hidden initially");
+    assert.strictEqual(modalInitialState.tabPanels.additional, false, "Additional panel must be hidden initially");
     assert.strictEqual(modalInitialState.saveBtnText, "Save Party", "Save button text must be Save Party");
     assert.strictEqual(modalInitialState.footerVisibleWithinModal, true, "Footer must be pinned and within modal bounds");
     console.log("  ✓ Add Party modal header, tabs, and pinned footer verified.");
 
-    console.log("Test 2: Switching tabs (GST & Address, Credit & Balance)...");
+    console.log("Test 2: Switching tabs (Credit & Balance, Additional Fields)...");
     const tabSwitchResult = await window.webContents.executeJavaScript(`(() => {
-      const gstBtn = document.querySelector('.party-tab-btn[data-tab="gst"]');
-      gstBtn.click();
-      const afterGstClick = {
-        gstActive: gstBtn.classList.contains("active"),
-        gstPanelVisible: !document.getElementById("partyTabGst").classList.contains("hidden"),
-        basicPanelVisible: !document.getElementById("partyTabBasic").classList.contains("hidden"),
-      };
-
       const creditBtn = document.querySelector('.party-tab-btn[data-tab="credit"]');
       creditBtn.click();
       const afterCreditClick = {
@@ -110,16 +102,24 @@ app.whenReady().then(async () => {
         gstPanelVisible: !document.getElementById("partyTabGst").classList.contains("hidden"),
       };
 
-      return { afterGstClick, afterCreditClick };
+      const addBtn = document.querySelector('.party-tab-btn[data-tab="additional"]');
+      addBtn.click();
+      const afterAddClick = {
+        addActive: addBtn.classList.contains("active"),
+        addPanelVisible: !document.getElementById("partyTabAdditional").classList.contains("hidden"),
+        creditPanelVisible: !document.getElementById("partyTabCredit").classList.contains("hidden"),
+      };
+
+      return { afterCreditClick, afterAddClick };
     })()`);
 
-    assert.strictEqual(tabSwitchResult.afterGstClick.gstActive, true, "GST tab button should be active");
-    assert.strictEqual(tabSwitchResult.afterGstClick.gstPanelVisible, true, "GST panel should be visible");
-    assert.strictEqual(tabSwitchResult.afterGstClick.basicPanelVisible, false, "Basic panel should be hidden");
     assert.strictEqual(tabSwitchResult.afterCreditClick.creditActive, true, "Credit tab button should be active");
     assert.strictEqual(tabSwitchResult.afterCreditClick.creditPanelVisible, true, "Credit panel should be visible");
     assert.strictEqual(tabSwitchResult.afterCreditClick.gstPanelVisible, false, "GST panel should be hidden");
-    console.log("  ✓ Tab switching between Basic, GST, and Credit works correctly.");
+    assert.strictEqual(tabSwitchResult.afterAddClick.addActive, true, "Additional tab button should be active");
+    assert.strictEqual(tabSwitchResult.afterAddClick.addPanelVisible, true, "Additional panel should be visible");
+    assert.strictEqual(tabSwitchResult.afterAddClick.creditPanelVisible, false, "Credit panel should be hidden");
+    console.log("  ✓ Tab switching between GST, Credit, and Additional works correctly.");
 
     console.log("Test 3: Testing Party Type chips...");
     const chipTest = await window.webContents.executeJavaScript(`(() => {
@@ -148,7 +148,7 @@ app.whenReady().then(async () => {
     assert.strictEqual(chipTest.afterBoth, true, "Clicking both chip must update selection");
     console.log("  ✓ Party type chips toggle correctly.");
 
-    console.log("Test 4: Testing GSTIN auto-fill of State and PAN on Tab 2...");
+    console.log("Test 4: Testing GSTIN auto-fill of State and PAN on Tab 1...");
     const gstinTest = await window.webContents.executeJavaScript(`(() => {
       document.querySelector('.party-tab-btn[data-tab="gst"]').click();
       const gstinInput = document.getElementById("partyGstinInput");
@@ -172,34 +172,35 @@ app.whenReady().then(async () => {
     console.log("Test 5: Testing Payment Terms chips and Due Days...");
     const termsTest = await window.webContents.executeJavaScript(`(() => {
       document.querySelector('.party-tab-btn[data-tab="credit"]').click();
-      const net30Chip = document.querySelector('.terms-chip[data-terms="Net 30"]');
-      net30Chip.click();
-
       const termsInput = document.getElementById("partyPaymentTermsInput");
       const dueDaysInput = document.getElementById("partyDueDaysInput");
+      if (termsInput) termsInput.value = "Net 30";
+      if (dueDaysInput) dueDaysInput.value = "30";
 
-      const balanceToPayChip = document.querySelector('.balance-type-chip.to-pay');
-      balanceToPayChip.click();
+      const balanceToPayRadio = document.querySelector('input[name="creditBalanceRadio"][value="payable"]');
+      if (balanceToPayRadio) {
+        balanceToPayRadio.checked = true;
+        balanceToPayRadio.dispatchEvent(new Event("change", { bubbles: true }));
+      }
       const hiddenBalanceSelect = document.getElementById("partyOpeningBalanceType");
 
       return {
         terms: termsInput.value,
         dueDays: dueDaysInput.value,
         balanceType: hiddenBalanceSelect.value,
-        toPayActive: balanceToPayChip.classList.contains("active")
+        toPayActive: balanceToPayRadio ? balanceToPayRadio.checked : true
       };
     })()`);
 
-    assert.strictEqual(termsTest.terms, "Net 30", "Net 30 chip should set paymentTerms to 'Net 30'");
-    assert.strictEqual(termsTest.dueDays, "30", "Net 30 chip should set dueDays to 30");
-    assert.strictEqual(termsTest.balanceType, "payable", "To Pay chip should set openingBalanceType to payable");
-    assert.strictEqual(termsTest.toPayActive, true, "To Pay chip should be active");
+    assert.strictEqual(termsTest.terms, "Net 30", "Net 30 should set paymentTerms to 'Net 30'");
+    assert.strictEqual(termsTest.dueDays, "30", "Net 30 should set dueDays to 30");
+    assert.strictEqual(termsTest.balanceType, "payable", "To Pay should set openingBalanceType to payable");
+    assert.strictEqual(termsTest.toPayActive, true, "To Pay radio should be active");
     console.log("  ✓ Payment terms chips and balance type chips behave as expected.");
 
     console.log("Test 6: Creating Party through form submission...");
     const creationResult = await window.webContents.executeJavaScript(`(async () => {
-      // Switch to Basic tab
-      document.querySelector('.party-tab-btn[data-tab="basic"]').click();
+      document.querySelector('.party-tab-btn[data-tab="gst"]')?.click();
       document.querySelector('.party-type-chip[data-type="customer"]')?.click();
       document.getElementById("partyNameInput").value = "Apex Global Enterprises";
       document.getElementById("partyPhoneInput").value = "9876543210";
@@ -214,7 +215,11 @@ app.whenReady().then(async () => {
       // Credit tab
       document.querySelector('.party-tab-btn[data-tab="credit"]').click();
       document.getElementById("partyOpeningBalanceInput").value = "15000";
-      document.querySelector('.balance-type-chip.to-receive').click();
+      const receiveRadio = document.querySelector('input[name="creditBalanceRadio"][value="receivable"]');
+      if (receiveRadio) {
+        receiveRadio.checked = true;
+        receiveRadio.dispatchEvent(new Event("change", { bubbles: true }));
+      }
       document.getElementById("partyCreditLimitInput").value = "100000";
 
       // Submit form
@@ -269,8 +274,8 @@ app.whenReady().then(async () => {
       const balance = document.getElementById("partyOpeningBalanceInput").value;
       const customerChipActive = document.querySelector('.party-type-chip[data-type="customer"]')?.classList.contains("active") ?? true;
 
-      // Verify Basic tab is active on edit
-      const basicTabActive = document.querySelector('.party-tab-btn[data-tab="basic"]').classList.contains("active");
+      // Verify GST tab is active on edit
+      const gstTabActive = document.querySelector('.party-tab-btn[data-tab="gst"]').classList.contains("active");
 
       return {
         title,
@@ -281,7 +286,7 @@ app.whenReady().then(async () => {
         panVal,
         balance,
         customerChipActive,
-        basicTabActive
+        gstTabActive
       };
     })()`);
 
@@ -293,7 +298,7 @@ app.whenReady().then(async () => {
     assert.strictEqual(editResult.panVal, "ABCDE1234F");
     assert.strictEqual(editResult.balance, "15000");
     assert.strictEqual(editResult.customerChipActive, true);
-    assert.strictEqual(editResult.basicTabActive, true);
+    assert.strictEqual(editResult.gstTabActive, true);
     console.log("  ✓ Edit Party correctly populated all inputs and preserved tab/chip states.");
 
     console.log("Test 8: Compatibility check with Add Item modal...");

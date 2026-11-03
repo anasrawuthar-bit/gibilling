@@ -173,31 +173,41 @@ function formatSnapshotSize(bytes) {
 }
 
 function registerDatabaseHandlers() {
+  ipcMain.handle("app:get-version", () => app.getVersion());
   ipcMain.handle("db:get-state", () => database.getState());
   ipcMain.handle("db:get-info", () => ({
     type: "SQLite",
     path: database.getDatabasePath(),
+    version: app.getVersion(),
   }));
   ipcMain.handle("db:create-backup", async () => {
     const stamp = new Date().toISOString().slice(0, 10);
+    const activeCompany = database.getCurrentCompany ? database.getCurrentCompany() : null;
+    const prefix = activeCompany?.name ? String(activeCompany.name).replace(/[^a-zA-Z0-9_-]/g, "_") : "gi-billing";
     const result = await dialog.showSaveDialog(mainWindow, {
-      title: "Backup GI Billing SQLite Database",
-      defaultPath: path.join(app.getPath("documents"), `gi-billing-backup-${stamp}.sqlite`),
+      title: "Save GI Billing Backup (.zyn)",
+      defaultPath: path.join(app.getPath("documents"), `${prefix}-backup-${stamp}.zyn`),
       filters: [
-        { name: "SQLite Database", extensions: ["sqlite", "db"] },
-        { name: "All Files", extensions: ["*"] },
+        { name: "GI Billing Backup (*.zyn)", extensions: ["zyn"] },
+        { name: "SQLite Database (*.sqlite, *.db)", extensions: ["sqlite", "db"] },
+        { name: "All Files (*.*)", extensions: ["*"] },
       ],
     });
-    if (result.canceled || !result.filePath) return null;
-    return database.backupTo(result.filePath);
+    if (result.canceled || !result.filePath) return { canceled: true };
+    let targetPath = result.filePath;
+    if (!path.extname(targetPath)) targetPath += ".zyn";
+    await database.backupTo(targetPath);
+    return { success: true, path: targetPath, filename: path.basename(targetPath) };
   });
+
   ipcMain.handle("db:restore-backup", async () => {
     const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
-      title: "Select GI Billing Backup to Restore",
+      title: "Select GI Billing Backup to Restore (.zyn)",
       properties: ["openFile"],
       filters: [
-        { name: "SQLite Database", extensions: ["sqlite", "db"] },
-        { name: "All Files", extensions: ["*"] },
+        { name: "GI Billing Backup (*.zyn)", extensions: ["zyn"] },
+        { name: "SQLite Database (*.sqlite, *.db)", extensions: ["sqlite", "db"] },
+        { name: "All Files (*.*)", extensions: ["*"] },
       ],
     });
     if (canceled || !filePaths || !filePaths.length) return null;
@@ -226,19 +236,48 @@ function registerDatabaseHandlers() {
     }
   });
 
-  ipcMain.handle("db:create-snapshot", async () => {
+  ipcMain.handle("db:create-snapshot", async (_event, customLocation) => {
     try {
-      const backupDir = path.join(app.getPath("userData"), "backups");
-      if (!fs.existsSync(backupDir)) {
-        fs.mkdirSync(backupDir, { recursive: true });
-      }
       const now = new Date();
       const pad = (n) => String(n).padStart(2, "0");
       const stamp = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}_${pad(now.getHours())}-${pad(now.getMinutes())}-${pad(now.getSeconds())}`;
-      const filename = `gi-snapshot-${stamp}.sqlite`;
-      const targetPath = path.join(backupDir, filename);
+      const activeCompany = database.getCurrentCompany ? database.getCurrentCompany() : null;
+      const compName = activeCompany?.name ? String(activeCompany.name).replace(/[^a-zA-Z0-9_-]/g, "_") : "gi-billing";
+      const defaultFilename = `${compName}-snapshot-${stamp}.zyn`;
+
+      let targetPath = customLocation;
+      if (!targetPath) {
+        const result = await dialog.showSaveDialog(mainWindow, {
+          title: "Save Backup Snapshot (.zyn) - Choose Location",
+          defaultPath: path.join(app.getPath("documents"), defaultFilename),
+          filters: [
+            { name: "GI Billing Backup Snapshot (*.zyn)", extensions: ["zyn"] },
+            { name: "SQLite Database (*.sqlite, *.db)", extensions: ["sqlite", "db"] },
+            { name: "All Files (*.*)", extensions: ["*"] },
+          ],
+        });
+        if (result.canceled || !result.filePath) {
+          return { canceled: true };
+        }
+        targetPath = result.filePath;
+      }
+
+      if (!path.extname(targetPath)) targetPath += ".zyn";
+
       await database.backupTo(targetPath);
       const stats = fs.statSync(targetPath);
+      const filename = path.basename(targetPath);
+
+      // Keep a shadow copy in userData/backups so the in-app snapshot history list tracks it
+      try {
+        const backupDir = path.join(app.getPath("userData"), "backups");
+        if (!fs.existsSync(backupDir)) fs.mkdirSync(backupDir, { recursive: true });
+        const localCopy = path.join(backupDir, filename);
+        if (path.resolve(localCopy) !== path.resolve(targetPath)) {
+          fs.copyFileSync(targetPath, localCopy);
+        }
+      } catch (_) {}
+
       return {
         success: true,
         path: targetPath,
@@ -260,7 +299,7 @@ function registerDatabaseHandlers() {
       const list = [];
       const scanDir = (dir, isAuto) => {
         if (!fs.existsSync(dir)) return;
-        const files = fs.readdirSync(dir).filter((f) => f.endsWith(".sqlite") || f.endsWith(".db"));
+        const files = fs.readdirSync(dir).filter((f) => f.endsWith(".zyn") || f.endsWith(".sqlite") || f.endsWith(".db"));
         files.forEach((f) => {
           const fullPath = path.join(dir, f);
           try {
@@ -301,11 +340,12 @@ function registerDatabaseHandlers() {
     let target = sourcePath;
     if (!target) {
       const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
-        title: "Select Backup File to Preview",
+        title: "Select Backup File to Preview (.zyn)",
         properties: ["openFile"],
         filters: [
-          { name: "SQLite Database", extensions: ["sqlite", "db"] },
-          { name: "All Files", extensions: ["*"] },
+          { name: "GI Billing Backup (*.zyn)", extensions: ["zyn"] },
+          { name: "SQLite Database (*.sqlite, *.db)", extensions: ["sqlite", "db"] },
+          { name: "All Files (*.*)", extensions: ["*"] },
         ],
       });
       if (canceled || !filePaths || !filePaths.length) return null;
@@ -457,74 +497,6 @@ function registerDatabaseHandlers() {
     }
     return { success: false, error: "File not found on disk." };
   });
-  ipcMain.handle("whatsapp:test-connection", async (_event, { phoneNumberId, accessToken }) => {
-    try {
-      if (!phoneNumberId || !accessToken) {
-        return { success: false, error: "Phone Number ID and Permanent Access Token are required." };
-      }
-      const response = await fetch(`https://graph.facebook.com/v20.0/${encodeURIComponent(phoneNumberId)}`, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
-      const data = await response.json();
-      if (!response.ok) {
-        return { success: false, error: data?.error?.message || `HTTP ${response.status}: Failed to verify credentials` };
-      }
-      return {
-        success: true,
-        verifiedName: data?.verified_name || data?.display_phone_number || "Meta Cloud API Connected",
-        displayPhoneNumber: data?.display_phone_number || "",
-        qualityRating: data?.quality_rating || "GREEN",
-      };
-    } catch (err) {
-      return { success: false, error: err.message || "Failed to reach Meta Graph API." };
-    }
-  });
-  ipcMain.handle("whatsapp:send-cloud-message", async (_event, payload) => {
-    try {
-      const { phoneNumberId, accessToken, to, templateName, languageCode = "en", components, textBody } = payload;
-      if (!phoneNumberId || !accessToken || !to) {
-        return { success: false, error: "Phone Number ID, Access Token, and recipient phone number are required." };
-      }
-      const cleanTo = String(to).replace(/\D/g, "");
-      if (!cleanTo || cleanTo.length < 10) {
-        return { success: false, error: "Invalid recipient phone number." };
-      }
-      const body = templateName ? {
-        messaging_product: "whatsapp",
-        recipient_type: "individual",
-        to: cleanTo,
-        type: "template",
-        template: {
-          name: templateName,
-          language: { code: languageCode },
-          ...(components && components.length ? { components } : {}),
-        },
-      } : {
-        messaging_product: "whatsapp",
-        recipient_type: "individual",
-        to: cleanTo,
-        type: "text",
-        text: { preview_url: false, body: textBody || "" },
-      };
-
-      const response = await fetch(`https://graph.facebook.com/v20.0/${encodeURIComponent(phoneNumberId)}/messages`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(body),
-      });
-
-      const data = await response.json();
-      if (!response.ok) {
-        return { success: false, error: data?.error?.message || `HTTP ${response.status}: Message rejected by Meta API` };
-      }
-      return { success: true, messageId: data?.messages?.[0]?.id || "" };
-    } catch (err) {
-      return { success: false, error: err.message || "Network error while calling Meta WhatsApp Cloud API." };
-    }
-  });
   ipcMain.handle("app:generate-qr-svg", async (_event, { text, options = {} } = {}) => {
     try {
       if (!text || typeof text !== "string") {
@@ -593,7 +565,7 @@ function startScheduledBackupService() {
         fs.mkdirSync(autoBackupDir, { recursive: true });
       }
 
-      const files = fs.readdirSync(autoBackupDir).filter((f) => f.endsWith(".sqlite") || f.endsWith(".db"));
+      const files = fs.readdirSync(autoBackupDir).filter((f) => f.endsWith(".zyn") || f.endsWith(".sqlite") || f.endsWith(".db"));
       const now = new Date();
       let shouldBackup = true;
 
@@ -618,12 +590,12 @@ function startScheduledBackupService() {
       if (shouldBackup) {
         const pad = (n) => String(n).padStart(2, "0");
         const stamp = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}_${pad(now.getHours())}-${pad(now.getMinutes())}-${pad(now.getSeconds())}`;
-        const filename = `gi-auto-backup-${stamp}.sqlite`;
+        const filename = `gi-auto-backup-${stamp}.zyn`;
         const targetPath = path.join(autoBackupDir, filename);
         await database.backupTo(targetPath);
 
         const updatedFiles = fs.readdirSync(autoBackupDir)
-          .filter((f) => f.endsWith(".sqlite") || f.endsWith(".db"))
+          .filter((f) => f.endsWith(".zyn") || f.endsWith(".sqlite") || f.endsWith(".db"))
           .map((f) => {
             try {
               const stat = fs.statSync(path.join(autoBackupDir, f));

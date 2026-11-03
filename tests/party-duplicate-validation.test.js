@@ -244,9 +244,9 @@ app.whenReady().then(async () => {
       taxTypeSelect.value = "gst_registered";
       gstinInput.value = "27AAAAA0000A1Z5"; // same as Acme
 
-      // Explicitly switch user view back to Basic Info tab (GST tab is hidden!)
-      document.querySelector('.party-tab-btn[data-tab="basic"]').click();
-      const basicTabBefore = document.querySelector('.party-tab-btn[data-tab="basic"]').classList.contains("active");
+      // Explicitly switch user view away to Credit tab (GST tab is hidden!)
+      document.querySelector('.party-tab-btn[data-tab="credit"]').click();
+      const creditTabBefore = document.querySelector('.party-tab-btn[data-tab="credit"]').classList.contains("active");
       const gstPanelBefore = !document.getElementById("partyTabGst").classList.contains("hidden");
 
       // Now click Save
@@ -260,7 +260,7 @@ app.whenReady().then(async () => {
       const isGstinInvalid = gstinInput.classList.contains("invalid-field");
 
       return {
-        basicTabBefore,
+        creditTabBefore,
         gstPanelBefore,
         gstTabAfter,
         gstPanelAfter,
@@ -270,7 +270,7 @@ app.whenReady().then(async () => {
       };
     })()`);
 
-    assert.strictEqual(uiGstinDup.basicTabBefore, true, "Should have been on basic tab before save");
+    assert.strictEqual(uiGstinDup.creditTabBefore, true, "Should have been on credit tab before save");
     assert.strictEqual(uiGstinDup.gstPanelBefore, false, "GST panel should have been hidden before save");
     assert.strictEqual(uiGstinDup.gstTabAfter, true, "GST tab should automatically become active");
     assert.strictEqual(uiGstinDup.gstPanelAfter, true, "GST panel should automatically become visible");

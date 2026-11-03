@@ -154,8 +154,11 @@ async function initDatabase(userDataPath, options = {}) {
       logger: options.migrationLogger,
     });
     enforceForeignKeys(db);
-    seedDefaults();
     ensureDebitNoteSchema();
+    ensureItemTaxTypeColumn();
+    ensurePartyAdditionalAddressesColumn();
+    ensureShippingAddressColumns();
+    seedDefaults();
     ensureLocalSyncIdentity();
     ensureUsersSchema();
     cleanupOrphanExpenseItems();
@@ -790,6 +793,7 @@ function migrate() {
       pan TEXT,
       billing_address TEXT,
       shipping_address TEXT,
+      additional_addresses TEXT,
       opening_balance REAL NOT NULL DEFAULT 0,
       opening_balance_type TEXT NOT NULL DEFAULT 'receivable',
       credit_limit REAL NOT NULL DEFAULT 0,
@@ -815,6 +819,7 @@ function migrate() {
       purchase_price REAL NOT NULL DEFAULT 0,
       purchase_tax_type TEXT NOT NULL DEFAULT 'without_tax',
       tax_rate REAL NOT NULL DEFAULT 0,
+      tax_type TEXT NOT NULL DEFAULT '',
       discount REAL NOT NULL DEFAULT 0,
       opening_stock REAL NOT NULL DEFAULT 0,
       opening_stock_date TEXT,
@@ -894,6 +899,7 @@ function migrate() {
       party TEXT NOT NULL,
       phone TEXT,
       billing_address TEXT,
+      shipping_address TEXT,
       invoice_date TEXT NOT NULL,
       due_date TEXT,
       payment_terms TEXT,
@@ -950,6 +956,7 @@ function migrate() {
       party TEXT NOT NULL,
       phone TEXT,
       billing_address TEXT,
+      shipping_address TEXT,
       quote_date TEXT NOT NULL,
       valid_until TEXT,
       payment_terms TEXT,
@@ -1007,6 +1014,7 @@ function migrate() {
       party TEXT NOT NULL,
       phone TEXT,
       billing_address TEXT,
+      shipping_address TEXT,
       credit_date TEXT NOT NULL,
       refund_date TEXT,
       payment_terms TEXT,
@@ -1067,6 +1075,7 @@ function migrate() {
       party TEXT NOT NULL,
       phone TEXT,
       billing_address TEXT,
+      shipping_address TEXT,
       debit_date TEXT NOT NULL,
       refund_date TEXT,
       payment_terms TEXT,
@@ -1189,6 +1198,7 @@ function migrate() {
   addColumnIfMissing("parties", "pan", "TEXT");
   addColumnIfMissing("parties", "billing_address", "TEXT");
   addColumnIfMissing("parties", "shipping_address", "TEXT");
+  addColumnIfMissing("parties", "additional_addresses", "TEXT");
   addColumnIfMissing("parties", "opening_balance", "REAL NOT NULL DEFAULT 0");
   addColumnIfMissing("parties", "opening_balance_type", "TEXT NOT NULL DEFAULT 'receivable'");
   addColumnIfMissing("parties", "credit_limit", "REAL NOT NULL DEFAULT 0");
@@ -1204,6 +1214,7 @@ function migrate() {
   addColumnIfMissing("items", "purchase_price", "REAL NOT NULL DEFAULT 0");
   addColumnIfMissing("items", "purchase_tax_type", "TEXT NOT NULL DEFAULT 'without_tax'");
   addColumnIfMissing("items", "tax_rate", "REAL NOT NULL DEFAULT 0");
+  addColumnIfMissing("items", "tax_type", "TEXT NOT NULL DEFAULT ''");
   addColumnIfMissing("items", "discount", "REAL NOT NULL DEFAULT 0");
   addColumnIfMissing("items", "opening_stock", "REAL NOT NULL DEFAULT 0");
   addColumnIfMissing("items", "opening_stock_date", "TEXT");
@@ -1222,9 +1233,13 @@ function migrate() {
   addColumnIfMissing("invoices", "igst_total", "REAL NOT NULL DEFAULT 0");
   addColumnIfMissing("invoices", "cess_total", "REAL NOT NULL DEFAULT 0");
   addColumnIfMissing("invoices", "meta_json", "TEXT");
+  addColumnIfMissing("invoices", "shipping_address", "TEXT");
   addColumnIfMissing("estimates", "meta_json", "TEXT");
+  addColumnIfMissing("estimates", "shipping_address", "TEXT");
   addColumnIfMissing("credit_notes", "meta_json", "TEXT");
+  addColumnIfMissing("credit_notes", "shipping_address", "TEXT");
   addColumnIfMissing("debit_notes", "meta_json", "TEXT");
+  addColumnIfMissing("debit_notes", "shipping_address", "TEXT");
   addColumnIfMissing("invoice_items", "hsn_sac", "TEXT");
   addColumnIfMissing("invoice_items", "taxable_value", "REAL NOT NULL DEFAULT 0");
   addColumnIfMissing("invoice_items", "cgst_amount", "REAL NOT NULL DEFAULT 0");
@@ -1377,6 +1392,7 @@ function ensureDebitNoteSchema() {
       party_id INTEGER,
       phone TEXT,
       billing_address TEXT,
+      shipping_address TEXT,
       debit_date TEXT NOT NULL,
       refund_date TEXT,
       payment_terms TEXT,
@@ -1447,6 +1463,30 @@ function ensureDebitNoteSchema() {
     END;
   `);
   addColumnIfMissing("stock_movements", "debit_note_id", "TEXT");
+}
+
+function ensureItemTaxTypeColumn() {
+  if (!db) return;
+  addColumnIfMissing("items", "tax_type", "TEXT NOT NULL DEFAULT ''");
+}
+
+function ensurePartyAdditionalAddressesColumn() {
+  if (!db) return;
+  addColumnIfMissing("parties", "additional_addresses", "TEXT");
+}
+
+function ensureShippingAddressColumns() {
+  if (!db) return;
+  addColumnIfMissing("parties", "billing_address", "TEXT");
+  addColumnIfMissing("parties", "shipping_address", "TEXT");
+  addColumnIfMissing("invoices", "billing_address", "TEXT");
+  addColumnIfMissing("invoices", "shipping_address", "TEXT");
+  addColumnIfMissing("estimates", "billing_address", "TEXT");
+  addColumnIfMissing("estimates", "shipping_address", "TEXT");
+  addColumnIfMissing("credit_notes", "billing_address", "TEXT");
+  addColumnIfMissing("credit_notes", "shipping_address", "TEXT");
+  addColumnIfMissing("debit_notes", "billing_address", "TEXT");
+  addColumnIfMissing("debit_notes", "shipping_address", "TEXT");
 }
 
 function ensureUsersSchema() {
@@ -1572,6 +1612,7 @@ function getState() {
         p.contact_person AS contactPerson, p.tax_type AS taxType, p.gstin,
         p.legal_name AS legalName, p.state, p.pan,
         p.billing_address AS billingAddress, p.shipping_address AS shippingAddress,
+        p.additional_addresses AS additionalAddresses,
         p.opening_balance AS openingBalance, p.opening_balance_type AS openingBalanceType,
         p.credit_limit AS creditLimit, p.payment_terms AS paymentTerms,
         p.due_days AS dueDays, p.notes, p.created_at AS createdAt,
@@ -1626,7 +1667,7 @@ function getState() {
       `SELECT i.id, i.name, i.item_type AS itemType, i.sku, i.category, i.unit,
         i.hsn_sac AS hsnSac, i.sale_price AS salePrice, i.sale_tax_type AS saleTaxType,
         i.purchase_price AS purchasePrice, i.purchase_tax_type AS purchaseTaxType,
-        i.tax_rate AS taxRate, i.discount, i.opening_stock AS openingStock,
+        i.tax_rate AS taxRate, COALESCE(i.tax_type, '') AS taxType, i.discount, i.opening_stock AS openingStock,
         i.opening_stock_date AS openingStockDate, i.opening_stock_value AS openingStockValue,
         i.storage_location AS storageLocation, i.low_stock_alert AS lowStockAlert,
         i.description, i.notes, i.created_at AS createdAt,
@@ -1679,7 +1720,7 @@ function getState() {
     ),
     invoices: all(
       `SELECT id, transaction_id AS transactionId, invoice_no AS invoiceNo, type, party, phone,
-        billing_address AS billingAddress, invoice_date AS date, due_date AS dueDate,
+        billing_address AS billingAddress, shipping_address AS shippingAddress, invoice_date AS date, due_date AS dueDate,
         payment_terms AS paymentTerms, payment_type AS paymentType, subtotal, discount_total AS discountTotal,
         supply_type AS supplyType, place_of_supply AS placeOfSupply, party_gstin AS partyGstin,
         party_tax_type AS partyTaxType, tax_total AS taxTotal, cgst_total AS cgstTotal,
@@ -1689,7 +1730,7 @@ function getState() {
       [currentCompany.id],
     ),
     estimates: all(
-      `SELECT id, quote_no AS quoteNo, party, phone, billing_address AS billingAddress,
+      `SELECT id, quote_no AS quoteNo, party, phone, billing_address AS billingAddress, shipping_address AS shippingAddress,
         quote_date AS date, valid_until AS validUntil, payment_terms AS paymentTerms,
         supply_type AS supplyType, place_of_supply AS placeOfSupply, party_gstin AS partyGstin,
         party_tax_type AS partyTaxType, subtotal, discount_total AS discountTotal,
@@ -1702,7 +1743,7 @@ function getState() {
     ),
     creditNotes: all(
       `SELECT id, credit_no AS creditNo, original_invoice_id AS originalInvoiceId,
-        original_invoice_no AS originalInvoiceNo, party, party_id AS partyId, phone, billing_address AS billingAddress,
+        original_invoice_no AS originalInvoiceNo, party, party_id AS partyId, phone, billing_address AS billingAddress, shipping_address AS shippingAddress,
         credit_date AS date, refund_date AS refundDate, payment_terms AS paymentTerms,
         payment_method AS paymentMethod, supply_type AS supplyType, place_of_supply AS placeOfSupply,
         party_gstin AS partyGstin, party_tax_type AS partyTaxType, subtotal,
@@ -1718,7 +1759,7 @@ function getState() {
         original_purchase_id AS originalInvoiceId,
         original_purchase_no AS originalPurchaseNo,
         original_purchase_no AS originalInvoiceNo,
-        party, party_id AS partyId, phone, billing_address AS billingAddress,
+        party, party_id AS partyId, phone, billing_address AS billingAddress, shipping_address AS shippingAddress,
         debit_date AS date, refund_date AS refundDate, payment_terms AS paymentTerms,
         payment_method AS paymentMethod, supply_type AS supplyType, place_of_supply AS placeOfSupply,
         party_gstin AS partyGstin, party_tax_type AS partyTaxType, subtotal,
@@ -1784,9 +1825,14 @@ function getState() {
       [currentCompany.id],
     ),
     payments: all(
-      `SELECT id, invoice_id AS invoiceId, transaction_id AS transactionId, type, party, party_id AS partyId,
-        amount, method, payment_date AS paymentDate, notes, created_at AS createdAt
-       FROM payments WHERE company_id = ? ORDER BY created_at DESC`,
+      `SELECT p.id, p.invoice_id AS invoiceId, p.transaction_id AS transactionId, p.type, p.party, p.party_id AS partyId,
+        p.amount, p.method, p.payment_date AS paymentDate, p.notes, p.created_at AS createdAt,
+        COALESCE(inv.invoice_no, tx.invoice_no, '') AS invoiceNo
+       FROM payments p
+       LEFT JOIN invoices inv ON inv.id = p.invoice_id
+       LEFT JOIN transactions tx ON tx.id = p.transaction_id
+       WHERE p.company_id = ?
+       ORDER BY p.payment_date DESC, p.created_at DESC`,
       [currentCompany.id],
     ),
     stockMovements: all(
@@ -2138,16 +2184,7 @@ function defaultBusinessSettings(companyName = "testt") {
     stopSaleOnNegativeStock: false,
     defaultTaxInclusive: false,
     enableHsn: true,
-    whatsappSettings: {
-      mode: "direct",
-      autoShareOnSave: false,
-      phoneNumberId: "",
-      wabaId: "",
-      accessToken: "",
-      templateName: "invoice_notification",
-      languageCode: "en",
-      customMessageTemplate: "",
-    },
+    enableAdditionalFields: true,
   };
 }
 
@@ -2186,10 +2223,6 @@ function getBusinessSettings(explicitCompanyId = null) {
     bankDetails: {
       ...defaults.bankDetails,
       ...(saved.bankDetails || {}),
-    },
-    whatsappSettings: {
-      ...defaults.whatsappSettings,
-      ...(saved.whatsappSettings || {}),
     },
     customFields: normalizeCustomFields(saved.customFields || defaults.customFields),
   };
@@ -2232,16 +2265,7 @@ function updateBusinessSettings(settings = {}) {
     stopSaleOnNegativeStock: settings.stopSaleOnNegativeStock !== undefined ? Boolean(settings.stopSaleOnNegativeStock) : Boolean(current.stopSaleOnNegativeStock ?? false),
     defaultTaxInclusive: settings.defaultTaxInclusive !== undefined ? Boolean(settings.defaultTaxInclusive) : Boolean(current.defaultTaxInclusive ?? false),
     enableHsn: settings.enableHsn !== undefined ? Boolean(settings.enableHsn) : Boolean(current.enableHsn ?? true),
-    whatsappSettings: {
-      mode: ["direct", "cloud_api"].includes(settings.whatsappSettings?.mode) ? settings.whatsappSettings.mode : (current.whatsappSettings?.mode || "direct"),
-      autoShareOnSave: settings.whatsappSettings?.autoShareOnSave !== undefined ? Boolean(settings.whatsappSettings.autoShareOnSave) : Boolean(current.whatsappSettings?.autoShareOnSave ?? false),
-      phoneNumberId: String(settings.whatsappSettings?.phoneNumberId ?? current.whatsappSettings?.phoneNumberId ?? "").trim(),
-      wabaId: String(settings.whatsappSettings?.wabaId ?? current.whatsappSettings?.wabaId ?? "").trim(),
-      accessToken: String(settings.whatsappSettings?.accessToken ?? current.whatsappSettings?.accessToken ?? "").trim(),
-      templateName: String(settings.whatsappSettings?.templateName ?? current.whatsappSettings?.templateName ?? "invoice_notification").trim(),
-      languageCode: String(settings.whatsappSettings?.languageCode ?? current.whatsappSettings?.languageCode ?? "en").trim(),
-      customMessageTemplate: String(settings.whatsappSettings?.customMessageTemplate ?? current.whatsappSettings?.customMessageTemplate ?? "").trim(),
-    },
+    enableAdditionalFields: settings.enableAdditionalFields !== undefined ? Boolean(settings.enableAdditionalFields) : Boolean(current.enableAdditionalFields ?? true),
   };
   Object.entries(next).forEach(([key, value]) => {
     run("INSERT OR REPLACE INTO company_settings (company_id, key, value) VALUES (?, ?, ?)", [company.id, key, JSON.stringify(value)]);
@@ -2505,6 +2529,7 @@ function createParty({
   pan = "",
   billingAddress = "",
   shippingAddress = "",
+  additionalAddresses = "",
   openingBalance = 0,
   openingBalanceType = "receivable",
   creditLimit = 0,
@@ -2556,10 +2581,13 @@ function createParty({
   }
 
   const now = new Date().toISOString();
+  const formattedAdditionalAddresses = typeof additionalAddresses === "object" && additionalAddresses !== null
+    ? JSON.stringify(additionalAddresses)
+    : (additionalAddresses || "");
   run(
     `INSERT INTO parties
-      (company_id, name, type, phone, email, contact_person, tax_type, gstin, legal_name, state, pan, billing_address, shipping_address, opening_balance, opening_balance_type, credit_limit, payment_terms, due_days, notes, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      (company_id, name, type, phone, email, contact_person, tax_type, gstin, legal_name, state, pan, billing_address, shipping_address, additional_addresses, opening_balance, opening_balance_type, credit_limit, payment_terms, due_days, notes, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       company.id,
       cleanName,
@@ -2574,6 +2602,7 @@ function createParty({
       pan,
       billingAddress,
       shippingAddress,
+      formattedAdditionalAddresses,
       openingBalance,
       openingBalanceType,
       creditLimit,
@@ -2605,6 +2634,7 @@ function updateParty({
   pan = "",
   billingAddress = "",
   shippingAddress = "",
+  additionalAddresses = "",
   openingBalance = 0,
   openingBalanceType = "receivable",
   creditLimit = 0,
@@ -2657,6 +2687,10 @@ function updateParty({
     }
   }
 
+  const formattedAdditionalAddresses = typeof additionalAddresses === "object" && additionalAddresses !== null
+    ? JSON.stringify(additionalAddresses)
+    : (additionalAddresses || "");
+
   run(
     `UPDATE parties SET
       name = ?,
@@ -2671,6 +2705,7 @@ function updateParty({
       pan = ?,
       billing_address = ?,
       shipping_address = ?,
+      additional_addresses = ?,
       opening_balance = ?,
       opening_balance_type = ?,
       credit_limit = ?,
@@ -2691,6 +2726,7 @@ function updateParty({
       pan,
       billingAddress,
       shippingAddress,
+      formattedAdditionalAddresses,
       openingBalance,
       openingBalanceType,
       creditLimit,
@@ -2778,6 +2814,18 @@ function updatePartyDetails(companyId, {
   );
 }
 
+function defaultTaxTypeLabel(rate) {
+  if (typeof rate === "string") {
+    const trimmed = rate.trim();
+    if (trimmed.toLowerCase() === "exempt") return "Exempt";
+    if (trimmed.toLowerCase() === "none" || trimmed === "0" || trimmed === "0%") return "None";
+    if (trimmed.toUpperCase().startsWith("IGST@") || trimmed.toUpperCase().startsWith("GST@")) return trimmed;
+  }
+  const numericRate = Number(rate || 0);
+  if (!numericRate) return "None";
+  return `GST@${numericRate}%`;
+}
+
 function createItem({
   name,
   notes = "",
@@ -2791,6 +2839,7 @@ function createItem({
   purchasePrice = 0,
   purchaseTaxType = "without_tax",
   taxRate = 0,
+  taxType = "",
   discount = 0,
   openingStock = 0,
   openingStockDate = "",
@@ -2802,6 +2851,7 @@ function createItem({
   const company = getCurrentCompany();
   const now = new Date().toISOString();
   if (!name) return getState();
+  const resolvedTaxType = taxType ? String(taxType).trim() : defaultTaxTypeLabel(taxRate);
   ensureUnit(company.id, unit);
   ensureItemCategory(company.id, category);
 
@@ -2819,9 +2869,9 @@ function createItem({
   run(
     `INSERT OR IGNORE INTO items
       (company_id, name, item_type, sku, category, unit, category_id, unit_id, hsn_sac, sale_price, sale_tax_type,
-       purchase_price, purchase_tax_type, tax_rate, discount, opening_stock, opening_stock_date,
+       purchase_price, purchase_tax_type, tax_rate, tax_type, discount, opening_stock, opening_stock_date,
        opening_stock_value, storage_location, low_stock_alert, description, notes, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       company.id,
       name,
@@ -2837,6 +2887,7 @@ function createItem({
       purchasePrice,
       purchaseTaxType,
       taxRate,
+      resolvedTaxType,
       discount,
       openingStock,
       openingStockDate,
@@ -2860,6 +2911,7 @@ function createItem({
       purchase_price = ?,
       purchase_tax_type = COALESCE(NULLIF(?, ''), purchase_tax_type),
       tax_rate = ?,
+      tax_type = COALESCE(NULLIF(?, ''), tax_type),
       discount = ?,
       opening_stock = ?,
       opening_stock_date = COALESCE(NULLIF(?, ''), opening_stock_date),
@@ -2880,6 +2932,7 @@ function createItem({
       purchasePrice,
       purchaseTaxType,
       taxRate,
+      resolvedTaxType,
       discount,
       openingStock,
       openingStockDate,
@@ -2916,6 +2969,7 @@ function updateItemUnsafe({
   purchasePrice = 0,
   purchaseTaxType = "without_tax",
   taxRate = 0,
+  taxType = "",
   discount = 0,
   openingStock = 0,
   openingStockDate = "",
@@ -2927,6 +2981,7 @@ function updateItemUnsafe({
   const company = getCurrentCompany();
   const cleanName = String(name || "").trim();
   if (!id || !cleanName) return getState();
+  const resolvedTaxType = taxType ? String(taxType).trim() : defaultTaxTypeLabel(taxRate);
   const existing = one("SELECT id, name, opening_stock AS openingStock, opening_stock_value AS openingStockValue FROM items WHERE company_id = ? AND id = ?", [company.id, id]);
   if (!existing) return getState();
   if (arguments[0].openingStock === undefined) openingStock = existing.openingStock;
@@ -2966,6 +3021,7 @@ function updateItemUnsafe({
       purchase_price = ?,
       purchase_tax_type = ?,
       tax_rate = ?,
+      tax_type = ?,
       discount = ?,
       opening_stock = ?,
       opening_stock_date = ?,
@@ -2989,6 +3045,7 @@ function updateItemUnsafe({
       purchasePrice,
       purchaseTaxType,
       taxRate,
+      resolvedTaxType,
       discount,
       openingStock,
       openingStockDate,
@@ -3145,6 +3202,26 @@ function createTransactionUnsafe(entry) {
     createItemWithoutPersist(company.id, transaction.item);
   }
   postLedger(company.id, transaction);
+  if (entry.billingAddress && (transaction.partyId || transaction.party)) {
+    run(
+      `UPDATE parties
+       SET billing_address = ?
+       WHERE company_id = ?
+         AND (id = ? OR LOWER(TRIM(name)) = LOWER(TRIM(?)))
+         AND (billing_address IS NULL OR TRIM(billing_address) = '')`,
+      [String(entry.billingAddress).trim(), company.id, transaction.partyId || 0, transaction.party || '']
+    );
+  }
+  if (entry.shippingAddress && (transaction.partyId || transaction.party)) {
+    run(
+      `UPDATE parties
+       SET shipping_address = ?
+       WHERE company_id = ?
+         AND (id = ? OR LOWER(TRIM(name)) = LOWER(TRIM(?)))
+         AND (shipping_address IS NULL OR TRIM(shipping_address) = '')`,
+      [String(entry.shippingAddress).trim(), company.id, transaction.partyId || 0, transaction.party || '']
+    );
+  }
   if (transaction.type === "expense") {
     postExpenseTaxEntries(company.id, transaction, now);
   }
@@ -3191,7 +3268,7 @@ function postExpenseTaxEntries(companyId, transaction, now) {
     }
     const calcTax = Math.round((totalAmount - taxable) * 100) / 100;
     const taxContext = invoiceTaxContext(companyId, { placeOfSupply: meta.placeOfSupply });
-    const isInterstate = Boolean(meta.placeOfSupply && meta.placeOfSupply !== taxContext.firmState);
+    const isInterstate = taxContext.isInterstate;
     if (isInterstate) {
       igst = calcTax;
     } else {
@@ -3573,7 +3650,7 @@ function updateInvoiceUnsafe(entry) {
 
   run(
     `UPDATE invoices SET
-      transaction_id = ?, invoice_no = ?, type = ?, party = ?, phone = ?, billing_address = ?,
+      transaction_id = ?, invoice_no = ?, type = ?, party = ?, phone = ?, billing_address = ?, shipping_address = ?,
       invoice_date = ?, due_date = ?, payment_terms = ?, payment_type = ?, supply_type = ?,
       place_of_supply = ?, party_gstin = ?, party_tax_type = ?, subtotal = ?, discount_total = ?,
       tax_total = ?, cgst_total = ?, sgst_total = ?, igst_total = ?, cess_total = ?, total = ?,
@@ -3586,6 +3663,7 @@ function updateInvoiceUnsafe(entry) {
       transaction.party,
       entry.phone || "",
       entry.billingAddress || "",
+      entry.shippingAddress || "",
       transactionDate,
       entry.dueDate || "",
       entry.paymentTerms || "",
@@ -3649,6 +3727,26 @@ function updateInvoiceUnsafe(entry) {
   transaction.igstTotal = invoiceTotals.igstTotal;
   transaction.cessTotal = invoiceTotals.cessTotal;
   postLedger(company.id, transaction);
+  if (entry.billingAddress && (existing.partyId || entry.partyId || entry.party)) {
+    run(
+      `UPDATE parties
+       SET billing_address = ?
+       WHERE company_id = ?
+         AND (id = ? OR LOWER(TRIM(name)) = LOWER(TRIM(?)))
+         AND (billing_address IS NULL OR TRIM(billing_address) = '')`,
+      [String(entry.billingAddress).trim(), company.id, existing.partyId || entry.partyId || 0, entry.party || existing.party || '']
+    );
+  }
+  if (entry.shippingAddress && (existing.partyId || entry.partyId || entry.party)) {
+    run(
+      `UPDATE parties
+       SET shipping_address = ?
+       WHERE company_id = ?
+         AND (id = ? OR LOWER(TRIM(name)) = LOWER(TRIM(?)))
+         AND (shipping_address IS NULL OR TRIM(shipping_address) = '')`,
+      [String(entry.shippingAddress).trim(), company.id, existing.partyId || entry.partyId || 0, entry.party || existing.party || '']
+    );
+  }
   recordedPayments.forEach((payment) => postPaymentLedger(company.id, transaction, payment));
   if (!recordedPayments.length && invoiceTotals.received > 0) {
     createInitialPayment(company.id, transaction, invoiceTotals.received, entry.paymentMethod || "Cash", now);
@@ -4953,11 +5051,11 @@ function createInvoiceRecord(companyId, transaction, entry, invoiceItems, totals
   const metaJson = normalizeMetaJson(entry.meta ?? entry.metaJson ?? {});
   run(
     `INSERT INTO invoices
-      (id, company_id, transaction_id, invoice_no, type, party, party_id, phone, billing_address,
+      (id, company_id, transaction_id, invoice_no, type, party, party_id, phone, billing_address, shipping_address,
        invoice_date, due_date, payment_terms, payment_type, supply_type, place_of_supply,
        party_gstin, party_tax_type, subtotal, discount_total, tax_total, cgst_total, sgst_total,
        igst_total, cess_total, total, received, balance, status, notes, meta_json, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       transaction.invoiceId,
       companyId,
@@ -4968,6 +5066,7 @@ function createInvoiceRecord(companyId, transaction, entry, invoiceItems, totals
       transaction.partyId,
       entry.phone || "",
       entry.billingAddress || "",
+      entry.shippingAddress || "",
       transaction.date,
       entry.dueDate || "",
       entry.paymentTerms || "",
@@ -5057,17 +5156,177 @@ function postStockMovements(companyId, transaction, invoiceItems, now) {
     });
 }
 
+const DB_GST_STATE_CODES = {
+  "01": "Jammu and Kashmir",
+  "02": "Himachal Pradesh",
+  "03": "Punjab",
+  "04": "Chandigarh",
+  "05": "Uttarakhand",
+  "06": "Haryana",
+  "07": "Delhi",
+  "08": "Rajasthan",
+  "09": "Uttar Pradesh",
+  "10": "Bihar",
+  "11": "Sikkim",
+  "12": "Arunachal Pradesh",
+  "13": "Nagaland",
+  "14": "Manipur",
+  "15": "Mizoram",
+  "16": "Tripura",
+  "17": "Meghalaya",
+  "18": "Assam",
+  "19": "West Bengal",
+  "20": "Jharkhand",
+  "21": "Odisha",
+  "22": "Chhattisgarh",
+  "23": "Madhya Pradesh",
+  "24": "Gujarat",
+  "25": "Dadra and Nagar Haveli and Daman and Diu",
+  "26": "Dadra and Nagar Haveli and Daman and Diu",
+  "27": "Maharashtra",
+  "28": "Andhra Pradesh",
+  "29": "Karnataka",
+  "30": "Goa",
+  "31": "Lakshadweep",
+  "32": "Kerala",
+  "33": "Tamil Nadu",
+  "34": "Puducherry",
+  "35": "Andaman and Nicobar Islands",
+  "36": "Telangana",
+  "37": "Andhra Pradesh",
+  "38": "Ladakh",
+  "97": "Other Territory",
+};
+
+const DB_INDIAN_STATES = [
+  "Andaman and Nicobar Islands",
+  "Andhra Pradesh",
+  "Arunachal Pradesh",
+  "Assam",
+  "Bihar",
+  "Chandigarh",
+  "Chhattisgarh",
+  "Dadra and Nagar Haveli and Daman and Diu",
+  "Delhi",
+  "Goa",
+  "Gujarat",
+  "Haryana",
+  "Himachal Pradesh",
+  "Jammu and Kashmir",
+  "Jharkhand",
+  "Karnataka",
+  "Kerala",
+  "Ladakh",
+  "Lakshadweep",
+  "Madhya Pradesh",
+  "Maharashtra",
+  "Manipur",
+  "Meghalaya",
+  "Mizoram",
+  "Nagaland",
+  "Odisha",
+  "Puducherry",
+  "Punjab",
+  "Rajasthan",
+  "Sikkim",
+  "Tamil Nadu",
+  "Telangana",
+  "Tripura",
+  "Uttar Pradesh",
+  "Uttarakhand",
+  "West Bengal",
+];
+
+const DB_CITY_TO_STATE_MAP = {
+  coimbatore: "Tamil Nadu",
+  coimpatore: "Tamil Nadu",
+  chennai: "Tamil Nadu",
+  madurai: "Tamil Nadu",
+  tiruchirappalli: "Tamil Nadu",
+  trichy: "Tamil Nadu",
+  salem: "Tamil Nadu",
+  tirupur: "Tamil Nadu",
+  tiruppur: "Tamil Nadu",
+  erode: "Tamil Nadu",
+  vellore: "Tamil Nadu",
+  pondicherry: "Puducherry",
+  kochi: "Kerala",
+  cochin: "Kerala",
+  ernakulam: "Kerala",
+  calicut: "Kerala",
+  kozhikode: "Kerala",
+  trivandrum: "Kerala",
+  thiruvananthapuram: "Kerala",
+  thrissur: "Kerala",
+  trichur: "Kerala",
+  kannur: "Kerala",
+  cannanore: "Kerala",
+  kollam: "Kerala",
+  quilon: "Kerala",
+  palakkad: "Kerala",
+  palghat: "Kerala",
+  malappuram: "Kerala",
+  kottayam: "Kerala",
+  alappuzha: "Kerala",
+  alleppey: "Kerala",
+  kasaragod: "Kerala",
+  wayanad: "Kerala",
+  idukki: "Kerala",
+  pathanamthitta: "Kerala",
+  bengaluru: "Karnataka",
+  bangalore: "Karnataka",
+  mysuru: "Karnataka",
+  mysore: "Karnataka",
+  mangalore: "Karnataka",
+  mangaluru: "Karnataka",
+  hubli: "Karnataka",
+  belgaum: "Karnataka",
+  mumbai: "Maharashtra",
+  bombay: "Maharashtra",
+  pune: "Maharashtra",
+  nagpur: "Maharashtra",
+  nashik: "Maharashtra",
+  thane: "Maharashtra",
+  hyderabad: "Telangana",
+  secunderabad: "Telangana",
+  delhi: "Delhi",
+  "new delhi": "Delhi",
+  kolkata: "West Bengal",
+  calcutta: "West Bengal",
+};
+
+function resolveIndianStateName(val) {
+  if (!val || typeof val !== "string") return "";
+  const clean = val.trim().toLowerCase();
+  if (!clean) return "";
+  const direct = DB_INDIAN_STATES.find((s) => s.toLowerCase() === clean);
+  if (direct) return direct;
+  if (DB_CITY_TO_STATE_MAP[clean]) return DB_CITY_TO_STATE_MAP[clean];
+  const partial = DB_INDIAN_STATES.find((s) => s.toLowerCase().includes(clean) || clean.includes(s.toLowerCase()));
+  if (partial) return partial;
+  return "";
+}
+
+function getStateByGstin(gstin) {
+  const clean = String(gstin || "").trim().toUpperCase();
+  if (clean.length < 2) return "";
+  const code = clean.slice(0, 2);
+  return DB_GST_STATE_CODES[code] || "";
+}
+
 function invoiceTaxContext(companyId, entry) {
   const partyName = String(entry.party || "").trim();
   const party = one(
     "SELECT tax_type AS taxType, gstin, state FROM parties WHERE company_id = ? AND LOWER(name) = LOWER(?)",
     [companyId, partyName],
   ) || {};
-  const placeOfSupply = String(entry.placeOfSupply || entry.state || party.state || "").trim();
   const businessSettings = getBusinessSettings();
-  const firmState = String(entry.firmState || businessSettings.state || "Karnataka").trim();
+  const firmState = String(entry.firmState || businessSettings.state || "Kerala").trim();
   const partyGstin = String(entry.partyGstin || party.gstin || "").trim().toUpperCase();
   const partyTaxType = String(entry.partyTaxType || party.taxType || "unregistered").trim();
+  const rawPlace = String(entry.placeOfSupply || entry.state || party.state || "").trim();
+  const resolvedState = resolveIndianStateName(rawPlace) || getStateByGstin(partyGstin) || resolveIndianStateName(party.state);
+  const placeOfSupply = resolvedState || rawPlace || firmState;
   return {
     firmState,
     placeOfSupply,
@@ -6328,17 +6587,45 @@ function resolveItemId(companyId, { name, unit = "", salePrice = 0, purchasePric
   return one("SELECT id FROM items WHERE company_id = ? AND name = ?", [companyId, cleanName])?.id || null;
 }
 
-function nextInvoiceNumber(companyIdOrType, maybeType, docDate = new Date()) {
+function resolveDocNumberArgs(companyIdOrType, maybeType, docDate = new Date()) {
+  const KNOWN_DOC_TYPES = new Set([
+    "sale", "purchase", "estimate", "proforma", "sale_order", "saleOrder",
+    "delivery_challan", "deliveryChallan", "purchase_order", "purchaseOrder",
+    "credit_note", "debit_note", "salereturn", "purchasereturn",
+    "expense", "payment_in", "payment_out", "pos"
+  ]);
+
   let companyId;
   let type;
-  if (typeof companyIdOrType === "string" && (!maybeType || maybeType instanceof Date)) {
-    type = companyIdOrType;
-    if (maybeType instanceof Date) docDate = maybeType;
+  let date = docDate;
+
+  if (typeof companyIdOrType === "string" && KNOWN_DOC_TYPES.has(companyIdOrType.toLowerCase())) {
+    type = companyIdOrType.toLowerCase();
     companyId = getCurrentCompany()?.id || 1;
+    if (maybeType) date = maybeType;
+  } else if (typeof maybeType === "string" && KNOWN_DOC_TYPES.has(maybeType.toLowerCase())) {
+    companyId = companyIdOrType || getCurrentCompany()?.id || 1;
+    type = maybeType.toLowerCase();
+    if (docDate) date = docDate;
+  } else if (typeof companyIdOrType === "string" && isNaN(Number(companyIdOrType))) {
+    type = companyIdOrType;
+    companyId = getCurrentCompany()?.id || 1;
+    if (maybeType) date = maybeType;
   } else {
     companyId = companyIdOrType || getCurrentCompany()?.id || 1;
-    type = maybeType;
+    type = maybeType || "sale";
+    if (docDate) date = docDate;
   }
+
+  return { companyId, type, docDate: date };
+}
+
+function nextInvoiceNumber(companyIdOrType, maybeType, docDate = new Date()) {
+  const args = resolveDocNumberArgs(companyIdOrType, maybeType, docDate);
+  const companyId = args.companyId;
+  const type = args.type;
+  docDate = args.docDate;
+
   const settings = getBusinessSettings();
   const prefix = type === "sale" && settings.invoicePrefix
     ? settings.invoicePrefix
@@ -6358,7 +6645,7 @@ function nextInvoiceNumber(companyIdOrType, maybeType, docDate = new Date()) {
     expense: "EXP",
     payment_in: "PIN",
     payment_out: "POUT",
-  }[type] || "TXN";
+  }[type] || "INV";
   const startNo = type === "sale" ? Math.max(1, Number(settings.startingNo || 1)) : 1;
   const financialYear = currentFinancialYear(docDate);
   const pattern = `${prefix}-${financialYear}-%`;
@@ -6386,25 +6673,35 @@ function nextInvoiceNumber(companyIdOrType, maybeType, docDate = new Date()) {
     "SELECT next_number AS nextNumber FROM document_sequences WHERE company_id = ? AND document_type = ? AND financial_year = ? AND prefix = ?",
     [companyId, source[2], financialYear, prefix],
   );
-  const number = Math.max(startNo, Number(sequence?.nextNumber || 0), Number(existing?.maximum || 0) + 1);
+  let number = Math.max(startNo, Number(sequence?.nextNumber || 0), Number(existing?.maximum || 0) + 1);
+  let candidateDocNo = `${prefix}-${financialYear}-${String(number).padStart(4, "0")}`;
+
+  // Collision-safety check: ensure candidate is truly unique in DB
+  while (true) {
+    const isTaken = one(
+      `SELECT 1 FROM transactions WHERE company_id = ? AND invoice_no = ?
+       UNION
+       SELECT 1 FROM invoices WHERE company_id = ? AND invoice_no = ?`,
+      [companyId, candidateDocNo, companyId, candidateDocNo]
+    );
+    if (!isTaken) break;
+    number++;
+    candidateDocNo = `${prefix}-${financialYear}-${String(number).padStart(4, "0")}`;
+  }
+
   run(
     "UPDATE document_sequences SET next_number = ?, updated_at = ? WHERE company_id = ? AND document_type = ? AND financial_year = ? AND prefix = ?",
     [number + 1, new Date().toISOString(), companyId, source[2], financialYear, prefix],
   );
-  return `${prefix}-${financialYear}-${String(number).padStart(4, "0")}`;
+  return candidateDocNo;
 }
 
 function previewNextInvoiceNumber(companyIdOrType, maybeType, docDate = new Date()) {
-  let companyId;
-  let type;
-  if (typeof companyIdOrType === "string" && (!maybeType || maybeType instanceof Date)) {
-    type = companyIdOrType;
-    if (maybeType instanceof Date) docDate = maybeType;
-    companyId = getCurrentCompany()?.id || 1;
-  } else {
-    companyId = companyIdOrType || getCurrentCompany()?.id || 1;
-    type = maybeType;
-  }
+  const args = resolveDocNumberArgs(companyIdOrType, maybeType, docDate);
+  const companyId = args.companyId;
+  const type = args.type;
+  docDate = args.docDate;
+
   const settings = getBusinessSettings();
   const prefix = type === "sale" && settings.invoicePrefix
     ? settings.invoicePrefix
@@ -6424,7 +6721,7 @@ function previewNextInvoiceNumber(companyIdOrType, maybeType, docDate = new Date
     expense: "EXP",
     payment_in: "PIN",
     payment_out: "POUT",
-  }[type] || "TXN";
+  }[type] || "INV";
   const startNo = type === "sale" ? Math.max(1, Number(settings.startingNo || 1)) : 1;
   const financialYear = currentFinancialYear(docDate);
   const pattern = `${prefix}-${financialYear}-%`;
@@ -6445,8 +6742,23 @@ function previewNextInvoiceNumber(companyIdOrType, maybeType, docDate = new Date
     "SELECT next_number AS nextNumber FROM document_sequences WHERE company_id = ? AND document_type = ? AND financial_year = ? AND prefix = ?",
     [companyId, source[2], financialYear, prefix],
   );
-  const number = Math.max(startNo, Number(sequence?.nextNumber || 0), Number(existing?.maximum || 0) + 1);
-  return `${prefix}-${financialYear}-${String(number).padStart(4, "0")}`;
+  let number = Math.max(startNo, Number(sequence?.nextNumber || 0), Number(existing?.maximum || 0) + 1);
+  let candidateDocNo = `${prefix}-${financialYear}-${String(number).padStart(4, "0")}`;
+
+  // Collision-safety check: ensure candidate is truly unique in DB
+  while (true) {
+    const isTaken = one(
+      `SELECT 1 FROM transactions WHERE company_id = ? AND invoice_no = ?
+       UNION
+       SELECT 1 FROM invoices WHERE company_id = ? AND invoice_no = ?`,
+      [companyId, candidateDocNo, companyId, candidateDocNo]
+    );
+    if (!isTaken) break;
+    number++;
+    candidateDocNo = `${prefix}-${financialYear}-${String(number).padStart(4, "0")}`;
+  }
+
+  return candidateDocNo;
 }
 
 function syncDocumentSequence(companyId, docType, invoiceNo, docDate = new Date()) {
@@ -6493,9 +6805,12 @@ function syncDocumentSequence(companyId, docType, invoiceNo, docDate = new Date(
 function currentFinancialYear(date = new Date()) {
   let d;
   if (typeof date === "string") {
-    const m = date.match(/^(\d{4})-(\d{2})-(\d{2})/);
-    if (m) {
-      d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+    const isoMatch = date.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+    const dmyMatch = date.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})/);
+    if (isoMatch) {
+      d = new Date(Number(isoMatch[1]), Number(isoMatch[2]) - 1, Number(isoMatch[3]));
+    } else if (dmyMatch) {
+      d = new Date(Number(dmyMatch[3]), Number(dmyMatch[2]) - 1, Number(dmyMatch[1]));
     } else {
       d = new Date(date);
     }
@@ -6504,6 +6819,7 @@ function currentFinancialYear(date = new Date()) {
   } else {
     d = new Date();
   }
+  if (isNaN(d.getTime())) d = new Date();
   const year = d.getFullYear();
   const month = d.getMonth() + 1;
   const start = month >= 4 ? year : year - 1;
@@ -6897,10 +7213,14 @@ async function restoreBackup(sourcePath, options = {}) {
 
   db = new SQL.Database(fs.readFileSync(dbPath));
   enforceForeignKeys(db);
-  seedDefaults();
   ensureDebitNoteSchema();
+  ensureItemTaxTypeColumn();
+  ensurePartyAdditionalAddressesColumn();
+  ensureShippingAddressColumns();
+  seedDefaults();
   ensureLocalSyncIdentity();
   ensureUsersSchema();
+  cleanupOrphanExpenseItems();
 
   recordAuditLog(
     getCurrentCompany()?.id,

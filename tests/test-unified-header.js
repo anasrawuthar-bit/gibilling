@@ -135,7 +135,7 @@ app.whenReady().then(async () => {
         const terms = topGrid.querySelector('[name="paymentTerms"]');
         const dueDate = topGrid.querySelector('[name="dueDate"]');
         const gstin = topGrid.querySelector('[name="partyGstin"]');
-        const notes = topGrid.querySelector('[name="invoiceDescription"]');
+        const notes = document.querySelector('.transaction-editor [name="invoiceDescription"]') || topGrid.querySelector('[name="invoiceDescription"]');
 
         const moreDetailsChildren = Array.from(moreDetails.children).map(c => ({
           tag: c.tagName,

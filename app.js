@@ -11,6 +11,8 @@ let estimateSearchQuery = "";
 let creditNoteSearchQuery = "";
 let debitNoteSearchQuery = "";
 let expenseSearchQuery = "";
+let paymentInSearchQuery = "";
+let paymentOutSearchQuery = "";
 let posSearchQuery = "";
 let barcodeSearchQuery = "";
 let barcodeQuickFilter = "all";
@@ -20,6 +22,14 @@ let barcodeCustomDate = "";
 let barcodeActiveTab = "items";
 let barcodePreset = "a4-24";
 let barcodeStartOffset = 1;
+
+let csvImportRows = [];
+let csvImportFileName = "";
+let csvImportType = "items";
+
+var hideCollapsedFlyoutGlobal = null;
+let userPreferredSidebarCollapsed = false;
+let autoCollapsedByView = false;
 
 const BARCODE_PRESETS = {
   "a4-24": {
@@ -89,8 +99,8 @@ let analyticsPeriod = "30d";
 let posKeyboardShortcutsBound = false;
 
 // ── Vyapar-Style Filter State ────────────────────────────────────────────────
-let saleTopFilter = { preset: "thisMonth", dateFrom: "", dateTo: "", party: "" };
-let purchaseTopFilter = { preset: "thisMonth", dateFrom: "", dateTo: "", party: "" };
+let saleTopFilter = { preset: "all", dateFrom: "", dateTo: "", party: "" };
+let purchaseTopFilter = { preset: "all", dateFrom: "", dateTo: "", party: "" };
 let saleColumnFilters = {};    // { colKey: { category, value, value2 } }
 let purchaseColumnFilters = {}; // same
 let partyAdvancedFilter = { balanceType: "all", datePreset: "all", dateFrom: "", dateTo: "" };
@@ -126,6 +136,36 @@ let lastCalculatorTarget = null;
 let activeCalculatorKeyHandler = null;
 let collapsedSidebarGroups = new Set();
 
+// ── Dashboard Smooth Animated Graph Engine State ────────────────────────────
+let dashboardChartState = {
+  frameId: 0,
+  isAnimating: false,
+  startTime: 0,
+  duration: 650,
+  activePeriod: "This Month",
+  fromSalesValues: [],
+  targetSalesValues: [],
+  currentSalesValues: [],
+  fromPurchaseValues: [],
+  targetPurchaseValues: [],
+  currentPurchaseValues: [],
+  get fromValues() { return this.fromSalesValues; },
+  set fromValues(v) { this.fromSalesValues = v; },
+  get targetValues() { return this.targetSalesValues; },
+  set targetValues(v) { this.targetSalesValues = v; },
+  get currentValues() { return this.currentSalesValues; },
+  set currentValues(v) { this.currentSalesValues = v; },
+  labels: [],
+  title: "",
+  maxValue: 0,
+  niceMax: 1,
+  mouseX: -1,
+  mouseY: -1,
+  isHovered: false,
+  hoverOpacity: 0,
+  listenersAttached: false,
+};
+
 const CODE128_PATTERNS = [
   "212222", "222122", "222221", "121223", "121322", "131222", "122213", "122312", "132212", "221213",
   "221312", "231212", "112232", "122132", "122231", "113222", "123122", "123221", "223211", "221132",
@@ -149,27 +189,9 @@ const SIDEBAR_GROUPS = {
     defaultView: "purchases",
     views: new Set(["purchases", "paymentOut", "expenses", "purchaseOrder", "purchaseReturn"]),
   },
-  gst: {
-    defaultView: "gstDashboard",
-    views: new Set([
-      "gst",
-      "gstDashboard",
-      "gstr1",
-      "gstr3b",
-      "hsnSummary",
-      "salesTaxSummary",
-      "purchaseTaxSummary",
-      "itcRegister",
-      "outputGst",
-      "gstLiability",
-      "eInvoice",
-      "eWayBill",
-      "gstReconciliation",
-    ]),
-  },
   settings: {
     defaultView: "importItems",
-    views: new Set(["settings", "importItems", "setupBusiness", "barcodeGenerator", "importParties", "exportItems", "verifyData"]),
+    views: new Set(["settings", "importItems", "setupBusiness", "barcodeGenerator", "importParties", "exportItems", "verifyData", "sync"]),
   },
 };
 
@@ -192,6 +214,35 @@ const DEFAULT_ITEM_UNITS = [
   "Day",
   "Month",
   "Service",
+];
+
+const DEFAULT_SERVICE_UNITS = [
+  "Hr",
+  "Day",
+  "Month",
+  "Service",
+  "Job",
+  "Visit",
+  "Session",
+  "Trip",
+  "Nos",
+  "Pcs",
+  "Set",
+  "Unit",
+];
+
+const PHYSICAL_GOODS_UNITS = [
+  "Kg",
+  "Gram",
+  "Litre",
+  "ML",
+  "Meter",
+  "Sq Ft",
+  "Bundle",
+  "Roll",
+  "Box",
+  "Pair",
+  "Pack",
 ];
 
 const DEFAULT_ITEM_CATEGORIES = [
@@ -234,6 +285,8 @@ const DEFAULT_EXPENSE_CATEGORIES = [
   "Miscellaneous",
 ];
 
+let entryModalSaveMode = "close";
+
 const elements = {
   companyScreen: document.getElementById("companyScreen"),
   appShell: document.getElementById("appShell"),
@@ -249,6 +302,8 @@ const elements = {
   addPartyButton: document.getElementById("addPartyButton"),
   closeEntryButton: document.getElementById("closeEntryButton"),
   cancelEntryButton: document.getElementById("cancelEntryButton"),
+  saveAndNewEntryButton: document.getElementById("saveAndNewEntryButton"),
+  saveEntryButton: document.getElementById("saveEntryButton"),
   searchInput: document.getElementById("searchInput"),
   openAnythingPanel: document.getElementById("openAnythingPanel"),
   homeView: document.getElementById("homeView"),
@@ -299,6 +354,119 @@ const elements = {
   cancelCompanyModalButton: document.getElementById("cancelCompanyModalButton"),
 };
 
+// ── Global Progress & Loading Controller ─────────────────────────────────────
+let topProgressTimer = null;
+let topProgressValue = 0;
+let globalLoaderCount = 0;
+
+function startTopProgress() {
+  const el = document.getElementById("appTopProgress");
+  const bar = el?.querySelector(".app-top-progress-bar");
+  if (!el || !bar) return;
+
+  if (topProgressTimer) clearInterval(topProgressTimer);
+  el.classList.remove("hidden");
+  el.style.opacity = "1";
+  topProgressValue = 18;
+  bar.style.width = `${topProgressValue}%`;
+
+  topProgressTimer = setInterval(() => {
+    if (topProgressValue < 82) {
+      topProgressValue += Math.max(1, Math.floor((82 - topProgressValue) * 0.2));
+      bar.style.width = `${topProgressValue}%`;
+    }
+  }, 120);
+}
+
+function completeTopProgress() {
+  const el = document.getElementById("appTopProgress");
+  const bar = el?.querySelector(".app-top-progress-bar");
+  if (!el || !bar) return;
+
+  if (topProgressTimer) {
+    clearInterval(topProgressTimer);
+    topProgressTimer = null;
+  }
+  topProgressValue = 100;
+  bar.style.width = "100%";
+
+  setTimeout(() => {
+    el.style.opacity = "0";
+    setTimeout(() => {
+      el.classList.add("hidden");
+      bar.style.width = "0%";
+      topProgressValue = 0;
+    }, 280);
+  }, 160);
+}
+
+let globalLoaderSafetyTimer = null;
+
+function showGlobalLoader(title = "Loading...", subtitle = "Please wait a moment...") {
+  globalLoaderCount++;
+  const overlay = document.getElementById("appGlobalLoader");
+  const titleEl = document.getElementById("appGlobalLoaderTitle");
+  const subEl = document.getElementById("appGlobalLoaderSubtitle");
+  if (titleEl) titleEl.textContent = title;
+  if (subEl) subEl.textContent = subtitle;
+  if (overlay) {
+    overlay.classList.remove("hidden");
+    overlay.setAttribute("aria-hidden", "false");
+  }
+  startTopProgress();
+  if (globalLoaderSafetyTimer) clearTimeout(globalLoaderSafetyTimer);
+  globalLoaderSafetyTimer = setTimeout(() => {
+    hideGlobalLoader(true);
+  }, 15000);
+}
+
+function hideGlobalLoader(force = false) {
+  if (force) {
+    globalLoaderCount = 0;
+  } else {
+    globalLoaderCount = Math.max(0, globalLoaderCount - 1);
+  }
+  if (globalLoaderCount === 0) {
+    if (globalLoaderSafetyTimer) {
+      clearTimeout(globalLoaderSafetyTimer);
+      globalLoaderSafetyTimer = null;
+    }
+    const overlay = document.getElementById("appGlobalLoader");
+    if (overlay) {
+      overlay.classList.add("hidden");
+      overlay.setAttribute("aria-hidden", "true");
+    }
+    completeTopProgress();
+  }
+}
+
+async function withGlobalLoader(asyncTask, title, subtitle) {
+  showGlobalLoader(title, subtitle);
+  await new Promise((r) => requestAnimationFrame(() => setTimeout(r, 30)));
+  try {
+    return await asyncTask();
+  } finally {
+    hideGlobalLoader();
+  }
+}
+
+function hideAppSplashLoader() {
+  const splash = document.getElementById("appInitialSplash");
+  if (splash) {
+    splash.classList.add("hidden");
+    setTimeout(() => {
+      try { splash.remove(); } catch (_) {}
+    }, 350);
+  }
+}
+
+function navigateView(view, title) {
+  if (!view) return;
+  startTopProgress();
+  syncSidebarNavigation(view);
+  showView(view, title);
+}
+
 bindEvents();
 initApp();
 
@@ -307,22 +475,26 @@ async function initApp() {
   elements.companyScreen.classList.add("hidden");
   elements.appShell.classList.add("hidden");
 
-  if (window.giDB) {
-    try {
-      state = normalizeState(await window.giDB.getState());
-    } catch (error) {
-      console.error("Unable to load database state", error);
+  try {
+    if (window.giDB) {
+      try {
+        state = normalizeState(await window.giDB.getState());
+      } catch (error) {
+        console.error("Unable to load database state", error);
+      }
     }
-  }
 
-  renderCompanyList();
-  const activeCompany = (state.companies || []).find((company) =>
-    company.name === state.activeCompany || Boolean(company.isCurrent),
-  );
-  if (activeCompany?.name) {
-    enterAppShell();
-  } else {
-    showCompanyScreen();
+    renderCompanyList();
+    const activeCompany = (state.companies || []).find((company) =>
+      company.name === state.activeCompany || Boolean(company.isCurrent),
+    );
+    if (activeCompany?.name) {
+      enterAppShell();
+    } else {
+      showCompanyScreen();
+    }
+  } finally {
+    hideAppSplashLoader();
   }
 }
 
@@ -468,6 +640,7 @@ function defaultBusinessSettings() {
     printGstSummary: true,
     printTerms: true,
     printSignature: true,
+    enableAdditionalFields: true,
     customFields: defaultCustomFieldDefinitions(),
   };
 }
@@ -755,7 +928,6 @@ function sidebarGroupForView(view) {
 function submenuForSidebarGroup(groupName) {
   if (groupName === "sales") return elements.saleSubmenu;
   if (groupName === "purchases") return elements.purchaseSubmenu;
-  if (groupName === "gst") return elements.gstSubmenu;
   if (groupName === "settings") return elements.utilitiesSubmenu;
   return null;
 }
@@ -826,41 +998,51 @@ function updateSidebarBadges() {
   }
 }
 
-var hideCollapsedFlyoutGlobal = null;
+function isSidebarCollapsed() {
+  return document.body.classList.contains("sidebar-collapsed") ||
+         Boolean(document.getElementById("appShell")?.classList.contains("sidebar-collapsed"));
+}
+
+function setSidebarCollapsed(collapsed, options = {}) {
+  document.body.classList.toggle("sidebar-collapsed", collapsed);
+  const appShell = document.getElementById("appShell");
+  if (appShell) appShell.classList.toggle("sidebar-collapsed", collapsed);
+
+  const toggleBtn = document.getElementById("sidebarToggleBtn");
+  if (toggleBtn) {
+    toggleBtn.setAttribute("title", collapsed ? "Expand sidebar (Ctrl+B)" : "Collapse sidebar (Ctrl+B)");
+    toggleBtn.setAttribute("aria-label", collapsed ? "Expand sidebar" : "Collapse sidebar");
+    const iconUse = toggleBtn.querySelector("use");
+    if (iconUse) {
+      iconUse.setAttribute("href", collapsed ? "#gi-sidebar-expand" : "#gi-sidebar-collapse");
+    }
+  }
+
+  if (!collapsed && typeof hideCollapsedFlyoutGlobal === "function") {
+    hideCollapsedFlyoutGlobal();
+  }
+
+  if (options.persist !== false) {
+    userPreferredSidebarCollapsed = Boolean(collapsed);
+    try {
+      localStorage.setItem("gi_sidebar_collapsed", collapsed ? "1" : "0");
+    } catch {
+      // ignore in sandboxed environments
+    }
+  }
+}
 
 function initSidebarToggle() {
   const toggleBtn = document.getElementById("sidebarToggleBtn");
   const STORAGE_KEY = "gi_sidebar_collapsed";
 
-  function setSidebarCollapsed(collapsed) {
-    document.body.classList.toggle("sidebar-collapsed", collapsed);
-    const appShell = document.getElementById("appShell");
-    if (appShell) appShell.classList.toggle("sidebar-collapsed", collapsed);
-
-    if (toggleBtn) {
-      toggleBtn.setAttribute("title", collapsed ? "Expand sidebar (Ctrl+B)" : "Collapse sidebar (Ctrl+B)");
-      toggleBtn.setAttribute("aria-label", collapsed ? "Expand sidebar" : "Collapse sidebar");
-      const iconUse = toggleBtn.querySelector("use");
-      if (iconUse) {
-        iconUse.setAttribute("href", collapsed ? "#gi-sidebar-expand" : "#gi-sidebar-collapse");
-      }
-    }
-
-    if (!collapsed && typeof hideCollapsedFlyoutGlobal === "function") {
-      hideCollapsedFlyoutGlobal();
-    }
-
-    try {
-      localStorage.setItem(STORAGE_KEY, collapsed ? "1" : "0");
-    } catch {
-      // ignore in sandboxed environments
-    }
-  }
-
   try {
     const saved = localStorage.getItem(STORAGE_KEY);
     if (saved === "1") {
+      userPreferredSidebarCollapsed = true;
       setSidebarCollapsed(true);
+    } else {
+      userPreferredSidebarCollapsed = false;
     }
   } catch {
     // ignore
@@ -868,7 +1050,8 @@ function initSidebarToggle() {
 
   if (toggleBtn) {
     toggleBtn.addEventListener("click", () => {
-      const isCurrentlyCollapsed = document.body.classList.contains("sidebar-collapsed");
+      const isCurrentlyCollapsed = isSidebarCollapsed();
+      autoCollapsedByView = false;
       setSidebarCollapsed(!isCurrentlyCollapsed);
     });
   }
@@ -882,7 +1065,8 @@ function initSidebarToggle() {
         }
       }
       e.preventDefault();
-      const isCurrentlyCollapsed = document.body.classList.contains("sidebar-collapsed");
+      const isCurrentlyCollapsed = isSidebarCollapsed();
+      autoCollapsedByView = false;
       setSidebarCollapsed(!isCurrentlyCollapsed);
     }
   });
@@ -986,7 +1170,7 @@ function initCollapsedSidebarFlyouts() {
       btn.addEventListener("click", (e) => {
         e.stopPropagation();
         hideFlyoutImmediately();
-        showView(targetView);
+        navigateView(targetView);
       });
       flyoutItems.appendChild(btn);
     });
@@ -1128,6 +1312,7 @@ function initPrivacyModeToggle() {
     if (btn) {
       btn.classList.toggle("active", active);
       btn.setAttribute("aria-pressed", active ? "true" : "false");
+      btn.setAttribute("aria-checked", active ? "true" : "false");
       btn.setAttribute(
         "title",
         active
@@ -1219,11 +1404,11 @@ function initDashboardAttentionHandlers() {
     if (btn) {
       const action = btn.dataset.attentionAction;
       if (action === "receivables") {
-        showView("reports", "receivablesOutstanding");
+        navigateView("reports", "receivablesOutstanding");
       } else if (action === "stock") {
-        showView("reports", "lowStock");
+        navigateView("reports", "lowStock");
       } else if (action === "payables") {
-        showView("purchases");
+        navigateView("purchases");
       }
       return;
     }
@@ -1231,10 +1416,22 @@ function initDashboardAttentionHandlers() {
     const backupBtn = e.target.closest("#dashboardQuickBackupBtn");
     if (backupBtn) {
       if (window.giDB?.createSnapshot) {
+        backupBtn.disabled = true;
+        const originalText = backupBtn.innerHTML;
+        backupBtn.innerHTML = `${icon("database")} Choose location...`;
+        showGlobalLoader("Creating Backup (.zyn)...", "Saving encrypted database snapshot...");
         window.giDB.createSnapshot().then((res) => {
-          showToast(`Backup created successfully: ${res.filename}`);
+          if (res?.canceled) {
+            showToast("Backup cancelled.");
+          } else if (res?.success) {
+            showToast(`Backup snapshot saved: ${res.filename}`);
+          }
         }).catch((err) => {
           showToast(`Backup failed: ${err.message}`);
+        }).finally(() => {
+          hideGlobalLoader();
+          backupBtn.disabled = false;
+          backupBtn.innerHTML = originalText;
         });
       } else if (window.giDB?.createBackup) {
         window.giDB.createBackup();
@@ -1250,6 +1447,7 @@ function handleSidebarNavigation(button) {
   const parentGroup = SIDEBAR_GROUPS[view];
   if (parentGroup && button.classList.contains("nav-item")) {
     if (document.body.classList.contains("sidebar-collapsed")) {
+      navigateView(parentGroup.defaultView);
       return true;
     }
     const isCurrentGroup = sidebarGroupForView(currentView) === view;
@@ -1263,13 +1461,13 @@ function handleSidebarNavigation(button) {
     }
 
     collapsedSidebarGroups.delete(view);
-    showView(parentGroup.defaultView);
+    navigateView(parentGroup.defaultView);
     return true;
   }
 
   const childGroup = sidebarGroupForView(view);
   if (childGroup) collapsedSidebarGroups.delete(childGroup);
-  showView(view);
+  navigateView(view);
   return true;
 }
 
@@ -1279,7 +1477,7 @@ function bindEvents() {
   initPrivacyModeToggle();
   initDashboardAttentionHandlers();
   document.querySelector('.company-switch')?.addEventListener('click', () => {
-    showView("appSettings", "COMPANY");
+    navigateView("appSettings", "COMPANY");
   });
   document.querySelectorAll(".open-company-button").forEach((button) => {
     button.addEventListener("click", () => openCompany(button.dataset.company));
@@ -1337,6 +1535,12 @@ function bindEvents() {
   });
   elements.closeEntryButton.addEventListener("click", closeEntryModal);
   elements.cancelEntryButton.addEventListener("click", closeEntryModal);
+  elements.saveAndNewEntryButton?.addEventListener("click", () => {
+    entryModalSaveMode = "new";
+  });
+  elements.saveEntryButton?.addEventListener("click", () => {
+    entryModalSaveMode = "close";
+  });
   elements.refreshButton?.addEventListener("click", () => {
     renderDashboard();
     renderCurrentList();
@@ -1376,12 +1580,12 @@ function bindEvents() {
   document.querySelectorAll("[data-view]").forEach((button) => {
     button.addEventListener("click", () => {
       if (handleSidebarNavigation(button)) return;
-      showView(button.dataset.view);
+      navigateView(button.dataset.view);
     });
   });
 
   document.querySelectorAll("[data-report]").forEach((button) => {
-    button.addEventListener("click", () => showView("reports", button.dataset.report));
+    button.addEventListener("click", () => navigateView("reports", button.dataset.report));
   });
 
   window.addEventListener("gi-change-company", () => {
@@ -1924,21 +2128,27 @@ function enterAppShell() {
 }
 
 async function openCompany(name) {
-  if (window.giDB) {
-    try {
-      state = normalizeState(await window.giDB.setCurrentCompany(name));
-      renderCompanyList();
-    } catch (error) {
-      console.error("Unable to switch company through database bridge", error);
+  showGlobalLoader(`Opening ${name}...`, "Loading company and accounting records...");
+  await new Promise((r) => requestAnimationFrame(() => setTimeout(r, 40)));
+  try {
+    if (window.giDB) {
+      try {
+        state = normalizeState(await window.giDB.setCurrentCompany(name));
+        renderCompanyList();
+      } catch (error) {
+        console.error("Unable to switch company through database bridge", error);
+        state.activeCompany = name;
+        saveState();
+      }
+    } else {
       state.activeCompany = name;
       saveState();
     }
-  } else {
-    state.activeCompany = name;
-    saveState();
+    elements.activeCompanyName.textContent = state.businessSettings?.businessName || name;
+    enterAppShell();
+  } finally {
+    hideGlobalLoader();
   }
-  elements.activeCompanyName.textContent = state.businessSettings?.businessName || name;
-  enterAppShell();
 }
 
 function openEntryModal(type, record = null, options = {}) {
@@ -1995,6 +2205,8 @@ function openEntryModal(type, record = null, options = {}) {
       field.style.display = type === "party" ? "block" : "none";
     } else if (field.classList.contains("party-modal-tabs") || field.classList.contains("entry-modal-icon")) {
       field.style.display = type === "party" ? "flex" : "none";
+    } else if (field.classList.contains("party-modal-top-bar")) {
+      field.style.display = type === "party" ? "grid" : "none";
     } else {
       field.style.display = type === "party" ? "" : "none";
     }
@@ -2020,8 +2232,20 @@ function openEntryModal(type, record = null, options = {}) {
   if (type === "party") {
     resetPartyTabs();
     if (!currentEntryRecordId) {
+      resetPartyAddressCards(null);
       setPartyTypeChip("party");
       setBalanceTypeChip("receivable");
+      const radio = elements.entryForm.querySelector('input[name="creditBalanceRadio"][value="receivable"]');
+      if (radio) radio.checked = true;
+      const asOfDateInput = document.getElementById("partyAsOfDateInput");
+      if (asOfDateInput) asOfDateInput.value = new Date().toISOString().slice(0, 10);
+      const limitToggle = document.getElementById("partyCreditLimitToggle");
+      if (limitToggle) {
+        limitToggle.checked = false;
+        document.getElementById("noLimitLabel")?.classList.add("active");
+        document.getElementById("customLimitLabel")?.classList.remove("active");
+        document.getElementById("customCreditLimitWrap")?.classList.add("hidden");
+      }
       const sameAsBilling = elements.entryForm.querySelector('[name="sameAsBilling"]');
       const shippingRow = document.getElementById("shippingAddressRow");
       if (sameAsBilling) sameAsBilling.checked = true;
@@ -2049,7 +2273,8 @@ function openEntryModal(type, record = null, options = {}) {
 
   if (currentEntryRecordId) populateEntryForm(type, record);
   if (options.draft) populateEntryDraft(type, options.draft);
-  const submitButton = elements.entryForm.querySelector('button[type="submit"]');
+  const submitButton = document.getElementById("saveEntryButton") || elements.entryForm.querySelector('button[type="submit"]');
+  const saveAndNewBtn = document.getElementById("saveAndNewEntryButton");
   if (submitButton) {
     if (type === "party") {
       submitButton.textContent = currentEntryRecordId ? "Update Party" : "Save Party";
@@ -2058,6 +2283,10 @@ function openEntryModal(type, record = null, options = {}) {
     } else {
       submitButton.textContent = currentEntryRecordId ? "Update" : "Save";
     }
+  }
+  if (saveAndNewBtn) {
+    saveAndNewBtn.style.display = (type === "party" || type === "item") ? "inline-flex" : "none";
+    saveAndNewBtn.textContent = "Save & New";
   }
 }
 
@@ -2088,14 +2317,19 @@ function openTransactionEditor(type, options = {}) {
   const savedDraft = options.draft || activeTab.draft || options.editInvoiceId || options.newTab ? null : loadTransactionDraft(type);
   const draft = options.draft || activeTab.draft || savedDraft;
   if (draft) populateTransactionEditorDraft(draft);
-  if (!activeTransactionEditInvoiceId && !draft?.invoiceNo && window.giDB?.previewNextInvoiceNumber) {
+  const invoiceInput = elements.featureView.querySelector('[name="invoiceNo"]');
+  const isCurrentNoDuplicate = invoiceInput && isDuplicateInvoiceNumber(invoiceInput.value, type, activeTransactionEditInvoiceId);
+  const shouldRefreshNo = !activeTransactionEditInvoiceId && (!invoiceInput?.value || isCurrentNoDuplicate || invoiceInput.value.toLowerCase() === "auto");
+  if (shouldRefreshNo && window.giDB?.previewNextInvoiceNumber) {
     const invoiceDateVal = elements.featureView.querySelector('[name="invoiceDate"]')?.value;
     window.giDB.previewNextInvoiceNumber(type, invoiceDateVal).then((dbNext) => {
       if (dbNext && elements.featureView) {
         const input = elements.featureView.querySelector('[name="invoiceNo"]');
-        if (input && !input.dataset.userEdited) {
+        if (input && (!input.dataset.userEdited || isCurrentNoDuplicate)) {
           input.value = dbNext;
           input.placeholder = dbNext;
+          input.classList.remove("invalid-field");
+          input.closest("label")?.querySelectorAll(".field-error").forEach((el) => el.remove());
         }
       }
     }).catch(() => {});
@@ -2324,9 +2558,9 @@ function computeNextDocumentNumber(type, docDate = new Date()) {
 
   let existingNumbers = [];
   if (type === "sale" || type === "purchase") {
-    existingNumbers = (state.invoices || [])
-      .filter((inv) => inv.type === type)
-      .map((inv) => inv.invoiceNo);
+    const invNos = (state.invoices || []).filter((inv) => inv.type === type).map((inv) => inv.invoiceNo);
+    const txnNos = (state.transactions || []).filter((t) => t.type === type).map((t) => t.invoiceNo);
+    existingNumbers = [...invNos, ...txnNos];
   } else if (["estimate", "proforma", "saleOrder", "sale_order", "deliveryChallan", "delivery_challan", "purchaseOrder", "purchase_order"].includes(type)) {
     const docType = type === "saleOrder" ? "sale_order" : type === "deliveryChallan" ? "delivery_challan" : type === "purchaseOrder" ? "purchase_order" : type;
     existingNumbers = (state.estimates || [])
@@ -2355,7 +2589,10 @@ function computeNextDocumentNumber(type, docDate = new Date()) {
     }
   });
 
-  const nextNum = maxNum + 1;
+  let nextNum = maxNum + 1;
+  while (isDuplicateInvoiceNumber(`${prefix}-${fy}-${String(nextNum).padStart(4, "0")}`, type)) {
+    nextNum++;
+  }
   return `${prefix}-${fy}-${String(nextNum).padStart(4, "0")}`;
 }
 
@@ -2364,10 +2601,16 @@ function isDuplicateInvoiceNumber(invoiceNo, type, excludeId = null) {
   if (!cleanNo || cleanNo === "auto") return false;
 
   if (type === "sale" || type === "purchase") {
-    return (state.invoices || []).some((inv) => {
+    const inInvoices = (state.invoices || []).some((inv) => {
       if (inv.type !== type) return false;
       if (excludeId && (String(inv.id) === String(excludeId) || String(inv.transactionId) === String(excludeId))) return false;
       return String(inv.invoiceNo || "").trim().toLowerCase() === cleanNo;
+    });
+    if (inInvoices) return true;
+    return (state.transactions || []).some((tx) => {
+      if (tx.type !== type) return false;
+      if (excludeId && (String(tx.id) === String(excludeId) || String(tx.invoiceId) === String(excludeId))) return false;
+      return String(tx.invoiceNo || "").trim().toLowerCase() === cleanNo;
     });
   }
 
@@ -2413,6 +2656,16 @@ function validateInvoiceNumber(inputElement, { showInline = true } = {}) {
   }
 
   if (isDuplicateInvoiceNumber(val, type, activeTransactionEditInvoiceId)) {
+    if (type === "sale" && !activeTransactionEditInvoiceId) {
+      const freshNo = computeNextDocumentNumber(type, inputElement.form?.querySelector('[name="invoiceDate"]')?.value);
+      if (freshNo && freshNo !== val && !isDuplicateInvoiceNumber(freshNo, type, activeTransactionEditInvoiceId)) {
+        inputElement.value = freshNo;
+        inputElement.placeholder = freshNo;
+        inputElement.classList.remove("invalid-field");
+        inputElement.closest("label")?.querySelectorAll(".field-error").forEach((el) => el.remove());
+        return { valid: true };
+      }
+    }
     const message = `${docLabel} "${val}" already exists. Please use a unique number.`;
     if (showInline) setInlineError(inputElement, message);
     return { valid: false, message };
@@ -2436,6 +2689,7 @@ function transactionEditorTemplate(type = getTransactionEditorType()) {
   const paymentLabel = meta.paymentAmountLabel;
   const today = new Date().toLocaleDateString("en-GB");
   const editorTabs = transactionEditorTabs[type] || [];
+  const isDocNoReadOnly = type !== "purchase";
 
   const activeTab = editorTabs.find((tab) => tab.id === activeTransactionEditorTabId);
   let initialInvoiceNo = "";
@@ -2488,7 +2742,7 @@ function transactionEditorTemplate(type = getTransactionEditorType()) {
                 <span class="editor-unified-balance-pill" title="Party Balance">${meta.balanceLabel}: <b>-</b></span>
               </div>
               <div class="editor-unified-title-right">
-                <span class="editor-unified-doc-pill">${isEditing ? "Editing" : "Auto numbered"}</span>
+                ${isEditing ? `<span class="editor-unified-doc-pill">Editing</span>` : ""}
                 <button type="button" class="editor-unified-more-toggle" data-editor-action="toggle-more-details" title="Toggle extra party and document details">
                   <span>More details</span>
                   ${icon("chevron-down")}
@@ -2521,7 +2775,7 @@ function transactionEditorTemplate(type = getTransactionEditorType()) {
               <div class="editor-compact-col col-doc-no">
                 <label class="editor-compact-label">
                   <span>${invoiceLabel}</span>
-                  <input class="form-input compact-input" name="invoiceNo" value="${escapeHtml(initialInvoiceNo)}" placeholder="${escapeHtml(initialInvoiceNo)}" autocomplete="off" spellcheck="false">
+                  <input class="form-input compact-input ${isDocNoReadOnly ? "readonly-doc-no" : ""}" name="invoiceNo" value="${escapeHtml(initialInvoiceNo)}" placeholder="${escapeHtml(initialInvoiceNo)}" autocomplete="off" spellcheck="false" ${isDocNoReadOnly ? 'readonly tabindex="-1"' : ""}>
                 </label>
               </div>
 
@@ -2531,25 +2785,13 @@ function transactionEditorTemplate(type = getTransactionEditorType()) {
                   <input class="form-input compact-input" name="invoiceDate" value="${today}">
                 </label>
               </div>
-
-              <div class="editor-compact-col col-doc-supply">
-                <label class="editor-compact-label">
-                  <span>GST Supply</span>
-                  <select class="form-input compact-input" name="supplyType">
-                    <option value="b2c">B2C / Unregistered</option>
-                    <option value="b2b">B2B / Registered</option>
-                    <option value="export">Export</option>
-                    <option value="sez">SEZ</option>
-                  </select>
-                </label>
-              </div>
+              <input type="hidden" name="supplyType" value="${escapeHtml(activeTab?.draft?.supplyType || 'b2c')}">
 
               <div class="editor-compact-col col-doc-state">
                 <label class="editor-compact-label">
                   <span>Place of Supply</span>
                   <select class="form-input compact-input" name="state">
-                    <option value="">Select</option>
-                    ${indianStateOptions(state.businessSettings?.state || "Karnataka")}
+                    ${indianStateOptions(state.businessSettings?.state || "Kerala")}
                   </select>
                 </label>
               </div>
@@ -2571,7 +2813,14 @@ function transactionEditorTemplate(type = getTransactionEditorType()) {
                 <div class="editor-compact-col col-address">
                   <label class="editor-compact-label">
                     <span>Billing Address</span>
-                    <textarea class="form-input compact-textarea" name="address" rows="1" placeholder="Auto-filled from selected ${escapeHtml(meta.partyRole)}"></textarea>
+                    <textarea class="form-input compact-textarea" name="address" rows="1" placeholder="Billing address" readonly tabindex="-1"></textarea>
+                  </label>
+                </div>
+
+                <div class="editor-compact-col col-shipping-address">
+                  <label class="editor-compact-label">
+                    <span>Shipping Address</span>
+                    <textarea class="form-input compact-textarea" name="shippingAddress" rows="1" placeholder="Shipping address" readonly tabindex="-1"></textarea>
                   </label>
                 </div>
 
@@ -2599,14 +2848,7 @@ function transactionEditorTemplate(type = getTransactionEditorType()) {
                 <div class="editor-compact-col col-gstin">
                   <label class="editor-compact-label">
                     <span>Party GSTIN</span>
-                    <input class="form-input compact-input uppercase-field" name="partyGstin" maxlength="15" placeholder="e.g. 27AAAAA0000A1Z5" autocomplete="off" spellcheck="false">
-                  </label>
-                </div>
-
-                <div class="editor-compact-col col-notes">
-                  <label class="editor-compact-label">
-                    <span>${isEstimate ? "Quote Notes" : "Invoice Notes"}</span>
-                    <textarea class="form-input compact-textarea" name="invoiceDescription" rows="1" placeholder="Optional notes printed on document"></textarea>
+                    <input class="form-input compact-input uppercase-field" name="partyGstin" maxlength="15" placeholder="Party GSTIN" autocomplete="off" spellcheck="false" readonly tabindex="-1">
                   </label>
                 </div>
               </div>
@@ -2655,9 +2897,17 @@ function transactionEditorTemplate(type = getTransactionEditorType()) {
         <section class="editor-bottom-grid">
           <aside class="editor-side-actions">
             ${type === "purchase" ? '<label class="purchase-default-option"><input type="checkbox" name="updatePurchaseDefaults"> Update default purchase prices</label>' : ''}
-            <button type="button" class="disabled-action" data-editor-extra="description">${icon("file-plus")} ${isEstimate ? "Quote Notes" : "Notes"}</button>
-            <button type="button" class="disabled-action" data-editor-extra="image">${icon("image")} Image</button>
-            <button type="button" class="disabled-action" data-editor-extra="document">${icon("paperclip")} Document</button>
+            <div class="editor-extra-buttons-row">
+              <button type="button" class="disabled-action editor-extra-btn" data-editor-extra="description" title="Click to write or focus Notes">${icon("file-plus")} ${isEstimate ? "Quote Notes" : "Notes"}</button>
+              <button type="button" class="disabled-action editor-extra-btn" data-editor-extra="image" title="Attach Image">${icon("image")} Image</button>
+              <button type="button" class="disabled-action editor-extra-btn" data-editor-extra="document" title="Attach Document">${icon("paperclip")} Document</button>
+            </div>
+            <div class="editor-bottom-notes-section" id="editorNotesSection">
+              <label class="editor-bottom-notes-label">
+                <span class="editor-bottom-notes-title">${isEstimate ? "Quote Notes / Remarks" : "Invoice Notes / Remarks"}</span>
+                <textarea class="form-input editor-bottom-notes-textarea" name="invoiceDescription" rows="2" placeholder="Notes / Remarks"></textarea>
+              </label>
+            </div>
             <input class="hidden" id="editorImageInput" type="file" accept="image/*" multiple>
             <input class="hidden" id="editorDocumentInput" type="file" accept=".pdf,.doc,.docx,.xls,.xlsx,.txt,.csv,image/*" multiple>
             <div class="editor-attachment-list hidden" id="editorAttachmentList"></div>
@@ -2704,14 +2954,23 @@ function transactionEditorTemplate(type = getTransactionEditorType()) {
 }
 
 function transactionCustomFieldsSection(type) {
+  const settings = state.businessSettings || defaultBusinessSettings();
+  if (settings.enableAdditionalFields === false) return "";
   const fields = customFieldsForModule(type);
   if (!fields.length) return "";
   return `
-    <section class="editor-custom-fields-panel">
+    <section class="editor-custom-fields-panel" id="editorAdditionalFieldsPanel">
       <div class="editor-table-toolbar">
-        <strong>Additional Fields</strong>
+        <div class="editor-additional-fields-header">
+          <strong>Additional Fields</strong>
+          <span class="editor-additional-badge">PO, Vehicle, Delivery &amp; Ref</span>
+        </div>
+        <button type="button" class="additional-fields-toggle-btn" id="toggleAdditionalFieldsBtn" title="Toggle Additional Fields display">
+          <span class="toggle-text">Hide</span>
+          <svg class="gi-icon" style="width:11px;height:11px;"><use href="#gi-chevron-down"></use></svg>
+        </button>
       </div>
-      <div class="editor-custom-fields-grid">
+      <div class="editor-custom-fields-grid" id="editorAdditionalFieldsGrid">
         ${fields.map((field) => transactionCustomFieldControl(field)).join("")}
       </div>
     </section>
@@ -2760,6 +3019,7 @@ function populateTransactionEditorDraft(draft) {
   const partyInput = elements.featureView.querySelector('[name="party"]');
   const phoneInput = elements.featureView.querySelector('[name="phone"]');
   const addressInput = elements.featureView.querySelector('[name="address"]');
+  const shippingInput = elements.featureView.querySelector('[name="shippingAddress"]');
   const invoiceNoInput = elements.featureView.querySelector('[name="invoiceNo"]');
   const invoiceDateInput = elements.featureView.querySelector('[name="invoiceDate"]');
   const paymentTermsInput = elements.featureView.querySelector('[name="paymentTerms"]');
@@ -2785,28 +3045,33 @@ function populateTransactionEditorDraft(draft) {
   }
 
   if (phoneInput && draft.phone) phoneInput.value = draft.phone;
-  if (addressInput && draft.billingAddress) addressInput.value = draft.billingAddress;
+  if (addressInput && (draft.billingAddress || draft.address)) addressInput.value = draft.billingAddress || draft.address;
+  if (shippingInput && (draft.shippingAddress || draft.billingAddress || draft.address)) {
+    shippingInput.value = draft.shippingAddress || draft.billingAddress || draft.address || "";
+  }
   if (invoiceNoInput) {
-    if (draft.invoiceNo && draft.invoiceNo.toLowerCase() !== "auto") {
+    const editorType = getTransactionEditorType();
+    const isDraftDuplicate = draft.invoiceNo && isDuplicateInvoiceNumber(draft.invoiceNo, editorType, activeTransactionEditInvoiceId);
+    if (draft.invoiceNo && draft.invoiceNo.toLowerCase() !== "auto" && !isDraftDuplicate) {
       invoiceNoInput.value = draft.invoiceNo;
-    } else if (!invoiceNoInput.value || invoiceNoInput.value.toLowerCase() === "auto") {
-      invoiceNoInput.value = computeNextDocumentNumber(getTransactionEditorType());
+    } else {
+      invoiceNoInput.value = computeNextDocumentNumber(editorType);
     }
   }
   if (invoiceDateInput && draft.invoiceDate) invoiceDateInput.value = toEditorDateString(draft.invoiceDate);
   if (paymentTermsInput && draft.paymentTerms) ensureSelectValue(paymentTermsInput, draft.paymentTerms);
   if (dueDateInput && draft.dueDate) dueDateInput.value = toEditorDateString(draft.dueDate);
+  const firmState = state.businessSettings?.state || "Kerala";
   const draftGstin = String(draft.partyGstin || "").trim().toUpperCase();
-  const draftState = draft.state || getStateByGstin(draftGstin);
-  if (stateInput && draftState) ensureSelectValue(stateInput, draftState);
+  const draftState = resolveIndianStateName(draft.state) || getStateByGstin(draftGstin) || firmState;
+  if (stateInput) ensureSelectValue(stateInput, draftState);
   if (supplyTypeInput && (draft.supplyType || draftGstin)) supplyTypeInput.value = draft.supplyType || (draftGstin ? "b2b" : "b2c");
   if (partyGstinInput && draftGstin) partyGstinInput.value = draftGstin;
+  updateEditorGstinVisibility();
   if (originalInvoiceIdInput && draft.originalInvoiceId) originalInvoiceIdInput.value = draft.originalInvoiceId;
   if (originalInvoiceNoInput && draft.originalInvoiceNo) originalInvoiceNoInput.value = draft.originalInvoiceNo;
   if (descriptionInput && draft.invoiceDescription) {
     descriptionInput.value = draft.invoiceDescription;
-    const panel = elements.featureView.querySelector(".editor-more-details");
-    if (panel) panel.open = true;
     elements.featureView.querySelector('[data-editor-extra="description"]')?.classList.add("active");
   }
   if (paymentTypeInput && draft.paymentType) paymentTypeInput.value = draft.paymentType;
@@ -2940,6 +3205,30 @@ function bindEditorColumnResize() {
   });
 }
 
+function updateEditorGstinVisibility() {
+  const form = elements.featureView?.querySelector("#transactionEditorForm");
+  if (!form) return;
+  const colGstin = form.querySelector(".col-gstin");
+  const secondaryRow = form.querySelector(".editor-unified-secondary-row");
+  const gstinInput = form.querySelector('[name="partyGstin"]');
+  const supplyType = form.querySelector('[name="supplyType"]');
+  const party = getSelectedTransactionParty();
+
+  const isB2c = supplyType?.value === "b2c";
+  const isRegisteredParty = Boolean(
+    party && (party.taxType === "gst_registered" || party.taxType === "composition" || (party.gstin && party.gstin.trim()))
+  );
+  const isB2bSupply = supplyType?.value === "b2b" || supplyType?.value === "export" || supplyType?.value === "sez";
+  const isRegistered = !isB2c && (isRegisteredParty || isB2bSupply || Boolean(gstinInput?.value?.trim()));
+
+  if (colGstin) {
+    colGstin.style.display = isRegistered ? "" : "none";
+  }
+  if (secondaryRow) {
+    secondaryRow.classList.toggle("gstin-hidden", !isRegistered);
+  }
+}
+
 function bindTransactionEditor() {
   bindEditorColumnResize();
   const partyInput = elements.featureView.querySelector('[name="party"]');
@@ -2948,6 +3237,18 @@ function bindTransactionEditor() {
   partyInput?.addEventListener("focus", () => renderPartyLookupPanel("party"));
   phoneInput?.addEventListener("input", () => handleEditorPartyLookupInput("phone"));
   phoneInput?.addEventListener("focus", () => renderPartyLookupPanel("phone"));
+  const editorAddress = elements.featureView.querySelector('[name="address"]');
+  const editorShipping = elements.featureView.querySelector('[name="shippingAddress"]');
+  if (editorAddress && editorShipping) {
+    editorAddress.addEventListener("input", () => {
+      if (!editorShipping.dataset.manuallyEdited && !editorShipping.readOnly) {
+        editorShipping.value = editorAddress.value;
+      }
+    });
+    editorShipping.addEventListener("input", () => {
+      editorShipping.dataset.manuallyEdited = "true";
+    });
+  }
   elements.featureView.querySelector('[name="paymentTerms"]')?.addEventListener("change", syncDueDateFromPaymentTerms);
   const invoiceNoInput = elements.featureView.querySelector('[name="invoiceNo"]');
   if (invoiceNoInput) {
@@ -2969,8 +3270,24 @@ function bindTransactionEditor() {
       validateInvoiceNumber(invoiceNoInput, { showInline: false });
     }
   });
-  elements.featureView.querySelector('[name="state"]')?.addEventListener("change", recalcTransactionEditor);
-  elements.featureView.querySelector('[name="supplyType"]')?.addEventListener("change", () => {
+  elements.featureView.querySelector('[name="state"]')?.addEventListener("change", () => {
+    syncEditorTaxOptions();
+    recalcTransactionEditor();
+  });
+  elements.featureView.querySelector('[name="supplyType"]')?.addEventListener("change", (e) => {
+    const supplyType = e.target;
+    const gstinInput = elements.featureView.querySelector('[name="partyGstin"]');
+    const party = getSelectedTransactionParty();
+    if (supplyType?.value === "b2c") {
+      if (gstinInput && (!party || !party.gstin)) {
+        gstinInput.value = "";
+      }
+    } else if (supplyType?.value === "b2b") {
+      if (gstinInput && party?.gstin) {
+        gstinInput.value = party.gstin;
+      }
+    }
+    updateEditorGstinVisibility();
     recalcTransactionEditor();
     renderTransactionSmartChecks();
   });
@@ -2984,6 +3301,7 @@ function bindTransactionEditor() {
       const supplyType = elements.featureView.querySelector('[name="supplyType"]');
       if (derivedState && stateInput) {
         ensureSelectValue(stateInput, derivedState);
+        syncEditorTaxOptions();
       }
       if (supplyType && gstinVal) {
         supplyType.value = "b2b";
@@ -3070,6 +3388,21 @@ function bindTransactionEditor() {
   elements.featureView.querySelectorAll("[data-editor-extra]").forEach((button) => {
     button.addEventListener("click", () => handleEditorExtraAction(button.dataset.editorExtra));
   });
+  const descInput = elements.featureView.querySelector('[name="invoiceDescription"]');
+  descInput?.addEventListener("input", () => {
+    elements.featureView.querySelector('[data-editor-extra="description"]')?.classList.toggle("active", Boolean(descInput.value.trim()));
+    updateTransactionEditorDirtyState();
+  });
+  const toggleAdditionalBtn = elements.featureView.querySelector("#toggleAdditionalFieldsBtn");
+  const additionalGrid = elements.featureView.querySelector("#editorAdditionalFieldsGrid");
+  if (toggleAdditionalBtn && additionalGrid) {
+    toggleAdditionalBtn.addEventListener("click", () => {
+      const isHidden = additionalGrid.classList.toggle("hidden");
+      const toggleText = toggleAdditionalBtn.querySelector(".toggle-text");
+      if (toggleText) toggleText.textContent = isHidden ? "Show" : "Hide";
+      toggleAdditionalBtn.classList.toggle("collapsed", isHidden);
+    });
+  }
   elements.featureView.querySelector("#editorImageInput")?.addEventListener("change", () => {
     renderEditorAttachmentList();
     updateTransactionEditorDirtyState();
@@ -3266,6 +3599,7 @@ function collectCurrentTransactionDraft() {
     party: String(form.get("party") || "").trim(),
     phone: String(form.get("phone") || "").trim(),
     billingAddress: String(form.get("address") || "").trim(),
+    shippingAddress: String(form.get("shippingAddress") || "").trim(),
     invoiceNo: String(form.get("invoiceNo") || "").trim(),
     invoiceDate: String(form.get("invoiceDate") || "").trim(),
     paymentTerms: String(form.get("paymentTerms") || "").trim(),
@@ -3316,12 +3650,12 @@ function clearTransactionDraft(type = getTransactionEditorType()) {
 
 function handleEditorExtraAction(action) {
   if (action === "description") {
-    const panel = elements.featureView.querySelector(".editor-more-details");
+    const input = elements.featureView.querySelector('[name="invoiceDescription"]');
     const button = elements.featureView.querySelector('[data-editor-extra="description"]');
-    if (!panel) return;
-    panel.open = true;
+    if (!input) return;
+    input.focus();
+    input.scrollIntoView({ behavior: "smooth", block: "nearest" });
     button?.classList.add("active");
-    panel.querySelector('[name="invoiceDescription"]')?.focus();
     return;
   }
   if (action === "image") {
@@ -3879,8 +4213,9 @@ async function handleBusinessSettingsSubmit(event) {
   }
 
   // Handle logo upload
+  const formElement = event.currentTarget;
   let logoBase64 = current.logoBase64 || "";
-  const logoFile = event.currentTarget.querySelector("#logoFileInput")?.files?.[0];
+  const logoFile = formElement?.querySelector("#logoFileInput")?.files?.[0];
   if (logoFile) {
     try {
       logoBase64 = await new Promise((resolve, reject) => {
@@ -3894,7 +4229,7 @@ async function handleBusinessSettingsSubmit(event) {
     }
   }
   // Handle remove logo
-  const removeLogo = event.currentTarget.querySelector("#removeLogoBtn");
+  const removeLogo = formElement?.querySelector("#removeLogoBtn");
   if (removeLogo && removeLogo.dataset.removed === "true") logoBase64 = "";
 
   const settings = {
@@ -3926,45 +4261,35 @@ async function handleBusinessSettingsSubmit(event) {
   if (form.has("a4Template")) settings.a4Template = String(form.get("a4Template") || "modern");
   if (form.has("thermalTemplate")) settings.thermalTemplate = String(form.get("thermalTemplate") || "retail");
 
-  if (event.currentTarget.querySelector('[name="printCompanyLogo"]')) {
+  if (formElement?.querySelector('[name="printCompanyLogo"]')) {
     settings.printCompanyLogo = form.get("printCompanyLogo") === "on";
   }
-  if (event.currentTarget.querySelector('[name="printBankDetails"]')) {
+  if (formElement?.querySelector('[name="printBankDetails"]')) {
     settings.printBankDetails = form.get("printBankDetails") === "on";
   }
-  if (event.currentTarget.querySelector('[name="printUpiQr"]')) {
+  if (formElement?.querySelector('[name="printUpiQr"]')) {
     settings.printUpiQr = form.get("printUpiQr") === "on";
   }
-  if (event.currentTarget.querySelector('[name="printGstSummary"]')) {
+  if (formElement?.querySelector('[name="printGstSummary"]')) {
     settings.printGstSummary = form.get("printGstSummary") === "on";
   }
-  if (event.currentTarget.querySelector('[name="printTerms"]')) {
+  if (formElement?.querySelector('[name="printTerms"]')) {
     settings.printTerms = form.get("printTerms") === "on";
   }
-  if (event.currentTarget.querySelector('[name="printSignature"]')) {
+  if (formElement?.querySelector('[name="printSignature"]')) {
     settings.printSignature = form.get("printSignature") === "on";
   }
-  if (event.currentTarget.querySelector('[name="stopSaleOnNegativeStock"]')) {
+  if (formElement?.querySelector('[name="stopSaleOnNegativeStock"]')) {
     settings.stopSaleOnNegativeStock = form.get("stopSaleOnNegativeStock") === "on";
   }
-  if (event.currentTarget.querySelector('[name="defaultTaxInclusive"]')) {
+  if (formElement?.querySelector('[name="defaultTaxInclusive"]')) {
     settings.defaultTaxInclusive = form.get("defaultTaxInclusive") === "on";
   }
-  if (event.currentTarget.querySelector('[name="enableHsn"]')) {
+  if (formElement?.querySelector('[name="enableHsn"]')) {
     settings.enableHsn = form.get("enableHsn") === "on";
   }
-  if (form.has("whatsappMode")) {
-    settings.whatsappSettings = {
-      ...(current.whatsappSettings || {}),
-      mode: String(form.get("whatsappMode") || "direct"),
-      autoShareOnSave: form.get("autoShareOnSave") === "on",
-      phoneNumberId: String(form.get("phoneNumberId") || "").trim(),
-      wabaId: String(form.get("wabaId") || "").trim(),
-      accessToken: String(form.get("accessToken") || "").trim(),
-      templateName: String(form.get("templateName") || "invoice_notification").trim(),
-      languageCode: String(form.get("languageCode") || "en").trim(),
-      customMessageTemplate: String(form.get("customMessageTemplate") || "").trim(),
-    };
+  if (formElement?.querySelector('[name="enableAdditionalFields"]')) {
+    settings.enableAdditionalFields = form.get("enableAdditionalFields") === "on";
   }
 
   const status = elements.featureView.querySelector("#businessSettingsStatus");
@@ -4173,14 +4498,65 @@ function showToast(messageOrOptions, options = {}) {
     }
   }
 
+  const iconName = type === "error" ? "gi-ban" : type === "info" ? "gi-receipt" : "gi-check";
+  const iconClass = type === "error" ? "toast-error" : type === "info" ? "toast-info" : "toast-success";
+
+  // Single in-place notification: Update in place instead of stacking multiple lines
+  const existingToast = host.querySelector(".toast-message");
+  if (existingToast && document.body.contains(existingToast)) {
+    const iconWrap = existingToast.querySelector(".toast-icon-wrap");
+    const iconUse = existingToast.querySelector(".toast-icon-wrap use");
+    const titleEl = existingToast.querySelector(".toast-title");
+    const contentEl = existingToast.querySelector(".toast-content");
+
+    if (iconWrap && iconUse) {
+      iconWrap.className = `toast-icon-wrap ${iconClass}`;
+      iconUse.setAttribute("href", `#${iconName}`);
+    }
+    if (titleEl) {
+      titleEl.textContent = title || message;
+    }
+    let detailEl = existingToast.querySelector(".toast-detail");
+    if (message && title && title !== message) {
+      if (!detailEl && contentEl) {
+        detailEl = document.createElement("div");
+        detailEl.className = "toast-detail";
+        contentEl.appendChild(detailEl);
+      }
+      if (detailEl) detailEl.textContent = message;
+    } else if (detailEl) {
+      detailEl.remove();
+    }
+
+    if (isTransaction) existingToast.dataset.isTransaction = "true";
+
+    // Clean up any extra toasts if any existed
+    Array.from(host.querySelectorAll(".toast-message")).forEach((t) => {
+      if (t !== existingToast) t.remove();
+    });
+
+    // In-place animation feedback
+    existingToast.classList.remove("toast-updated");
+    void existingToast.offsetWidth;
+    existingToast.classList.add("toast-updated");
+    existingToast.classList.add("show");
+
+    if (existingToast._dismissTimer) clearTimeout(existingToast._dismissTimer);
+    existingToast._dismissTimer = setTimeout(() => {
+      existingToast.classList.remove("show");
+      setTimeout(() => existingToast.remove(), 200);
+    }, 3200);
+
+    lastToastTime = now;
+    lastToastEl = existingToast;
+    return;
+  }
+
   const toast = document.createElement("div");
   toast.className = "toast-message";
   toast.setAttribute("role", "status");
   toast.setAttribute("aria-live", "polite");
   if (isTransaction) toast.dataset.isTransaction = "true";
-
-  const iconName = type === "error" ? "gi-ban" : type === "info" ? "gi-receipt" : "gi-check";
-  const iconClass = type === "error" ? "toast-error" : type === "info" ? "toast-info" : "toast-success";
 
   toast.innerHTML = `
     <div class="toast-icon-wrap ${iconClass}" aria-hidden="true">
@@ -4194,20 +4570,22 @@ function showToast(messageOrOptions, options = {}) {
   `;
 
   const dismiss = () => {
+    if (toast._dismissTimer) clearTimeout(toast._dismissTimer);
     toast.classList.remove("show");
     setTimeout(() => toast.remove(), 200);
   };
 
   toast.querySelector(".toast-close-btn")?.addEventListener("click", dismiss);
 
-  host.prepend(toast);
+  host.innerHTML = "";
+  host.appendChild(toast);
   lastToastTime = now;
   lastToastEl = toast;
 
   setTimeout(() => toast.classList.add("show"), 20);
-  setTimeout(() => {
+  toast._dismissTimer = setTimeout(() => {
     if (document.body.contains(toast)) dismiss();
-  }, 3500);
+  }, 3200);
 }
 
 function appPrompt(title, message, defaultValue = "") {
@@ -4329,6 +4707,115 @@ function getStateByGstin(gstin) {
   return GST_STATE_CODES[code] || "";
 }
 
+const INDIAN_STATES = [
+  "Andaman and Nicobar Islands",
+  "Andhra Pradesh",
+  "Arunachal Pradesh",
+  "Assam",
+  "Bihar",
+  "Chandigarh",
+  "Chhattisgarh",
+  "Dadra and Nagar Haveli and Daman and Diu",
+  "Delhi",
+  "Goa",
+  "Gujarat",
+  "Haryana",
+  "Himachal Pradesh",
+  "Jammu and Kashmir",
+  "Jharkhand",
+  "Karnataka",
+  "Kerala",
+  "Ladakh",
+  "Lakshadweep",
+  "Madhya Pradesh",
+  "Maharashtra",
+  "Manipur",
+  "Meghalaya",
+  "Mizoram",
+  "Nagaland",
+  "Odisha",
+  "Puducherry",
+  "Punjab",
+  "Rajasthan",
+  "Sikkim",
+  "Tamil Nadu",
+  "Telangana",
+  "Tripura",
+  "Uttar Pradesh",
+  "Uttarakhand",
+  "West Bengal",
+];
+
+const CITY_TO_STATE_MAP = {
+  coimbatore: "Tamil Nadu",
+  coimpatore: "Tamil Nadu",
+  chennai: "Tamil Nadu",
+  madurai: "Tamil Nadu",
+  tiruchirappalli: "Tamil Nadu",
+  trichy: "Tamil Nadu",
+  salem: "Tamil Nadu",
+  tirupur: "Tamil Nadu",
+  tiruppur: "Tamil Nadu",
+  erode: "Tamil Nadu",
+  vellore: "Tamil Nadu",
+  pondicherry: "Puducherry",
+  kochi: "Kerala",
+  cochin: "Kerala",
+  ernakulam: "Kerala",
+  calicut: "Kerala",
+  kozhikode: "Kerala",
+  trivandrum: "Kerala",
+  thiruvananthapuram: "Kerala",
+  thrissur: "Kerala",
+  trichur: "Kerala",
+  kannur: "Kerala",
+  cannanore: "Kerala",
+  kollam: "Kerala",
+  quilon: "Kerala",
+  palakkad: "Kerala",
+  palghat: "Kerala",
+  malappuram: "Kerala",
+  kottayam: "Kerala",
+  alappuzha: "Kerala",
+  alleppey: "Kerala",
+  kasaragod: "Kerala",
+  wayanad: "Kerala",
+  idukki: "Kerala",
+  pathanamthitta: "Kerala",
+  bengaluru: "Karnataka",
+  bangalore: "Karnataka",
+  mysuru: "Karnataka",
+  mysore: "Karnataka",
+  mangalore: "Karnataka",
+  mangaluru: "Karnataka",
+  hubli: "Karnataka",
+  belgaum: "Karnataka",
+  mumbai: "Maharashtra",
+  bombay: "Maharashtra",
+  pune: "Maharashtra",
+  nagpur: "Maharashtra",
+  nashik: "Maharashtra",
+  thane: "Maharashtra",
+  hyderabad: "Telangana",
+  secunderabad: "Telangana",
+  delhi: "Delhi",
+  "new delhi": "Delhi",
+  kolkata: "West Bengal",
+  calcutta: "West Bengal",
+};
+
+function resolveIndianStateName(val) {
+  if (!val || typeof val !== "string") return "";
+  const clean = val.trim().toLowerCase();
+  if (!clean) return "";
+  const direct = INDIAN_STATES.find((s) => s.toLowerCase() === clean);
+  if (direct) return direct;
+  if (CITY_TO_STATE_MAP[clean]) return CITY_TO_STATE_MAP[clean];
+  const partial = INDIAN_STATES.find((s) => s.toLowerCase().includes(clean) || clean.includes(s.toLowerCase()));
+  if (partial) return partial;
+  return "";
+}
+
 function openInvoicePreviewModal(previewData = null, options = {}) {
   const preview = previewData || buildInvoicePreviewData() || sampleInvoicePreviewData();
   if (!preview) return;
@@ -4362,46 +4849,48 @@ function openInvoicePreviewModal(previewData = null, options = {}) {
   backdrop.id = "invoicePreviewModal";
   backdrop.innerHTML = `
     <section class="invoice-preview-modal ${currentFormat === "thermal" ? "is-thermal" : "is-a4"}" role="dialog" aria-modal="true" aria-label="Invoice preview">
-      <header>
+      <header class="invoice-preview-header">
         <div class="preview-header-left">
-          <h2>${escapeHtml(preview.previewTitle || "Invoice Preview")}</h2>
+          <h2 class="preview-modal-title">${escapeHtml(preview.previewTitle || "Invoice Preview")}</h2>
           <div class="preview-controls-bar">
-            <label class="preview-control-item">
-              <span>Format:</span>
-              <select id="previewFormatSelect" class="form-input">
+            <div class="preview-control-item">
+              <span class="preview-control-label">Format:</span>
+              <select id="previewFormatSelect" class="preview-select">
                 <option value="a4" ${currentFormat === "a4" ? "selected" : ""}>📄 A4 / Full Page</option>
                 <option value="thermal" ${currentFormat === "thermal" ? "selected" : ""}>🧾 Thermal POS Roll</option>
               </select>
-            </label>
-            <label class="preview-control-item">
-              <span>Template:</span>
-              <select id="previewTemplateSelect" class="form-input">
+            </div>
+            <div class="preview-control-item">
+              <span class="preview-control-label">Template:</span>
+              <select id="previewTemplateSelect" class="preview-select">
                 ${getTemplateOptionsHtml(currentFormat)}
               </select>
-            </label>
-            <label class="preview-control-item ${currentFormat === "thermal" ? "" : "hidden"}" id="previewWidthLabel">
-              <span>Roll:</span>
-              <select id="previewWidthSelect" class="form-input">
+            </div>
+            <div class="preview-control-item ${currentFormat === "thermal" ? "" : "hidden"}" id="previewWidthLabel">
+              <span class="preview-control-label">Roll:</span>
+              <select id="previewWidthSelect" class="preview-select">
                 <option value="80mm" ${currentThermalWidth === "80mm" ? "selected" : ""}>80mm (3")</option>
                 <option value="58mm" ${currentThermalWidth === "58mm" ? "selected" : ""}>58mm (2")</option>
               </select>
-            </label>
+            </div>
           </div>
         </div>
         <div class="preview-header-actions">
-          <button class="secondary-button" type="button" data-preview-whatsapp style="display:inline-flex;align-items:center;gap:6px;background:rgba(37,211,102,0.1);color:#128c7e;border-color:rgba(37,211,102,0.3);font-weight:600;"><svg class="gi-icon" style="width:14px;height:14px;fill:currentColor;"><use href="#gi-whatsapp"></use></svg> WhatsApp</button>
-          <button class="secondary-button" type="button" data-preview-pdf>Export PDF</button>
-          <button class="primary-button square" type="button" data-preview-print style="height:34px;padding:0 14px;">Print</button>
-          <button class="close-button" type="button" data-preview-close>&times;</button>
+          <button class="preview-btn-whatsapp" type="button" data-preview-whatsapp><svg class="gi-icon" style="width:14px;height:14px;fill:currentColor;"><use href="#gi-whatsapp"></use></svg> WhatsApp</button>
+          <button class="preview-btn-secondary" type="button" data-preview-pdf>Export PDF</button>
+          <button class="preview-btn-primary" type="button" data-preview-print>Print</button>
+          <button class="preview-btn-close" type="button" data-preview-close title="Close (Esc)">&times;</button>
         </div>
       </header>
-      <div class="invoice-preview-paper ${currentFormat === "thermal" ? `paper-thermal width-${currentThermalWidth}` : `paper-a4 template-${currentA4Template}`}">
-        ${invoicePreviewMarkup(preview, {
-          printerType: currentFormat,
-          a4Template: currentA4Template,
-          thermalTemplate: currentThermalTemplate,
-          thermalWidth: currentThermalWidth
-        })}
+      <div class="invoice-preview-stage">
+        <div class="invoice-preview-paper ${currentFormat === "thermal" ? `paper-thermal width-${currentThermalWidth}` : `paper-a4 template-${currentA4Template}`}">
+          ${invoicePreviewMarkup(preview, {
+            printerType: currentFormat,
+            a4Template: currentA4Template,
+            thermalTemplate: currentThermalTemplate,
+            thermalWidth: currentThermalWidth
+          })}
+        </div>
       </div>
     </section>
   `;
@@ -4413,6 +4902,18 @@ function openInvoicePreviewModal(previewData = null, options = {}) {
   const templateSelect = backdrop.querySelector("#previewTemplateSelect");
   const widthSelect = backdrop.querySelector("#previewWidthSelect");
   const widthLabel = backdrop.querySelector("#previewWidthLabel");
+
+  const closePreview = () => {
+    backdrop.remove();
+    document.removeEventListener("keydown", escKeyHandler);
+  };
+  const escKeyHandler = (e) => {
+    if (e.key === "Escape") closePreview();
+  };
+  document.addEventListener("keydown", escKeyHandler);
+  backdrop.addEventListener("click", (e) => {
+    if (e.target === backdrop) closePreview();
+  });
 
   function reRenderPaper() {
     modalSection.classList.toggle("is-thermal", currentFormat === "thermal");
@@ -4447,7 +4948,7 @@ function openInvoicePreviewModal(previewData = null, options = {}) {
     reRenderPaper();
   });
 
-  backdrop.querySelector("[data-preview-close]")?.addEventListener("click", () => backdrop.remove());
+  backdrop.querySelector("[data-preview-close]")?.addEventListener("click", closePreview);
   backdrop.querySelector("[data-preview-whatsapp]")?.addEventListener("click", () => {
     openWhatsAppShareModal(preview, (preview.documentTitle || "").toLowerCase().includes("purchase") ? "purchase" : "sale");
   });
@@ -4532,6 +5033,7 @@ function buildInvoicePreviewData() {
     date: elements.featureView.querySelector('[name="invoiceDate"]')?.value || "",
     validUntil: editorType === "estimate" ? elements.featureView.querySelector('[name="dueDate"]')?.value || "" : "",
     address: elements.featureView.querySelector('[name="address"]')?.value || "",
+    shippingAddress: elements.featureView.querySelector('[name="shippingAddress"]')?.value || elements.featureView.querySelector('[name="address"]')?.value || "",
     placeOfSupply: elements.featureView.querySelector('[name="state"]')?.value || "",
     customFields: customFieldsForModule(editorType).map((field) => ({
       ...field,
@@ -4900,9 +5402,9 @@ function renderA4Modern(data, bank, upiUri, flags = {}) {
           <div class="a4-modern-badge-pill">${escapeHtml(documentTitle)}</div>
           <div class="a4-modern-doc-meta">
             <p><span>${escapeHtml(detailTitle)} No:</span> <strong>${escapeHtml(data.invoiceNo || "-")}</strong></p>
-            <p><span>Date:</span> <strong>${escapeHtml(data.date || "-")}</strong></p>
-            ${data.validUntil ? `<p><span>Valid Until:</span> <strong>${escapeHtml(data.validUntil)}</strong></p>` : ""}
-            <p><span>Place of Supply:</span> <strong>${escapeHtml(data.placeOfSupply || "-")}</strong></p>
+            <p><span>Date:</span> <strong>${escapeHtml(data.date ? (data.date.includes("T") ? formatDate(data.date) : data.date) : "-")}</strong></p>
+            ${data.validUntil ? `<p><span>Valid Until:</span> <strong>${escapeHtml(data.validUntil.includes("T") ? formatDate(data.validUntil) : data.validUntil)}</strong></p>` : ""}
+            ${data.placeOfSupply ? `<p><span>Place of Supply:</span> <strong>${escapeHtml(data.placeOfSupply)}</strong></p>` : ""}
           </div>
         </div>
       </div>
@@ -4911,7 +5413,7 @@ function renderA4Modern(data, bank, upiUri, flags = {}) {
         <div class="a4-modern-card">
           <div class="a4-card-title">BILLED TO (CUSTOMER)</div>
           <strong class="a4-party-name">${escapeHtml(data.party?.name || "Cash Customer")}</strong>
-          <p class="a4-party-sub">${escapeHtml(data.address || data.party?.billingAddress || "-")}</p>
+          ${(data.address || data.party?.billingAddress) ? `<p class="a4-party-sub">${escapeHtml(data.address || data.party?.billingAddress)}</p>` : ""}
           ${data.party?.phone ? `<p class="a4-party-sub">Phone: ${escapeHtml(data.party.phone)}</p>` : ""}
           ${data.party?.gstin ? `<p class="a4-party-gstin">GSTIN: <b>${escapeHtml(data.party.gstin)}</b></p>` : ""}
         </div>
@@ -5058,7 +5560,7 @@ function renderA4Classic(data, bank, upiUri, flags = {}) {
         <div class="a4-classic-cell a4-classic-inv-meta">
           <table class="a4-classic-meta-tbl">
             <tr><td>Invoice No:</td><td><b>${escapeHtml(data.invoiceNo || "-")}</b></td></tr>
-            <tr><td>Dated:</td><td><b>${escapeHtml(data.date || "-")}</b></td></tr>
+            <tr><td>Dated:</td><td><b>${escapeHtml(data.date ? (data.date.includes("T") ? formatDate(data.date) : data.date) : "-")}</b></td></tr>
             <tr><td>Place of Supply:</td><td>${escapeHtml(data.placeOfSupply || "-")}</td></tr>
             <tr><td>Reverse Charge:</td><td>No</td></tr>
           </table>
@@ -5077,14 +5579,14 @@ function renderA4Classic(data, bank, upiUri, flags = {}) {
         <div class="a4-classic-cell a4-classic-buyer">
           <small class="a4-cell-head">Buyer (Bill to)</small>
           <strong>${escapeHtml(data.party?.name || "Cash Customer")}</strong>
-          <p>${escapeHtml(data.address || data.party?.billingAddress || "-")}</p>
-          <p>GSTIN/UIN: <b>${escapeHtml(data.party?.gstin || "-")}</b></p>
+          ${(data.address || data.party?.billingAddress) ? `<p>${escapeHtml(data.address || data.party?.billingAddress)}</p>` : ""}
+          ${data.party?.gstin ? `<p>GSTIN/UIN: <b>${escapeHtml(data.party.gstin)}</b></p>` : ""}
           <p>State Name: ${escapeHtml(data.party?.state || data.placeOfSupply || "-")}</p>
         </div>
         <div class="a4-classic-cell a4-classic-consignee">
           <small class="a4-cell-head">Consignee (Ship to)</small>
           <strong>${escapeHtml(data.party?.name || "Cash Customer")}</strong>
-          <p>${escapeHtml(data.address || data.party?.billingAddress || "-")}</p>
+          <p>${escapeHtml(data.shippingAddress || data.party?.shippingAddress || data.address || data.party?.billingAddress || "-")}</p>
           <p>State Name: ${escapeHtml(data.party?.state || data.placeOfSupply || "-")}</p>
         </div>
       </div>
@@ -5221,7 +5723,7 @@ function renderA4Minimal(data, bank, upiUri, flags = {}) {
         <div class="a4-minimal-meta">
           <h2 class="a4-minimal-doc">${escapeHtml(documentTitle)}</h2>
           <p><b>#${escapeHtml(data.invoiceNo || "-")}</b></p>
-          <p>Date: ${escapeHtml(data.date || "-")}</p>
+          <p>Date: ${escapeHtml(data.date ? (data.date.includes("T") ? formatDate(data.date) : data.date) : "-")}</p>
           <p>Place: ${escapeHtml(data.placeOfSupply || "-")}</p>
         </div>
       </div>
@@ -5232,7 +5734,7 @@ function renderA4Minimal(data, bank, upiUri, flags = {}) {
         <div>
           <span class="a4-min-label">BILLED TO</span>
           <strong class="a4-min-client-name">${escapeHtml(data.party?.name || "Cash Customer")}</strong>
-          <p class="a4-min-client-addr">${escapeHtml(data.address || data.party?.billingAddress || "-")}</p>
+          ${(data.address || data.party?.billingAddress) ? `<p class="a4-min-client-addr">${escapeHtml(data.address || data.party?.billingAddress)}</p>` : ""}
           ${data.party?.gstin ? `<p class="a4-min-client-addr">GSTIN: <b>${escapeHtml(data.party.gstin)}</b></p>` : ""}
         </div>
         ${bank.bankName ? `
@@ -5326,8 +5828,8 @@ function renderA4Compact(data, bank, upiUri, flags = {}) {
         </div>
         <div class="a4-compact-meta">
           <strong>${escapeHtml(documentTitle)}</strong>
-          <span>No: ${escapeHtml(data.invoiceNo || "-")} | Date: ${escapeHtml(data.date || "-")}</span>
-          <small>Buyer: ${escapeHtml(data.party?.name || "Cash Customer")} (${escapeHtml(data.party?.gstin || "Unregistered")})</small>
+          <span>No: ${escapeHtml(data.invoiceNo || "-")} | Date: ${escapeHtml(data.date ? (data.date.includes("T") ? formatDate(data.date) : data.date) : "-")}</span>
+          <small>Buyer: ${escapeHtml(data.party?.name || "Cash Customer")}${data.party?.gstin ? ` (${escapeHtml(data.party.gstin)})` : ""}</small>
         </div>
       </div>
 
@@ -5396,7 +5898,7 @@ function renderThermalRetail(data, bank, upiUri, flags = {}) {
         <div class="thermal-doc-title">RETAIL TAX INVOICE</div>
         <div class="thermal-bill-meta">
           <div>Bill No: <b>${escapeHtml(data.invoiceNo || "-")}</b></div>
-          <div>Date: ${escapeHtml(data.date || "-")}</div>
+          <div>Date: ${escapeHtml(data.date ? (data.date.includes("T") ? formatDate(data.date) : data.date) : "-")}</div>
         </div>
         <div class="thermal-bill-meta">
           <div>Customer: ${escapeHtml(data.party?.name || "Cash Sale")}</div>
@@ -5530,7 +6032,7 @@ function renderThermalDetailed(data, bank, upiUri, flags = {}) {
         <div style="font-weight:700;text-align:center;">TAX INVOICE (ROLL)</div>
         <div class="thermal-bill-meta">
           <div>Invoice: ${escapeHtml(data.invoiceNo || "-")}</div>
-          <div>Date: ${escapeHtml(data.date || "-")}</div>
+          <div>Date: ${escapeHtml(data.date ? (data.date.includes("T") ? formatDate(data.date) : data.date) : "-")}</div>
         </div>
         ${data.party?.gstin ? `<div>Buyer GSTIN: <b>${escapeHtml(data.party.gstin)}</b></div>` : ""}
         <div class="thermal-divider-dashed">--------------------------------</div>
@@ -5654,8 +6156,20 @@ function bindTransactionEditorRows() {
     if (button.dataset.deleteBound) return;
     button.dataset.deleteBound = "true";
     button.onclick = () => {
-      if (!confirm("Delete this row?")) return;
-      button.closest("tr").remove();
+      const allRows = elements.featureView.querySelectorAll("#transactionRows tr");
+      const row = button.closest("tr");
+      if (allRows.length <= 1) {
+        if (row) {
+          row.querySelectorAll("input").forEach((inp) => { inp.value = ""; });
+          delete row.dataset.selectedItemId;
+          delete row.dataset.smartItem;
+          recalcTransactionEditor();
+        }
+        return;
+      }
+      const hasContent = row && (row.querySelector('[name="item"]')?.value.trim() || Number(row.querySelector('[name="qty"]')?.value || 0) || Number(row.querySelector('[name="price"]')?.value || 0));
+      if (hasContent && !confirm("Delete this row?")) return;
+      row.remove();
       renumberEditorRows();
       recalcTransactionEditor();
     };
@@ -5780,21 +6294,53 @@ function positionFloatingItemLookup(field, panel) {
 }
 
 function partyLookupButton(party) {
-  const balance = Number(party.balance ?? party.openingBalance ?? 0);
   const type = getTransactionEditorType();
   const isPurchaseLike = ["purchase", "purchaseReturn"].includes(type) || party.type === "supplier";
+  const rec = Number(party.receivable || 0);
+  const pay = Number(party.payable || 0);
+  const bal = Number(party.balance ?? party.openingBalance ?? 0);
+
   let balanceLabel = "Receivable";
-  if (balance === 0) {
-    balanceLabel = isPurchaseLike ? "Payable" : "Receivable";
-  } else if (isPurchaseLike) {
-    balanceLabel = balance > 0 ? "Payable" : "Receivable";
+  let displayAmount = 0;
+
+  if (rec > 0 && pay === 0) {
+    balanceLabel = "Receivable";
+    displayAmount = rec;
+  } else if (pay > 0 && rec === 0) {
+    balanceLabel = "Payable";
+    displayAmount = pay;
+  } else if (bal !== 0) {
+    if (bal > 0) {
+      balanceLabel = "Receivable";
+      displayAmount = bal;
+    } else {
+      balanceLabel = "Payable";
+      displayAmount = Math.abs(bal);
+    }
   } else {
-    balanceLabel = balance > 0 ? "Receivable" : "Payable";
+    balanceLabel = isPurchaseLike ? "Payable" : "Receivable";
+    displayAmount = 0;
   }
+
+  const isZero = Math.abs(displayAmount) < 0.005;
+  const isReceivable = balanceLabel === "Receivable";
+  const toneClass = isZero ? "lookup-balance-zero" : (isReceivable ? "lookup-balance-receivable" : "lookup-balance-payable");
+  const arrowHtml = isZero
+    ? ""
+    : icon(isReceivable ? "arrow-down-left" : "arrow-up-right", `lookup-balance-arrow ${isReceivable ? "in-arrow" : "out-arrow"}`);
+  const titleHint = isZero
+    ? "Settled (₹0)"
+    : `${isReceivable ? "Receivable (Money IN)" : "Payable (Money OUT)"}: ${formatCurrency(displayAmount)}`;
+  const balanceContent = isZero
+    ? `<span class="lookup-balance-amount">${formatCurrency(0)}</span>`
+    : `${arrowHtml}<span class="lookup-balance-amount">${formatCurrency(displayAmount)}</span>`;
+
   return `
     <button class="lookup-result-button" type="button" data-editor-party-id="${party.id}">
       <span><strong>${escapeHtml(party.name)}</strong><small>${escapeHtml(party.phone || "No phone")}</small></span>
-      <em>${balanceLabel} ${formatCurrency(Math.abs(balance))}</em>
+      <em class="lookup-balance ${toneClass}" title="${escapeHtml(titleHint)}">
+        ${balanceContent}
+      </em>
     </button>
   `;
 }
@@ -5879,6 +6425,7 @@ function selectTransactionParty(party, options = {}) {
   const partyInput = elements.featureView.querySelector('[name="party"]');
   const phoneInput = elements.featureView.querySelector('[name="phone"]');
   const addressInput = elements.featureView.querySelector('[name="address"]');
+  const shippingInput = elements.featureView.querySelector('[name="shippingAddress"]');
   const stateInput = elements.featureView.querySelector('[name="state"]');
   const paymentTerms = elements.featureView.querySelector('[name="paymentTerms"]');
   const dueDate = elements.featureView.querySelector('[name="dueDate"]');
@@ -5889,10 +6436,15 @@ function selectTransactionParty(party, options = {}) {
     partyInput.dataset.selectedPartyId = party.id;
   }
   if (phoneInput) phoneInput.value = party.phone || "";
-  if (addressInput) addressInput.value = party.billingAddress || party.shippingAddress || "";
+  if (addressInput) addressInput.value = party.billingAddress || "";
+  if (shippingInput) shippingInput.value = party.shippingAddress || party.billingAddress || "";
   if (partyGstin) partyGstin.value = party.gstin || "";
-  const targetState = getStateByGstin(party.gstin) || party.state;
-  if (stateInput && targetState) ensureSelectValue(stateInput, targetState);
+  const firmState = state.businessSettings?.state || "Kerala";
+  const derivedGstinState = getStateByGstin(party.gstin);
+  const resolvedPartyState = resolveIndianStateName(party.state);
+  const targetState = derivedGstinState || resolvedPartyState || firmState;
+  if (stateInput) ensureSelectValue(stateInput, targetState);
+  syncEditorTaxOptions();
   const terms = party.paymentTerms || (Number(party.dueDays || 0) ? `Net ${Number(party.dueDays || 0)}` : "");
   if (paymentTerms && terms) {
     ensureSelectValue(paymentTerms, terms);
@@ -6063,6 +6615,7 @@ function selectTransactionItem(row, item, options = {}) {
   itemInput.dataset.selectedItemId = item.id;
   if (!options.keepLookupOpen) hideEditorLookupPanels();
   applyEditorItemIntelligence(row);
+  ensureNextEmptyTransactionRow(row);
 }
 
 function getSelectedTransactionItem(row) {
@@ -6117,8 +6670,27 @@ function addTransactionEditorRow() {
   const body = elements.featureView.querySelector("#transactionRows");
   body.insertAdjacentHTML("beforeend", editorRowTemplate(body.children.length + 1));
   bindTransactionEditorRows();
+  renumberEditorRows();
   recalcTransactionEditor();
   return body.lastElementChild;
+}
+
+function ensureNextEmptyTransactionRow(currentRow = null) {
+  const body = elements.featureView?.querySelector("#transactionRows");
+  if (!body) return;
+  const rows = Array.from(body.querySelectorAll("tr"));
+  if (!rows.length) {
+    addTransactionEditorRow();
+    return;
+  }
+  const lastRow = rows[rows.length - 1];
+  const lastItemInput = lastRow.querySelector('[name="item"]');
+  const lastItemValue = String(lastItemInput?.value || "").trim();
+
+  // When an item is selected or entered in the last row, automatically create a new empty row for next entry
+  if (lastItemValue) {
+    addTransactionEditorRow();
+  }
 }
 
 function handleTransactionEditorKeys(event) {
@@ -6188,6 +6760,7 @@ function applyEditorPartyIntelligence() {
   const partyInput = elements.featureView.querySelector('[name="party"]');
   const phoneInput = elements.featureView.querySelector('[name="phone"]');
   const addressInput = elements.featureView.querySelector('[name="address"]');
+  const shippingInput = elements.featureView.querySelector('[name="shippingAddress"]');
   const paymentTerms = elements.featureView.querySelector('[name="paymentTerms"]');
   const dueDate = elements.featureView.querySelector('[name="dueDate"]');
   const stateInput = elements.featureView.querySelector('[name="state"]');
@@ -6197,20 +6770,81 @@ function applyEditorPartyIntelligence() {
   const party = getSelectedTransactionParty();
 
   if (!party) {
-    if (balanceLabel) balanceLabel.innerHTML = "Balance: <b>-</b>";
+    if (balanceLabel) {
+      balanceLabel.className = "editor-unified-balance-pill";
+      balanceLabel.innerHTML = "Balance: <b>-</b>";
+    }
     const partyInput = elements.featureView.querySelector('[name="party"]');
     const partyGstin = elements.featureView.querySelector('[name="partyGstin"]');
     if (partyGstin && (!partyInput || !partyInput.value.trim())) partyGstin.value = "";
+    if (addressInput) {
+      const hasPartyText = Boolean(partyInput && partyInput.value.trim());
+      if (!hasPartyText) {
+        addressInput.value = "";
+        addressInput.readOnly = true;
+        addressInput.setAttribute("tabindex", "-1");
+        addressInput.placeholder = "Billing address";
+      } else {
+        addressInput.readOnly = false;
+        addressInput.removeAttribute("tabindex");
+        addressInput.placeholder = "Enter billing address for " + partyInput.value.trim() + "...";
+      }
+    }
+    if (shippingInput) {
+      const hasPartyText = Boolean(partyInput && partyInput.value.trim());
+      if (!hasPartyText) {
+        shippingInput.value = "";
+        shippingInput.readOnly = true;
+        shippingInput.setAttribute("tabindex", "-1");
+        shippingInput.placeholder = "Shipping address";
+      } else {
+        shippingInput.readOnly = false;
+        shippingInput.removeAttribute("tabindex");
+        shippingInput.placeholder = "Enter shipping address for " + partyInput.value.trim() + "...";
+      }
+    }
+    updateEditorGstinVisibility();
     renderTransactionSmartChecks();
     return;
   }
 
   if (phoneInput && !phoneInput.value.trim()) phoneInput.value = party.phone || "";
-  if (addressInput && !addressInput.value.trim()) addressInput.value = party.billingAddress || party.shippingAddress || "";
-  const targetState = getStateByGstin(party.gstin) || party.state;
-  if (stateInput && targetState) ensureSelectValue(stateInput, targetState);
+  const partyBilling = String(party.billingAddress || "").trim();
+  if (addressInput) {
+    if (partyBilling) {
+      addressInput.value = partyBilling;
+      addressInput.readOnly = true;
+      addressInput.setAttribute("tabindex", "-1");
+      addressInput.placeholder = "Auto-filled from selected party";
+    } else {
+      addressInput.readOnly = false;
+      addressInput.removeAttribute("tabindex");
+      addressInput.placeholder = "Enter billing address for " + (party.name || "party") + "...";
+    }
+  }
+  const partyShipping = String(party.shippingAddress || party.billingAddress || "").trim();
+  if (shippingInput) {
+    if (partyShipping) {
+      shippingInput.value = partyShipping;
+      shippingInput.readOnly = true;
+      shippingInput.setAttribute("tabindex", "-1");
+      shippingInput.placeholder = "Auto-filled from selected party";
+    } else {
+      shippingInput.readOnly = false;
+      shippingInput.removeAttribute("tabindex");
+      shippingInput.placeholder = "Enter shipping address for " + (party.name || "party") + "...";
+    }
+  }
+  const firmState = state.businessSettings?.state || "Kerala";
+  const derivedGstinState = getStateByGstin(party.gstin);
+  const resolvedPartyState = resolveIndianStateName(party.state);
+  const targetState = derivedGstinState || resolvedPartyState || firmState;
+  if (stateInput) ensureSelectValue(stateInput, targetState);
+  syncEditorTaxOptions();
+  const isRegistered = Boolean(party.gstin || party.taxType === "gst_registered" || party.taxType === "composition");
   if (partyGstin) partyGstin.value = party.gstin || "";
-  if (supplyType) supplyType.value = party.gstin ? "b2b" : "b2c";
+  if (supplyType) supplyType.value = isRegistered ? "b2b" : "b2c";
+  updateEditorGstinVisibility();
 
   const terms = party.paymentTerms || (Number(party.dueDays || 0) ? `Net ${Number(party.dueDays || 0)}` : "");
   if (paymentTerms && terms) {
@@ -6225,16 +6859,40 @@ function applyEditorPartyIntelligence() {
 
   if (balanceLabel) {
     const isPurchaseLike = ["purchase", "purchaseReturn"].includes(getTransactionEditorType()) || party.type === "supplier";
-    const balance = Number(party.balance ?? party.openingBalance ?? 0);
-    let label = "Balance";
-    if (balance === 0) {
-      label = isPurchaseLike ? "Payable" : "Receivable";
-    } else if (isPurchaseLike) {
-      label = balance > 0 ? "Payable" : "Advance / Receivable";
+    const rec = Number(party.receivable || 0);
+    const pay = Number(party.payable || 0);
+    const bal = Number(party.balance ?? party.openingBalance ?? 0);
+    let label = "Receivable";
+    let displayAmount = 0;
+    if (rec > 0 && pay === 0) {
+      label = "Receivable";
+      displayAmount = rec;
+    } else if (pay > 0 && rec === 0) {
+      label = "Payable";
+      displayAmount = pay;
+    } else if (bal > 0) {
+      label = "Receivable";
+      displayAmount = bal;
+    } else if (bal < 0) {
+      label = "Payable";
+      displayAmount = Math.abs(bal);
     } else {
-      label = balance > 0 ? "Receivable" : "Advance / Payable";
+      label = isPurchaseLike ? "Payable" : "Receivable";
+      displayAmount = 0;
     }
-    balanceLabel.innerHTML = `${label}: <b>${formatCurrency(Math.abs(balance))}</b>`;
+    const isZero = Math.abs(displayAmount) < 0.005;
+    if (isZero) {
+      balanceLabel.className = "editor-unified-balance-pill pill-zero";
+      balanceLabel.innerHTML = `Balance: <b>${formatCurrency(0)}</b>`;
+    } else {
+      const isRec = label === "Receivable";
+      const arrow = isRec
+        ? icon("arrow-down-left", "pill-balance-arrow in-arrow")
+        : icon("arrow-up-right", "pill-balance-arrow out-arrow");
+      const tone = isRec ? "pill-receivable" : "pill-payable";
+      balanceLabel.className = `editor-unified-balance-pill ${tone}`;
+      balanceLabel.innerHTML = `${arrow} ${label}: <b>${formatCurrency(displayAmount)}</b>`;
+    }
   }
   recalcTransactionEditor();
   renderTransactionSmartChecks();
@@ -6252,7 +6910,7 @@ function purchasePriceHistory(item) {
 }
 
 function renderPurchasePriceHistory(row, item) {
-  const target = row.querySelector('.purchase-price-history');
+  const target = row?.querySelector('.purchase-price-history');
   if (!target) return;
   const history = item && getTransactionEditorType() === 'purchase' ? purchasePriceHistory(item) : [];
   target.innerHTML = history.length ? `<details><summary>Last purchase: ${formatCurrency(history[0].price)} / ${escapeHtml(history[0].unit || item.unit || '')} (before tax)</summary><ul>${history.slice(0, 10).map((line) => `<li><span>${escapeHtml(new Date(line.invoice.date).toLocaleDateString('en-GB'))} · ${escapeHtml(line.invoice.party)} · ${escapeHtml(line.invoice.invoiceNo)}</span><strong>${formatCurrency(line.price)} / ${escapeHtml(line.unit || '')}</strong></li>`).join('')}</ul></details>` : '';
@@ -6306,11 +6964,23 @@ function applyEditorItemIntelligence(row, initial = false) {
   if (discount && Number(item.discount || 0) && (isNewSmartItem || Number(discount.value || 0) === 0)) {
     discount.value = Number(item.discount || 0);
   }
-  if (tax) ensureSelectValue(tax, taxOptionLabel(item.taxRate, editorTaxSplitMode() === "igst"));
+  if (tax) {
+    const isService = String(item.itemType || "").toLowerCase() === "service";
+    const preferredTax = item.taxType
+      ? (editorTaxSplitMode() === "igst"
+          ? (item.taxType.startsWith("GST@") ? item.taxType.replace("GST@", "IGST@") : item.taxType)
+          : (item.taxType.startsWith("IGST@") ? item.taxType.replace("IGST@", "GST@") : item.taxType))
+      : taxOptionLabel(item.taxRate, editorTaxSplitMode() === "igst");
+    tax.innerHTML = editorTaxOptionsMarkup(preferredTax, isService);
+    ensureSelectValue(tax, preferredTax);
+  }
 
   renderPurchasePriceHistory(row, item);
   updateRowSmartHint(row);
   recalcTransactionEditor();
+  if (!initial) {
+    ensureNextEmptyTransactionRow(row);
+  }
 }
 
 function findPartyByName(name) {
@@ -6326,8 +6996,11 @@ function findItemByName(name) {
 }
 
 function ensureSelectValue(select, value) {
-  const label = String(value || "").trim();
+  let label = String(value || "").trim();
   if (!select || !label) return;
+  if (select.name === "state") {
+    label = resolveIndianStateName(label) || label;
+  }
   const matchingOption = [...select.options].find((option) => option.value.toLowerCase() === label.toLowerCase());
   if (matchingOption) {
     select.value = matchingOption.value;
@@ -6338,6 +7011,23 @@ function ensureSelectValue(select, value) {
   option.textContent = label;
   select.append(option);
   select.value = label;
+}
+
+function syncEditorTaxOptions() {
+  const isIgst = editorTaxSplitMode() === "igst";
+  const rows = elements.featureView?.querySelectorAll("#transactionRows tr") || [];
+  rows.forEach((row) => {
+    const taxSelect = row.querySelector('[name="tax"]');
+    if (!taxSelect) return;
+    const currentVal = String(taxSelect.value || "").trim();
+    const rate = parseTaxRate(currentVal);
+    if (rate > 0) {
+      const targetLabel = taxOptionLabel(rate, isIgst);
+      const isService = String(row.querySelector('[name="item"]')?.value || "").toLowerCase().includes("service");
+      taxSelect.innerHTML = editorTaxOptionsMarkup(targetLabel, isService);
+      ensureSelectValue(taxSelect, targetLabel);
+    }
+  });
 }
 
 function dueDateFromTerms(terms, dueDays = 0, baseDateValue = "") {
@@ -6374,9 +7064,24 @@ const STANDARD_GST_TAX_OPTIONS = [
   "Exempt",
 ];
 
-function editorTaxOptionsMarkup(selected = "None") {
+const SERVICE_GST_TAX_OPTIONS = [
+  "None",
+  "IGST@0%",
+  "GST@0%",
+  "IGST@5%",
+  "GST@5%",
+  "IGST@12%",
+  "GST@12%",
+  "IGST@18%",
+  "GST@18%",
+  "IGST@28%",
+  "GST@28%",
+  "Exempt",
+];
+
+function editorTaxOptionsMarkup(selected = "None", isService = false) {
   const normalized = String(selected || "None").trim();
-  const list = [...STANDARD_GST_TAX_OPTIONS];
+  const list = isService ? [...SERVICE_GST_TAX_OPTIONS] : [...STANDARD_GST_TAX_OPTIONS];
   if (normalized && !list.some((opt) => opt.toLowerCase() === normalized.toLowerCase())) {
     list.unshift(normalized);
   }
@@ -6419,7 +7124,6 @@ function updateRowSmartHint(row) {
     return;
   }
 
-  const purchasePrice = Number(item.purchasePrice || 0);
   const salePrice = Number(item.salePrice || 0);
   const stock = Number(item.currentStock || 0);
   const isService = String(item.itemType || "").toLowerCase() === "service";
@@ -6439,31 +7143,15 @@ function updateRowSmartHint(row) {
     } else {
       parts.push(`Stock ${formatQuantity(stock)}`);
     }
+  } else if (!isService && stock > 0) {
+    parts.push(`Stock ${formatQuantity(stock)}`);
   }
+
   if (isSaleLike && salePrice) parts.push(`Sale ${formatCurrency(salePrice)}`);
-  if (purchasePrice) parts.push(`Cost ${formatCurrency(purchasePrice)}`);
   if (Number(item.taxRate || 0)) parts.push(`GST ${formatPercent(item.taxRate)}`);
   if (!selectedTaxRate && !Number(item.taxRate || 0)) {
     parts.push("GST not set");
     hint.classList.add("info");
-  }
-
-  if (isSaleLike && purchasePrice && price) {
-    if (price < purchasePrice) {
-      hint.classList.add("danger");
-      parts.push("below cost");
-    } else {
-      const margin = ((price - purchasePrice) / price) * 100;
-      if (margin < 10) {
-        hint.classList.add("warn");
-        parts.push(`margin ${margin.toFixed(1)}%`);
-      }
-    }
-  }
-
-  if (editorType === "purchase" && purchasePrice && price > purchasePrice * 1.1) {
-    hint.classList.add("warn");
-    parts.push("higher than last purchase");
   }
 
   hint.textContent = parts.join(" | ") || "Known item";
@@ -6506,7 +7194,7 @@ function recalcTransactionEditor() {
     taxTotal += taxAmount;
     const isExplicitIgst = taxValue.toUpperCase().startsWith("IGST");
     const isExplicitGst = taxValue.toUpperCase().startsWith("GST");
-    if (isExplicitIgst || (taxSplitMode === "igst" && !isExplicitGst)) {
+    if (taxSplitMode === "igst") {
       igstTotal += taxAmount;
     } else {
       cgstTotal += taxAmount / 2;
@@ -6540,8 +7228,9 @@ function recalcTransactionEditor() {
 }
 
 function editorTaxSplitMode() {
-  const firmState = state.businessSettings?.state || "Karnataka";
-  const placeOfSupply = elements.featureView.querySelector('[name="state"]')?.value || "";
+  const firmState = state.businessSettings?.state || "Kerala";
+  const rawPlace = elements.featureView.querySelector('[name="state"]')?.value || "";
+  const placeOfSupply = resolveIndianStateName(rawPlace) || rawPlace;
   return placeOfSupply && placeOfSupply.toLowerCase() !== firmState.toLowerCase() ? "igst" : "local";
 }
 
@@ -6722,64 +7411,70 @@ async function saveTransactionEditor(event) {
   if (textSpan) textSpan.textContent = "Saving…";
   const actionButtons = formElement.querySelectorAll('.transaction-editor-actions button');
   actionButtons.forEach((btn) => { btn.disabled = true; });
-  const rows = validation.rows.map(({ row, item }) => ({
-    item: row.querySelector('[name="item"]').value.trim(),
-    description: row.querySelector('[name="description"]').value.trim(),
-    qty: Number(row.querySelector('[name="qty"]').value || 0),
-    unit: row.querySelector('[name="unit"]').value,
-    price: Number(row.querySelector('[name="price"]').value || 0),
-    discount: Number(row.querySelector('[name="discount"]').value || 0),
-    hsnSac: item.hsnSac || "",
-    taxRate: parseTaxRate(row.querySelector('[name="tax"]').value),
-    itemId: item.id,
-  }));
-  const amount = Number(elements.featureView.querySelector("#editorGrandTotal").value || 0);
-  const received = Number(elements.featureView.querySelector("#editorReceived").value || 0);
-  const invoiceDescription = String(form.get("invoiceDescription") || "").trim();
-  const customFields = collectCustomFieldValues(editorType);
-  const itemSummary = rows.map((row) => `${row.item} x ${row.qty}`).join(", ");
-  const attachmentSummary = editorAttachmentSummary();
-  const isOpDoc = isOperationalDoc(editorType);
-  const transaction = {
-    id: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`,
-    invoiceId: activeTransactionEditInvoiceId || undefined,
-    estimateId: isOpDoc ? activeTransactionEditInvoiceId || undefined : undefined,
-    type: editorType,
-    documentType: editorType === "saleOrder" ? "sale_order" : editorType === "deliveryChallan" ? "delivery_challan" : editorType === "purchaseOrder" ? "purchase_order" : editorType,
-    invoiceNo: invoiceNumberFromForm(form),
-    quoteNo: invoiceNumberFromForm(form),
-    party: validation.walkIn ? '' : validation.party.name,
-    partyId: validation.party.id,
-    item: rows.length === 1 ? rows[0].item : `${rows.length} items`,
-    amount,
-    received: isOpDoc ? 0 : received,
-    phone: String(form.get("phone") || "").trim(),
-    billingAddress: String(form.get("address") || "").trim(),
-    originalInvoiceId: String(form.get("originalInvoiceId") || "").trim(),
-    originalInvoiceNo: String(form.get("originalInvoiceNo") || "").trim(),
-    paymentType: String(form.get("paymentType") || "cash"),
-    paymentTerms: String(form.get("paymentTerms") || "Net 30"),
-    paymentMethod: String(form.get("paymentMethod") || "Cash"),
-    supplyType: String(form.get("supplyType") || "b2c"),
-    placeOfSupply: String(form.get("state") || getStateByGstin(form.get("partyGstin") || validation.party.gstin) || "").trim(),
-    partyGstin: String(form.get("partyGstin") || validation.party.gstin || "").trim().toUpperCase(),
-    partyTaxType: String(validation.party.taxType || "unregistered"),
-    firmState: state.businessSettings?.state || "Karnataka",
-    dueDate: parseEditorDate(String(form.get("dueDate") || "")) || new Date().toISOString(),
-    validUntil: parseEditorDate(String(form.get("dueDate") || "")) || new Date().toISOString(),
-    items: rows,
-    updatePurchaseDefaults: editorType === 'purchase' && form.get('updatePurchaseDefaults') === 'on',
-    meta: {
-      customFields,
-      sourceEstimateId: event.currentTarget.dataset.sourceEstimateId || undefined,
-      roundOff: Boolean(elements.featureView.querySelector('#roundOffToggle')?.checked),
-    },
-    status: isOpDoc ? "draft" : received >= amount ? "paid" : "due",
-    notes: [invoiceDescription, itemSummary, attachmentSummary].filter(Boolean).join(" | "),
-    date: parseEditorDate(String(form.get("invoiceDate") || "")) || new Date().toISOString(),
-  };
+  const editorDocName = transactionEditorMeta(editorType)?.noun || "Invoice";
+  showGlobalLoader(`Saving ${editorDocName}...`, "Recording journal entries and stock movements...");
+  await new Promise((r) => requestAnimationFrame(() => setTimeout(r, 40)));
 
   try {
+    const rows = validation.rows.map(({ row, item }) => ({
+      item: row.querySelector('[name="item"]')?.value?.trim() || item.name || "",
+      description: row.querySelector('[name="description"]')?.value?.trim() || "",
+      qty: Number(row.querySelector('[name="qty"]')?.value || 0),
+      unit: row.querySelector('[name="unit"]')?.value || item.unit || "Pcs",
+      price: Number(row.querySelector('[name="price"]')?.value || 0),
+      discount: Number(row.querySelector('[name="discount"]')?.value || 0),
+      hsnSac: item.hsnSac || "",
+      taxRate: parseTaxRate(row.querySelector('[name="tax"]')?.value),
+      itemId: item.id,
+    }));
+    const amount = Number(elements.featureView.querySelector("#editorGrandTotal")?.value || 0);
+    const received = Number(elements.featureView.querySelector("#editorReceived")?.value || 0);
+    const invoiceDescription = String(form.get("invoiceDescription") || "").trim();
+    const customFields = collectCustomFieldValues(editorType);
+    const itemSummary = rows.map((row) => `${row.item} x ${row.qty}`).join(", ");
+    const attachmentSummary = editorAttachmentSummary();
+    const isOpDoc = isOperationalDoc(editorType);
+    const transaction = {
+      id: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      invoiceId: activeTransactionEditInvoiceId || undefined,
+      estimateId: isOpDoc ? activeTransactionEditInvoiceId || undefined : undefined,
+      type: editorType,
+      documentType: editorType === "saleOrder" ? "sale_order" : editorType === "deliveryChallan" ? "delivery_challan" : editorType === "purchaseOrder" ? "purchase_order" : editorType,
+      invoiceNo: invoiceNumberFromForm(form),
+      quoteNo: invoiceNumberFromForm(form),
+      party: validation.walkIn ? '' : validation.party.name,
+      partyId: validation.party.id,
+      item: rows.length === 1 ? rows[0].item : `${rows.length} items`,
+      amount,
+      received: isOpDoc ? 0 : received,
+      phone: String(form.get("phone") || "").trim(),
+      billingAddress: String(form.get("address") || "").trim(),
+      shippingAddress: String(form.get("shippingAddress") || "").trim(),
+      originalInvoiceId: String(form.get("originalInvoiceId") || "").trim(),
+      originalInvoiceNo: String(form.get("originalInvoiceNo") || "").trim(),
+      paymentType: String(form.get("paymentType") || "cash"),
+      paymentTerms: String(form.get("paymentTerms") || "Net 30"),
+      paymentMethod: String(form.get("paymentMethod") || "Cash"),
+      supplyType: String(form.get("supplyType") || "b2c"),
+      placeOfSupply: String(resolveIndianStateName(form.get("state")) || form.get("state") || getStateByGstin(form.get("partyGstin") || validation.party.gstin) || state.businessSettings?.state || "Kerala").trim(),
+      partyGstin: String(form.get("partyGstin") || validation.party.gstin || "").trim().toUpperCase(),
+      partyTaxType: String(validation.party.taxType || "unregistered"),
+      firmState: state.businessSettings?.state || "Kerala",
+      dueDate: parseEditorDate(String(form.get("dueDate") || "")) || new Date().toISOString(),
+      validUntil: parseEditorDate(String(form.get("dueDate") || "")) || new Date().toISOString(),
+      items: rows,
+      updatePurchaseDefaults: editorType === 'purchase' && form.get('updatePurchaseDefaults') === 'on',
+      meta: {
+        customFields,
+        sourceEstimateId: formElement?.dataset?.sourceEstimateId || undefined,
+        roundOff: Boolean(elements.featureView.querySelector('#roundOffToggle')?.checked),
+        shippingAddress: String(form.get("shippingAddress") || "").trim(),
+      },
+      status: isOpDoc ? "draft" : received >= amount ? "paid" : "due",
+      notes: [invoiceDescription, itemSummary, attachmentSummary].filter(Boolean).join(" | "),
+      date: parseEditorDate(String(form.get("invoiceDate") || "")) || new Date().toISOString(),
+    };
+
     if (isOpDoc && activeTransactionEditInvoiceId && window.giDB?.updateEstimate) {
       state = normalizeState(await window.giDB.updateEstimate(transaction));
     } else if (isOpDoc && window.giDB?.createEstimate) {
@@ -6814,120 +7509,160 @@ async function saveTransactionEditor(event) {
       state.transactions.unshift(transaction);
       saveState();
     }
+
+    const targetPartyId = validation.party?.id;
+    const targetPartyName = validation.walkIn ? "" : validation.party?.name;
+    if (transaction.billingAddress && (targetPartyId || targetPartyName)) {
+      const partyInState = (targetPartyId ? (state.parties || []).find(p => p.id === targetPartyId) : null)
+        || findPartyByName(targetPartyName);
+      if (partyInState && (!partyInState.billingAddress || !partyInState.billingAddress.trim())) {
+        partyInState.billingAddress = transaction.billingAddress;
+        if (window.giDB?.updateParty) {
+          try {
+            state = normalizeState(await window.giDB.updateParty({ ...partyInState, billingAddress: transaction.billingAddress }));
+          } catch (e) {
+            console.warn("Could not auto-update party address:", e);
+          }
+        }
+      }
+    }
+    if (transaction.shippingAddress && (targetPartyId || targetPartyName)) {
+      const partyInState = (targetPartyId ? (state.parties || []).find(p => p.id === targetPartyId) : null)
+        || findPartyByName(targetPartyName);
+      if (partyInState && (!partyInState.shippingAddress || !partyInState.shippingAddress.trim())) {
+        partyInState.shippingAddress = transaction.shippingAddress;
+        if (window.giDB?.updateParty) {
+          try {
+            state = normalizeState(await window.giDB.updateParty({ ...partyInState, shippingAddress: transaction.shippingAddress }));
+          } catch (e) {
+            console.warn("Could not auto-update party shipping address:", e);
+          }
+        }
+      }
+    }
+
+    if (editorType === "sale") {
+      saleTopFilter = { preset: "all", dateFrom: "", dateTo: "", party: "" };
+    } else if (editorType === "purchase") {
+      purchaseTopFilter = { preset: "all", dateFrom: "", dateTo: "", party: "" };
+    }
+
+    if (saveMode === 'print' && ['sale', 'purchase'].includes(editorType)) {
+      const saved = (state.invoices || []).find((invoice) => activeTransactionEditInvoiceId
+        ? String(invoice.id) === String(activeTransactionEditInvoiceId)
+        : String(invoice.transactionId) === String(transaction.id));
+      if (saved) printPreview = invoicePreviewDataFromRecord(saved);
+    } else if (saveMode === 'print' && editorType === 'purchaseReturn') {
+      const savedNote = (state.debitNotes || []).find((note) => activeTransactionEditInvoiceId
+        ? String(note.id) === String(activeTransactionEditInvoiceId)
+        : String(note.debitNo) === String(transaction.invoiceNo));
+      if (savedNote) printPreview = debitNotePreviewDataFromRecord(savedNote);
+    }
+    renderDashboard();
+    clearTransactionDraft(editorType);
+    resetTransactionEditorDirtyState();
+    if (isOpDoc) {
+      const meta = transactionEditorMeta(editorType);
+      showToast({
+        title: `${meta.noun} ${activeTransactionEditInvoiceId ? "Updated" : "Saved"}`,
+        message: `${meta.noun} has been ${activeTransactionEditInvoiceId ? "updated" : "saved"} successfully.`,
+        type: "success",
+        isTransaction: true,
+      });
+      if (saveMode === "print") {
+        openInvoicePreviewModal(printPreview);
+        return;
+      }
+      if (saveMode === "new") {
+        openTransactionEditor(editorType);
+      } else {
+        showView(meta.returnView);
+      }
+      return;
+    }
+    if (editorType === "saleReturn") {
+      showToast({
+        title: `Credit Note ${activeTransactionEditInvoiceId ? "Updated" : "Saved"}`,
+        message: "Credit note has been saved successfully.",
+        type: "success",
+        isTransaction: true,
+      });
+      if (saveMode === "print") {
+        openInvoicePreviewModal(printPreview);
+        return;
+      }
+      if (saveMode === "new") {
+        openTransactionEditor(editorType);
+      } else {
+        showView("saleReturn");
+      }
+      return;
+    }
+    if (editorType === "purchaseReturn") {
+      showToast({
+        title: `Debit Note ${activeTransactionEditInvoiceId ? "Updated" : "Saved"}`,
+        message: "Debit note has been saved successfully.",
+        type: "success",
+        isTransaction: true,
+      });
+      if (saveMode === "print") {
+        openInvoicePreviewModal(printPreview);
+        return;
+      }
+      if (saveMode === "new") {
+        openTransactionEditor(editorType);
+      } else {
+        showView("purchaseReturn");
+      }
+      return;
+    }
+    const meta = transactionEditorMeta(editorType);
+    const docNoun = meta?.noun || (editorType === "purchase" ? "Purchase Bill" : "Invoice");
+    const actionText = activeTransactionEditInvoiceId ? "Updated" : "Saved";
+    if (received > 0) {
+      showToast({
+        title: `${docNoun} ${actionText}`,
+        message: `Payment of ${formatCurrency(received)} recorded.`,
+        type: "success",
+        isTransaction: true,
+      });
+    } else {
+      showToast({
+        title: `${docNoun} ${actionText}`,
+        message: `${docNoun} has been ${actionText.toLowerCase()} successfully.`,
+        type: "success",
+        isTransaction: true,
+      });
+    }
+    if (saveMode === "print") {
+      openInvoicePreviewModal(printPreview);
+      return;
+    }
+    if (saveMode === "new") {
+      openTransactionEditor(editorType);
+    } else {
+      showView(editorType === "sale" ? "sales" : "purchases");
+    }
   } catch (error) {
-    isTransactionEditorSaving = false;
-    if (textSpan) textSpan.textContent = originalSaveText;
-    actionButtons.forEach((btn) => { btn.disabled = false; });
     const msg = cleanErrorMessage(error.message || "Unable to save invoice. Please select existing party and item records.");
     if (msg.includes("already exists") || msg.includes("already in use")) {
       const invInput = formElement.querySelector('[name="invoiceNo"]');
       if (invInput) {
-        setInlineError(invInput, msg);
-        invInput.focus();
+        if (editorType === "sale" && !activeTransactionEditInvoiceId) {
+          const freshNo = computeNextDocumentNumber(editorType);
+          if (freshNo) invInput.value = freshNo;
+        } else {
+          setInlineError(invInput, msg);
+          invInput.focus();
+        }
       }
     }
     showToast(msg);
-    return;
-  }
-  isTransactionEditorSaving = false;
-  if (textSpan) textSpan.textContent = originalSaveText;
-  actionButtons.forEach((btn) => { btn.disabled = false; });
-
-  if (saveMode === 'print' && ['sale', 'purchase'].includes(editorType)) {
-    const saved = (state.invoices || []).find((invoice) => activeTransactionEditInvoiceId
-      ? String(invoice.id) === String(activeTransactionEditInvoiceId)
-      : String(invoice.transactionId) === String(transaction.id));
-    if (saved) printPreview = invoicePreviewDataFromRecord(saved);
-  } else if (saveMode === 'print' && editorType === 'purchaseReturn') {
-    const savedNote = (state.debitNotes || []).find((note) => activeTransactionEditInvoiceId
-      ? String(note.id) === String(activeTransactionEditInvoiceId)
-      : String(note.debitNo) === String(transaction.invoiceNo));
-    if (savedNote) printPreview = debitNotePreviewDataFromRecord(savedNote);
-  }
-  renderDashboard();
-  clearTransactionDraft(editorType);
-  resetTransactionEditorDirtyState();
-  if (isOpDoc) {
-    const meta = transactionEditorMeta(editorType);
-    showToast({
-      title: `${meta.noun} ${activeTransactionEditInvoiceId ? "Updated" : "Saved"}`,
-      message: `${meta.noun} has been ${activeTransactionEditInvoiceId ? "updated" : "saved"} successfully.`,
-      type: "success",
-      isTransaction: true,
-    });
-    if (saveMode === "print") {
-      openInvoicePreviewModal(printPreview);
-      return;
-    }
-    if (saveMode === "new") {
-      openTransactionEditor(editorType);
-    } else {
-      showView(meta.returnView);
-    }
-    return;
-  }
-  if (editorType === "saleReturn") {
-    showToast({
-      title: `Credit Note ${activeTransactionEditInvoiceId ? "Updated" : "Saved"}`,
-      message: "Credit note has been saved successfully.",
-      type: "success",
-      isTransaction: true,
-    });
-    if (saveMode === "print") {
-      openInvoicePreviewModal(printPreview);
-      return;
-    }
-    if (saveMode === "new") {
-      openTransactionEditor(editorType);
-    } else {
-      showView("saleReturn");
-    }
-    return;
-  }
-  if (editorType === "purchaseReturn") {
-    showToast({
-      title: `Debit Note ${activeTransactionEditInvoiceId ? "Updated" : "Saved"}`,
-      message: "Debit note has been saved successfully.",
-      type: "success",
-      isTransaction: true,
-    });
-    if (saveMode === "print") {
-      openInvoicePreviewModal(printPreview);
-      return;
-    }
-    if (saveMode === "new") {
-      openTransactionEditor(editorType);
-    } else {
-      showView("purchaseReturn");
-    }
-    return;
-  }
-  const meta = transactionEditorMeta(editorType);
-  const docNoun = meta?.noun || (editorType === "purchase" ? "Purchase Bill" : "Invoice");
-  const actionText = activeTransactionEditInvoiceId ? "Updated" : "Saved";
-  if (received > 0) {
-    showToast({
-      title: `${docNoun} ${actionText}`,
-      message: `Payment of ${formatCurrency(received)} recorded.`,
-      type: "success",
-      isTransaction: true,
-    });
-  } else {
-    showToast({
-      title: `${docNoun} ${actionText}`,
-      message: `${docNoun} has been ${actionText.toLowerCase()} successfully.`,
-      type: "success",
-      isTransaction: true,
-    });
-  }
-  if (saveMode === "print") {
-    openInvoicePreviewModal(printPreview);
-    return;
-  }
-  if (saveMode === "new") {
-    openTransactionEditor(editorType);
-  } else {
-    showView(editorType === "sale" ? "sales" : "purchases");
+  } finally {
+    hideGlobalLoader(true);
+    isTransactionEditorSaving = false;
+    if (textSpan) textSpan.textContent = originalSaveText;
+    actionButtons.forEach((btn) => { btn.disabled = false; });
   }
 }
 
@@ -7361,6 +8096,7 @@ function validateTransactionEditorSelections() {
     name: partyName || (editorType === "purchase" ? "Paid Supplier" : "Paid Customer"),
     phone: elements.featureView.querySelector('[name="phone"]')?.value || "",
     billingAddress: elements.featureView.querySelector('[name="address"]')?.value || "",
+    shippingAddress: elements.featureView.querySelector('[name="shippingAddress"]')?.value || "",
     gstin: "",
     taxType: "unregistered",
     state: stateInput?.value || "",
@@ -7516,15 +8252,16 @@ function handleGstinInput(gstinVal) {
 function activatePartyTab(targetTab) {
   const modal = elements.entryModal || document.getElementById("entryModal");
   if (!modal) return;
+  const normalizedTab = targetTab === "basic" ? "gst" : targetTab;
   const tabButtons = modal.querySelectorAll(".party-tab-btn");
   const tabPanels = modal.querySelectorAll(".party-tab-panel");
   tabButtons.forEach((b) => {
-    const isTarget = b.dataset.tab === targetTab;
+    const isTarget = b.dataset.tab === normalizedTab || (normalizedTab === "gst" && b.dataset.tab === "basic");
     b.classList.toggle("active", isTarget);
     b.setAttribute("aria-selected", isTarget ? "true" : "false");
   });
   tabPanels.forEach((panel) => {
-    const isTarget = panel.id === `partyTab${targetTab.charAt(0).toUpperCase() + targetTab.slice(1)}`;
+    const isTarget = panel.id.toLowerCase() === `partytab${normalizedTab.toLowerCase()}`;
     panel.classList.toggle("active", isTarget);
     panel.classList.toggle("hidden", !isTarget);
   });
@@ -7540,16 +8277,7 @@ function initPartyTabs() {
 }
 
 function resetPartyTabs() {
-  const tabButtons = elements.entryModal.querySelectorAll(".party-tab-btn");
-  const tabPanels = elements.entryModal.querySelectorAll(".party-tab-panel");
-  tabButtons.forEach((b, i) => {
-    b.classList.toggle("active", i === 0);
-    b.setAttribute("aria-selected", i === 0 ? "true" : "false");
-  });
-  tabPanels.forEach((p, i) => {
-    p.classList.toggle("active", i === 0);
-    p.classList.toggle("hidden", i !== 0);
-  });
+  activatePartyTab("gst");
 }
 
 function initPartyTypeChips() {
@@ -7669,6 +8397,7 @@ function setItemTypeChip(typeValue) {
 function populateEntryForm(type, record) {
   if (!record) return;
   if (type === "party") {
+    resetPartyAddressCards(record);
     setEntryValue("party", record.name);
     setPartyTypeChip("party");
     setEntryValue("phone", record.phone);
@@ -7681,14 +8410,29 @@ function populateEntryForm(type, record) {
     setEntryValue("gstin", resolvedGstin);
     setEntryValue("legalName", record.legalName);
     setEntryValue("pan", record.pan);
-    setEntryValue("billingAddress", record.billingAddress);
-    setEntryValue("shippingAddress", record.shippingAddress);
     const openingBalance = Number(record.openingBalance || 0);
     setEntryValue("openingBalance", Math.abs(openingBalance) || "");
     const balType = openingBalance < 0 ? "payable" : (record.openingBalanceType || "receivable");
     setEntryValue("openingBalanceType", balType);
     setBalanceTypeChip(balType);
-    setEntryValue("creditLimit", Number(record.creditLimit || 0) || "");
+    const radio = elements.entryForm.querySelector(`input[name="creditBalanceRadio"][value="${balType}"]`);
+    if (radio) radio.checked = true;
+
+    setEntryValue("asOfDate", record.asOfDate || record.as_of_date || new Date().toISOString().slice(0, 10));
+
+    const creditLimit = Number(record.creditLimit || 0);
+    const limitToggle = document.getElementById("partyCreditLimitToggle");
+    const customLimitWrap = document.getElementById("customCreditLimitWrap");
+    const noLimitLabel = document.getElementById("noLimitLabel");
+    const customLimitLabel = document.getElementById("customLimitLabel");
+    if (limitToggle) {
+      const hasLimit = creditLimit > 0;
+      limitToggle.checked = hasLimit;
+      noLimitLabel?.classList.toggle("active", !hasLimit);
+      customLimitLabel?.classList.toggle("active", hasLimit);
+      customLimitWrap?.classList.toggle("hidden", !hasLimit);
+    }
+    setEntryValue("creditLimit", creditLimit || "");
     setEntryValue("paymentTerms", record.paymentTerms);
     setEntryValue("dueDays", Number(record.dueDays || 0) || "");
     setEntryValue("notes", record.notes);
@@ -7720,7 +8464,7 @@ function populateEntryForm(type, record) {
     setEntryValue("saleTaxType", record.saleTaxType || "without_tax");
     setEntryValue("purchasePrice", Number(record.purchasePrice || 0) || "");
     setEntryValue("purchaseTaxType", record.purchaseTaxType || "without_tax");
-    setEntryValue("taxRate", Number(record.taxRate || 0));
+    setEntryValue("taxRate", record.taxType || taxOptionLabel(record.taxRate));
     setEntryValue("discount", Number(record.discount || 0) || "");
     setEntryValue("openingStock", Number(record.openingStock || 0) || "");
     setEntryValue("openingStockDate", formatDateInput(record.openingStockDate));
@@ -7752,14 +8496,27 @@ function populateEntryDraft(type, draft) {
 function setEntryValue(name, value) {
   const field = elements.entryForm.querySelector(`[name="${name}"]`);
   if (!field) return;
-  if (field.tagName === "SELECT" && value) {
+  if (field.tagName === "SELECT" && value !== null && value !== undefined) {
     const strVal = String(value);
     const hasOption = Array.from(field.options).some((o) => o.value === strVal);
     if (!hasOption) {
-      const opt = document.createElement("option");
-      opt.value = strVal;
-      opt.textContent = strVal;
-      field.appendChild(opt);
+      if (field.id === "itemTaxRate") {
+        const numRate = parseTaxRate(strVal);
+        const smartMatch = Array.from(field.options).some(
+          (o) => parseTaxRate(o.value) === numRate || o.value.toLowerCase() === strVal.toLowerCase()
+        );
+        if (!smartMatch) {
+          const opt = document.createElement("option");
+          opt.value = strVal;
+          opt.textContent = strVal;
+          field.appendChild(opt);
+        }
+      } else {
+        const opt = document.createElement("option");
+        opt.value = strVal;
+        opt.textContent = strVal;
+        field.appendChild(opt);
+      }
     }
   }
   field.value = value ?? "";
@@ -7831,6 +8588,261 @@ function bindPartyEntryFields() {
 
   const paymentTermsInput = elements.entryForm.querySelector('[name="paymentTerms"]');
   if (paymentTermsInput) paymentTermsInput.oninput = updatePartySummaryPills;
+
+  // Radio buttons for To Pay / To Receive
+  const balanceRadios = elements.entryForm.querySelectorAll('input[name="creditBalanceRadio"]');
+  const balanceTypeSelect = document.getElementById("partyOpeningBalanceType");
+  balanceRadios.forEach((r) => {
+    r.onchange = () => {
+      if (r.checked && balanceTypeSelect) {
+        balanceTypeSelect.value = r.value;
+        updatePartySummaryPills();
+      }
+    };
+  });
+
+  // Credit limit toggle (No Limit / Custom Limit)
+  const creditLimitToggle = document.getElementById("partyCreditLimitToggle");
+  const customLimitWrap = document.getElementById("customCreditLimitWrap");
+  const noLimitLabel = document.getElementById("noLimitLabel");
+  const customLimitLabel = document.getElementById("customLimitLabel");
+  const creditLimitInput = document.getElementById("partyCreditLimitInput");
+
+  if (creditLimitToggle) {
+    creditLimitToggle.onchange = () => {
+      const isCustom = creditLimitToggle.checked;
+      noLimitLabel?.classList.toggle("active", !isCustom);
+      customLimitLabel?.classList.toggle("active", isCustom);
+      customLimitWrap?.classList.toggle("hidden", !isCustom);
+      if (isCustom) {
+        creditLimitInput?.focus();
+      } else if (creditLimitInput) {
+        creditLimitInput.value = "0";
+      }
+    };
+  }
+
+  // Multi-address card system
+  initPartyAddressCardEvents();
+}
+
+function openAddressCardMenu(button, card, listElement, addressType) {
+  document.querySelectorAll(".address-card-dropdown").forEach((el) => el.remove());
+  const dropdown = document.createElement("div");
+  dropdown.className = "address-card-dropdown";
+  const isPrimary = card.classList.contains("active");
+  const totalCards = listElement.querySelectorAll(".address-card").length;
+
+  dropdown.innerHTML = `
+    <button type="button" class="address-menu-item" data-action="set-default" ${isPrimary ? "disabled" : ""}>
+      <span>✓ Set as Default</span>
+    </button>
+    ${totalCards > 1 ? `
+      <button type="button" class="address-menu-item text-danger" data-action="delete">
+        <span>🗑 Delete Address</span>
+      </button>
+    ` : `
+      <button type="button" class="address-menu-item text-danger" data-action="clear">
+        <span>Clear Address</span>
+      </button>
+    `}
+  `;
+
+  dropdown.querySelector('[data-action="set-default"]')?.addEventListener("click", () => {
+    listElement.querySelectorAll(".address-card").forEach((c) => c.classList.remove("active"));
+    card.classList.add("active");
+    dropdown.remove();
+  });
+
+  dropdown.querySelector('[data-action="delete"]')?.addEventListener("click", () => {
+    const wasActive = card.classList.contains("active");
+    card.remove();
+    if (wasActive) {
+      const first = listElement.querySelector(".address-card");
+      if (first) first.classList.add("active");
+    }
+    dropdown.remove();
+  });
+
+  dropdown.querySelector('[data-action="clear"]')?.addEventListener("click", () => {
+    const ta = card.querySelector("textarea");
+    if (ta) ta.value = "";
+    dropdown.remove();
+  });
+
+  const rect = button.getBoundingClientRect();
+  dropdown.style.top = `${rect.bottom + 4}px`;
+  dropdown.style.left = `${Math.max(10, rect.right - 140)}px`;
+
+  document.body.appendChild(dropdown);
+
+  const closeDropdown = (e) => {
+    if (!dropdown.contains(e.target) && e.target !== button) {
+      dropdown.remove();
+      document.removeEventListener("pointerdown", closeDropdown);
+    }
+  };
+  setTimeout(() => document.addEventListener("pointerdown", closeDropdown), 10);
+}
+
+function bindAddressCardEvents(card, listElement, addressType) {
+  const setActive = () => {
+    listElement.querySelectorAll(".address-card").forEach((c) => c.classList.remove("active"));
+    card.classList.add("active");
+  };
+  card.onclick = (e) => {
+    if (e.target.closest(".address-card-actions")) return;
+    setActive();
+  };
+  const ta = card.querySelector("textarea");
+  if (ta) {
+    ta.onfocus = setActive;
+  }
+  const menuBtn = card.querySelector(".address-card-menu-btn");
+  if (menuBtn) {
+    menuBtn.onclick = (e) => {
+      e.stopPropagation();
+      openAddressCardMenu(e.currentTarget, card, listElement, addressType);
+    };
+  }
+}
+
+function createAdditionalAddressCard(listElement, addressType, initialText = "", isDefaultActive = false) {
+  const card = document.createElement("div");
+  card.className = `address-card ${isDefaultActive ? "active" : ""}`;
+  const count = listElement.querySelectorAll(".address-card").length;
+  card.dataset.addressCard = `${addressType}-${count}`;
+  card.innerHTML = `
+    <textarea class="address-card-textarea" placeholder="${addressType === 'shipping' ? 'Shipping' : 'Billing'} Address"></textarea>
+    <div class="address-card-actions">
+      <button type="button" class="address-card-menu-btn" title="Address options">⋮</button>
+    </div>
+  `;
+  const ta = card.querySelector("textarea");
+  if (initialText && ta) ta.value = initialText;
+
+  bindAddressCardEvents(card, listElement, addressType);
+  listElement.appendChild(card);
+  return card;
+}
+
+function resetPartyAddressCards(record = null) {
+  const billingList = document.getElementById("billingAddressList");
+  const shippingList = document.getElementById("shippingAddressList");
+  if (!billingList || !shippingList) return;
+
+  billingList.innerHTML = `
+    <div class="address-card active" data-address-card="billing-0">
+      <textarea id="partyBillingAddress" name="billingAddress" class="address-card-textarea" placeholder="Billing Address"></textarea>
+      <div class="address-card-actions">
+        <button type="button" class="address-card-menu-btn" title="Address options">⋮</button>
+      </div>
+    </div>
+  `;
+
+  shippingList.innerHTML = `
+    <div class="address-card active" data-address-card="shipping-0">
+      <textarea id="partyShippingAddress" name="shippingAddress" class="address-card-textarea" placeholder="Shipping Address"></textarea>
+      <div class="address-card-actions">
+        <button type="button" class="address-card-menu-btn" title="Address options">⋮</button>
+      </div>
+    </div>
+  `;
+
+  const primaryBillingCard = billingList.querySelector(".address-card");
+  if (primaryBillingCard) bindAddressCardEvents(primaryBillingCard, billingList, "billing");
+
+  const primaryShippingCard = shippingList.querySelector(".address-card");
+  if (primaryShippingCard) bindAddressCardEvents(primaryShippingCard, shippingList, "shipping");
+
+  if (!record) return;
+
+  let additional = null;
+  if (record.additionalAddresses) {
+    try {
+      additional = typeof record.additionalAddresses === "string"
+        ? JSON.parse(record.additionalAddresses)
+        : record.additionalAddresses;
+    } catch {
+      additional = null;
+    }
+  }
+
+  // Populate billing cards
+  const billingValues = (additional?.billing && Array.isArray(additional.billing) && additional.billing.length)
+    ? additional.billing
+    : (record.billingAddress ? [record.billingAddress] : []);
+
+  if (billingValues.length > 0) {
+    const firstTa = primaryBillingCard?.querySelector("textarea");
+    if (firstTa) firstTa.value = billingValues[0];
+    for (let i = 1; i < billingValues.length; i++) {
+      createAdditionalAddressCard(billingList, "billing", billingValues[i], false);
+    }
+  }
+
+  // Populate shipping cards
+  const shippingValues = (additional?.shipping && Array.isArray(additional.shipping) && additional.shipping.length)
+    ? additional.shipping
+    : (record.shippingAddress ? [record.shippingAddress] : []);
+
+  if (shippingValues.length > 0) {
+    const firstTa = primaryShippingCard?.querySelector("textarea");
+    if (firstTa) firstTa.value = shippingValues[0];
+    for (let i = 1; i < shippingValues.length; i++) {
+      createAdditionalAddressCard(shippingList, "shipping", shippingValues[i], false);
+    }
+  }
+
+  billingList.querySelectorAll(".address-card").forEach((card) => {
+    const ta = card.querySelector("textarea");
+    const isActive = ta && record.billingAddress && ta.value.trim() === record.billingAddress.trim();
+    card.classList.toggle("active", Boolean(isActive));
+  });
+  if (!billingList.querySelector(".address-card.active") && primaryBillingCard) {
+    primaryBillingCard.classList.add("active");
+  }
+
+  shippingList.querySelectorAll(".address-card").forEach((card) => {
+    const ta = card.querySelector("textarea");
+    const isActive = ta && record.shippingAddress && ta.value.trim() === record.shippingAddress.trim();
+    card.classList.toggle("active", Boolean(isActive));
+  });
+  if (!shippingList.querySelector(".address-card.active") && primaryShippingCard) {
+    primaryShippingCard.classList.add("active");
+  }
+}
+
+function initPartyAddressCardEvents() {
+  const addBillingBtn = document.getElementById("addBillingAddressBtn");
+  const billingList = document.getElementById("billingAddressList");
+  if (addBillingBtn && billingList) {
+    addBillingBtn.onclick = () => {
+      billingList.querySelectorAll(".address-card").forEach((c) => c.classList.remove("active"));
+      const newCard = createAdditionalAddressCard(billingList, "billing", "", true);
+      const ta = newCard.querySelector("textarea");
+      if (ta) ta.focus();
+    };
+  }
+
+  const addShippingBtn = document.getElementById("addShippingAddressBtn");
+  const shippingList = document.getElementById("shippingAddressList");
+  if (addShippingBtn && shippingList) {
+    addShippingBtn.onclick = () => {
+      shippingList.querySelectorAll(".address-card").forEach((c) => c.classList.remove("active"));
+      const newCard = createAdditionalAddressCard(shippingList, "shipping", "", true);
+      const ta = newCard.querySelector("textarea");
+      if (ta) ta.focus();
+    };
+  }
+
+  // Bind initial primary cards
+  const primaryBillingCard = billingList?.querySelector(".address-card");
+  if (primaryBillingCard && billingList) bindAddressCardEvents(primaryBillingCard, billingList, "billing");
+
+  const primaryShippingCard = shippingList?.querySelector(".address-card");
+  if (primaryShippingCard && shippingList) bindAddressCardEvents(primaryShippingCard, shippingList, "shipping");
+
 
   updatePartySummaryPills();
 }
@@ -8018,10 +9030,59 @@ function bindItemEntryFields() {
   const purchaseTaxSelect = elements.entryForm.querySelector('[name="purchaseTaxType"]');
   if (purchaseTaxSelect) purchaseTaxSelect.onchange = updateItemSummaryPills;
 
+  initItemTaxRateSelect();
   const taxRateSelect = elements.entryForm.querySelector('[name="taxRate"]');
   if (taxRateSelect) taxRateSelect.onchange = updateItemSummaryPills;
 
   updateItemSummaryPills();
+}
+
+function initItemTaxRateSelect() {
+  const select = document.getElementById("itemTaxRate");
+  if (!select || select._smartTaxInitialized) return;
+  select._smartTaxInitialized = true;
+
+  const originalDescriptor = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value");
+  Object.defineProperty(select, "value", {
+    get() {
+      return originalDescriptor.get.call(this);
+    },
+    set(val) {
+      if (val === null || val === undefined) {
+        originalDescriptor.set.call(this, "");
+        return;
+      }
+      const strVal = String(val).trim();
+      const directMatch = Array.from(this.options).find(
+        (opt) => opt.value.toLowerCase() === strVal.toLowerCase() || opt.text.toLowerCase() === strVal.toLowerCase()
+      );
+      if (directMatch) {
+        originalDescriptor.set.call(this, directMatch.value);
+        return;
+      }
+      const numRate = parseTaxRate(strVal);
+      if (strVal === "0" || strVal.toLowerCase() === "none" || strVal === "0%") {
+        originalDescriptor.set.call(this, "None");
+        return;
+      }
+      if (strVal.toLowerCase() === "exempt") {
+        originalDescriptor.set.call(this, "Exempt");
+        return;
+      }
+      const isIgst = strVal.toUpperCase().startsWith("IGST");
+      const targetPrefix = isIgst ? "IGST@" : "GST@";
+      const targetVal = `${targetPrefix}${numRate}%`;
+      const match = Array.from(this.options).find(
+        (opt) => opt.value.toLowerCase() === targetVal.toLowerCase() || parseTaxRate(opt.value) === numRate
+      );
+      if (match) {
+        originalDescriptor.set.call(this, match.value);
+      } else {
+        originalDescriptor.set.call(this, strVal);
+      }
+    },
+    configurable: true,
+  });
 }
 
 function updateItemSummaryPills() {
@@ -8034,19 +9095,30 @@ function updateItemSummaryPills() {
 
   if (!saleEl || !purchaseEl || !marginEl) return;
 
+  const itemType = elements.entryForm.querySelector('[name="itemType"]')?.value || "product";
+  const isService = currentEntryType === "item" && itemType === "service";
+
+  const purchasePill = document.getElementById("itemSummaryPurchasePill");
+  const marginPill = document.getElementById("itemSummaryMarginPill");
+  const summaryStrip = document.getElementById("itemSummaryStrip");
+
+  if (purchasePill) purchasePill.style.display = isService ? "none" : "";
+  if (marginPill) marginPill.style.display = isService ? "none" : "";
+  if (summaryStrip) summaryStrip.classList.toggle("service-summary", isService);
+
   const saleInput = elements.entryForm.querySelector('[name="salePrice"]');
   const purchaseInput = elements.entryForm.querySelector('[name="purchasePrice"]');
   const saleTaxSelect = elements.entryForm.querySelector('[name="saleTaxType"]');
   const purchaseTaxSelect = elements.entryForm.querySelector('[name="purchaseTaxType"]');
 
   const salePrice = parseFloat(saleInput?.value || 0) || 0;
-  const purchasePrice = parseFloat(purchaseInput?.value || 0) || 0;
+  const purchasePrice = isService ? 0 : (parseFloat(purchaseInput?.value || 0) || 0);
   const isSaleTaxInc = saleTaxSelect?.value === "with_tax";
   const isPurchaseTaxInc = purchaseTaxSelect?.value === "with_tax";
 
   saleEl.textContent = `₹${salePrice.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   if (saleNoteEl) {
-    saleNoteEl.textContent = salePrice > 0 ? (isSaleTaxInc ? "Inclusive of tax" : "Exclusive of tax") : "Selling price";
+    saleNoteEl.textContent = salePrice > 0 ? (isSaleTaxInc ? "Inclusive of tax" : "Exclusive of tax") : (isService ? "Service billing rate" : "Selling price");
   }
 
   purchaseEl.textContent = `₹${purchasePrice.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -8084,16 +9156,50 @@ function quickAddItemMaster(kind) {
   });
 }
 
+function updateItemTaxRateOptions(isService) {
+  const select = document.getElementById("itemTaxRate");
+  if (!select) return;
+
+  const currentVal = select.value || "GST@18%";
+  const targetOptions = isService ? SERVICE_GST_TAX_OPTIONS : STANDARD_GST_TAX_OPTIONS;
+
+  const existingOptions = Array.from(select.options).map((o) => o.value);
+  if (existingOptions.length === targetOptions.length && existingOptions.every((v, i) => v === targetOptions[i])) {
+    return;
+  }
+
+  let selectedVal = currentVal;
+  const hasExact = targetOptions.some((opt) => opt.toLowerCase() === currentVal.toLowerCase());
+  if (!hasExact) {
+    const num = parseTaxRate(currentVal);
+    const hasSameRate = targetOptions.find((opt) => parseTaxRate(opt) === num && (opt.startsWith("GST@") || opt === "None" || opt === "Exempt"));
+    selectedVal = hasSameRate || (isService ? "GST@18%" : "GST@18%");
+  }
+
+  select.innerHTML = targetOptions
+    .map((opt) => `<option value="${escapeHtml(opt)}" ${opt.toLowerCase() === selectedVal.toLowerCase() ? "selected" : ""}>${escapeHtml(opt)}</option>`)
+    .join("");
+
+  select.value = selectedVal;
+}
+
 function renderItemChoiceLists() {
+  const itemType = elements.entryForm?.querySelector('[name="itemType"]')?.value || "product";
+  const isService = currentEntryType === "item" && itemType === "service";
+
   const unitSelect = elements.entryForm.querySelector("#itemUnitInput");
   const unitOptions = elements.entryForm.querySelector("#itemUnitOptions");
   const categoryOptions = elements.entryForm.querySelector("#itemCategoryOptions");
 
   const savedUnits = (state.units || []).filter((u) => u.is_active !== false).map((u) => u.name);
-  const allUnits = mergeChoiceList(DEFAULT_ITEM_UNITS, savedUnits);
+  const baseDefaults = isService ? DEFAULT_SERVICE_UNITS : DEFAULT_ITEM_UNITS;
+  const filteredSaved = isService
+    ? savedUnits.filter((u) => !PHYSICAL_GOODS_UNITS.map((g) => g.toLowerCase()).includes(u.toLowerCase()))
+    : savedUnits;
+  const allUnits = mergeChoiceList(baseDefaults, filteredSaved);
 
   if (unitSelect && unitSelect.tagName === "SELECT") {
-    const currentVal = unitSelect.value || "Pcs";
+    const currentVal = unitSelect.value || (isService ? "Hr" : "Pcs");
     const unitsList = allUnits.includes(currentVal) ? allUnits : [currentVal, ...allUnits];
     unitSelect.innerHTML = unitsList
       .map((u) => `<option value="${escapeHtml(u)}" ${u === currentVal ? "selected" : ""}>${escapeHtml(u)}</option>`)
@@ -8139,6 +9245,10 @@ function optionListMarkup(values) {
 function updateItemEntryFields() {
   const itemType = elements.entryForm.querySelector('[name="itemType"]')?.value || "product";
   const isService = currentEntryType === "item" && itemType === "service";
+
+  // 1. Refresh unit choices for service vs product
+  renderItemChoiceLists();
+
   const unit = elements.entryForm.querySelector('[name="unit"]');
   const currentUnit = unit?.value.trim();
   const shouldUseDefaultUnit = !currentUnit || (isService && currentUnit === "Pcs") || (!isService && currentUnit === "Hr");
@@ -8146,7 +9256,10 @@ function updateItemEntryFields() {
     unit.value = isService ? "Hr" : "Pcs";
   }
 
-  // Toggle Service notice banner and stock fields group in Tab 2
+  // 2. Refresh tax rate choices for service vs product
+  updateItemTaxRateOptions(isService);
+
+  // 3. Toggle Service notice banner and stock fields group in Tab 2
   const serviceNotice = document.getElementById("itemServiceStockNotice");
   const stockGroup = document.getElementById("itemStockFieldsGroup");
   if (serviceNotice) serviceNotice.style.display = isService ? "flex" : "none";
@@ -8161,6 +9274,32 @@ function updateItemEntryFields() {
   }
   const hsnSacLabel = document.getElementById("hsnSacLabel");
   if (hsnSacLabel) hsnSacLabel.textContent = isService ? "SAC Code" : "HSN Code";
+
+  // 4. Adapt Barcode / SKU field for service
+  const skuLabel = document.getElementById("itemSkuLabel");
+  const skuInput = document.getElementById("itemSkuInput");
+  const autoBarcodeBtn = document.getElementById("generateBarcodeBtn");
+  const printBarcodeBtn = document.getElementById("printBarcodeBtn");
+
+  if (skuLabel) skuLabel.textContent = isService ? "Service Code" : "Barcode / SKU";
+  if (skuInput) skuInput.placeholder = isService ? "Service code or SKU (optional)" : "Scan barcode with gun or click Auto-Generate";
+  if (autoBarcodeBtn) autoBarcodeBtn.style.display = isService ? "none" : "";
+  if (printBarcodeBtn) printBarcodeBtn.style.display = isService ? "none" : "";
+
+  // 5. Hide Purchase Price for service items
+  const purchasePriceGroup = document.getElementById("itemPurchasePriceFieldGroup");
+  const salePriceGroup = document.getElementById("itemSalePriceFieldGroup");
+  const purchasePill = document.getElementById("itemSummaryPurchasePill");
+  const marginPill = document.getElementById("itemSummaryMarginPill");
+  const summaryStrip = document.getElementById("itemSummaryStrip");
+
+  if (purchasePriceGroup) purchasePriceGroup.style.display = isService ? "none" : "";
+  if (salePriceGroup) salePriceGroup.style.gridColumn = isService ? "1 / -1" : "";
+  if (purchasePill) purchasePill.style.display = isService ? "none" : "";
+  if (marginPill) marginPill.style.display = isService ? "none" : "";
+  if (summaryStrip) summaryStrip.classList.toggle("service-summary", isService);
+
+  updateItemSummaryPills();
 }
 
 function validateEntryForm(form) {
@@ -8261,6 +9400,9 @@ async function handleEntrySubmit(event) {
   const editingRecordId = currentEntryRecordId;
   const returnContext = entryReturnContext;
   const savedEntryType = currentEntryType;
+  const submitter = event.submitter;
+  const isSaveAndNew = (submitter && (submitter.id === "saveAndNewEntryButton" || submitter.dataset.saveMode === "new")) || entryModalSaveMode === "new";
+  entryModalSaveMode = "close";
   const validation = validateEntryForm(form);
   if (!validation.valid) {
     setInlineError(validation.field, validation.message);
@@ -8270,10 +9412,25 @@ async function handleEntrySubmit(event) {
 
   try {
     if (currentEntryType === "party") {
-    const billingAddress = String(form.get("billingAddress") || "").trim();
+    const billingCards = Array.from(document.querySelectorAll("#billingAddressList .address-card"));
+    const allBilling = billingCards.map((c) => c.querySelector("textarea")?.value?.trim() || "").filter(Boolean);
+    const activeBillingCard = document.querySelector("#billingAddressList .address-card.active");
+    const activeBillingText = activeBillingCard?.querySelector("textarea")?.value?.trim() || "";
+    const billingAddress = activeBillingText || allBilling[0] || String(form.get("billingAddress") || "").trim();
+
+    const shippingCards = Array.from(document.querySelectorAll("#shippingAddressList .address-card"));
+    const allShipping = shippingCards.map((c) => c.querySelector("textarea")?.value?.trim() || "").filter(Boolean);
+    const activeShippingCard = document.querySelector("#shippingAddressList .address-card.active");
+    const activeShippingText = activeShippingCard?.querySelector("textarea")?.value?.trim() || "";
     const shippingAddress = form.get("sameAsBilling")
       ? billingAddress
-      : String(form.get("shippingAddress") || "").trim();
+      : (activeShippingText || allShipping[0] || String(form.get("shippingAddress") || "").trim());
+
+    const additionalAddresses = JSON.stringify({
+      billing: allBilling,
+      shipping: allShipping,
+    });
+
     const openingBalance = Number(form.get("openingBalance") || 0);
     const openingBalanceType = String(form.get("openingBalanceType") || "receivable");
     const normalizedOpeningBalance = openingBalanceType === "payable" ? -Math.abs(openingBalance) : Math.abs(openingBalance);
@@ -8291,6 +9448,7 @@ async function handleEntrySubmit(event) {
       pan: String(form.get("pan") || (String(form.get("gstin") || "").trim().length >= 12 ? String(form.get("gstin") || "").trim().slice(2, 12) : "")).trim().toUpperCase(),
       billingAddress,
       shippingAddress,
+      additionalAddresses,
       openingBalance: normalizedOpeningBalance,
       openingBalanceType,
       creditLimit: Number(form.get("creditLimit") || 0),
@@ -8321,9 +9479,10 @@ async function handleEntrySubmit(event) {
       hsnSac: String(form.get("hsnSac") || "").trim(),
       salePrice: Number(form.get("salePrice") || 0),
       saleTaxType: String(form.get("saleTaxType") || "without_tax"),
-      purchasePrice: Number(form.get("purchasePrice") || 0),
-      purchaseTaxType: String(form.get("purchaseTaxType") || "without_tax"),
+      purchasePrice: isService ? 0 : Number(form.get("purchasePrice") || 0),
+      purchaseTaxType: isService ? "without_tax" : String(form.get("purchaseTaxType") || "without_tax"),
       taxRate: parseTaxRate(form.get("taxRate")),
+      taxType: String(form.get("taxRate") || "None").trim(),
       discount: Number(form.get("discount") || 0),
       openingStock: isService ? 0 : Number(form.get("openingStock") || 0),
       openingStockDate: isService ? "" : String(form.get("openingStockDate") || ""),
@@ -8397,6 +9556,32 @@ async function handleEntrySubmit(event) {
   }
 
   if (!window.giDB) saveState();
+
+  if (isSaveAndNew) {
+    if (savedEntryType === "party") showToast(editingRecordId ? "Party updated. Ready for next party." : "Party added. Ready for next party.");
+    if (savedEntryType === "item") showToast(editingRecordId ? "Item updated. Ready for next item." : "Item added. Ready for next item.");
+    renderDashboard();
+    if (currentView === "parties") {
+      elements.featureView.innerHTML = partiesTemplate(null, "transactions", partySearchQuery);
+      bindFeatureActions();
+    }
+    if (currentView === "items") {
+      elements.featureView.innerHTML = itemsTemplate(null, "overview", itemSearchQuery);
+      bindFeatureActions();
+    }
+    renderCurrentList();
+    if (currentView === "sales") renderSaleInvoices();
+    if (currentView === "purchases") renderPurchaseBills();
+    scheduleDashboardChartDraw();
+
+    openEntryModal(savedEntryType, null, { returnContext });
+    setTimeout(() => {
+      const focusTarget = savedEntryType === "party" ? document.getElementById("partyNameInput") : document.getElementById("itemNameInput");
+      focusTarget?.focus();
+    }, 50);
+    return;
+  }
+
   closeEntryModal();
   if (savedEntryType === "party") showToast(editingRecordId ? "Party updated." : "Party added.");
   if (savedEntryType === "item") showToast(editingRecordId ? "Item updated." : "Item added.");
@@ -8550,6 +9735,11 @@ function invoiceBalanceValue(entry) {
   return entry.status === "due" || entry.status === "unpaid" ? invoiceTotalValue(entry) : 0;
 }
 
+function partyBalanceValue(party) {
+  if (!party) return 0;
+  return Number(party.balance ?? party.openingBalance ?? 0);
+}
+
 function invoiceStatusBadge(entry) {
   const normalized = invoiceStatusKey(entry);
   const label = {
@@ -8617,17 +9807,17 @@ function invoiceWorkspaceTemplate(type) {
         </div>
       </header>
 
-      ${topFilterBarHTML(type, topFilter)}
+      ${topFilterBarHTML(type, topFilter, query)}
 
       <section class="kpi-grid invoice-kpis">
-        ${kpiCard(`Total ${isSale ? "Sales" : "Purchases"}`, formatCurrency(total), "Invoice value for selected view", "neutral")}
-        ${kpiCard(paidLabel, formatCurrency(paid), isSale ? "Cash collected from customers" : "Cash paid to suppliers", "success")}
-        ${kpiCard(balanceLabel, formatCurrency(balance), isSale ? "Customer balances due" : "Supplier balances due", balance > 0 ? "danger" : "success")}
-        ${kpiCard("GST / Tax", formatCurrency(taxTotal), `${openCount} open, ${cancelledCount} cancelled`, "info")}
+        ${kpiCard(`Total ${isSale ? "Sales" : "Purchases"}`, formatCurrency(total), rows.length === 1 ? `1 ${isSale ? "invoice" : "bill"}` : `${rows.length} ${isSale ? "invoices" : "bills"}`, "neutral")}
+        ${kpiCard(paidLabel, formatCurrency(paid), `${rows.filter((r) => invoiceBalanceValue(r) === 0 && invoiceTotalValue(r) > 0).length} fully settled`, "success")}
+        ${kpiCard(balanceLabel, formatCurrency(balance), openCount > 0 ? `${openCount} pending` : "All settled", balance > 0 ? "danger" : "success")}
+        ${kpiCard("GST / Tax", formatCurrency(taxTotal), taxTotal > 0 ? (cancelledCount > 0 ? `${cancelledCount} cancelled` : "Tax component") : "No tax", "info")}
       </section>
 
-      <section class="data-table-card invoice-data-card" data-table-width="${currentTableWidthMode}">
-        ${rows.length ? invoiceRowsTable(rows, { isSale, partyLabel, numberLabel, paidLabel, colFilters, type }) : emptyWorkspace(emptyTitle, emptyCopy)}
+      <section class="data-table-card invoice-data-card">
+        ${rows.length ? invoiceRowsTable(rows, { isSale, partyLabel, numberLabel, paidLabel, colFilters, type }) : emptyWorkspace(emptyTitle, emptyCopy, hasFilters ? `<button class="top-filter-clear-btn" data-top-filter-clear="${type}" type="button" style="margin-top:14px;padding:8px 18px;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;">Show All ${isSale ? "Invoices" : "Bills"}</button>` : "")}
       </section>
     </section>
   `;
@@ -8714,7 +9904,7 @@ function parseLocalIsoDate(value, endOfDay = false) {
   return date;
 }
 
-function topFilterBarHTML(type, topFilter) {
+function topFilterBarHTML(type, topFilter, query = "") {
   const { preset, dateFrom, dateTo, party } = topFilter;
   const range = preset === "custom" ? { from: dateFrom, to: dateTo } : (preset !== "all" ? datePresetRange(preset) : { from: "", to: "" });
   const fmtDisplay = (iso) => {
@@ -8726,7 +9916,7 @@ function topFilterBarHTML(type, topFilter) {
   const parties = [...new Set((state.parties || []).map((p) => p.name).filter(Boolean))].sort();
 
   const presetLabels = {
-    all: type === "purchase" ? "All Purchase Bills" : "All Sale Invoices",
+    all: type === "purchase" ? "All Bills" : "All Invoices",
     today: "Today",
     yesterday: "Yesterday",
     thisWeek: "This Week",
@@ -8736,49 +9926,63 @@ function topFilterBarHTML(type, topFilter) {
     thisYear: "This Year",
     custom: "Custom",
   };
-  const presetLabel = presetLabels[preset] || "This Month";
+  const presetLabel = presetLabels[preset] || (type === "purchase" ? "All Bills" : "All Invoices");
   const showRange = preset === "custom" || Boolean(range.from || range.to);
+  const isFiltered = preset !== "all" || party || Boolean(query);
 
   return `
     <div class="top-filter-bar" data-top-filter-type="${type}">
-      <span class="top-filter-label">Filter by :</span>
-
-      <div class="top-filter-preset-wrap">
-        <button class="top-filter-pill" data-top-filter-preset-btn="${type}" type="button">
-          ${escapeHtml(presetLabel)} <span class="pill-caret">▾</span>
-        </button>
-        <div class="top-filter-preset-dropdown" id="presetDropdown_${type}" style="display:none">
-          ${Object.entries(presetLabels).map(([val, lbl]) => `
-            <button class="preset-option ${preset === val ? "active" : ""}" data-top-filter-preset="${type}" data-preset-value="${val}" type="button">${lbl}</button>
-          `).join("")}
-        </div>
+      <div class="top-filter-search-box">
+        <svg class="gi-icon top-filter-search-icon" style="width:14px;height:14px;"><use href="#gi-search"></use></svg>
+        <input
+          type="text"
+          class="top-filter-search-input"
+          data-invoice-search="${type}"
+          placeholder="Search by invoice #, party, item..."
+          value="${escapeHtml(query)}"
+        />
+        ${query ? `<button class="top-filter-search-clear" data-invoice-search-clear="${type}" type="button" title="Clear search">×</button>` : ""}
       </div>
 
-      ${showRange ? `
-        <div class="top-filter-daterange">
-          <svg class="gi-icon" style="width:14px;height:14px;"><use href="#gi-calendar"></use></svg>
-          ${preset === "custom" ? `
-            <input type="date" class="top-filter-date-input" data-top-filter-date="${type}" data-date-key="dateFrom" value="${escapeHtml(dateFrom)}">
-            <span>To</span>
-            <input type="date" class="top-filter-date-input" data-top-filter-date="${type}" data-date-key="dateTo" value="${escapeHtml(dateTo)}">
-          ` : `
-            <span>${fmtDisplay(range.from)}</span>
-            <span>To</span>
-            <span>${fmtDisplay(range.to)}</span>
-          `}
+      <div class="top-filter-controls">
+        <div class="top-filter-preset-wrap">
+          <button class="top-filter-pill" data-top-filter-preset-btn="${type}" type="button">
+            <svg class="gi-icon" style="width:13px;height:13px;opacity:0.75;"><use href="#gi-calendar"></use></svg>
+            <span>${escapeHtml(presetLabel)}</span>
+            <span class="pill-caret">▾</span>
+          </button>
+          <div class="top-filter-preset-dropdown" id="presetDropdown_${type}" style="display:none">
+            ${Object.entries(presetLabels).map(([val, lbl]) => `
+              <button class="preset-option ${preset === val ? "active" : ""}" data-top-filter-preset="${type}" data-preset-value="${val}" type="button">${lbl}</button>
+            `).join("")}
+          </div>
         </div>
-      ` : ""}
 
-      <div class="top-filter-preset-wrap">
-        <select class="top-filter-pill top-filter-party-select" data-top-filter-party="${type}">
-          <option value="">All Parties</option>
-          ${parties.map((p) => `<option value="${escapeHtml(p)}" ${party === p ? "selected" : ""}>${escapeHtml(p)}</option>`).join("")}
-        </select>
+        ${showRange ? `
+          <div class="top-filter-daterange">
+            ${preset === "custom" ? `
+              <input type="date" class="top-filter-date-input" data-top-filter-date="${type}" data-date-key="dateFrom" value="${escapeHtml(dateFrom)}">
+              <span class="daterange-sep">to</span>
+              <input type="date" class="top-filter-date-input" data-top-filter-date="${type}" data-date-key="dateTo" value="${escapeHtml(dateTo)}">
+            ` : `
+              <span>${fmtDisplay(range.from)}</span>
+              <span class="daterange-sep">to</span>
+              <span>${fmtDisplay(range.to)}</span>
+            `}
+          </div>
+        ` : ""}
+
+        <div class="top-filter-preset-wrap">
+          <select class="top-filter-pill top-filter-party-select" data-top-filter-party="${type}">
+            <option value="">All Parties</option>
+            ${parties.map((p) => `<option value="${escapeHtml(p)}" ${party === p ? "selected" : ""}>${escapeHtml(p)}</option>`).join("")}
+          </select>
+        </div>
+
+        ${isFiltered ? `
+          <button class="top-filter-clear-btn" data-top-filter-clear="${type}" type="button">Reset</button>
+        ` : ""}
       </div>
-
-      ${(preset !== "all" && preset !== "thisMonth") || party ? `
-        <button class="top-filter-clear-btn" data-top-filter-clear="${type}" type="button">Clear</button>
-      ` : ""}
     </div>
   `;
 }
@@ -8941,12 +10145,13 @@ function kpiCard(label, value, note, tone = "") {
   return `<article class="kpi-card ${escapeHtml(tone)}"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong><small>${escapeHtml(note)}</small></article>`;
 }
 
-function emptyWorkspace(title, copy) {
+function emptyWorkspace(title, copy, actionHtml = "") {
   return `
     <div class="empty-workspace">
       <div class="invoice-empty-art"><span></span><span></span><span></span></div>
       <strong>${escapeHtml(title)}</strong>
       <p>${escapeHtml(copy)}</p>
+      ${actionHtml}
     </div>
   `;
 }
@@ -8965,28 +10170,32 @@ function saleReturnTemplate() {
     : "Create a credit note when goods come back, invoice value is reduced, or a customer refund must be recorded.";
 
   return `
-    <section class="credit-note-workspace">
-      <header class="app-page-header invoice-page-header credit-note-header">
+    <section class="invoice-workspace sale-workspace">
+      <header class="app-page-header invoice-page-header">
         <div>
-          <p class="muted-label">Sales</p>
           <h1>Sales Return / Credit Note</h1>
-          <small>${rows.length} of ${allRows.length} records shown</small>
         </div>
         <div class="invoice-header-actions">
-          <button class="secondary-button compact-button" data-view="sales" type="button">Sale Invoices</button>
           <button class="sale-button" data-action="create-credit-note" type="button">+ Add Credit Note</button>
         </div>
       </header>
 
-      <section class="app-toolbar">
-        <label class="toolbar-search">
-          <span>Search</span>
-          <input data-credit-note-search type="search" value="${escapeHtml(creditNoteSearchQuery)}" placeholder="Credit note, customer, invoice, item, status">
-        </label>
+      <div class="top-filter-bar">
+        <div class="top-filter-search-box">
+          <svg class="gi-icon top-filter-search-icon" style="width:14px;height:14px;"><use href="#gi-search"></use></svg>
+          <input
+            type="text"
+            class="top-filter-search-input"
+            data-credit-note-search
+            placeholder="Search credit note, customer, invoice..."
+            value="${escapeHtml(creditNoteSearchQuery)}"
+          />
+          ${creditNoteSearchQuery ? `<button class="top-filter-search-clear" data-credit-note-search-clear type="button" title="Clear search">×</button>` : ""}
+        </div>
         <div class="invoice-quick-filters" role="group" aria-label="Credit note filters">
           ${creditNoteQuickFilterButtons()}
         </div>
-      </section>
+      </div>
 
       <section class="kpi-grid invoice-kpis">
         ${kpiCard("Return Value", formatCurrency(total), "Credit note total for selected view", "neutral")}
@@ -8995,7 +10204,7 @@ function saleReturnTemplate() {
         ${kpiCard("GST Reversal", formatCurrency(taxTotal), "Output tax reduction", "info")}
       </section>
 
-      <section class="data-table-card invoice-data-card credit-note-data-card">
+      <section class="data-table-card invoice-data-card">
         ${rows.length ? creditNoteRowsTable(rows) : emptyWorkspace(emptyTitle, emptyCopy)}
       </section>
     </section>
@@ -9422,36 +10631,41 @@ function estimateTemplate() {
   }[view] || "Search…";
 
   return `
-    <section class="estimate-workspace invoice-workspace">
-      <header class="app-page-header estimate-page-header">
+    <section class="invoice-workspace ${view === "purchaseOrder" ? "purchase-workspace" : "sale-workspace"}">
+      <header class="app-page-header invoice-page-header">
         <div>
-          <p class="muted-label">${escapeHtml(eyebrowMap[view] || "Sales")}</p>
           <h1>${escapeHtml(meta.noun)}</h1>
-          <small>${rows.length} of ${allRows.length} record${allRows.length === 1 ? "" : "s"} shown</small>
         </div>
         <div class="invoice-header-actions">
-          <button class="sale-button" data-action="create-estimate" data-document-type="${view}" type="button">+ New ${escapeHtml(meta.noun)}</button>
+          <button class="${view === "purchaseOrder" ? "purchase-button" : "sale-button"}" data-action="create-estimate" data-document-type="${view}" type="button">+ New ${escapeHtml(meta.noun)}</button>
         </div>
       </header>
 
-      <section class="app-toolbar">
-        <label class="toolbar-search">
-          <span>Search</span>
-          <input data-estimate-search type="search" value="${escapeHtml(estimateSearchQuery)}" placeholder="${escapeHtml(searchPlaceholder)}">
-        </label>
+      <div class="top-filter-bar">
+        <div class="top-filter-search-box">
+          <svg class="gi-icon top-filter-search-icon" style="width:14px;height:14px;"><use href="#gi-search"></use></svg>
+          <input
+            type="text"
+            class="top-filter-search-input"
+            data-estimate-search
+            placeholder="${escapeHtml(searchPlaceholder)}"
+            value="${escapeHtml(estimateSearchQuery)}"
+          />
+          ${estimateSearchQuery ? `<button class="top-filter-search-clear" data-estimate-search-clear type="button" title="Clear search">×</button>` : ""}
+        </div>
         <div class="invoice-quick-filters" role="group" aria-label="${escapeHtml(meta.noun)} filters">
           ${estimateQuickFilterButtons()}
         </div>
-      </section>
+      </div>
 
-      <section class="kpi-grid estimate-kpis">
+      <section class="kpi-grid invoice-kpis">
         ${kpiCard(kpi.total,    formatCurrency(totalValue),    `${allRows.length} total record${allRows.length === 1 ? "" : "s"}`, "neutral")}
         ${kpiCard(kpi.accepted, formatCurrency(acceptedValue), "Ready to convert into sale", "success")}
         ${kpiCard(kpi.pending,  String(pendingCount),          "Draft or sent", pendingCount ? "info" : "success")}
         ${kpiCard(kpi.tax,      formatCurrency(taxValue),      `${convertedCount} converted`, "info")}
       </section>
 
-      <section class="data-table-card estimate-data-card">
+      <section class="data-table-card invoice-data-card">
         ${rows.length ? estimateRowsTable(rows, view) : emptyWorkspace(emptyMsg.title, emptyMsg.copy)}
       </section>
     </section>
@@ -10696,34 +11910,20 @@ try {
 } catch {}
 
 function invoiceRowsTable(rows, { isSale, partyLabel, numberLabel, paidLabel, colFilters = {}, type = "sale" }) {
-  const cf = (col) => `<button class="col-filter-icon ${colFilters[col]?.value ? "active" : ""}" type="button" data-col-filter-btn="${col}" data-col-filter-type="${type}" title="Filter by ${col}">▽</button>`;
+  const cf = (col) => `<button class="col-filter-icon ${colFilters[col]?.value ? "active" : ""}" type="button" data-col-filter-btn="${col}" data-col-filter-type="${type}" title="Filter column" aria-label="Filter column"><svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polygon points="1.5 2.5 14.5 2.5 9.5 8.5 9.5 13.5 6.5 14.5 6.5 8.5 1.5 2.5"></polygon></svg></button>`;
   return `
-    <div class="data-table-toolbar">
-      <div class="data-table-toolbar-left">
-        <span class="data-table-count">${rows.length} ${isSale ? "sale invoice" : "purchase bill"}${rows.length === 1 ? "" : "s"}</span>
-      </div>
-      <div class="data-table-toolbar-right">
-        <div class="table-width-segmented">
-          <span class="table-width-label">Table:</span>
-          <button type="button" class="table-width-btn ${currentTableWidthMode === 'fit' ? 'active' : ''}" data-table-width-set="fit" title="Fit table neatly to available screen width (100%)">Fit Screen</button>
-          <button type="button" class="table-width-btn ${currentTableWidthMode === 'standard' ? 'active' : ''}" data-table-width-set="standard" title="Standard width (1200px)">Standard</button>
-          <button type="button" class="table-width-btn ${currentTableWidthMode === 'wide' ? 'active' : ''}" data-table-width-set="wide" title="Wide table (1500px)">Wide</button>
-          <button type="button" class="table-width-btn table-reset-btn" data-table-width-reset title="Reset column widths to default">Reset Columns</button>
-        </div>
-      </div>
-    </div>
     <div class="data-table-scroll-wrap">
-      <table class="data-table" data-table-width="${currentTableWidthMode}">
+      <table class="data-table invoice-modern-table">
         <thead>
           <tr>
-            <th>Date ${cf("date")}<span class="data-table-column-resizer" title="Drag to resize column"></span></th>
-            <th>${numberLabel} ${cf("invoiceNo")}<span class="data-table-column-resizer" title="Drag to resize column"></span></th>
-            <th>${partyLabel} ${cf("party")}<span class="data-table-column-resizer" title="Drag to resize column"></span></th>
-            <th>Total ${cf("total")}<span class="data-table-column-resizer" title="Drag to resize column"></span></th>
-            <th>${paidLabel} ${cf("received")}<span class="data-table-column-resizer" title="Drag to resize column"></span></th>
-            <th>Balance ${cf("balance")}<span class="data-table-column-resizer" title="Drag to resize column"></span></th>
-            <th>Status<span class="data-table-column-resizer" title="Drag to resize column"></span></th>
-            <th>Actions</th>
+            <th class="th-date"><span class="th-content">Date ${cf("date")}</span><span class="data-table-column-resizer" title="Drag to resize column"></span></th>
+            <th class="th-invoice-no"><span class="th-content">${numberLabel} #${cf("invoiceNo")}</span><span class="data-table-column-resizer" title="Drag to resize column"></span></th>
+            <th class="th-party"><span class="th-content">${partyLabel} ${cf("party")}</span><span class="data-table-column-resizer" title="Drag to resize column"></span></th>
+            <th class="th-amount amount-cell"><span class="th-content th-content-right">Total ${cf("total")}</span><span class="data-table-column-resizer" title="Drag to resize column"></span></th>
+            <th class="th-amount amount-cell"><span class="th-content th-content-right">${paidLabel} ${cf("received")}</span><span class="data-table-column-resizer" title="Drag to resize column"></span></th>
+            <th class="th-amount amount-cell"><span class="th-content th-content-right">Balance ${cf("balance")}</span><span class="data-table-column-resizer" title="Drag to resize column"></span></th>
+            <th class="th-status"><span class="th-content">Status</span><span class="data-table-column-resizer" title="Drag to resize column"></span></th>
+            <th class="th-actions"><span class="th-content th-content-right">Actions</span></th>
           </tr>
         </thead>
         <tbody>
@@ -10752,51 +11952,7 @@ function bindInvoiceTableWidthAndResize(root = elements.featureView) {
   const table = root.querySelector(".invoice-data-card .data-table");
   if (!table) return;
 
-  // 1. Table width switcher buttons
-  root.querySelectorAll("[data-table-width-set]").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const mode = btn.dataset.tableWidthSet;
-      currentTableWidthMode = mode;
-      try {
-        localStorage.setItem("gi-invoice-table-width-mode", mode);
-      } catch {}
-      root.querySelectorAll("[data-table-width-set]").forEach((b) => b.classList.toggle("active", b === btn));
-      if (card) card.dataset.tableWidth = mode;
-      table.dataset.tableWidth = mode;
-      if (mode === "fit") {
-        table.style.tableLayout = "";
-        table.querySelectorAll("thead th").forEach((th) => {
-          th.style.width = "";
-        });
-        try {
-          localStorage.removeItem("gi-invoice-col-widths");
-        } catch {}
-      }
-    });
-  });
-
-  // 2. Reset columns button
-  root.querySelectorAll("[data-table-width-reset]").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      try {
-        localStorage.removeItem("gi-invoice-col-widths");
-        localStorage.setItem("gi-invoice-table-width-mode", "fit");
-      } catch {}
-      currentTableWidthMode = "fit";
-      table.style.tableLayout = "";
-      table.querySelectorAll("thead th").forEach((th) => {
-        th.style.width = "";
-      });
-      if (card) card.dataset.tableWidth = "fit";
-      table.dataset.tableWidth = "fit";
-      root.querySelectorAll("[data-table-width-set]").forEach((b) => {
-        b.classList.toggle("active", b.dataset.tableWidthSet === "fit");
-      });
-      showToast("Table column widths reset to default.");
-    });
-  });
-
-  // 3. Restore saved column widths if available
+  // 1. Restore saved column widths if available
   try {
     const savedColWidths = JSON.parse(localStorage.getItem("gi-invoice-col-widths") || "null");
     if (Array.isArray(savedColWidths) && savedColWidths.length) {
@@ -10810,7 +11966,7 @@ function bindInvoiceTableWidthAndResize(root = elements.featureView) {
     }
   } catch {}
 
-  // 4. Interactive column resizing via draggable divider handles
+  // 2. Interactive column resizing via draggable divider handles
   const resizers = table.querySelectorAll(".data-table-column-resizer");
   resizers.forEach((resizer) => {
     const th = resizer.parentElement;
@@ -10905,7 +12061,13 @@ function invoiceRowActions(entry, { isSale = true } = {}) {
   return `
     <div class="invoice-row-actions">
       <details>
-        <summary aria-label="Invoice actions">⋮</summary>
+        <summary aria-label="Invoice actions" title="More options">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+            <circle cx="12" cy="5" r="2.2"></circle>
+            <circle cx="12" cy="12" r="2.2"></circle>
+            <circle cx="12" cy="19" r="2.2"></circle>
+          </svg>
+        </summary>
         <div class="invoice-action-menu">
           ${actions.map(([action, label]) => `
             <button type="button" data-invoice-action="${action}" data-invoice-id="${id}" class="${action === 'delete' || action === 'cancel' ? 'danger-action' : ''}">${label}</button>
@@ -10920,6 +12082,8 @@ function findInvoiceRecord(id) {
   const cleanId = String(id || "");
   return (state.invoices || []).find((invoice) => String(invoice.id) === cleanId || String(invoice.transactionId) === cleanId)
     || (state.transactions || []).find((transaction) => String(transaction.invoiceId || transaction.id) === cleanId)
+    || (state.creditNotes || []).find((note) => String(note.id) === cleanId || String(note.creditNoteId) === cleanId || String(note.creditNo) === cleanId)
+    || (state.debitNotes || []).find((note) => String(note.id) === cleanId || String(note.debitNoteId) === cleanId || String(note.debitNo) === cleanId)
     || null;
 }
 
@@ -10967,19 +12131,32 @@ function invoiceDraftFromRecord(invoice, options = {}) {
 
 function invoicePreviewDataFromRecord(invoice, overrides = {}) {
   const business = state.businessSettings || defaultBusinessSettings();
-  const party = { name: invoice.party, gstin: invoice.partyGstin, billingAddress: invoice.billingAddress };
-  const rows = invoiceItemsFor(invoice).map((line, index) => ({
+  const partyRecord = (state.parties || []).find((p) =>
+    (invoice.partyId && String(p.id) === String(invoice.partyId)) ||
+    (invoice.party && String(p.name).trim().toLowerCase() === String(invoice.party).trim().toLowerCase())
+  );
+  const party = {
+    name: invoice.party || partyRecord?.name || "Cash Customer",
+    phone: invoice.phone || partyRecord?.phone || "",
+    gstin: invoice.partyGstin || invoice.gstin || partyRecord?.gstin || "",
+    billingAddress: invoice.billingAddress || invoice.address || partyRecord?.billingAddress || partyRecord?.address || "",
+    shippingAddress: invoice.shippingAddress || invoice.meta?.shippingAddress || partyRecord?.shippingAddress || "",
+    state: invoice.state || invoice.partyState || partyRecord?.state || ""
+  };
+  const invoiceLines = invoiceItemsFor(invoice);
+  const itemsSource = invoiceLines.length ? invoiceLines : (Array.isArray(invoice.items) && invoice.items.length ? invoice.items : []);
+  const rows = itemsSource.map((line, index) => ({
     index: index + 1,
-    item: line.item || "",
+    item: line.item || line.name || "",
     description: line.description || "",
     hsnSac: line.hsnSac || "",
-    qty: Number(line.qty || 0),
+    qty: Number(line.qty || line.quantity || 0),
     unit: line.unit || "",
     price: Number(line.price || 0),
     discount: Number(line.discount || 0),
     taxRate: Number(line.taxRate || 0),
     tax: Number(line.taxAmount || 0),
-    total: Number(line.lineTotal || 0),
+    total: Number(line.lineTotal || line.total || (Number(line.qty || 1) * Number(line.price || 0))),
   }));
   if (!rows.length && invoice.item) {
     rows.push({
@@ -10996,15 +12173,17 @@ function invoicePreviewDataFromRecord(invoice, overrides = {}) {
       total: invoiceTotalValue(invoice),
     });
   }
+  const rawDate = invoice.date || invoice.transactionDate || invoice.createdAt || "";
+  const displayDate = rawDate ? formatDate(rawDate) : "-";
   return {
     editorType: invoice.type || "sale",
     business,
     party,
     rows,
     invoiceNo: invoice.invoiceNo || "-",
-    date: invoice.date || "",
-    address: invoice.billingAddress || party?.billingAddress || "",
-    placeOfSupply: invoice.placeOfSupply || "",
+    date: displayDate,
+    address: party.billingAddress || "",
+    placeOfSupply: invoice.placeOfSupply || party.state || "",
     customFields: customFieldsForModule(invoice.type || "sale").map((field) => ({
       ...field,
       value: customFieldValue(field, invoice.meta?.customFields || {}),
@@ -11295,6 +12474,19 @@ function deleteInvoiceLocal(invoice) {
 
 function refreshAfterInvoiceMutation(type) {
   renderDashboard();
+  if (currentView === "items") {
+    const selectedId = elements.featureView?.querySelector(".item-list-item.active")?.dataset.itemId;
+    elements.featureView.innerHTML = itemsTemplate(selectedId ? Number(selectedId) : null, "stockLedger", itemSearchQuery);
+    bindFeatureActions();
+    return;
+  }
+  if (currentView === "parties") {
+    const selectedId = elements.featureView?.querySelector(".party-list-item.active")?.dataset.partyId;
+    const activeTab = elements.featureView?.querySelector(".party-tabs button.active")?.dataset.partyTab || "transactions";
+    elements.featureView.innerHTML = partiesTemplate(selectedId ? Number(selectedId) : null, activeTab, partySearchQuery);
+    bindFeatureActions();
+    return;
+  }
   renderFeatureView(type === "purchase" ? "purchases" : "sales");
 }
 
@@ -11978,7 +13170,15 @@ function purchaseImportRowTemplate(row, index) {
       <td><input class="form-input" data-import-field="unit" value="${escapeHtml(row.unit || "Pcs")}"></td>
       <td><input class="form-input" data-import-field="price" type="number" min="0" step="0.01" value="${Number(row.price || 0)}"></td>
       <td><input class="form-input" data-import-field="discount" type="number" min="0" step="0.01" value="${Number(row.discount || 0)}"></td>
-      <td><input class="form-input" data-import-field="taxRate" type="number" min="0" step="0.01" value="${Number(row.taxRate || 0)}"></td>
+      <td>
+        <select class="form-input" data-import-field="taxRate">
+          ${STANDARD_GST_TAX_OPTIONS.map((opt) => {
+            const optRate = parseTaxRate(opt);
+            const isSel = optRate === Number(row.taxRate || 0) && (opt.startsWith("GST@") || (optRate === 0 && opt === "None"));
+            return `<option value="${escapeHtml(opt)}" ${isSel ? "selected" : ""}>${escapeHtml(opt)}</option>`;
+          }).join("")}
+        </select>
+      </td>
       <td><strong>${amount.toFixed(2)}</strong></td>
       <td><span class="import-status ${row.matchedItemId ? "matched" : "review"}">${escapeHtml(status)}</span></td>
     </tr>
@@ -11989,7 +13189,7 @@ function purchaseImportRowAmount(row) {
   const qty = Number(row.qty || 0);
   const price = Number(row.price || 0);
   const discount = Number(row.discount || 0);
-  const taxRate = Number(row.taxRate || 0);
+  const taxRate = parseTaxRate(row.taxRate || 0);
   const taxable = Math.max(0, qty * price - discount);
   return taxable + taxable * taxRate / 100;
 }
@@ -12002,7 +13202,9 @@ function syncImportMatchedItem(select) {
   const unit = row.querySelector('[data-import-field="unit"]');
   if (unit && !unit.value.trim()) unit.value = item.unit || "Pcs";
   const taxRate = row.querySelector('[data-import-field="taxRate"]');
-  if (taxRate && !Number(taxRate.value || 0)) taxRate.value = Number(item.taxRate || 0);
+  if (taxRate && (!parseTaxRate(taxRate.value) || taxRate.value === "None")) {
+    taxRate.value = item.taxType || taxOptionLabel(item.taxRate);
+  }
   const status = row.querySelector(".import-status");
   if (status) {
     status.textContent = "Matched";
@@ -12039,7 +13241,7 @@ function collectPurchaseImportDraftFromReview() {
       unit: row.querySelector('[data-import-field="unit"]')?.value.trim() || matchedItem?.unit || "Pcs",
       price,
       discount: Number(row.querySelector('[data-import-field="discount"]')?.value || 0),
-      taxRate: Number(row.querySelector('[data-import-field="taxRate"]')?.value || matchedItem?.taxRate || 0),
+      taxRate: parseTaxRate(row.querySelector('[data-import-field="taxRate"]')?.value || matchedItem?.taxRate || 0),
       matchedItemId: matchedItem?.id || "",
       confidence: matchedItem ? "Matched" : "Need Review",
     });
@@ -12092,100 +13294,132 @@ function entryMatchesSearch(entry, query) {
 }
 
 function showView(view, title) {
-  if (!transactionLeaveBypass && shouldBlockTransactionEditorLeave() && view !== currentView) {
-    requestTransactionEditorLeave(() => showView(view, title));
-    return;
-  }
-  activeTransactionEditInvoiceId = null;
-  hideOpenAnythingResults();
-  closeInvoiceCalculator();
-  if (typeof hideCollapsedFlyoutGlobal === "function") {
-    hideCollapsedFlyoutGlobal();
-  }
-  document.body.classList.remove("transaction-editor-open", "editor-view-active");
-  const appShellEl = document.getElementById("appShell");
-  if (appShellEl) appShellEl.classList.remove("editor-active");
-  currentView = view;
-  document.body.dataset.view = view;
-  document.querySelector(".topbar")?.classList.toggle("hidden", view !== "home");
-  syncSidebarNavigation(view);
+  startTopProgress();
+  try {
+    if (!transactionLeaveBypass && shouldBlockTransactionEditorLeave() && view !== currentView) {
+      requestTransactionEditorLeave(() => showView(view, title));
+      return;
+    }
+    activeTransactionEditInvoiceId = null;
+    hideOpenAnythingResults();
+    closeInvoiceCalculator();
+    if (typeof hideCollapsedFlyoutGlobal === "function") {
+      hideCollapsedFlyoutGlobal();
+    }
+    document.body.classList.remove("transaction-editor-open", "editor-view-active");
+    const appShellEl = document.getElementById("appShell");
+    if (appShellEl) appShellEl.classList.remove("editor-active");
+    currentView = view;
+    document.body.dataset.view = view;
+    if (view !== "importItems" && view !== "importParties") {
+      csvImportRows = [];
+      csvImportFileName = "";
+    }
+    document.querySelector(".topbar")?.classList.toggle("hidden", view !== "home");
+    syncSidebarNavigation(view);
 
-  if (view === "home") {
-    elements.homeView.classList.remove("hidden");
-    elements.homeView.scrollTop = 0;
-    document.querySelector(".right-panel").classList.remove("hidden");
-    document.querySelector(".right-panel").scrollTop = 0;
-    elements.listView.classList.add("hidden");
+    const isAutoCollapseView = view === "reports" ||
+                               view === "appSettings" ||
+                               view === "settings" ||
+                               view === "setupBusiness" ||
+                               view === "accountantAccess" ||
+                               isGstView(view);
+
+    if (isAutoCollapseView) {
+      if (!isSidebarCollapsed()) {
+        autoCollapsedByView = true;
+        setSidebarCollapsed(true, { persist: false });
+      }
+    } else if (autoCollapsedByView) {
+      autoCollapsedByView = false;
+      if (!userPreferredSidebarCollapsed) {
+        setSidebarCollapsed(false, { persist: false });
+      }
+    }
+
+    if (view === "home") {
+      elements.homeView.classList.remove("hidden");
+      elements.homeView.scrollTop = 0;
+      document.querySelector(".right-panel").classList.remove("hidden");
+      document.querySelector(".right-panel").scrollTop = 0;
+      elements.listView.classList.add("hidden");
+      elements.saleInvoicesView.classList.add("hidden");
+      elements.purchaseBillsView.classList.add("hidden");
+      elements.featureView.classList.add("hidden");
+      elements.featureView.innerHTML = "";
+      renderDashboard();
+      scheduleDashboardChartDraw();
+      return;
+    }
+
+    elements.homeView.classList.add("hidden");
+    document.querySelector(".right-panel").classList.add("hidden");
     elements.saleInvoicesView.classList.add("hidden");
     elements.purchaseBillsView.classList.add("hidden");
-    elements.featureView.classList.add("hidden");
-    elements.featureView.innerHTML = "";
-    renderDashboard();
-    scheduleDashboardChartDraw();
-    return;
+    const featureViews = new Set([
+      "sales",
+      "estimate",
+      "purchases",
+      "paymentIn",
+      "paymentOut",
+      "expenses",
+      "purchaseOrder",
+      "purchaseReturn",
+      "cash",
+      "sync",
+      "reports",
+      "pos",
+      "saleReturn",
+      "parties",
+      "settings",
+      "importItems",
+      "appSettings",
+      "items",
+      "grow",
+      "setupBusiness",
+      "accountantAccess",
+      "barcodeGenerator",
+      "importParties",
+      "exportItems",
+      "verifyData",
+      "saleOrder",
+      "deliveryChallan",
+      "proforma",
+      "gst",
+      "gstDashboard",
+      "gstr1",
+      "gstr3b",
+      "hsnSummary",
+      "salesTaxSummary",
+      "purchaseTaxSummary",
+      "itcRegister",
+      "outputGst",
+      "gstLiability",
+      "eInvoice",
+      "eWayBill",
+      "gstReconciliation",
+    ]);
+    elements.featureView.classList.toggle("hidden", !featureViews.has(view));
+    elements.listView.classList.toggle("hidden", featureViews.has(view));
+    if (featureViews.has(view)) {
+      if (view === "parties") partySearchQuery = globalSearchQuery();
+      if (view === "items") itemSearchQuery = globalSearchQuery();
+      renderFeatureView(view, title);
+      return;
+    }
+    elements.listView.classList.remove("hidden");
+    elements.listTitle.textContent = title || viewTitle(view);
+    elements.listEyebrow.textContent = view === "reports" ? "Business reports" : "Manage";
+    elements.listActionButton.textContent = actionTitle(view);
+    elements.listActionButton.onclick = () => openEntryModal(actionType(view));
+    renderCurrentList();
+  } finally {
+    requestAnimationFrame(() => {
+      setTimeout(() => {
+        completeTopProgress();
+      }, 140);
+    });
   }
-
-  elements.homeView.classList.add("hidden");
-  document.querySelector(".right-panel").classList.add("hidden");
-  elements.saleInvoicesView.classList.add("hidden");
-  elements.purchaseBillsView.classList.add("hidden");
-  const featureViews = new Set([
-    "sales",
-    "estimate",
-    "purchases",
-    "paymentIn",
-    "paymentOut",
-    "expenses",
-    "purchaseOrder",
-    "purchaseReturn",
-    "cash",
-    "sync",
-    "reports",
-    "pos",
-    "saleReturn",
-    "parties",
-    "settings",
-    "importItems",
-    "appSettings",
-    "items",
-    "grow",
-    "setupBusiness",
-    "accountantAccess",
-    "barcodeGenerator",
-    "importParties",
-    "exportItems",
-    "verifyData",
-    "saleOrder",
-    "deliveryChallan",
-    "proforma",
-    "gst",
-    "gstDashboard",
-    "gstr1",
-    "gstr3b",
-    "hsnSummary",
-    "salesTaxSummary",
-    "purchaseTaxSummary",
-    "itcRegister",
-    "outputGst",
-    "gstLiability",
-    "eInvoice",
-    "eWayBill",
-    "gstReconciliation",
-  ]);
-  elements.featureView.classList.toggle("hidden", !featureViews.has(view));
-  elements.listView.classList.toggle("hidden", featureViews.has(view));
-  if (featureViews.has(view)) {
-    if (view === "parties") partySearchQuery = globalSearchQuery();
-    if (view === "items") itemSearchQuery = globalSearchQuery();
-    renderFeatureView(view, title);
-    return;
-  }
-  elements.listView.classList.remove("hidden");
-  elements.listTitle.textContent = title || viewTitle(view);
-  elements.listEyebrow.textContent = view === "reports" ? "Business reports" : "Manage";
-  elements.listActionButton.textContent = actionTitle(view);
-  elements.listActionButton.onclick = () => openEntryModal(actionType(view));
-  renderCurrentList();
 }
 
 function scrollReportContentToTop() {
@@ -12229,28 +13463,32 @@ function scrollReportContentToTop() {
 }
 
 function navigateReport(reportId, options = {}) {
-  if (options.clearSearch !== false) {
-    reportSearchQuery = "";
-  }
-  const sidebar = elements.featureView.querySelector(".reports-menu");
-  const savedSidebarScroll = sidebar ? sidebar.scrollTop : 0;
+  startTopProgress();
+  try {
+    if (options.clearSearch !== false) {
+      reportSearchQuery = "";
+    }
+    const sidebar = elements.featureView.querySelector(".reports-menu");
+    const savedSidebarScroll = sidebar ? sidebar.scrollTop : 0;
 
-  const isInGstSection = currentView === "gst" || (SIDEBAR_GROUPS.gst && SIDEBAR_GROUPS.gst.views.has(currentView) && currentView !== "reports");
-  if (isInGstSection && isGstView(reportId)) {
-    elements.featureView.innerHTML = gstWorkspaceTemplate(reportId);
-  } else {
     elements.featureView.innerHTML = reportsTemplate(reportId);
-  }
-  bindFeatureActions();
+    bindFeatureActions();
 
-  const newSidebar = elements.featureView.querySelector(".reports-menu");
-  if (newSidebar) {
-    newSidebar.scrollTop = savedSidebarScroll;
-  }
+    const newSidebar = elements.featureView.querySelector(".reports-menu");
+    if (newSidebar) {
+      newSidebar.scrollTop = savedSidebarScroll;
+    }
 
-  scrollReportContentToTop();
-  requestAnimationFrame(scrollReportContentToTop);
-  setTimeout(scrollReportContentToTop, 40);
+    scrollReportContentToTop();
+    requestAnimationFrame(scrollReportContentToTop);
+    setTimeout(scrollReportContentToTop, 40);
+  } finally {
+    requestAnimationFrame(() => {
+      setTimeout(() => {
+        completeTopProgress();
+      }, 140);
+    });
+  }
 }
 
 function renderFeatureView(view, context) {
@@ -12283,19 +13521,19 @@ function renderFeatureView(view, context) {
     purchaseReturn: () => purchaseReturnTemplate(),
     saleOrder: () => estimateTemplate(),
     deliveryChallan: () => estimateTemplate(),
-    gst: () => gstWorkspaceTemplate("gstDashboard"),
-    gstDashboard: () => gstWorkspaceTemplate("gstDashboard"),
-    gstr1: () => gstWorkspaceTemplate("gstr1"),
-    gstr3b: () => gstWorkspaceTemplate("gstr3b"),
-    hsnSummary: () => gstWorkspaceTemplate("hsnSummary"),
-    salesTaxSummary: () => gstWorkspaceTemplate("salesTaxSummary"),
-    purchaseTaxSummary: () => gstWorkspaceTemplate("purchaseTaxSummary"),
-    itcRegister: () => gstWorkspaceTemplate("itcRegister"),
-    outputGst: () => gstWorkspaceTemplate("outputGst"),
-    gstLiability: () => gstWorkspaceTemplate("gstLiability"),
-    eInvoice: () => gstWorkspaceTemplate("eInvoice"),
-    eWayBill: () => gstWorkspaceTemplate("eWayBill"),
-    gstReconciliation: () => gstWorkspaceTemplate("gstReconciliation"),
+    gst: () => reportsTemplate("gstDashboard"),
+    gstDashboard: () => reportsTemplate("gstDashboard"),
+    gstr1: () => reportsTemplate("gstr1"),
+    gstr3b: () => reportsTemplate("gstr3b"),
+    hsnSummary: () => reportsTemplate("hsnSummary"),
+    salesTaxSummary: () => reportsTemplate("salesTaxSummary"),
+    purchaseTaxSummary: () => reportsTemplate("purchaseTaxSummary"),
+    itcRegister: () => reportsTemplate("itcRegister"),
+    outputGst: () => reportsTemplate("outputGst"),
+    gstLiability: () => reportsTemplate("gstLiability"),
+    eInvoice: () => reportsTemplate("eInvoice"),
+    eWayBill: () => reportsTemplate("eWayBill"),
+    gstReconciliation: () => reportsTemplate("gstReconciliation"),
   };
 
   elements.featureView.innerHTML = templates[view]?.() || simplePage(viewTitle(view), "No records to show yet.");
@@ -12703,12 +13941,31 @@ function bindFeatureActions() {
     });
   });
 
+  // Clear search input
+  elements.featureView.querySelectorAll("[data-invoice-search-clear]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const type = btn.dataset.invoiceSearchClear;
+      if (type === "purchase") {
+        purchaseInvoiceSearchQuery = "";
+      } else {
+        saleInvoiceSearchQuery = "";
+      }
+      elements.featureView.innerHTML = invoiceWorkspaceTemplate(type);
+      bindFeatureActions();
+    });
+  });
+
   // Clear top filter
   elements.featureView.querySelectorAll("[data-top-filter-clear]").forEach((btn) => {
     btn.addEventListener("click", () => {
       const type = btn.dataset.topFilterClear;
-      if (type === "purchase") { purchaseTopFilter = { preset: "thisMonth", dateFrom: "", dateTo: "", party: "" }; }
-      else { saleTopFilter = { preset: "thisMonth", dateFrom: "", dateTo: "", party: "" }; }
+      if (type === "purchase") {
+        purchaseTopFilter = { preset: "all", dateFrom: "", dateTo: "", party: "" };
+        purchaseInvoiceSearchQuery = "";
+      } else {
+        saleTopFilter = { preset: "all", dateFrom: "", dateTo: "", party: "" };
+        saleInvoiceSearchQuery = "";
+      }
       elements.featureView.innerHTML = invoiceWorkspaceTemplate(type);
       bindFeatureActions();
     });
@@ -13067,85 +14324,6 @@ function bindFeatureActions() {
     });
   });
 
-  // WhatsApp Settings Mode Switcher
-  elements.featureView.querySelectorAll(".wa-mode-card input[type='radio']").forEach((radio) => {
-    radio.addEventListener("change", () => {
-      const group = radio.closest(".wa-mode-grid");
-      group?.querySelectorAll(".wa-mode-card").forEach((card) => card.classList.remove("active"));
-      radio.closest(".wa-mode-card")?.classList.add("active");
-    });
-  });
-
-  // WhatsApp Token Chips Insertion
-  elements.featureView.querySelectorAll(".wa-token-btn").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const token = btn.dataset.token;
-      const textarea = elements.featureView.querySelector("#waCustomMessageTemplate");
-      if (!textarea || !token) return;
-      const start = textarea.selectionStart || textarea.value.length;
-      const end = textarea.selectionEnd || textarea.value.length;
-      const val = textarea.value;
-      textarea.value = val.substring(0, start) + token + val.substring(end);
-      textarea.focus();
-      textarea.setSelectionRange(start + token.length, start + token.length);
-    });
-  });
-
-  // WhatsApp Reset Template
-  elements.featureView.querySelector("#waResetTemplateBtn")?.addEventListener("click", () => {
-    const textarea = elements.featureView.querySelector("#waCustomMessageTemplate");
-    if (textarea) {
-      textarea.value = "";
-      showToast("Message template reset to standard billing default.");
-    }
-  });
-
-  // WhatsApp Toggle Token Mask
-  elements.featureView.querySelector("#waToggleTokenBtn")?.addEventListener("click", () => {
-    const input = elements.featureView.querySelector("#waAccessToken");
-    const btn = elements.featureView.querySelector("#waToggleTokenBtn");
-    if (!input || !btn) return;
-    if (input.type === "password") {
-      input.type = "text";
-      btn.textContent = "Hide";
-    } else {
-      input.type = "password";
-      btn.textContent = "Show";
-    }
-  });
-
-  // WhatsApp Test Connection
-  elements.featureView.querySelector("#waTestConnectionBtn")?.addEventListener("click", async () => {
-    const btn = elements.featureView.querySelector("#waTestConnectionBtn");
-    const statusEl = elements.featureView.querySelector("#waTestStatus");
-    const phoneNumberId = elements.featureView.querySelector("#waPhoneNumberId")?.value.trim();
-    const accessToken = elements.featureView.querySelector("#waAccessToken")?.value.trim();
-    if (!phoneNumberId || !accessToken) {
-      if (statusEl) statusEl.innerHTML = `<span style="color:#ef4444;font-weight:600;">Please enter Phone Number ID and Permanent Access Token first.</span>`;
-      return;
-    }
-    btn.disabled = true;
-    btn.textContent = "Testing...";
-    if (statusEl) statusEl.innerHTML = `<span style="color:#0284c7;">Contacting Meta Graph API...</span>`;
-    try {
-      if (window.giApp?.testWhatsAppConnection) {
-        const res = await window.giApp.testWhatsAppConnection({ phoneNumberId, accessToken });
-        if (res.success) {
-          if (statusEl) statusEl.innerHTML = `<span style="color:#16a34a;font-weight:600;">&check; Connected: ${escapeHtml(res.verifiedName || "Active WABA")} (${escapeHtml(res.displayPhoneNumber || "Verified")}) &bull; Quality: ${escapeHtml(res.qualityRating || "GREEN")}</span>`;
-        } else {
-          if (statusEl) statusEl.innerHTML = `<span style="color:#ef4444;font-weight:600;">&cross; Error: ${escapeHtml(res.error || "Failed to reach Meta")}</span>`;
-        }
-      } else {
-        if (statusEl) statusEl.innerHTML = `<span style="color:#eab308;">Test connection requires desktop application bridge.</span>`;
-      }
-    } catch (err) {
-      if (statusEl) statusEl.innerHTML = `<span style="color:#ef4444;">Error: ${escapeHtml(err.message)}</span>`;
-    } finally {
-      btn.disabled = false;
-      btn.textContent = "Test Connection";
-    }
-  });
-
   const removeLogoBtn = elements.featureView.querySelector("#removeLogoBtn");
   removeLogoBtn?.addEventListener("click", () => {
     removeLogoBtn.dataset.removed = "true";
@@ -13175,9 +14353,13 @@ function bindFeatureActions() {
       if (status) status.textContent = "Backup is available only in the Electron app.";
       return;
     }
-    if (status) status.textContent = "Choose where to save the SQLite backup...";
+    if (status) status.textContent = "Choose where to save the .zyn backup...";
     try {
       const result = await window.giDB.createBackup();
+      if (result?.canceled) {
+        if (status) status.textContent = "Backup cancelled.";
+        return;
+      }
       if (status) {
         status.textContent = result?.path
           ? `Backup saved: ${result.path}`
@@ -13194,7 +14376,9 @@ function bindFeatureActions() {
       if (status) status.textContent = "Restore is available only in the Electron app.";
       return;
     }
-    if (status) status.textContent = "Select a backup file to restore...";
+    if (status) status.textContent = "Select a .zyn backup file to restore...";
+    showGlobalLoader("Restoring Backup (.zyn)...", "Restoring database and applying migrations...");
+    await new Promise((r) => requestAnimationFrame(() => setTimeout(r, 40)));
     try {
       const result = await window.giDB.restoreBackup();
       if (!result) {
@@ -13212,6 +14396,8 @@ function bindFeatureActions() {
     } catch (err) {
       if (status) status.textContent = `Restore failed: ${err.message || "Unknown error"}`;
       showToast(`Restore failed: ${err.message || "Unknown error"}`);
+    } finally {
+      hideGlobalLoader();
     }
   });
   if (currentView === "sync" || elements.featureView?.querySelector(".sync-page-revamp")) {
@@ -13222,6 +14408,45 @@ function bindFeatureActions() {
       navigateReport(button.dataset.reportView);
     });
   });
+  elements.featureView.querySelectorAll("[data-gst-view]").forEach((button) => {
+    button.addEventListener("click", () => {
+      navigateReport(button.dataset.gstView);
+    });
+  });
+  const filterInput = elements.featureView.querySelector("#reportSearchFilterInput");
+  if (filterInput) {
+    filterInput.addEventListener("input", (e) => {
+      const q = e.target.value.trim().toLowerCase();
+      const groups = elements.featureView.querySelectorAll(".reports-menu .report-nav-group");
+      groups.forEach((group) => {
+        const buttons = group.querySelectorAll(".report-nav-button");
+        let groupHasMatch = false;
+        buttons.forEach((btn) => {
+          const match = !q || btn.textContent.toLowerCase().includes(q);
+          btn.style.display = match ? "" : "none";
+          if (match) groupHasMatch = true;
+        });
+        group.style.display = groupHasMatch ? "" : "none";
+      });
+    });
+  }
+  const overviewFilter = elements.featureView.querySelector("#reportOverviewFilter");
+  if (overviewFilter) {
+    overviewFilter.addEventListener("input", (e) => {
+      const q = e.target.value.trim().toLowerCase();
+      const cards = elements.featureView.querySelectorAll(".report-group-card");
+      cards.forEach((card) => {
+        const buttons = card.querySelectorAll(".report-card-item-btn");
+        let cardHasMatch = false;
+        buttons.forEach((btn) => {
+          const match = !q || btn.textContent.toLowerCase().includes(q);
+          btn.style.display = match ? "" : "none";
+          if (match) cardHasMatch = true;
+        });
+        card.style.display = cardHasMatch ? "" : "none";
+      });
+    });
+  }
   const reportDatePreset = elements.featureView.querySelector("[data-report-date-preset]");
   const reportDateFrom = elements.featureView.querySelector("[data-report-date-from]");
   const reportDateTo = elements.featureView.querySelector("[data-report-date-to]");
@@ -13441,7 +14666,11 @@ function bindFeatureActions() {
     if (party) openEntryModal("party", party);
   });
   elements.featureView.querySelectorAll("[data-party-invoice-id]").forEach((button) => {
-    button.addEventListener("click", () => handleInvoiceListAction("view", button.dataset.partyInvoiceId));
+    button.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const invoiceId = button.dataset.partyInvoiceId;
+      if (invoiceId) handleInvoiceListAction("view", invoiceId);
+    });
   });
   elements.featureView.querySelectorAll("[data-party-sort-col]").forEach((th) => {
     th.addEventListener("click", () => {
@@ -13566,6 +14795,15 @@ function bindFeatureActions() {
   csvFileInput?.addEventListener("change", () => handleCsvFileSelected(csvFileInput));
   elements.featureView.querySelector("[data-action='csv-import-run']")?.addEventListener("click", runCsvImport);
   elements.featureView.querySelector("[data-action='csv-import-export-template']")?.addEventListener("click", () => exportCsvTemplate(elements.featureView.dataset.importType || "items"));
+  elements.featureView.querySelector("[data-action='export-items-csv']")?.addEventListener("click", () => exportItemsToCsv());
+  elements.featureView.querySelector("[data-action='switch-to-import-items']")?.addEventListener("click", () => showView("importItems"));
+  elements.featureView.querySelector("[data-action='switch-to-import-parties']")?.addEventListener("click", () => showView("importParties"));
+
+  if (csvImportRows && csvImportRows.length && (currentView === "importItems" || currentView === "importParties")) {
+    const nameSpan = elements.featureView.querySelector("#csvFileName");
+    if (nameSpan && csvImportFileName) nameSpan.textContent = csvImportFileName;
+    renderCsvPreview();
+  }
 
   // Payment-In create
   elements.featureView.querySelectorAll("[data-action='create-payment-in']").forEach((button) => button.addEventListener("click", () => openPaymentInModal()));
@@ -13575,12 +14813,61 @@ function bindFeatureActions() {
   // Payment-In search
   const paymentInSearch = elements.featureView.querySelector("[data-payment-in-search]");
   paymentInSearch?.addEventListener("input", () => {
-    reportSearchQuery = paymentInSearch.value.trim().toLowerCase();
+    paymentInSearchQuery = paymentInSearch.value.trim().toLowerCase();
     elements.featureView.innerHTML = paymentInTemplate();
     bindFeatureActions();
     const next = elements.featureView.querySelector("[data-payment-in-search]");
     next?.focus();
-    next?.setSelectionRange(reportSearchQuery.length, reportSearchQuery.length);
+    next?.setSelectionRange(paymentInSearchQuery.length, paymentInSearchQuery.length);
+  });
+  elements.featureView.querySelector("[data-payment-in-search-clear]")?.addEventListener("click", () => {
+    paymentInSearchQuery = "";
+    elements.featureView.innerHTML = paymentInTemplate();
+    bindFeatureActions();
+  });
+
+  // Payment-Out search
+  const paymentOutSearch = elements.featureView.querySelector("[data-payment-out-search]");
+  paymentOutSearch?.addEventListener("input", () => {
+    paymentOutSearchQuery = paymentOutSearch.value.trim().toLowerCase();
+    elements.featureView.innerHTML = paymentOutTemplate();
+    bindFeatureActions();
+    const next = elements.featureView.querySelector("[data-payment-out-search]");
+    next?.focus();
+    next?.setSelectionRange(paymentOutSearchQuery.length, paymentOutSearchQuery.length);
+  });
+  elements.featureView.querySelector("[data-payment-out-search-clear]")?.addEventListener("click", () => {
+    paymentOutSearchQuery = "";
+    elements.featureView.innerHTML = paymentOutTemplate();
+    bindFeatureActions();
+  });
+
+  // Expense search clear
+  elements.featureView.querySelector("[data-expense-search-clear]")?.addEventListener("click", () => {
+    expenseSearchQuery = "";
+    elements.featureView.innerHTML = expenseTemplate();
+    bindFeatureActions();
+  });
+
+  // Estimate search clear
+  elements.featureView.querySelector("[data-estimate-search-clear]")?.addEventListener("click", () => {
+    estimateSearchQuery = "";
+    elements.featureView.innerHTML = estimateTemplate();
+    bindFeatureActions();
+  });
+
+  // Credit note search clear
+  elements.featureView.querySelector("[data-credit-note-search-clear]")?.addEventListener("click", () => {
+    creditNoteSearchQuery = "";
+    elements.featureView.innerHTML = saleReturnTemplate();
+    bindFeatureActions();
+  });
+
+  // Debit note search clear
+  elements.featureView.querySelector("[data-debit-note-search-clear]")?.addEventListener("click", () => {
+    debitNoteSearchQuery = "";
+    elements.featureView.innerHTML = purchaseReturnTemplate();
+    bindFeatureActions();
   });
 
   // Payment-In row actions (delete)
@@ -13600,6 +14887,30 @@ function bindFeatureActions() {
           }
           showToast("Payment deleted.");
           renderFeatureView("paymentIn");
+        } catch (err) {
+          showToast(err.message || "Unable to delete payment.");
+        }
+      }
+    });
+  });
+
+  // Payment-Out row actions (delete)
+  elements.featureView.querySelectorAll("[data-payment-out-action]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      btn.closest("details")?.removeAttribute("open");
+      const action = btn.dataset.paymentOutAction;
+      const paymentId = btn.dataset.paymentId;
+      if (action === "delete") {
+        if (!confirm("Delete this payment-out record? This cannot be undone.")) return;
+        try {
+          if (window.giDB?.deleteTransaction) {
+            state = normalizeState(await window.giDB.deleteTransaction({ id: paymentId }));
+          } else {
+            state.payments = (state.payments || []).filter((p) => String(p.id || "") !== paymentId);
+            saveState();
+          }
+          showToast("Payment record deleted.");
+          renderFeatureView("paymentOut");
         } catch (err) {
           showToast(err.message || "Unable to delete payment.");
         }
@@ -14066,24 +15377,103 @@ function growTemplate(period = currentAnalyticsPeriod) {
 }
 
 function setupBusinessTemplate() {
-  return modulePageTemplate({
-    eyebrow: "Utilities",
-    title: "Set Up My Business",
-    summary: "Keep firm details, tax defaults, numbering, and print settings in one setup checklist.",
-    actions: [
-      { label: "Open Settings", view: "appSettings", kind: "primary" },
-      { label: "Backup First", view: "sync" },
-    ],
-    metrics: [
-      { label: "Company", value: state.company?.name || "testt", caption: "Current firm" },
-      { label: "Tax Type", value: "One-time", caption: "Country and tax setup" },
-      { label: "Data", value: "SQLite", caption: "Local database" },
-    ],
-    sections: [
-      { title: "Before Billing", description: "Complete these once before daily work starts.", items: ["Business name and phone", "Invoice numbering", "GST and place of supply defaults"] },
-      { title: "Print Ready", description: "Make invoices consistent for customers and accountants.", items: ["Company header", "Regular printer template", "Thermal printer template"] },
-    ],
-  });
+  const company = state.company || {};
+  const settings = state.businessSettings || {};
+
+  const setupSteps = [
+    {
+      num: "1",
+      title: "Company Profile & Identity",
+      desc: "Firm name, legal trade name, GSTIN, PAN, registered address and company logo.",
+      status: company.name ? "Configured" : "Incomplete",
+      statusClass: company.name ? "status-success" : "status-warning",
+      tab: "COMPANY",
+      action: "Edit Company Profile",
+    },
+    {
+      num: "2",
+      title: "Invoicing Sequences & Terms",
+      desc: "Custom invoice prefix (INV, BILL), starting serial numbers, and standard payment terms.",
+      status: settings.invoicePrefix ? `Prefix: ${settings.invoicePrefix}` : "Default (INV)",
+      statusClass: "status-success",
+      tab: "INVOICING",
+      action: "Configure Sequences",
+    },
+    {
+      num: "3",
+      title: "Print & Thermal POS Templates",
+      desc: "Standard A4 invoice templates, 80mm/58mm thermal receipts, UPI QR and signature.",
+      status: `${settings.printerType === "thermal" ? "Thermal POS" : "Regular A4"} (${settings.a4Template || "Modern"})`,
+      statusClass: "status-success",
+      tab: "PRINTING",
+      action: "Configure Print & Thermal",
+    },
+    {
+      num: "4",
+      title: "Inventory & Tax Rules",
+      desc: "Negative stock blocking, MRP auto-calculation, default tax inclusion, and HSN enforcement.",
+      status: settings.enableHsn ? "HSN Enabled" : "Standard Tax",
+      statusClass: "status-success",
+      tab: "TAX_INVENTORY",
+      action: "Configure Tax Rules",
+    },
+    {
+      num: "5",
+      title: "Custom Fields & Extra Notes",
+      desc: "Add vehicle numbers, PO reference, delivery dates, or custom tracking notes.",
+      status: "Custom Fields Ready",
+      statusClass: "status-success",
+      tab: "CUSTOM_FIELDS",
+      action: "Configure Custom Fields",
+    },
+  ];
+
+  return `
+    <section class="invoice-workspace">
+      <header class="app-page-header invoice-page-header">
+        <div>
+          <h1>Set Up My Business</h1>
+        </div>
+        <div class="invoice-header-actions">
+          <button class="primary-button" data-view="appSettings" type="button">Open Settings</button>
+        </div>
+      </header>
+
+      <section class="kpi-grid invoice-kpis">
+        ${kpiCard("Company Name", company.name || "Configured", company.city ? `${company.city}, ${company.state || "India"}` : "Business profile", "neutral")}
+        ${kpiCard("GSTIN", company.gstin || "Unregistered", company.gstin ? "Regular / Composite" : "Consumer / Unregistered", company.gstin ? "success" : "neutral")}
+        ${kpiCard("Invoice Prefix", settings.invoicePrefix || "INV", `Starting #${settings.startingNo || 1}`, "info")}
+        ${kpiCard("Printer", settings.printerType === "thermal" ? "Thermal POS" : "Regular A4", settings.thermalWidth || "80mm", "neutral")}
+      </section>
+
+      <section class="data-table-card invoice-data-card" style="margin-top:12px;">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th style="width:40px;">Step</th>
+              <th>Configuration Module</th>
+              <th>Current Status</th>
+              <th>Description</th>
+              <th class="right">Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${setupSteps.map((s) => `
+              <tr>
+                <td><strong style="color:#2563eb;">${s.num}</strong></td>
+                <td><strong>${escapeHtml(s.title)}</strong></td>
+                <td><span class="status-badge ${s.statusClass}">${escapeHtml(s.status)}</span></td>
+                <td class="muted-text" style="font-size:12.5px;">${escapeHtml(s.desc)}</td>
+                <td class="right">
+                  <button class="secondary-button compact-button" data-view="appSettings" data-settings-tab="${s.tab}" type="button">${escapeHtml(s.action)}</button>
+                </td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+      </section>
+    </section>
+  `;
 }
 
 function accountantAccessTemplate() {
@@ -14132,12 +15522,10 @@ function barcodeGeneratorTemplate() {
   }
 
   return `
-    <section class="barcode-page">
-      <header class="app-page-header barcode-titlebar">
+    <section class="barcode-page invoice-workspace">
+      <header class="app-page-header invoice-page-header barcode-titlebar">
         <div>
-          <p class="muted-label">Inventory labels</p>
           <h1>Barcode Generator</h1>
-          <small>${escapeHtml(filterLabel)} • ${barcodeQueue.length} queued product(s)</small>
         </div>
         <div class="title-actions">
           <button class="secondary-button ${barcodeQuickFilter === "missing" ? "active" : ""}" type="button" data-barcode-filter="${barcodeQuickFilter === "missing" ? "all" : "missing"}" title="Toggle items needing SKUs">
@@ -14151,27 +15539,11 @@ function barcodeGeneratorTemplate() {
         </div>
       </header>
 
-      <section class="barcode-summary-row">
-        <article class="barcode-metric-btn ${barcodeQuickFilter === "all" ? "active" : ""}" data-barcode-filter="all" title="Click to view all items">
-          <span>Total Items</span>
-          <strong>${items.length}</strong>
-          <p>Products and services</p>
-        </article>
-        <article class="barcode-metric-btn" data-action="focus-queue" title="View print queue">
-          <span>Queued Products</span>
-          <strong id="barcodeQueueItemCount">${barcodeQueue.length}</strong>
-          <p>${barcodeQueue.length ? "Ready in print queue" : "Queue is empty"}</p>
-        </article>
-        <article class="barcode-metric-btn ${barcodeQuickFilter === "missing" ? "active" : ""}" data-barcode-filter="missing" title="Click to filter products missing an SKU">
-          <span>Missing SKU</span>
-          <strong class="${noSkuItems > 0 ? "text-danger" : ""}">${noSkuItems}</strong>
-          <p>${noSkuItems > 0 ? "Click to assign SKUs" : "All products ready"}</p>
-        </article>
-        <article class="barcode-metric-btn" data-action="add-all-instock-queue" title="Click to load all in-stock products into queue">
-          <span>Total Print Copies</span>
-          <strong id="barcodeCopyMetric">${totalLabels}</strong>
-          <p>Click: + Add all stock</p>
-        </article>
+      <section class="kpi-grid invoice-kpis">
+        ${kpiCard("Total Items", String(items.length), "Products and services", "neutral")}
+        ${kpiCard("Queued Products", String(barcodeQueue.length), barcodeQueue.length ? "Ready in print queue" : "Queue is empty", barcodeQueue.length ? "info" : "neutral")}
+        ${kpiCard("Missing SKU", String(noSkuItems), noSkuItems > 0 ? "Needs SKU assignment" : "All products ready", noSkuItems > 0 ? "danger" : "success")}
+        ${kpiCard("Total Print Copies", String(totalLabels), `${sheetsCount} sheet(s) estimated`, "success")}
       </section>
 
       <div class="barcode-layout">
@@ -14411,7 +15783,7 @@ function barcodeGeneratorTemplate() {
                 <label style="font-weight:700;font-size:12px;color:#334155;display:flex;align-items:center;gap:6px;">
                   <input id="barcodeShowShopName" type="checkbox" ${defaultConfig.showShopName ? "checked" : ""}> Shop / Store Name (Top Header)
                 </label>
-                <input id="barcodeShopNameInput" class="form-input" value="${escapeHtml(defaultConfig.shopName)}" placeholder="e.g. My Store / Trade Name">
+                <input id="barcodeShopNameInput" class="form-input" value="${escapeHtml(defaultConfig.shopName)}" placeholder="Shop / Store Name">
               </div>
 
               <!-- Price Prefix and Packed Date -->
@@ -14426,7 +15798,7 @@ function barcodeGeneratorTemplate() {
                 </label>
                 <label class="form-row">
                   <span>Packed date</span>
-                  <input id="barcodeDateInput" class="form-input" value="${escapeHtml(defaultConfig.packedDate)}" placeholder="e.g. Sep 2026">
+                  <input id="barcodeDateInput" class="form-input" value="${escapeHtml(defaultConfig.packedDate)}" placeholder="Packed Date">
                 </label>
               </div>
             </section>
@@ -15150,69 +16522,241 @@ function updateBarcodePreview(page = elements.featureView.querySelector(".barcod
 
 
 function exportItemsTemplate() {
-  const stockQty = (state.items || []).reduce((sum, item) => sum + Number(item.currentStock || 0), 0);
-  const stockValue = (state.items || []).reduce((sum, item) => sum + Number(item.currentStock || 0) * Number(item.purchasePrice || 0), 0);
-  return modulePageTemplate({
-    eyebrow: "Utilities",
-    title: "Export Items",
-    summary: "Prepare item data for Excel, accountant review, or migration.",
-    actions: [
-      { label: "Manage Items", view: "items", kind: "primary" },
-      { label: "Backup First", view: "sync" },
-    ],
-    metrics: [
-      { label: "Items", value: String((state.items || []).length), caption: "Total records" },
-      { label: "Stock Qty", value: String(stockQty), caption: "Current quantity" },
-      { label: "Stock Value", value: formatCurrency(stockValue), caption: "Purchase value" },
-    ],
-    sections: [
-      { title: "Export Columns", description: "Keep the export useful for both inventory and accounting.", items: ["Item name, SKU, category", "Unit and stock quantity", "Purchase and sale price", "Tax and HSN/SAC"] },
-      { title: "Data Hygiene", description: "Review masters before exporting.", items: ["Merge duplicate categories", "Fix missing units", "Check stock balances"] },
-    ],
-  });
+  const items = state.items || [];
+  const stockQty = items.reduce((sum, item) => sum + Number(item.currentStock || 0), 0);
+  const stockValue = items.reduce((sum, item) => sum + Number(item.currentStock || 0) * Number(item.purchasePrice || 0), 0);
+
+  return `
+    <section class="invoice-workspace">
+      <header class="app-page-header invoice-page-header">
+        <div>
+          <h1>Export Items</h1>
+        </div>
+        <div class="invoice-header-actions">
+          <button class="primary-button" data-action="export-items-csv" type="button">
+            <svg class="gi-icon" style="width:14px;height:14px;margin-right:6px;"><use href="#gi-download"></use></svg>
+            Export All Items (CSV)
+          </button>
+        </div>
+      </header>
+
+      <section class="kpi-grid invoice-kpis">
+        ${kpiCard("Total Items", String(items.length), "Master inventory records", "neutral")}
+        ${kpiCard("Total Stock Qty", String(stockQty), "Physical units on hand", "info")}
+        ${kpiCard("Stock Valuation", formatCurrency(stockValue), "At purchase price", "success")}
+        ${kpiCard("Export Format", "CSV / Excel", "Full inventory dataset", "neutral")}
+      </section>
+
+      <section class="data-table-card invoice-data-card" style="margin-top:12px;">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Item Name</th>
+              <th>SKU</th>
+              <th>Category</th>
+              <th>Unit</th>
+              <th>HSN/SAC</th>
+              <th class="num">Sale Price</th>
+              <th class="num">Purchase Price</th>
+              <th>Tax Rate</th>
+              <th class="num">Current Stock</th>
+              <th class="num">Stock Value</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${items.length ? items.map((item) => `
+              <tr>
+                <td><strong>${escapeHtml(item.name || "-")}</strong></td>
+                <td><code style="font-size:12px;">${escapeHtml(item.sku || "-")}</code></td>
+                <td>${escapeHtml(item.category || "-")}</td>
+                <td>${escapeHtml(item.unit || "PCS")}</td>
+                <td>${escapeHtml(item.hsn || "-")}</td>
+                <td class="num amount-cell">${formatCurrency(item.salePrice || 0)}</td>
+                <td class="num amount-cell">${formatCurrency(item.purchasePrice || 0)}</td>
+                <td>${Number(item.taxRate || 0)}%</td>
+                <td class="num">${Number(item.currentStock || 0)}</td>
+                <td class="num amount-cell strong">${formatCurrency(Number(item.currentStock || 0) * Number(item.purchasePrice || 0))}</td>
+              </tr>
+            `).join("") : `
+              <tr><td colspan="10" style="text-align:center;padding:24px;color:#64748b;">No items available to export.</td></tr>
+            `}
+          </tbody>
+        </table>
+      </section>
+    </section>
+  `;
+}
+
+function exportItemsToCsv() {
+  showGlobalLoader("Exporting Items...", "Preparing CSV file download...");
+  setTimeout(() => {
+    try {
+      const items = state.items || [];
+      if (!items.length) {
+        showToast("No items to export.");
+        return;
+      }
+      const headers = ["Item Name", "SKU", "Category", "Unit", "HSN Code", "Sale Price", "Purchase Price", "Tax Rate", "Current Stock", "Stock Valuation"];
+      const rows = items.map((item) => [
+        `"${(item.name || "").replace(/"/g, '""')}"`,
+        `"${(item.sku || "").replace(/"/g, '""')}"`,
+        `"${(item.category || "").replace(/"/g, '""')}"`,
+        `"${(item.unit || "PCS").replace(/"/g, '""')}"`,
+        `"${(item.hsn || "").replace(/"/g, '""')}"`,
+        Number(item.salePrice || 0).toFixed(2),
+        Number(item.purchasePrice || 0).toFixed(2),
+        `${Number(item.taxRate || 0)}%`,
+        Number(item.currentStock || 0),
+        (Number(item.currentStock || 0) * Number(item.purchasePrice || 0)).toFixed(2),
+      ]);
+
+      const csvContent = "\uFEFF" + [headers.join(","), ...rows.map((r) => r.join(","))].join("\r\n");
+      const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      const stamp = new Date().toISOString().slice(0, 10);
+      link.setAttribute("href", url);
+      link.setAttribute("download", `gi-billing-items-export-${stamp}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      showToast("Items exported to CSV successfully.");
+    } finally {
+      setTimeout(hideGlobalLoader, 300);
+    }
+  }, 40);
 }
 
 function verifyDataTemplate() {
-  const missingPartyPhone = (state.parties || []).filter((party) => !party.phone).length;
-  const missingItemUnit = (state.items || []).filter((item) => !item.unit).length;
-  return modulePageTemplate({
-    eyebrow: "Utilities",
-    title: "Verify My Data",
-    summary: "Run a practical checklist before billing, importing purchase PDFs, or taking a backup.",
-    actions: [
-      { label: "Open Items", view: "items", kind: "primary" },
-      { label: "Open Parties", view: "parties" },
-    ],
-    metrics: [
-      { label: "Parties Missing Phone", value: String(missingPartyPhone), caption: "Affects billing lookup" },
-      { label: "Items Missing Unit", value: String(missingItemUnit), caption: "Affects invoices" },
-      { label: "Invoices", value: String((state.invoices || []).length), caption: "Saved transactions" },
-    ],
-    sections: [
-      { title: "Billing Readiness", description: "These checks prevent wrong invoice entries.", items: ["Every billed party exists in Parties", "Every billed item exists in Items", "Units and tax rates are available"] },
-      { title: "Backup Readiness", description: "Run this before imports or major edits.", items: ["Create SQLite backup", "Review unmatched purchase PDF rows", "Check duplicate names"] },
-    ],
-  });
-}
+  const parties = state.parties || [];
+  const items = state.items || [];
 
-function purchaseOrderTemplate() {
-  return modulePageTemplate({
-    eyebrow: "Purchase",
-    title: "Purchase Order",
-    summary: "Plan orders before creating purchase bills, especially when stock has to be approved first.",
-    actions: [
-      { label: "Add Purchase Bill", action: "purchase", kind: "primary" },
-    ],
-    metrics: [
-      { label: "Open Orders", value: "0", caption: "Awaiting supplier" },
-      { label: "Converted", value: "0", caption: "Billed orders" },
-      { label: "Parties", value: String((state.parties || []).length), caption: "Supplier records" },
-    ],
-    sections: [
-      { title: "Order Flow", description: "A good purchase flow separates request, order, bill, and payment.", items: ["Prepare order items", "Confirm supplier and price", "Convert to purchase bill"] },
-      { title: "Controls", description: "Useful controls for the next implementation step.", items: ["Approval status", "Expected delivery date", "Supplier reference number"] },
-    ],
-  });
+  const missingPartyPhone = parties.filter((p) => !p.phone).length;
+  const missingPartyAddress = parties.filter((p) => !p.billingAddress && !p.address).length;
+  const missingItemUnit = items.filter((item) => !item.unit).length;
+  const missingItemHsn = items.filter((item) => !item.hsn).length;
+  const negativeStockItems = items.filter((item) => Number(item.currentStock || 0) < 0).length;
+
+  const totalWarnings = (missingPartyPhone > 0 ? 1 : 0) +
+    (missingPartyAddress > 0 ? 1 : 0) +
+    (missingItemUnit > 0 ? 1 : 0) +
+    (missingItemHsn > 0 ? 1 : 0) +
+    (negativeStockItems > 0 ? 1 : 0);
+
+  const checks = [
+    {
+      module: "Parties",
+      name: "Customer/Supplier Phone Numbers",
+      desc: "Phone numbers ensure quick lookup during billing and document sharing",
+      count: missingPartyPhone,
+      status: missingPartyPhone === 0 ? "pass" : "warn",
+      statusLabel: missingPartyPhone === 0 ? "✓ Passed" : `${missingPartyPhone} Parties Missing Phone`,
+      actionLabel: "Review Parties",
+      view: "parties",
+    },
+    {
+      module: "Parties",
+      name: "Billing Addresses for Tax Invoices",
+      desc: "State and address are required for correct intra-state vs inter-state GST calculations",
+      count: missingPartyAddress,
+      status: missingPartyAddress === 0 ? "pass" : "info",
+      statusLabel: missingPartyAddress === 0 ? "✓ Passed" : `${missingPartyAddress} Without Address`,
+      actionLabel: "Review Parties",
+      view: "parties",
+    },
+    {
+      module: "Items",
+      name: "Item Measurement Units",
+      desc: "Units (PCS, KGS, BOX, etc.) are mandatory on GST tax invoices and stock registers",
+      count: missingItemUnit,
+      status: missingItemUnit === 0 ? "pass" : "warn",
+      statusLabel: missingItemUnit === 0 ? "✓ Passed" : `${missingItemUnit} Items Missing Unit`,
+      actionLabel: "Review Items",
+      view: "items",
+    },
+    {
+      module: "Items",
+      name: "HSN / SAC Tax Codes",
+      desc: "HSN codes are mandatory for GST compliance reporting and statutory tax tables",
+      count: missingItemHsn,
+      status: missingItemHsn === 0 ? "pass" : "info",
+      statusLabel: missingItemHsn === 0 ? "✓ Passed" : `${missingItemHsn} Without HSN`,
+      actionLabel: "Review Items",
+      view: "items",
+    },
+    {
+      module: "Inventory",
+      name: "Negative Stock Balances",
+      desc: "Indicates items sold or dispatched before recording the corresponding purchase bill",
+      count: negativeStockItems,
+      status: negativeStockItems === 0 ? "pass" : "danger",
+      statusLabel: negativeStockItems === 0 ? "✓ Zero Negative Stock" : `${negativeStockItems} Items in Negative Stock`,
+      actionLabel: "Adjust Stock",
+      view: "items",
+    },
+    {
+      module: "Database",
+      name: "Local Database Integrity",
+      desc: "SQLite database structure, foreign key relationships, and local data persistence",
+      count: 0,
+      status: "pass",
+      statusLabel: "✓ Healthy & Verified",
+      actionLabel: "Backup (.zyn)",
+      view: "sync",
+    },
+  ];
+
+  return `
+    <section class="invoice-workspace">
+      <header class="app-page-header invoice-page-header">
+        <div>
+          <h1>Verify My Data</h1>
+        </div>
+        <div class="invoice-header-actions">
+          <button class="secondary-button" data-view="sync" type="button">Backup Database (.zyn)</button>
+        </div>
+      </header>
+
+      <section class="kpi-grid invoice-kpis">
+        ${kpiCard("Data Health", totalWarnings === 0 ? "100% Ready" : `${totalWarnings} Warnings`, "Audit diagnostic score", totalWarnings === 0 ? "success" : "danger")}
+        ${kpiCard("Parties Missing Phone", String(missingPartyPhone), "Affects lookup & sharing", missingPartyPhone > 0 ? "danger" : "success")}
+        ${kpiCard("Items Missing Unit", String(missingItemUnit), "Mandatory for GST invoices", missingItemUnit > 0 ? "danger" : "success")}
+        ${kpiCard("Negative Stock", String(negativeStockItems), "Needs purchase/adjustment", negativeStockItems > 0 ? "danger" : "success")}
+      </section>
+
+      <section class="data-table-card invoice-data-card" style="margin-top:12px;">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Module</th>
+              <th>Audit Check</th>
+              <th>Status</th>
+              <th>Explanation</th>
+              <th class="right">Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${checks.map((chk) => `
+              <tr>
+                <td><strong>${escapeHtml(chk.module)}</strong></td>
+                <td><strong>${escapeHtml(chk.name)}</strong></td>
+                <td>
+                  <span class="status-badge ${chk.status === "pass" ? "status-success" : (chk.status === "danger" ? "status-danger" : "status-warning")}">
+                    ${escapeHtml(chk.statusLabel)}
+                  </span>
+                </td>
+                <td class="muted-text" style="font-size:12.5px;">${escapeHtml(chk.desc)}</td>
+                <td class="right">
+                  <button class="secondary-button compact-button" data-view="${chk.view}" type="button">${escapeHtml(chk.actionLabel)}</button>
+                </td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+      </section>
+    </section>
+  `;
 }
 
 function purchaseReturnTemplate() {
@@ -15229,28 +16773,32 @@ function purchaseReturnTemplate() {
     : "Create a debit note when goods are returned to a supplier, purchase bill value is reduced, or a refund is due.";
 
   return `
-    <section class="credit-note-workspace debit-note-workspace">
-      <header class="app-page-header invoice-page-header credit-note-header">
+    <section class="invoice-workspace purchase-workspace">
+      <header class="app-page-header invoice-page-header">
         <div>
-          <p class="muted-label">Purchases</p>
           <h1>Purchase Return / Debit Note</h1>
-          <small>${rows.length} of ${allRows.length} records shown</small>
         </div>
         <div class="invoice-header-actions">
-          <button class="secondary-button compact-button" data-view="purchases" type="button">Purchase Bills</button>
           <button class="purchase-button" data-action="create-debit-note" type="button">+ Add Debit Note</button>
         </div>
       </header>
 
-      <section class="app-toolbar">
-        <label class="toolbar-search">
-          <span>Search</span>
-          <input data-debit-note-search type="search" value="${escapeHtml(debitNoteSearchQuery)}" placeholder="Debit note, supplier, bill, item, status">
-        </label>
+      <div class="top-filter-bar">
+        <div class="top-filter-search-box">
+          <svg class="gi-icon top-filter-search-icon" style="width:14px;height:14px;"><use href="#gi-search"></use></svg>
+          <input
+            type="text"
+            class="top-filter-search-input"
+            data-debit-note-search
+            placeholder="Search debit note, supplier, bill..."
+            value="${escapeHtml(debitNoteSearchQuery)}"
+          />
+          ${debitNoteSearchQuery ? `<button class="top-filter-search-clear" data-debit-note-search-clear type="button" title="Clear search">×</button>` : ""}
+        </div>
         <div class="invoice-quick-filters" role="group" aria-label="Debit note filters">
           ${debitNoteQuickFilterButtons()}
         </div>
-      </section>
+      </div>
 
       <section class="kpi-grid invoice-kpis">
         ${kpiCard("Return Value", formatCurrency(total), "Debit note total for selected view", "neutral")}
@@ -15259,7 +16807,7 @@ function purchaseReturnTemplate() {
         ${kpiCard("GST Reversal", formatCurrency(taxTotal), "Input tax reduction", "info")}
       </section>
 
-      <section class="data-table-card invoice-data-card credit-note-data-card">
+      <section class="data-table-card invoice-data-card">
         ${rows.length ? debitNoteRowsTable(rows) : emptyWorkspace(emptyTitle, emptyCopy)}
       </section>
     </section>
@@ -15780,37 +17328,41 @@ function expenseTemplate() {
     : "Record rent, salary, fuel, repairs, subscriptions, bank charges, and other operating costs here.";
 
   return `
-    <section class="expense-workspace">
-      <header class="app-page-header expense-header">
+    <section class="invoice-workspace purchase-workspace">
+      <header class="app-page-header invoice-page-header">
         <div>
-          <p class="muted-label">Purchase & Expense</p>
           <h1>Expenses</h1>
-          <small>${filteredRows.length} of ${allRows.length} records shown</small>
         </div>
         <div class="invoice-header-actions">
-          <button class="secondary-button compact-button" data-view="reports" type="button">Reports</button>
           <button class="purchase-button" data-action="create-expense" type="button">+ Add Expense</button>
         </div>
       </header>
 
-      <section class="app-toolbar expense-toolbar">
-        <label class="toolbar-search">
-          <span>Search</span>
-          <input data-expense-search type="search" value="${escapeHtml(expenseSearchQuery)}" placeholder="Vendor, category, ref, notes">
-        </label>
+      <div class="top-filter-bar">
+        <div class="top-filter-search-box">
+          <svg class="gi-icon top-filter-search-icon" style="width:14px;height:14px;"><use href="#gi-search"></use></svg>
+          <input
+            type="text"
+            class="top-filter-search-input"
+            data-expense-search
+            placeholder="Search vendor, category, ref, notes..."
+            value="${escapeHtml(expenseSearchQuery)}"
+          />
+          ${expenseSearchQuery ? `<button class="top-filter-search-clear" data-expense-search-clear type="button" title="Clear search">×</button>` : ""}
+        </div>
         <div class="invoice-quick-filters" role="group" aria-label="Expense filters">
           ${expenseQuickFilterButtons()}
         </div>
-      </section>
+      </div>
 
-      <section class="kpi-grid expense-kpis">
+      <section class="kpi-grid invoice-kpis">
         ${kpiCard("This Month", formatCurrency(thisMonthRows.reduce((sum, row) => sum + expenseTotal(row), 0)), `${thisMonthRows.length} expense records`, "neutral")}
         ${kpiCard("Paid", formatCurrency(paid), "Cash or bank already paid", "success")}
         ${kpiCard("Payable", formatCurrency(payable), "Unpaid expense balance", payable > 0 ? "danger" : "success")}
         ${kpiCard("Input GST", formatCurrency(inputTax), `${categories} categories used`, "info")}
       </section>
 
-      <section class="data-table-card expense-data-card">
+      <section class="data-table-card invoice-data-card">
         ${filteredRows.length ? expenseRowsTable(filteredRows) : emptyWorkspace(emptyTitle, emptyCopy)}
       </section>
     </section>
@@ -16090,13 +17642,13 @@ function expenseModalTemplate(record = null) {
 
               <label class="expense-field">
                 <span class="field-label">Expense Category <span class="req">*</span></span>
-                <input class="form-input" name="category" id="expenseCategoryInput" list="expenseCategoryOptions" value="${escapeHtml(currentCategory)}" placeholder="Rent, fuel, salary..." required autocomplete="off">
+                <input class="form-input" name="category" id="expenseCategoryInput" list="expenseCategoryOptions" value="${escapeHtml(currentCategory)}" placeholder="Expense Category" required autocomplete="off">
                 <datalist id="expenseCategoryOptions">${expenseCategoryOptions()}</datalist>
               </label>
 
               <label class="expense-field">
                 <span class="field-label">Voucher / Ref No.</span>
-                <input class="form-input" name="referenceNo" value="${escapeHtml(record?.invoiceNo || meta.referenceNo || "")}" placeholder="Auto or EXP-001">
+                <input class="form-input" name="referenceNo" value="${escapeHtml(record?.invoiceNo || meta.referenceNo || "")}" placeholder="Voucher / Ref No.">
               </label>
             </div>
 
@@ -16129,19 +17681,23 @@ function expenseModalTemplate(record = null) {
 
               <label class="expense-field">
                 <span class="field-label">Paid To (Vendor / Employee)</span>
-                <input class="form-input" name="vendor" value="${escapeHtml(record ? expenseVendor(record) : "")}" placeholder="e.g. Landlord, Staff, Vendor">
+                <input class="form-input" name="vendor" value="${escapeHtml(record ? expenseVendor(record) : "")}" placeholder="Paid To (Vendor / Employee)">
               </label>
 
               <label class="expense-field gst-only">
                 <span class="field-label">GST Rate <span class="req">*</span></span>
                 <select class="form-input" name="taxRate" id="expenseTaxRate">
-                  ${[0, 0.25, 3, 5, 12, 18, 28, 40].map((rate) => `<option value="${rate}" ${Number(rate) === taxRate ? "selected" : ""}>${rate}% GST</option>`).join("")}
+                  ${STANDARD_GST_TAX_OPTIONS.map((opt) => {
+                    const optRate = parseTaxRate(opt);
+                    const isSelected = (meta.taxType ? meta.taxType === opt : (optRate === taxRate && (opt.startsWith("GST@") || (optRate === 0 && opt === "None"))));
+                    return `<option value="${escapeHtml(opt)}" ${isSelected ? "selected" : ""}>${escapeHtml(opt)}</option>`;
+                  }).join("")}
                 </select>
               </label>
 
               <label class="expense-field gst-only">
                 <span class="field-label">Vendor GSTIN</span>
-                <input class="form-input uppercase-field" name="partyGstin" id="expensePartyGstin" value="${escapeHtml(meta.partyGstin || "")}" maxlength="15" placeholder="22AAAAA0000A1Z5">
+                <input class="form-input uppercase-field" name="partyGstin" id="expensePartyGstin" value="${escapeHtml(meta.partyGstin || "")}" maxlength="15" placeholder="Vendor GSTIN">
               </label>
 
               <label class="expense-field gst-only expense-pos-field">
@@ -16206,7 +17762,7 @@ function expenseModalTemplate(record = null) {
             <div class="expense-extra-grid">
               <label class="expense-field expense-notes-field">
                 <span class="field-label">Notes & Purpose</span>
-                <textarea class="form-input" name="notes" rows="2" placeholder="Business purpose, voucher notes, approval remarks...">${escapeHtml(record?.notes || "")}</textarea>
+                <textarea class="form-input" name="notes" rows="2" placeholder="Notes & Purpose">${escapeHtml(record?.notes || "")}</textarea>
               </label>
 
               <div class="expense-field expense-receipt-field">
@@ -16277,10 +17833,10 @@ function bindExpenseModal() {
     form.classList.toggle("is-nongst-mode", mode === "nongst");
 
     if (mode === "nongst") {
-      if (taxRateSelect) taxRateSelect.value = "0";
+      if (taxRateSelect) taxRateSelect.value = "None";
       if (amountLabel) amountLabel.innerHTML = 'Expense Amount (₹) <span class="req">*</span>';
     } else {
-      if (taxRateSelect && taxRateSelect.value === "0") taxRateSelect.value = "18";
+      if (taxRateSelect && parseTaxRate(taxRateSelect.value) === 0) taxRateSelect.value = "GST@18%";
       if (amountLabel) amountLabel.innerHTML = 'Taxable Amount (₹) <span class="req">*</span>';
     }
     recalculateExpenseForm();
@@ -16399,7 +17955,7 @@ function closeExpenseModal() {
 
 function calculateExpenseTotals(taxableValue, taxRate, placeOfSupply) {
   const taxable = Math.max(0, Number(taxableValue || 0));
-  const rate = Math.max(0, Number(taxRate || 0));
+  const rate = Math.max(0, parseTaxRate(taxRate || 0));
   const taxTotal = taxable * rate / 100;
   const firmState = String(state.businessSettings?.state || "Karnataka").trim().toLowerCase();
   const supplyState = String(placeOfSupply || state.businessSettings?.state || "Karnataka").trim().toLowerCase();
@@ -16501,6 +18057,7 @@ function collectExpenseForm(form) {
       placeOfSupply,
       partyGstin: String(data.get("partyGstin") || "").trim().toUpperCase(),
       paymentMethod,
+      taxType: String(data.get("taxRate") || "None").trim(),
       paid,
       balance,
       receiptName,
@@ -16685,52 +18242,108 @@ function openExpenseVoucher(row) {
 }
 
 function paymentOutTemplate() {
-  const payments = (state.payments || []).filter((p) => p.type === "payment_out");
+  const allPayments = (state.payments || []).filter((p) => p.type === "payment_out")
+    .sort((a, b) => new Date(b.paymentDate || b.createdAt || 0) - new Date(a.paymentDate || a.createdAt || 0));
   const payable = totalPayable();
-  const thisMonthPayments = payments.filter((p) => {
+  const now = new Date();
+  const thisMonthPayments = allPayments.filter((p) => {
     const d = new Date(p.paymentDate || p.createdAt || "");
-    const now = new Date();
     return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
   });
   const thisMonthTotal = thisMonthPayments.reduce((sum, p) => sum + Number(p.amount || 0), 0);
+  const totalPaid = allPayments.reduce((s, p) => s + Number(p.amount || 0), 0);
+
+  const searchQ = String(paymentOutSearchQuery || "").trim().toLowerCase();
+  const visible = searchQ
+    ? allPayments.filter((p) => [p.party, p.invoiceNo, p.referenceNo, p.method, p.notes].filter(Boolean).join(" ").toLowerCase().includes(searchQ))
+    : allPayments;
+
   return `
-    <section class="invoice-workspace sale-workspace">
+    <section class="invoice-workspace purchase-workspace">
       <header class="app-page-header invoice-page-header">
         <div>
           <h1>Payment-Out</h1>
         </div>
         <div class="invoice-header-actions">
-          <button class="sale-button" data-action="create-payment-out" type="button">+ Record Payment-Out</button>
+          <button class="purchase-button" data-action="create-payment-out" type="button">+ Record Payment-Out</button>
         </div>
       </header>
+
+      <div class="top-filter-bar">
+        <div class="top-filter-search-box">
+          <svg class="gi-icon top-filter-search-icon" style="width:14px;height:14px;"><use href="#gi-search"></use></svg>
+          <input
+            type="text"
+            class="top-filter-search-input"
+            data-payment-out-search
+            placeholder="Search supplier, bill ref, method, notes..."
+            value="${escapeHtml(paymentOutSearchQuery)}"
+          />
+          ${paymentOutSearchQuery ? `<button class="top-filter-search-clear" data-payment-out-search-clear type="button" title="Clear search">×</button>` : ""}
+        </div>
+      </div>
+
       <section class="kpi-grid invoice-kpis">
         ${kpiCard("This Month", formatCurrency(thisMonthTotal), `${thisMonthPayments.length} supplier payments`, "danger")}
-        ${kpiCard("Total Paid", formatCurrency(payments.reduce((s, p) => s + Number(p.amount || 0), 0)), "All recorded payments", "neutral")}
+        ${kpiCard("Total Paid", formatCurrency(totalPaid), "All recorded payments", "neutral")}
         ${kpiCard("Supplier Payable", formatCurrency(payable), "Outstanding balances", payable > 0 ? "danger" : "success")}
-        ${kpiCard("Payments", String(payments.length), "Recorded transactions", "info")}
+        ${kpiCard("Payments", String(allPayments.length), "Recorded transactions", "info")}
       </section>
+
       <section class="data-table-card invoice-data-card">
-        ${payments.length ? `
+        ${visible.length ? `
           <table class="data-table">
-            <thead><tr><th>Date</th><th>Supplier</th><th>Bill Ref</th><th>Method</th><th>Amount</th><th>Notes</th></tr></thead>
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Supplier</th>
+                <th>Bill Ref</th>
+                <th>Method</th>
+                <th class="num">Amount</th>
+                <th>Notes</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
             <tbody>
-              ${payments.map((p) => `
+              ${visible.map((p) => {
+                const billRef = resolvePaymentInvoiceRef(p);
+                return `
                 <tr>
                   <td>${formatDate(p.paymentDate || p.createdAt)}</td>
                   <td><strong>${escapeHtml(p.party || "-")}</strong></td>
-                  <td>${escapeHtml(p.invoiceNo || p.referenceNo || "-")}</td>
-                  <td>${escapeHtml(p.method || "Cash")}</td>
-                  <td class="amount-cell strong">${formatCurrency(p.amount || 0)}</td>
-                  <td>${escapeHtml(p.notes || "-")}</td>
+                  <td>${billRef !== "-" ? `<span class="invoice-ref-clean">${escapeHtml(billRef)}</span>` : `<span class="muted-text">-</span>`}</td>
+                  <td><span class="status-badge">${escapeHtml(p.method || "Cash")}</span></td>
+                  <td class="num amount-cell strong">${formatCurrency(p.amount || 0)}</td>
+                  <td class="muted-text">${escapeHtml(p.notes || "-")}</td>
+                  <td>
+                    <div class="invoice-row-actions">
+                      <details>
+                        <summary aria-label="Payment-out actions" title="More options">
+                          <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+                            <circle cx="12" cy="5" r="2.2"></circle>
+                            <circle cx="12" cy="12" r="2.2"></circle>
+                            <circle cx="12" cy="19" r="2.2"></circle>
+                          </svg>
+                        </summary>
+                        <div class="invoice-action-menu">
+                          <button type="button" data-payment-out-action="delete" data-payment-id="${escapeHtml(String(p.id || ""))}" class="danger-action">
+                            <svg class="gi-icon" style="width:14px;height:14px;"><use href="#gi-trash"></use></svg>
+                            Delete
+                          </button>
+                        </div>
+                      </details>
+                    </div>
+                  </td>
                 </tr>
-              `).join("")}
+              `;
+              }).join("")}
             </tbody>
           </table>
         ` : `
           <div class="feature-empty-card">
-            <strong>No payments recorded yet</strong>
-            <p>Record money paid to suppliers for purchase bills or advances.</p>
-            <button class="sale-button" data-action="create-payment-out" type="button">+ Record Payment-Out</button>
+            <strong>${searchQ ? "No matching payments" : "No payments recorded yet"}</strong>
+            <p>${searchQ ? "Try a different supplier name, method, or bill reference." : "Record money paid to suppliers for purchase bills or advances."}</p>
+            ${!searchQ ? `<button class="purchase-button" data-action="create-payment-out" type="button">+ Record Payment-Out</button>` : ""}
           </div>
         `}
       </section>
@@ -16740,7 +18353,36 @@ function paymentOutTemplate() {
 
 function openPaymentOutModal() {
   const purchaseInvoices = activeInvoiceRowsForType("purchase").filter((inv) => invoiceBalanceValue(inv) > 0);
-  const suppliers = (state.parties || []).filter((p) => p.type === "supplier" || p.type === "both");
+  const knownSupplierNames = new Set();
+  const suppliers = [];
+  (state.parties || []).forEach((p) => {
+    if (p.type !== "customer") {
+      const name = String(p.name || "").trim();
+      if (name && !knownSupplierNames.has(name.toLowerCase())) {
+        knownSupplierNames.add(name.toLowerCase());
+        suppliers.push(p);
+      }
+    }
+  });
+  (state.invoices || []).forEach((inv) => {
+    if (inv.type === "purchase" && inv.party) {
+      const name = String(inv.party).trim();
+      if (name && name.toLowerCase() !== "cash" && !knownSupplierNames.has(name.toLowerCase())) {
+        knownSupplierNames.add(name.toLowerCase());
+        suppliers.push({ name, type: "supplier" });
+      }
+    }
+  });
+  (state.payments || []).forEach((p) => {
+    if (p.type === "payment_out" && p.party) {
+      const name = String(p.party).trim();
+      if (name && name.toLowerCase() !== "cash" && !knownSupplierNames.has(name.toLowerCase())) {
+        knownSupplierNames.add(name.toLowerCase());
+        suppliers.push({ name, type: "supplier" });
+      }
+    }
+  });
+
   const existingModal = document.getElementById("paymentOutModal");
   if (existingModal) existingModal.remove();
   const modal = document.createElement("div");
@@ -16763,17 +18405,20 @@ function openPaymentOutModal() {
       <form id="paymentOutForm" class="payment-entry-form" novalidate>
         <div class="payment-modal-body">
           <div class="payment-form-grid">
-            <div class="party-field-group full-width">
+            <div class="party-field-group full-width" style="position:relative;">
               <label class="field-label">Supplier <span class="req">*</span></label>
-              <input class="form-input" name="party" list="paymentOutPartyList" placeholder="Select or type supplier name" autocomplete="off" required>
-              <datalist id="paymentOutPartyList">
-                ${(suppliers.length ? suppliers : state.parties || []).map((p) => `<option value="${escapeHtml(p.name)}">`).join("")}
-              </datalist>
+              <div class="party-combobox-wrap" style="position:relative;">
+                <input class="form-input" name="party" id="paymentOutPartyInput" placeholder="Supplier" autocomplete="off" required style="padding-right:32px;">
+                <button type="button" id="paymentOutPartyToggle" style="position:absolute;right:8px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:#64748b;padding:4px;display:flex;align-items:center;" title="Show suppliers list">
+                  <svg class="gi-icon" style="width:14px;height:14px;"><use href="#gi-chevron-down"></use></svg>
+                </button>
+                <div class="custom-party-dropdown hidden" id="paymentOutPartyDropdown"></div>
+              </div>
             </div>
 
             <div class="party-field-group full-width">
               <label class="field-label">Purchase Bill Reference</label>
-              <select class="form-input" name="invoiceRef">
+              <select class="form-input" name="invoiceRef" id="paymentOutInvoiceRef">
                 <option value="">— On-Account Advance (no specific bill) —</option>
                 ${purchaseInvoices.map((inv) => `<option value="${escapeHtml(inv.invoiceNo || inv.id)}" data-party="${escapeHtml(inv.party)}" data-balance="${invoiceBalanceValue(inv)}">${escapeHtml(inv.invoiceNo || inv.id)} — ${escapeHtml(inv.party)} — Due: ${formatCurrency(invoiceBalanceValue(inv))}</option>`).join("")}
               </select>
@@ -16801,7 +18446,7 @@ function openPaymentOutModal() {
 
             <div class="party-field-group">
               <label class="field-label">Notes / Remarks</label>
-              <input class="form-input" name="notes" placeholder="Reference number, cheque no, transaction details">
+              <input class="form-input" name="notes" placeholder="Notes / Remarks">
             </div>
           </div>
         </div>
@@ -16819,20 +18464,111 @@ function openPaymentOutModal() {
   `;
   document.body.append(modal);
 
-  const selectEl = modal.querySelector('[name="invoiceRef"]');
-  const partyInput = modal.querySelector('[name="party"]');
+  const selectEl = modal.querySelector('#paymentOutInvoiceRef');
+  const partyInput = modal.querySelector('#paymentOutPartyInput');
+  const partyToggle = modal.querySelector('#paymentOutPartyToggle');
+  const partyDropdown = modal.querySelector('#paymentOutPartyDropdown');
   const amountInput = modal.querySelector('[name="amount"]');
+  const supplierComboboxWrap = modal.querySelector('.party-combobox-wrap');
+
+  function renderSupplierDropdown(query = "") {
+    const q = String(query || "").trim().toLowerCase();
+    const sourceList = suppliers.length ? suppliers : (state.parties || []);
+    const matches = sourceList.filter((s) => {
+      if (!q) return true;
+      return (s.name || "").toLowerCase().includes(q) || String(s.phone || "").includes(q);
+    });
+    if (!matches.length) {
+      partyDropdown.innerHTML = `<div style="padding:10px 14px;color:#94a3b8;font-size:12.5px;">No matching suppliers found. You can type a new name directly.</div>`;
+      partyDropdown.classList.remove("hidden");
+      return;
+    }
+    partyDropdown.innerHTML = matches.map((s) => {
+      const bal = partyBalanceValue(s);
+      const balText = bal > 0 ? `Payable: ${formatCurrency(bal)}` : "Settled";
+      return `
+        <div class="custom-party-dropdown-item" data-party-name="${escapeHtml(s.name)}">
+          <div>
+            <strong>${escapeHtml(s.name)}</strong>
+            ${s.phone ? `<span style="color:#64748b;font-size:11.5px;margin-left:6px;">📞 ${escapeHtml(s.phone)}</span>` : ""}
+          </div>
+          <span style="font-size:11.5px;font-weight:600;color:#e11d48;">${balText}</span>
+        </div>
+      `;
+    }).join("");
+    partyDropdown.classList.remove("hidden");
+
+    partyDropdown.querySelectorAll(".custom-party-dropdown-item").forEach((item) => {
+      item.addEventListener("mousedown", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        selectSupplier(item.dataset.partyName);
+      });
+    });
+  }
+
+  function selectSupplier(name) {
+    partyInput.value = name;
+    partyDropdown.classList.add("hidden");
+    filterBillsForSupplier(name);
+  }
+
+  function filterBillsForSupplier(name) {
+    const cleanName = String(name || "").trim().toLowerCase();
+    const matchingBills = cleanName
+      ? purchaseInvoices.filter((inv) => (inv.party || "").toLowerCase() === cleanName)
+      : purchaseInvoices;
+
+    selectEl.innerHTML = `
+      <option value="">— On-Account Advance (no specific bill) —</option>
+      ${matchingBills.map((inv) => `<option value="${escapeHtml(inv.invoiceNo || inv.id)}" data-party="${escapeHtml(inv.party)}" data-balance="${invoiceBalanceValue(inv)}">${escapeHtml(inv.invoiceNo || inv.id)} — Due: ${formatCurrency(invoiceBalanceValue(inv))}</option>`).join("")}
+    `;
+
+    if (matchingBills.length === 1) {
+      selectEl.value = matchingBills[0].invoiceNo || matchingBills[0].id;
+      if (!amountInput.value || Number(amountInput.value) === 0) {
+        amountInput.value = invoiceBalanceValue(matchingBills[0]);
+      }
+    }
+  }
+
+  partyInput?.addEventListener("focus", () => renderSupplierDropdown(partyInput.value));
+  partyInput?.addEventListener("click", () => renderSupplierDropdown(partyInput.value));
+  partyInput?.addEventListener("input", () => {
+    renderSupplierDropdown(partyInput.value);
+    filterBillsForSupplier(partyInput.value);
+  });
+
+  partyToggle?.addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (partyDropdown?.classList.contains("hidden")) {
+      renderSupplierDropdown("");
+      partyInput?.focus();
+    } else {
+      partyDropdown?.classList.add("hidden");
+    }
+  });
+
+  const handleDocMouseDown = (e) => {
+    if (!supplierComboboxWrap?.contains(e.target)) {
+      partyDropdown?.classList.add("hidden");
+    }
+  };
+  document.addEventListener("mousedown", handleDocMouseDown);
+
   selectEl?.addEventListener("change", () => {
     const opt = selectEl.selectedOptions[0];
     if (opt?.dataset.party) {
       partyInput.value = opt.dataset.party;
     }
-    if (opt?.dataset.balance && !amountInput.value) {
+    if (opt?.dataset.balance && (!amountInput.value || Number(amountInput.value) === 0)) {
       amountInput.value = opt.dataset.balance;
     }
   });
 
   const closeModal = () => {
+    document.removeEventListener("mousedown", handleDocMouseDown);
     modal.remove();
     window.removeEventListener("keydown", handleEscape);
   };
@@ -16844,6 +18580,7 @@ function openPaymentOutModal() {
   modal.querySelectorAll("[data-close-payment-out-modal]").forEach((btn) => {
     btn.addEventListener("click", closeModal);
   });
+  modal.addEventListener("click", (e) => { if (e.target === modal) closeModal(); });
   modal.addEventListener("click", (e) => { if (e.target === modal) closeModal(); });
 
   modal.querySelector("#paymentOutForm")?.addEventListener("submit", async (e) => {
@@ -16869,6 +18606,8 @@ function openPaymentOutModal() {
       return;
     }
 
+    showGlobalLoader("Recording Payment-Out...", "Updating supplier ledger and balances...");
+    await new Promise((r) => requestAnimationFrame(() => setTimeout(r, 40)));
     try {
       if (window.giDB?.recordPaymentOut) {
         state = normalizeState(await window.giDB.recordPaymentOut({
@@ -16900,6 +18639,8 @@ function openPaymentOutModal() {
       showToast("Payment-Out recorded successfully.");
     } catch (err) {
       showToast(err.message || "Failed to record Payment-Out.");
+    } finally {
+      hideGlobalLoader();
     }
   });
 }
@@ -16912,28 +18653,43 @@ function openStockAdjustmentModal(selectedItemId = null) {
   modal.className = "modal-backdrop";
   modal.id = "stockAdjustmentModal";
   modal.innerHTML = `
-    <section class="entry-modal" role="dialog" aria-modal="true" aria-label="Stock Adjustment">
-      <header>
-        <h2>Record Stock Adjustment</h2>
-        <button class="close-button" type="button" data-close-stock-modal>&times;</button>
+    <section class="entry-modal stock-adjustment-modal-shell" role="dialog" aria-modal="true" aria-labelledby="stockAdjustmentTitle">
+      <header class="entry-modal-header">
+        <div class="entry-modal-title-wrap">
+          <span class="entry-modal-icon stock-adjustment-icon">
+            <svg class="gi-icon" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
+              <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
+              <line x1="12" y1="22.08" x2="12" y2="12"></line>
+            </svg>
+          </span>
+          <div>
+            <h2 id="stockAdjustmentTitle">Record Stock Adjustment</h2>
+            <p class="entry-modal-subtitle">Manually adjust inventory quantities with audit trail reasons</p>
+          </div>
+        </div>
+        <button class="close-button" type="button" data-close-stock-modal title="Close">&times;</button>
       </header>
-      <form id="stockAdjustmentForm" class="entry-form" novalidate>
-        <div class="entry-form-body">
-          <label>Item *
-            <select class="form-input" name="itemId" required>
-              <option value="">— Select item —</option>
-              ${items.map((it) => `<option value="${it.id}" ${Number(it.id) === Number(selectedItemId) ? "selected" : ""} data-stock="${it.currentStock || 0}" data-unit="${escapeHtml(it.unit || "")}" data-price="${it.purchasePrice || 0}">${escapeHtml(it.name)} (Current: ${it.currentStock || 0} ${escapeHtml(it.unit || "")})</option>`).join("")}
-            </select>
-          </label>
-          <div class="entry-form-row">
-            <label>Adjustment Direction *
-              <select class="form-input" name="direction" required>
+      <form id="stockAdjustmentForm" class="stock-adjustment-form" novalidate>
+        <div class="stock-adjustment-modal-body">
+          <div class="stock-adjustment-form-grid">
+            <div class="stock-adj-field full-width">
+              <label for="stockAdjItem">Item <span class="required">*</span></label>
+              <select class="stock-adj-select" id="stockAdjItem" name="itemId" required>
+                <option value="">— Select item —</option>
+                ${items.map((it) => `<option value="${it.id}" ${Number(it.id) === Number(selectedItemId) ? "selected" : ""} data-stock="${it.currentStock || 0}" data-unit="${escapeHtml(it.unit || "")}" data-price="${it.purchasePrice || 0}">${escapeHtml(it.name)} (Current: ${it.currentStock || 0} ${escapeHtml(it.unit || "")})</option>`).join("")}
+              </select>
+            </div>
+            <div class="stock-adj-field">
+              <label for="stockAdjDirection">Adjustment Direction <span class="required">*</span></label>
+              <select class="stock-adj-select" id="stockAdjDirection" name="direction" required>
                 <option value="reduce">Reduce Stock (-)</option>
                 <option value="add">Add Stock (+)</option>
               </select>
-            </label>
-            <label>Reason *
-              <select class="form-input" name="reason" required>
+            </div>
+            <div class="stock-adj-field">
+              <label for="stockAdjReason">Reason <span class="required">*</span></label>
+              <select class="stock-adj-select" id="stockAdjReason" name="reason" required>
                 <option value="Physical Count Discrepancy / Stock Take">Physical Count Discrepancy / Stock Take</option>
                 <option value="Damaged Stock">Damaged Stock</option>
                 <option value="Expired Stock">Expired Stock</option>
@@ -16941,28 +18697,30 @@ function openStockAdjustmentModal(selectedItemId = null) {
                 <option value="Internal Consumption">Internal Consumption</option>
                 <option value="Opening Stock Correction">Opening Stock Correction</option>
               </select>
-            </label>
-          </div>
-          <div class="entry-form-row">
-            <label>Quantity *
-              <input class="form-input" name="quantity" type="number" step="0.01" min="0.01" placeholder="Quantity" required>
-            </label>
-            <label>Unit Cost / Value (Optional)
-              <input class="form-input" name="unitPrice" type="number" step="0.01" placeholder="0.00">
-            </label>
-          </div>
-          <div class="entry-form-row">
-            <label>Adjustment Date
-              <input class="form-input" name="adjustmentDate" type="date" value="${new Date().toISOString().slice(0, 10)}">
-            </label>
-            <label>Notes
-              <input class="form-input" name="notes" placeholder="Batch / serial no., verification details, auditor reference">
-            </label>
+            </div>
+            <div class="stock-adj-field">
+              <label for="stockAdjQty">Quantity <span class="required">*</span></label>
+              <input class="stock-adj-input" id="stockAdjQty" name="quantity" type="number" step="0.01" min="0.01" placeholder="Quantity" required>
+            </div>
+            <div class="stock-adj-field">
+              <label for="stockAdjPrice">Unit Cost / Value (Optional)</label>
+              <input class="stock-adj-input" id="stockAdjPrice" name="unitPrice" type="number" step="0.01" placeholder="0.00">
+            </div>
+            <div class="stock-adj-field">
+              <label for="stockAdjDate">Adjustment Date</label>
+              <input class="stock-adj-input" id="stockAdjDate" name="adjustmentDate" type="date" value="${new Date().toISOString().slice(0, 10)}">
+            </div>
+            <div class="stock-adj-field">
+              <label for="stockAdjNotes">Notes</label>
+              <input class="stock-adj-input" id="stockAdjNotes" name="notes" placeholder="Notes">
+            </div>
           </div>
         </div>
-        <footer>
-          <span id="stockAdjustmentStatus"></span>
-          <div>
+        <footer class="entry-modal-footer">
+          <div class="entry-modal-footer-left">
+            <span id="stockAdjustmentStatus"></span>
+          </div>
+          <div class="entry-modal-footer-right">
             <button class="secondary-button" type="button" data-close-stock-modal>Cancel</button>
             <button class="sale-button" type="submit">Save Adjustment</button>
           </div>
@@ -17060,8 +18818,8 @@ function legacyAddBankTemplate() {
       <header class="feature-titlebar"><h1>Add Bank Account</h1></header>
       <form class="bank-form">
         <div class="bank-form-grid">
-          <label>Account Display Name *<input class="form-input" placeholder="Enter Account Display Name"></label>
-          <label>Opening Balance<input class="form-input" placeholder="Enter Opening Balance"></label>
+          <label>Account Display Name *<input class="form-input" placeholder="Account Display Name"></label>
+          <label>Opening Balance<input class="form-input" placeholder="Opening Balance"></label>
           <label>As of Date<input class="form-input" value="26/05/2026"></label>
         </div>
         <p class="link-button">+ Add more fields</p>
@@ -17111,75 +18869,46 @@ function banksTemplate() {
   const cashInHand = calculateCashInHand();
   const bankTotal = accounts.reduce((sum, account) => sum + Number(account.currentBalance || 0), 0);
   const totalLiquidity = cashInHand + bankTotal;
-  const openingTotal = accounts.reduce((sum, account) => sum + Number(account.openingBalance || 0), 0);
-  const upiReady = accounts.filter((account) => String(account.upiId || "").trim()).length;
-  const invoiceReady = accounts.filter((account) => Boolean(Number(account.printBankDetails))).length;
 
   return `
-    <section class="bank-workspace bank-workspace-revamp">
-      <header class="app-page-header bank-page-header">
-        <h1>Cash &amp; Bank</h1>
-        <div class="bank-header-actions">
+    <section class="invoice-workspace bank-workspace">
+      <header class="app-page-header invoice-page-header">
+        <div>
+          <h1>Cash &amp; Bank</h1>
+        </div>
+        <div class="invoice-header-actions">
           <button class="primary-button bank-add-btn" data-action="add-bank" type="button">+ Add Bank Account</button>
         </div>
       </header>
 
-      <section class="kpi-grid bank-kpis">
+      <section class="kpi-grid invoice-kpis">
         ${kpiCard("Total Liquidity", formatCurrency(totalLiquidity), "Cash in hand + bank balance", "success")}
-        ${kpiCard("Cash in Hand", formatCurrency(cashInHand), "Liquid counter & petty cash", cashInHand >= 0 ? "success" : "danger")}
+        ${kpiCard("Cash in Hand", formatCurrency(cashInHand), "Liquid counter petty cash", cashInHand >= 0 ? "success" : "danger")}
         ${kpiCard("Bank Balance", formatCurrency(bankTotal), `${accounts.length} active account${accounts.length === 1 ? "" : "s"}`, "info")}
-        ${kpiCard("Default Bank", defaultAccount?.displayName || "None set", defaultAccount ? "Prints on invoices & QR" : "Set default bank", "neutral")}
+        ${kpiCard("Default Bank", defaultAccount?.displayName || "None set", defaultAccount ? "Active on invoices & QR" : "Set default bank", "neutral")}
       </section>
 
-      <div class="bank-main-content">
-        <!-- Cash in Hand Section Card -->
-        <div class="cash-card">
-          <div class="cash-card-header">
-            <div class="cash-badge">
-              <svg class="gi-icon icon" aria-hidden="true"><use href="#gi-wallet"></use></svg>
+      <div style="padding: 12px 20px 0;">
+        <div class="cash-drawer-strip">
+          <div class="cash-drawer-info">
+            <div class="cash-drawer-icon">
+              <svg class="gi-icon" style="width:20px;height:20px;"><use href="#gi-wallet"></use></svg>
             </div>
             <div>
-              <h3>Cash in Hand (Petty Cash)</h3>
-              <p>Physical counter cash for daily business operations &amp; walk-in customer billing</p>
-            </div>
-            <div class="cash-balance-display">
-              <span class="cash-bal-label">Net Cash Available</span>
-              <strong class="cash-bal-amount">${formatCurrency(cashInHand)}</strong>
+              <strong style="font-size:14px;color:#0f172a;display:block;">Cash in Hand (Counter &amp; Petty Cash)</strong>
+              <span style="font-size:12px;color:#64748b;">Physical counter currency automatically tracked from cash transactions</span>
             </div>
           </div>
-          <div class="cash-card-footer">
-            <span class="cash-card-hint">
-              <svg class="gi-icon icon icon-xs" aria-hidden="true"><use href="#gi-zap"></use></svg>
-              Auto-tracked from cash sales, cash receipts, and petty cash expenses
-            </span>
-            <div class="cash-card-actions">
-              <button class="secondary-button compact-button" data-action="open-expense-cash" type="button">
-                <svg class="gi-icon icon icon-xs" aria-hidden="true"><use href="#gi-receipt"></use></svg>
-                <span>Record Cash Expense</span>
-              </button>
-            </div>
+          <div class="cash-drawer-balance">
+            <span style="font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.04em;">Available Cash</span>
+            <strong style="font-size:20px;font-weight:700;color:${cashInHand >= 0 ? "#16a34a" : "#dc2626"};display:block;">${formatCurrency(cashInHand)}</strong>
           </div>
         </div>
-
-        <!-- Bank Accounts Section -->
-        <div class="bank-accounts-section">
-          <div class="bank-section-titlebar">
-            <div>
-              <h2>Bank Accounts</h2>
-              <p>Business bank accounts for bank transfers, online UPI receipts &amp; invoice print details</p>
-            </div>
-            <button class="secondary-button compact-button" data-action="add-bank" type="button">
-              <svg class="gi-icon icon icon-xs" aria-hidden="true"><use href="#gi-plus"></use></svg>
-              <span>Add Another Bank</span>
-            </button>
-          </div>
-
-          ${accounts.length ? bankAccountsList(accounts) : bankEmptyState()}
-        </div>
-
-        <!-- Invoice Print Details Banner if default bank exists -->
-        ${defaultAccount ? bankDefaultBanner(defaultAccount) : ""}
       </div>
+
+      <section class="data-table-card invoice-data-card" style="margin-top:12px;">
+        ${accounts.length ? bankAccountsTable(accounts) : bankEmptyState()}
+      </section>
     </section>
   `;
 }
@@ -17464,25 +19193,25 @@ function bankModalTemplate(account = null) {
               <!-- Left Column: Bank Details -->
               <div class="bank-form-col">
                 <label class="bank-field-label">Account Display Name *
-                  <input class="form-input" name="displayName" id="bankDisplayName" value="${escapeHtml(account?.displayName || "")}" placeholder="e.g. Federal Bank - Main, HDFC Current" required autofocus>
+                  <input class="form-input" name="displayName" id="bankDisplayName" value="${escapeHtml(account?.displayName || "")}" placeholder="Account Display Name" required autofocus>
                   <small class="bank-field-hint">Used to identify this account in bills, payments &amp; ledger</small>
                 </label>
 
                 <div class="bank-grid-2">
                   <label class="bank-field-label">Bank Name
-                    <input class="form-input" name="bankName" id="bankNameInput" value="${escapeHtml(account?.bankName || "")}" placeholder="e.g. Federal Bank, HDFC">
+                    <input class="form-input" name="bankName" id="bankNameInput" value="${escapeHtml(account?.bankName || "")}" placeholder="Bank Name">
                   </label>
                   <label class="bank-field-label">Account Number
-                    <input class="form-input" name="accountNo" id="bankAccountNoInput" value="${escapeHtml(account?.accountNo || "")}" placeholder="e.g. 99980865585655">
+                    <input class="form-input" name="accountNo" id="bankAccountNoInput" value="${escapeHtml(account?.accountNo || "")}" placeholder="Account Number">
                   </label>
                 </div>
 
                 <div class="bank-grid-2">
                   <label class="bank-field-label">IFSC Code
-                    <input class="form-input" name="ifsc" id="bankIfscInput" value="${escapeHtml(account?.ifsc || "")}" placeholder="e.g. FDRL0001412" maxlength="11" style="text-transform: uppercase;">
+                    <input class="form-input" name="ifsc" id="bankIfscInput" value="${escapeHtml(account?.ifsc || "")}" placeholder="IFSC Code" maxlength="11" style="text-transform: uppercase;">
                   </label>
                   <label class="bank-field-label">UPI ID / VPA
-                    <input class="form-input" name="upiId" id="bankUpiInput" value="${escapeHtml(account?.upiId || "")}" placeholder="e.g. business@okaxis">
+                    <input class="form-input" name="upiId" id="bankUpiInput" value="${escapeHtml(account?.upiId || "")}" placeholder="UPI ID / VPA">
                   </label>
                 </div>
 
@@ -17542,7 +19271,7 @@ function bankModalTemplate(account = null) {
                 </div>
 
                 <label class="bank-field-label" style="margin-top: 10px;">Internal Notes (Optional)
-                  <textarea class="form-input" name="notes" rows="2" placeholder="Branch name, manager contact, reconciliation notes">${escapeHtml(account?.notes || "")}</textarea>
+                  <textarea class="form-input" name="notes" rows="2" placeholder="Internal Notes">${escapeHtml(account?.notes || "")}</textarea>
                 </label>
               </div>
             </div>
@@ -17816,7 +19545,7 @@ function syncTemplate() {
           <div style="display:flex;gap:10px;">
             <button class="primary-button square" data-action="create-snapshot" type="button" style="display:inline-flex;align-items:center;gap:8px;">
               <svg class="gi-icon" style="width:16px;height:16px;"><use href="#gi-save"></use></svg>
-              Create Backup Snapshot Now
+              Create Backup Snapshot (.zyn) Now
             </button>
           </div>
         </div>
@@ -17828,12 +19557,12 @@ function syncTemplate() {
         <article class="kpi-card">
           <span class="kpi-card-label">Auto-Backup on Exit</span>
           <div class="kpi-card-value" id="syncKpiAutoBackup">${autoBackupEnabled ? "Enabled" : "Disabled"}</div>
-          <span class="kpi-card-sub">Automatic shutdown snapshot</span>
+          <span class="kpi-card-sub">Automatic shutdown .zyn snapshot</span>
         </article>
         <article class="kpi-card">
           <span class="kpi-card-label">Restore Points</span>
           <div class="kpi-card-value" id="syncKpiSnapshotCount">Checking...</div>
-          <span class="kpi-card-sub">Available local snapshots</span>
+          <span class="kpi-card-sub">Available .zyn snapshots</span>
         </article>
         ${kpiCard("Sync Mode", "Offline-First", "Zero latency & 100% private")}
       </section>
@@ -17846,7 +19575,7 @@ function syncTemplate() {
               <svg class="gi-icon" style="width:18px;height:18px;color:#2563eb;"><use href="#gi-shield"></use></svg>
               <h3 style="margin:0;font-size:16px;font-weight:700;color:#0f172a;">Automatic Snapshot on Exit</h3>
             </div>
-            <p style="margin:0;font-size:13px;color:#64748b;line-height:1.5;">When enabled, GI Billing will automatically generate a timestamped SQLite snapshot into your local backup directory every time you close the application.</p>
+            <p style="margin:0;font-size:13px;color:#64748b;line-height:1.5;">When enabled, GI Billing will automatically generate a timestamped .zyn snapshot into your local backup directory every time you close the application.</p>
           </div>
           <label style="display:inline-flex;align-items:center;gap:10px;cursor:pointer;background:#f8fafc;padding:10px 16px;border-radius:8px;border:1px solid #e2e8f0;">
             <input type="checkbox" id="autoBackupExitToggle" ${autoBackupEnabled ? "checked" : ""} style="width:18px;height:18px;accent-color:#2563eb;cursor:pointer;">
@@ -17859,7 +19588,7 @@ function syncTemplate() {
       <section class="data-table-card report-card" style="margin-bottom:20px;padding:20px;">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:12px;">
           <div>
-            <h3 style="margin:0 0 4px;font-size:16px;font-weight:700;color:#0f172a;">Local Snapshot Restore Points</h3>
+            <h3 style="margin:0 0 4px;font-size:16px;font-weight:700;color:#0f172a;">Local Snapshot Restore Points (.zyn)</h3>
             <p style="margin:0;font-size:13px;color:#64748b;">Instant local backups stored safely in your user data directory. You can restore back to any point in time in one click.</p>
           </div>
           <button class="secondary-button compact-button" type="button" data-action="refresh-snapshots" style="display:inline-flex;align-items:center;gap:6px;">
@@ -17878,11 +19607,11 @@ function syncTemplate() {
       <!-- Manual Backup / Restore File Panel -->
       <section class="data-table-card report-card backup-panel" style="padding:20px;">
         <article>
-          <h3 style="margin:0 0 6px;font-size:16px;font-weight:700;color:#0f172a;">Manual File Export &amp; Import</h3>
-          <p style="margin:0 0 16px;font-size:13px;color:#64748b;">Export an explicit .sqlite database file to an external USB drive, or restore an existing SQLite database file from your computer.</p>
+          <h3 style="margin:0 0 6px;font-size:16px;font-weight:700;color:#0f172a;">Manual File Export &amp; Import (.zyn)</h3>
+          <p style="margin:0 0 16px;font-size:13px;color:#64748b;">Export an explicit .zyn backup file to an external USB drive, or restore an existing .zyn database file from your computer.</p>
           <div class="backup-actions" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
-            <button class="secondary-button square" data-action="backup-db" type="button">Export SQLite File...</button>
-            <button class="secondary-button square" data-action="restore-db" type="button">Import &amp; Restore File...</button>
+            <button class="secondary-button square" data-action="backup-db" type="button">Export .zyn File...</button>
+            <button class="secondary-button square" data-action="restore-db" type="button">Import &amp; Restore .zyn File...</button>
             <span id="backupStatus" style="font-size:13px;color:#64748b;">Ready.</span>
           </div>
         </article>
@@ -17896,7 +19625,7 @@ async function handleCreateSnapshot() {
   const origText = btn ? btn.innerHTML : "";
   if (btn) {
     btn.disabled = true;
-    btn.innerHTML = `<svg class="gi-icon spin" style="width:16px;height:16px;"><use href="#gi-refresh"></use></svg> Creating Snapshot...`;
+    btn.innerHTML = `<svg class="gi-icon spin" style="width:16px;height:16px;"><use href="#gi-refresh"></use></svg> Choose Location...`;
   }
   try {
     if (!window.giDB?.createSnapshot) {
@@ -17904,6 +19633,10 @@ async function handleCreateSnapshot() {
       return;
     }
     const result = await window.giDB.createSnapshot();
+    if (result?.canceled) {
+      showToast("Backup snapshot cancelled.");
+      return;
+    }
     showToast(`Snapshot created: ${result.filename} (${result.formattedSize})`);
     await loadSnapshotList();
   } catch (err) {
@@ -18001,6 +19734,8 @@ async function loadSnapshotList() {
         }
         btn.disabled = true;
         btn.textContent = "Restoring...";
+        showGlobalLoader("Restoring Database...", "Restoring snapshot and verifying data integrity...");
+        await new Promise((r) => requestAnimationFrame(() => setTimeout(r, 40)));
         try {
           const res = await window.giDB.restoreSnapshot(path);
           if (res?.state) {
@@ -18014,6 +19749,8 @@ async function loadSnapshotList() {
           showToast(`Restore failed: ${err.message || "Unknown error"}`);
           btn.disabled = false;
           btn.textContent = "↺ Restore";
+        } finally {
+          hideGlobalLoader();
         }
       });
     });
@@ -18192,19 +19929,29 @@ function partyHasActivityInRange(party, fromDate, toDate) {
 
 function partyListButton(party, selectedId) {
   const balance = Number(party.balance || 0);
-  const balanceClass = balance >= 0 ? "receivable-text" : "payable-text";
+  const isZero = Math.abs(balance) < 0.005;
+  const isRec = balance > 0;
+  const balanceClass = isZero ? "zero-balance-text" : (isRec ? "receivable-text" : "payable-text");
+  const arrowHtml = isZero
+    ? ""
+    : icon(isRec ? "arrow-down-left" : "arrow-up-right", `party-balance-arrow ${isRec ? "in-arrow" : "out-arrow"}`);
   const contact = party.phone || party.email || party.gstin || "No contact details";
   return `
     <button class="party-list-item ${Number(party.id) === Number(selectedId) ? "active" : ""}" data-party-id="${party.id}" type="button">
       <span class="party-list-main"><strong>${escapeHtml(party.name)}</strong><small>${escapeHtml(contact)}</small></span>
-      <span class="party-list-side"><b class="${balanceClass}">${formatCurrency(Math.abs(balance))}</b></span>
+      <span class="party-list-side">
+        <b class="${balanceClass}">
+          ${arrowHtml}
+          ${formatCurrency(Math.abs(balance))}
+        </b>
+      </span>
     </button>
   `;
 }
 
 function partyDetail(party, activeTab) {
-  const tabs = ["transactions", "ledger", "overview", "payments", "notes"];
-  const safeActiveTab = activeTab === "statement" ? "ledger" : (activeTab || "transactions");
+  const tabs = ["transactions", "ledger", "payments", "overview"];
+  const safeActiveTab = activeTab === "statement" ? "ledger" : (activeTab === "notes" ? "overview" : (activeTab || "transactions"));
   const partyMeta = [party.phone, party.gstin ? `GSTIN ${party.gstin}` : ""]
     .filter(Boolean)
     .map(escapeHtml)
@@ -18235,7 +19982,6 @@ function partyTabContent(party, activeTab) {
   if (activeTab === "transactions") return partyTransactionsTable(party);
   if (activeTab === "ledger") return partyLedgerTable(party);
   if (activeTab === "payments") return partyPaymentsTable(party);
-  if (activeTab === "notes") return `<section class="party-notes"><h3>Notes</h3><p>${escapeHtml(party.notes || "No notes added.")}</p></section>`;
 
   return `
     <section class="party-overview-grid">
@@ -18252,6 +19998,19 @@ function partyTabContent(party, activeTab) {
       <article><h3>Billing Address</h3><p>${escapeHtml(party.billingAddress || "-")}</p></article>
       <article><h3>Shipping Address</h3><p>${escapeHtml(party.shippingAddress || "-")}</p></article>
       <article><h3>Terms</h3><p>Payment Terms: ${escapeHtml(party.paymentTerms || "-")}</p><p>Due Days: ${Number(party.dueDays || 0) || "-"}</p><p>Credit Limit: ${formatCurrency(party.creditLimit || 0)}</p></article>
+      <article class="party-overview-wide party-notes-card">
+        <div class="party-notes-header">
+          <h3>Notes & Remarks</h3>
+          <button type="button" class="party-edit-notes-btn" data-action="edit-party" data-party-id="${party.id}" title="Edit party notes">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 20h9"></path>
+              <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path>
+            </svg>
+            <span>Edit Notes</span>
+          </button>
+        </div>
+        <p class="party-notes-body">${escapeHtml(party.notes || "No notes added for this party.")}</p>
+      </article>
     </section>
   `;
 }
@@ -18269,13 +20028,54 @@ function renderPartySortTh(label, colKey, tabKey, className = "") {
   `;
 }
 
+function partyTransactionRowActions(entry) {
+  const targetId = entry.id || entry.invoiceId || entry.transactionId;
+  if (!targetId) {
+    return `<span class="party-no-action">-</span>`;
+  }
+  const id = escapeHtml(String(targetId));
+  const actions = [
+    ["viewEdit", "View/Edit"],
+    ["delete", "Delete"],
+    ["duplicate", "Duplicate"],
+    ["openPdf", "Open PDF"],
+    ["preview", "Preview"],
+    ["print", "Print"],
+    ["return", "Convert To Return"],
+    ["history", "View History"],
+  ];
+
+  return `
+    <div class="invoice-row-actions party-transaction-actions">
+      <details>
+        <summary aria-label="Transaction actions" title="More options">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+            <circle cx="12" cy="5" r="2.2"></circle>
+            <circle cx="12" cy="12" r="2.2"></circle>
+            <circle cx="12" cy="19" r="2.2"></circle>
+          </svg>
+        </summary>
+        <div class="invoice-action-menu">
+          ${actions.map(([action, label]) => `
+            <button type="button" data-invoice-action="${action}" data-invoice-id="${id}" class="${action === 'delete' ? 'danger-action' : ''}">${label}</button>
+          `).join("")}
+        </div>
+      </details>
+    </div>
+  `;
+}
+
 function partyTransactionsTable(party) {
   const f = partyAdvancedFilter;
   const range = getPartyDateRange(f);
   const fromDate = range.from ? parseLocalIsoDate(range.from) : null;
   const toDate = range.to ? parseLocalIsoDate(range.to, true) : null;
 
-  let rows = (state.invoices || []).filter((invoice) => invoice.party === party.name);
+  const partyNameLower = String(party.name || "").trim().toLowerCase();
+  let rows = (state.invoices || []).filter((invoice) =>
+    (invoice.party && String(invoice.party).trim().toLowerCase() === partyNameLower) ||
+    (invoice.partyId && String(invoice.partyId) === String(party.id))
+  );
   if (fromDate || toDate) {
     rows = rows.filter((row) => {
       const d = parseLocalIsoDate(row.date || row.invoiceDate || "");
@@ -18324,18 +20124,22 @@ function partyTransactionsTable(party) {
             ${renderPartySortTh("Status", "status", "transactions")}
             ${renderPartySortTh("Total", "total", "transactions", "amount-cell")}
             ${renderPartySortTh("Balance", "balance", "transactions", "amount-cell")}
+            <th class="actions-cell" style="text-align: right; width: 60px;">Actions</th>
           </tr>
         </thead>
         <tbody>${rows.map((row) => {
           const invoiceId = row.id || row.invoiceId || row.transactionId || "";
           return `
-            <tr>
+            <tr class="party-transaction-row" data-party-invoice-id="${escapeHtml(invoiceId)}">
               <td>${formatDate(row.date)}</td>
               <td><button class="party-invoice-link" type="button" data-party-invoice-id="${escapeHtml(invoiceId)}" title="View bill">${escapeHtml(row.invoiceNo || "-")}</button></td>
               <td>${escapeHtml(titleCase(row.type || ""))}</td>
               <td>${invoiceStatusBadge(row)}</td>
               <td class="amount-cell">${formatCurrency(row.total)}</td>
               <td class="amount-cell ${Number(row.balance || 0) > 0 ? "danger" : ""}">${formatCurrency(row.balance)}</td>
+              <td class="actions-cell" style="text-align: right;">
+                ${partyTransactionRowActions(row)}
+              </td>
             </tr>`;
         }).join("")}</tbody>
       </table>
@@ -18345,8 +20149,15 @@ function partyTransactionsTable(party) {
 }
 
 function partyLedgerTable(party) {
-  const invoices = (state.invoices || []).filter((invoice) => invoice.party === party.name);
-  const payments = (state.payments || []).filter((payment) => payment.party === party.name);
+  const partyNameLower = String(party.name || "").trim().toLowerCase();
+  const invoices = (state.invoices || []).filter((invoice) =>
+    (invoice.party && String(invoice.party).trim().toLowerCase() === partyNameLower) ||
+    (invoice.partyId && String(invoice.partyId) === String(party.id))
+  );
+  const payments = (state.payments || []).filter((payment) =>
+    (payment.party && String(payment.party).trim().toLowerCase() === partyNameLower) ||
+    (payment.partyId && String(payment.partyId) === String(party.id))
+  );
   const allRows = [
     ...invoices.map((invoice) => ({
       date: invoice.date,
@@ -18356,6 +20167,7 @@ function partyLedgerTable(party) {
       credit: invoice.type === "purchase" ? Number(invoice.total || 0) : 0,
       createdAt: invoice.createdAt,
       id: invoice.id,
+      invoiceId: invoice.id || invoice.invoiceId,
     })),
     ...payments.map((payment) => ({
       date: payment.paymentDate,
@@ -18365,6 +20177,7 @@ function partyLedgerTable(party) {
       credit: payment.type === "payment_in" ? Number(payment.amount || 0) : 0,
       createdAt: payment.createdAt,
       id: payment.id,
+      invoiceId: payment.invoiceId || "",
     })),
   ];
 
@@ -18443,16 +20256,25 @@ function partyLedgerTable(party) {
             ${renderPartySortTh("Debit", "debit", "ledger", "amount-cell")}
             ${renderPartySortTh("Credit", "credit", "ledger", "amount-cell")}
             ${renderPartySortTh("Balance", "balance", "ledger", "amount-cell")}
+            <th class="actions-cell" style="text-align: right; width: 60px;">Actions</th>
           </tr>
         </thead>
         <tbody>${filteredRows.map((row) => `
-          <tr>
+          <tr class="${row.invoiceId ? "party-transaction-row" : ""}" ${row.invoiceId ? `data-party-invoice-id="${escapeHtml(row.invoiceId)}"` : ""}>
             <td>${formatDate(row.date)}</td>
             <td>${escapeHtml(titleCase(row.type || ""))}</td>
-            <td>${escapeHtml(row.ref || "-")}</td>
+            <td>
+              ${row.invoiceId
+                ? `<button class="party-invoice-link" type="button" data-party-invoice-id="${escapeHtml(row.invoiceId)}" title="View bill">${escapeHtml(row.ref || "-")}</button>`
+                : escapeHtml(row.ref || "-")
+              }
+            </td>
             <td class="amount-cell">${row.debit ? formatCurrency(row.debit) : "-"}</td>
             <td class="amount-cell">${row.credit ? formatCurrency(row.credit) : "-"}</td>
             <td class="amount-cell"><strong>${formatCurrency(Math.abs(row.runningBalance || 0))}</strong></td>
+            <td class="actions-cell" style="text-align: right;">
+              ${row.invoiceId ? partyTransactionRowActions(row) : `<span class="party-no-action">-</span>`}
+            </td>
           </tr>`).join("")}
         </tbody>
       </table>
@@ -18493,7 +20315,11 @@ function partyPaymentsTable(party) {
   const fromDate = range.from ? parseLocalIsoDate(range.from) : null;
   const toDate = range.to ? parseLocalIsoDate(range.to, true) : null;
 
-  let rows = (state.payments || []).filter((payment) => payment.party === party.name);
+  const partyNameLower = String(party.name || "").trim().toLowerCase();
+  let rows = (state.payments || []).filter((payment) =>
+    (payment.party && String(payment.party).trim().toLowerCase() === partyNameLower) ||
+    (payment.partyId && String(payment.partyId) === String(party.id))
+  );
   if (fromDate || toDate) {
     rows = rows.filter((row) => {
       const d = parseLocalIsoDate(row.paymentDate || row.date || "");
@@ -18538,15 +20364,28 @@ function partyPaymentsTable(party) {
             ${renderPartySortTh("Method", "method", "payments")}
             ${renderPartySortTh("Amount", "amount", "payments", "amount-cell")}
             ${renderPartySortTh("Notes", "notes", "payments")}
+            <th class="actions-cell" style="text-align: right; width: 110px;">Actions</th>
           </tr>
         </thead>
-        <tbody>${rows.map((row) => `<tr>
-          <td>${formatDate(row.paymentDate)}</td>
-          <td>${escapeHtml(titleCase(row.type || ""))}</td>
-          <td>${escapeHtml(row.method || "")}</td>
-          <td class="amount-cell">${formatCurrency(row.amount)}</td>
-          <td>${escapeHtml(row.notes || "-")}</td>
-        </tr>`).join("")}</tbody>
+        <tbody>${rows.map((row) => `
+          <tr class="${row.invoiceId ? "party-transaction-row" : ""}" ${row.invoiceId ? `data-party-invoice-id="${escapeHtml(row.invoiceId)}"` : ""}>
+            <td>${formatDate(row.paymentDate)}</td>
+            <td>${escapeHtml(titleCase(row.type || ""))}</td>
+            <td>${escapeHtml(row.method || "")}</td>
+            <td class="amount-cell">${formatCurrency(row.amount)}</td>
+            <td>${escapeHtml(row.notes || "-")}</td>
+            <td class="actions-cell" style="text-align: right;">
+              ${row.invoiceId ? `
+                <button class="party-view-bill-btn" type="button" data-party-invoice-id="${escapeHtml(row.invoiceId)}" title="View Transaction Bill">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                    <circle cx="12" cy="12" r="3"></circle>
+                  </svg>
+                  <span>View Bill</span>
+                </button>
+              ` : `<span class="party-no-action">-</span>`}
+            </td>
+          </tr>`).join("")}</tbody>
       </table>
       <div class="empty-table ${rows.length ? "hidden" : ""}">No payments found for this period.</div>
     </div>
@@ -18891,11 +20730,11 @@ function openMasterFormModal(kind, record = null, parentId = null, onSaved = nul
       <section class="masters-form-dialog" role="dialog" aria-modal="true" aria-label="${title}">
         <header><strong>${title}</strong><button class="close-button" type="button" data-close-masters-form>&times;</button></header>
         <form id="mastersUnitForm" class="masters-form-body">
-          <label>Unit Name *<input class="form-input" name="name" value="${escapeHtml(record?.name || '')}" required maxlength="50"></label>
-          <label>Short Name<input class="form-input" name="short_name" value="${escapeHtml(record?.short_name || '')}" placeholder="e.g. pcs, kg, m" maxlength="20"></label>
-          <label>Code<input class="form-input" name="code" value="${escapeHtml(record?.code || '')}" placeholder="e.g. PCS, KG" maxlength="20"></label>
-          <label>Description<input class="form-input" name="description" value="${escapeHtml(record?.description || '')}" placeholder="Optional description" maxlength="200"></label>
-          <label class="masters-checkbox-label"><input type="checkbox" name="allows_decimal_quantity" ${record?.allows_decimal_quantity ? 'checked' : ''}> Allow decimal quantities (e.g. 2.5 kg)</label>
+          <label>Unit Name *<input class="form-input" name="name" value="${escapeHtml(record?.name || '')}" placeholder="Unit Name" required maxlength="50"></label>
+          <label>Short Name<input class="form-input" name="short_name" value="${escapeHtml(record?.short_name || '')}" placeholder="Short Name" maxlength="20"></label>
+          <label>Code<input class="form-input" name="code" value="${escapeHtml(record?.code || '')}" placeholder="Code" maxlength="20"></label>
+          <label>Description<input class="form-input" name="description" value="${escapeHtml(record?.description || '')}" placeholder="Description" maxlength="200"></label>
+          <label class="masters-checkbox-label"><input type="checkbox" name="allows_decimal_quantity" ${record?.allows_decimal_quantity ? 'checked' : ''}> Allow decimal quantities</label>
           <footer class="masters-form-actions">
             <button class="secondary-button" type="button" data-close-masters-form>Cancel</button>
             <button class="primary-button square" type="submit">${isEdit ? 'Update' : 'Create'}</button>
@@ -18909,8 +20748,8 @@ function openMasterFormModal(kind, record = null, parentId = null, onSaved = nul
       <section class="masters-form-dialog" role="dialog" aria-modal="true" aria-label="${title}">
         <header><strong>${title}</strong><button class="close-button" type="button" data-close-masters-form>&times;</button></header>
         <form id="mastersCategoryForm" class="masters-form-body">
-          <label>Category Name *<input class="form-input" name="name" value="${escapeHtml(record?.name || '')}" required maxlength="100"></label>
-          <label>Code<input class="form-input" name="code" value="${escapeHtml(record?.code || '')}" placeholder="e.g. FOOD, ELEC" maxlength="20"></label>
+          <label>Category Name *<input class="form-input" name="name" value="${escapeHtml(record?.name || '')}" placeholder="Category Name" required maxlength="100"></label>
+          <label>Code<input class="form-input" name="code" value="${escapeHtml(record?.code || '')}" placeholder="Code" maxlength="20"></label>
           <label>Parent Category<select class="form-input" name="parent_category_id"><option value="">None (Root)</option>${parentOptions}</select></label>
           <label>Description<textarea class="form-input" name="description" rows="2" maxlength="500">${escapeHtml(record?.description || '')}</textarea></label>
           <footer class="masters-form-actions">
@@ -19180,8 +21019,99 @@ function renderItemSortTh(label, colKey, className = "") {
   `;
 }
 
+function itemLedgerRowActions(movement, invoice) {
+  const targetId = invoice?.id || invoice?.invoiceId || movement.invoiceId || movement.transactionId || movement.creditNoteId || movement.debitNoteId;
+  if (!targetId) {
+    return `<span class="party-no-action">-</span>`;
+  }
+  const id = escapeHtml(String(targetId));
+  const actions = [
+    ["viewEdit", "View/Edit"],
+    ["delete", "Delete"],
+    ["duplicate", "Duplicate"],
+    ["openPdf", "Open PDF"],
+    ["preview", "Preview"],
+    ["print", "Print"],
+    ["return", "Convert To Return"],
+    ["history", "View History"],
+  ];
+
+  return `
+    <div class="invoice-row-actions item-ledger-actions">
+      <details>
+        <summary aria-label="Transaction actions" title="More options">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+            <circle cx="12" cy="5" r="2.2"></circle>
+            <circle cx="12" cy="12" r="2.2"></circle>
+            <circle cx="12" cy="19" r="2.2"></circle>
+          </svg>
+        </summary>
+        <div class="invoice-action-menu">
+          ${actions.map(([action, label]) => `
+            <button type="button" data-invoice-action="${action}" data-invoice-id="${id}" class="${action === 'delete' ? 'danger-action' : ''}">${label}</button>
+          `).join("")}
+        </div>
+      </details>
+    </div>
+  `;
+}
+
 function itemStockLedgerTable(item) {
-  const invoiceMap = new Map((state.invoices || []).map((invoice) => [invoice.id, invoice]));
+  const invoiceMap = new Map();
+  (state.invoices || []).forEach((inv) => {
+    if (inv.id !== undefined && inv.id !== null) invoiceMap.set(String(inv.id), inv);
+    if (inv.transactionId) invoiceMap.set(String(inv.transactionId), inv);
+  });
+  (state.transactions || []).forEach((txn) => {
+    if (txn.id && !invoiceMap.has(String(txn.id))) invoiceMap.set(String(txn.id), txn);
+    if (txn.invoiceId && !invoiceMap.has(String(txn.invoiceId))) invoiceMap.set(String(txn.invoiceId), txn);
+  });
+  (state.creditNotes || []).forEach((cn) => {
+    if (cn.id) invoiceMap.set(String(cn.id), cn);
+    if (cn.creditNoteId) invoiceMap.set(String(cn.creditNoteId), cn);
+  });
+  (state.debitNotes || []).forEach((dn) => {
+    if (dn.id) invoiceMap.set(String(dn.id), dn);
+    if (dn.debitNoteId) invoiceMap.set(String(dn.debitNoteId), dn);
+  });
+
+  const getMovementRecord = (m) => {
+    return (m.invoiceId && invoiceMap.get(String(m.invoiceId)))
+      || (m.transactionId && invoiceMap.get(String(m.transactionId)))
+      || (m.creditNoteId && invoiceMap.get(String(m.creditNoteId)))
+      || (m.debitNoteId && invoiceMap.get(String(m.debitNoteId)))
+      || findInvoiceRecord(m.invoiceId || m.transactionId || m.creditNoteId || m.debitNoteId);
+  };
+
+  const getMovementParty = (m, rec) => {
+    if (rec) {
+      const pName = rec.party || rec.partyName || rec.customerName || rec.supplierName;
+      if (pName && String(pName).trim()) return String(pName).trim();
+      if (rec.partyId) {
+        const found = (state.parties || []).find((p) => String(p.id) === String(rec.partyId));
+        if (found?.name) return found.name;
+      }
+    }
+    if (m.movementType === "adjustment") {
+      return m.notes || "Stock Adjustment";
+    }
+    const isOut = m.movementType === "out";
+    if (rec?.type === "sale" || isOut) return "Cash Customer";
+    if (rec?.type === "purchase" || !isOut) return "Cash Supplier";
+    return m.notes || "-";
+  };
+
+  const getMovementRef = (m, rec) => {
+    const rawRef = rec?.invoiceNo || rec?.billNo || rec?.creditNo || rec?.debitNo || "";
+    if (rawRef && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(rawRef))) {
+      return String(rawRef);
+    }
+    if (m.transactionId && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(m.transactionId))) {
+      return String(m.transactionId);
+    }
+    return "";
+  };
+
   const f = itemAdvancedFilter;
   const range = getItemDateRange(f);
   const fromDate = range.from ? parseLocalIsoDate(range.from) : null;
@@ -19209,10 +21139,12 @@ function itemStockLedgerTable(item) {
       result = tA - tB || Number(a.id || 0) - Number(b.id || 0);
     } else if (sort.column === "type") {
       result = String(a.movementType || "").localeCompare(String(b.movementType || ""));
-    } else if (sort.column === "ref") {
-      const invA = invoiceMap.get(a.invoiceId)?.invoiceNo || a.transactionId || "";
-      const invB = invoiceMap.get(b.invoiceId)?.invoiceNo || b.transactionId || "";
-      result = String(invA).localeCompare(String(invB), undefined, { numeric: true });
+    } else if (sort.column === "party" || sort.column === "ref") {
+      const recA = getMovementRecord(a);
+      const recB = getMovementRecord(b);
+      const partyA = getMovementParty(a, recA);
+      const partyB = getMovementParty(b, recB);
+      result = String(partyA).localeCompare(String(partyB), undefined, { numeric: true });
     } else if (sort.column === "qtyIn") {
       const qA = (a.movementType === "in" || a.movementType === "adjustment") ? Number(a.quantity || 0) : 0;
       const qB = (b.movementType === "in" || b.movementType === "adjustment") ? Number(b.quantity || 0) : 0;
@@ -19239,25 +21171,36 @@ function itemStockLedgerTable(item) {
           <tr>
             ${renderItemSortTh("Date", "date")}
             ${renderItemSortTh("Type", "type")}
-            ${renderItemSortTh("Reference", "ref")}
+            ${renderItemSortTh("Party", "party")}
             ${renderItemSortTh("Qty In", "qtyIn", "amount-cell")}
             ${renderItemSortTh("Qty Out", "qtyOut", "amount-cell")}
             ${renderItemSortTh("Rate", "rate", "amount-cell")}
+            <th class="action-cell" style="text-align: right; width: 60px;">Actions</th>
           </tr>
         </thead>
         <tbody>${movements.map((movement) => {
           const qty = Number(movement.quantity || 0);
           const qtyIn = movement.movementType === "in" || movement.movementType === "adjustment" ? qty : 0;
           const qtyOut = movement.movementType === "out" ? qty : 0;
-          const invoice = invoiceMap.get(movement.invoiceId);
+          const invoice = getMovementRecord(movement);
+          const partyName = getMovementParty(movement, invoice);
+          const refNo = getMovementRef(movement, invoice);
           return `
             <tr>
               <td>${formatDate(movement.movementDate)}</td>
               <td>${movementTypeLabel(movement.movementType)}</td>
-              <td>${escapeHtml(invoice?.invoiceNo || movement.transactionId || "-")}</td>
+              <td class="ledger-party-col">
+                <div class="ledger-party-info">
+                  <strong class="ledger-party-name">${escapeHtml(partyName)}</strong>
+                  ${refNo && refNo !== partyName ? `<small class="ledger-ref-badge">${escapeHtml(refNo)}</small>` : ""}
+                </div>
+              </td>
               <td class="amount-cell">${qtyIn ? formatQuantity(qtyIn) : "-"}</td>
               <td class="amount-cell">${qtyOut ? formatQuantity(qtyOut) : "-"}</td>
               <td class="amount-cell">${movement.rate ? formatCurrency(movement.rate) : "-"}</td>
+              <td class="action-cell" style="text-align: right;">
+                ${itemLedgerRowActions(movement, invoice)}
+              </td>
             </tr>`;
         }).join("")}</tbody>
       </table>
@@ -19267,14 +21210,15 @@ function itemStockLedgerTable(item) {
 }
 
 function itemPricingPanel(item) {
+  const isService = String(item.itemType || "product").toLowerCase() === "service";
   const purchasePrice = Number(item.purchasePrice || 0);
   const salePrice = Number(item.salePrice || 0);
   const margin = salePrice > 0 && purchasePrice > 0 ? ((salePrice - purchasePrice) / salePrice) * 100 : 0;
   return `
     <section class="item-overview-grid">
       <article><h3>Sale Pricing</h3><p>Sale Price: ${formatCurrency(salePrice)}</p><p>Price Type: ${escapeHtml(priceTaxTypeLabel(item.saleTaxType))}</p><p>Default Discount: ${formatCurrency(item.discount || 0)}</p></article>
-      <article><h3>Purchase Pricing</h3><p>Purchase Price: ${formatCurrency(purchasePrice)}</p><p>Price Type: ${escapeHtml(priceTaxTypeLabel(item.purchaseTaxType))}</p><p>Margin: ${margin ? `${margin.toFixed(1)}%` : "-"}</p></article>
-      <article><h3>Tax</h3><p>HSN/SAC: ${escapeHtml(item.hsnSac || "-")}</p><p>GST Rate: ${formatPercent(item.taxRate || 0)}</p></article>
+      ${isService ? "" : `<article><h3>Purchase Pricing</h3><p>Purchase Price: ${formatCurrency(purchasePrice)}</p><p>Price Type: ${escapeHtml(priceTaxTypeLabel(item.purchaseTaxType))}</p><p>Margin: ${margin ? `${margin.toFixed(1)}%` : "-"}</p></article>`}
+      <article><h3>Tax</h3><p>${isService ? "SAC Code" : "HSN/SAC"}: ${escapeHtml(item.hsnSac || "-")}</p><p>GST Rate: ${escapeHtml(item.taxType || (item.taxRate ? `GST@${item.taxRate}%` : "None"))}</p></article>
     </section>
   `;
 }
@@ -19473,25 +21417,31 @@ function reportGroups() {
     {
       title: "Sales",
       note: "Sales register, product-wise sales, customer sales and staff performance.",
+      icon: "📊",
       reports: [
         { id: "sale", title: "Sales Register", note: "Invoice-by-invoice sales register, tax and balances." },
         { id: "salesByProduct", title: "Sales by Product", note: "Item-wise quantity sold, revenue, average rate and margin." },
         { id: "salesByCustomer", title: "Sales by Customer", note: "Customer-wise revenue, order frequency and outstanding." },
         { id: "salesByStaff", title: "Sales by Staff", note: "Salesperson performance, volume and average ticket size." },
+        { id: "saleReturn", title: "Sales Returns", note: "Credit notes and customer goods return register." },
       ],
     },
     {
       title: "Purchase",
       note: "Procurement bills register, supplier spend and item-wise purchases.",
+      icon: "🛒",
       reports: [
         { id: "purchase", title: "Purchase Register", note: "Supplier bill-by-bill register with tax and balance payable." },
         { id: "purchaseBySupplier", title: "Purchase by Supplier", note: "Supplier-wise procurement volume, bills count and balances." },
         { id: "purchaseByProduct", title: "Purchase by Product", note: "Product-wise inward quantities, average cost and total spend." },
+        { id: "purchaseReturn", title: "Purchase Returns", note: "Debit notes issued to suppliers for goods returned." },
+        { id: "expenseBreakdown", title: "Expense Breakdown", note: "Operating expense categorization and trend." },
       ],
     },
     {
       title: "Inventory",
       note: "Stock summary, valuation, low stock alerts, ledger and movement.",
+      icon: "📦",
       reports: [
         { id: "stock", title: "Stock Summary", note: "Current quantity, valuation, unit, category and GST tax rates." },
         { id: "itemLedger", title: "Stock Ledger", note: "Detailed item-by-item chronological stock movement audit trail." },
@@ -19503,35 +21453,50 @@ function reportGroups() {
     {
       title: "Accounting",
       note: "Financial statements, running ledger, double-entry trial balance and P&L.",
+      icon: "📑",
       reports: [
         { id: "ledger", title: "Ledger", note: "Customer and supplier running ledger account statements." },
         { id: "trialBalance", title: "Trial Balance", note: "Double-entry balance check proving Debits equal Credits." },
         { id: "profitLoss", title: "P&L", note: "Trading and Profit & Loss statement showing Net Profit." },
         { id: "balanceSheet", title: "Balance Sheet", note: "Financial position statement: Assets, Liabilities and Capital." },
+        { id: "daybook", title: "Day Book", note: "Daily journal of all sales, purchases, receipts and payments." },
       ],
     },
     {
       title: "GST",
-      note: "Statutory returns, HSN table 12 and tax liability set-off.",
+      note: "Statutory returns, GSTR-1, GSTR-3B, ITC, and tax liability set-off.",
+      icon: "🏛️",
       reports: [
+        { id: "gstDashboard", title: "GST Dashboard", note: "Compliance overview, filing health and quick-action hub." },
         { id: "gstr1", title: "GSTR-1", note: "Outward supplies summary for GST portal filing." },
         { id: "gstr3b", title: "GSTR-3B", note: "Monthly summary return for Table 3.1 and Table 4 ITC." },
         { id: "hsnSummary", title: "HSN Summary", note: "Rate-wise HSN/SAC code summary for Table 12 and GSTR-9." },
+        { id: "salesTaxSummary", title: "Sales Tax Summary", note: "Rate-wise sales tax register (0%, 5%, 12%, 18%, 28%)." },
+        { id: "purchaseTaxSummary", title: "Purchase Tax Summary", note: "Rate-wise purchase tax breakdown and ITC rates." },
+        { id: "itcRegister", title: "Input Tax Credit", note: "Eligible & blocked ITC §17(5) register." },
+        { id: "outputGst", title: "Output GST", note: "Tax collected on sales and credit note adjustments." },
         { id: "gstLiability", title: "Tax Liability", note: "Output tax vs ITC set-off and net payable in cash." },
+        { id: "gstReconciliation", title: "GST Reconciliation", note: "GSTR-2B vs purchase books reconciliation." },
+        { id: "eInvoice", title: "E-Invoice", note: "IRN status, QR code tracking and JSON export." },
+        { id: "eWayBill", title: "E-Way Bill", note: "Active E-Way bills and movement consignments." },
       ],
     },
     {
       title: "Receivables",
       note: "Customer dues, aging buckets and running statements.",
+      icon: "💰",
       reports: [
         { id: "receivablesOutstanding", title: "Outstanding", note: "Customer-wise pending balances and overdue days." },
         { id: "receivableAging", title: "Ageing", note: "Receivables classified by age buckets (0-30, 31-60, 61-90, 90+)." },
         { id: "customerStatements", title: "Customer Statements", note: "Running statement of account for customer invoices and payments." },
+        { id: "payableAging", title: "Payable Ageing", note: "Supplier dues aging buckets (0-30, 31-60, 61-90, 90+)." },
+        { id: "partyBalances", title: "Party Balances", note: "Complete summary of all customer and supplier balances." },
       ],
     },
     {
       title: "Cash & Bank",
       note: "Bank accounts and payment readiness.",
+      icon: "🏦",
       reports: [
         { id: "cashBank", title: "Bank Accounts", note: "Default bank, balances and invoice print setup." },
       ],
@@ -19540,18 +21505,27 @@ function reportGroups() {
 }
 
 function reportsTemplate(activeReport = "overview") {
+  const allGroups = reportGroups();
+  const totalReportCount = allGroups.reduce((acc, g) => acc + g.reports.length, 0);
+
   return `
     <section class="reports-layout report-center-shell">
       <aside class="reports-menu report-sidebar">
         <div class="report-sidebar-title">
-          <strong>Reports</strong>
-          <span>Accountant workspace</span>
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
+            <strong>Reports</strong>
+            <span class="report-count-badge" style="background:#e0f2fe;color:#0369a1;font-size:11px;font-weight:700;padding:2px 8px;border-radius:12px;">${totalReportCount}</span>
+          </div>
+          <span>Financial, Inventory & GST Center</span>
+        </div>
+        <div class="report-sidebar-search-wrap" style="padding: 2px 2px 8px;">
+          <input type="text" id="reportSearchFilterInput" class="report-sidebar-search-input" placeholder="🔍 Filter reports..." autocomplete="off" />
         </div>
         <button data-report-view="overview" class="report-nav-button ${activeReport === "overview" ? "active" : ""}" type="button">
-          <span>Dashboard</span><small>Report center</small>
+          <span style="display:flex;align-items:center;gap:6px;">📊 Dashboard</span><small>Report Command Center</small>
         </button>
-        ${reportGroups().map((group) => `
-          <div class="report-nav-group">
+        ${allGroups.map((group) => `
+          <div class="report-nav-group" data-nav-group="${escapeHtml(group.title.toLowerCase())}">
             <p>${escapeHtml(group.title)}</p>
             ${group.reports.map((report) => reportMenuButton(report, activeReport)).join("")}
           </div>
@@ -19800,24 +21774,43 @@ function reportOverview() {
   const expenseInput = reportExpenseInputTax();
   const netGst = outputTax.tax - inputTax.tax - expenseInput;
   const stockValue = (state.items || []).reduce((total, item) => total + Number(item.currentStock || 0) * Number(item.purchasePrice || 0), 0);
+  const totalReceivable = (state.invoices || []).filter((i) => i.type === "sale" && invoiceStatusKey(i) !== "cancelled").reduce((sum, inv) => sum + invoiceBalanceValue(inv), 0);
+  const totalPayable = (state.invoices || []).filter((i) => i.type === "purchase" && invoiceStatusKey(i) !== "cancelled").reduce((sum, inv) => sum + invoiceBalanceValue(inv), 0);
   const attentionRows = reportAttentionRows();
+
   return reportPageShell({
     activeReport: "overview",
     title: "Report Center",
-    summary: "Grouped reports for GST filing, accountant review, collections, payables and inventory control.",
+    summary: "Comprehensive financial, inventory, receivables and statutory GST reporting suite.",
     kpis: [
-      { label: "Sales", value: formatCurrency(salesTotals.total), note: `${salesTotals.count} sale records`, tone: "success" },
-      { label: "Purchases", value: formatCurrency(purchaseTotals.total), note: `${purchaseTotals.count} purchase records`, tone: "neutral" },
-      { label: "Net GST", value: formatCurrency(netGst), note: "Output minus input", tone: netGst >= 0 ? "danger" : "success" },
-      { label: "Stock Value", value: formatCurrency(stockValue), note: `${(state.items || []).length} items`, tone: "info" },
+      { label: "Sales Revenue", value: formatCurrency(salesTotals.total), note: `${salesTotals.count} sale records`, tone: "success" },
+      { label: "Gross Purchases", value: formatCurrency(purchaseTotals.total), note: `${purchaseTotals.count} purchase bills`, tone: "neutral" },
+      {
+        label: "Net GST Position",
+        value: formatCurrency(Math.abs(netGst)),
+        note: netGst >= 0 ? "Net Payable to Govt" : "Excess ITC Available",
+        tone: netGst >= 0 ? "danger" : "success"
+      },
+      { label: "Stock Valuation", value: formatCurrency(stockValue), note: `${(state.items || []).length} catalog items`, tone: "info" },
+      { label: "Customer Dues", value: formatCurrency(totalReceivable), note: "Pending receivables", tone: totalReceivable > 0 ? "warning" : "success" },
+      { label: "Supplier Dues", value: formatCurrency(totalPayable), note: "Pending payables", tone: "neutral" },
     ],
     body: `
+      <div class="report-overview-search-bar" style="margin-bottom: 16px;">
+        <input type="text" id="reportOverviewFilter" class="report-overview-search-box" placeholder="🔍 Search reports..." autocomplete="off" />
+      </div>
       <section class="report-center-grid">
         ${reportGroups().map(reportGroupCard).join("")}
       </section>
-      <section class="data-table-card report-card report-data-card">
-        <div class="report-card-head"><h2>Needs Review</h2><span>${attentionRows.length} checks</span></div>
-        ${dataReportTable(["Area", "Issue", "Action"], attentionRows, "No report checks need attention right now.")}
+      <section class="data-table-card report-card report-data-card" style="margin-top: 20px;">
+        <div class="report-card-head">
+          <div style="display:flex;align-items:center;gap:8px;">
+            <span style="font-size:18px;">🛡️</span>
+            <h2>Statutory & Audit Checklist</h2>
+          </div>
+          <span class="report-count-badge" style="background:#fef3c7;color:#92400e;font-size:11px;font-weight:700;padding:2px 8px;border-radius:12px;">${attentionRows.length} checks</span>
+        </div>
+        ${dataReportTable(["Area", "Issue", "Action"], attentionRows, "All statutory and financial checks are 100% in order!")}
       </section>
     `,
   });
@@ -19825,17 +21818,20 @@ function reportOverview() {
 
 function reportGroupCard(group) {
   return `
-    <article class="report-group-card">
+    <article class="report-group-card" data-category="${escapeHtml(group.title.toLowerCase())}">
       <header>
-        <span>${escapeHtml(group.title.slice(0, 3).toUpperCase())}</span>
-        <div>
-          <h2>${escapeHtml(group.title)}</h2>
+        <span style="font-size: 16px;">${group.icon || escapeHtml(group.title.slice(0, 3).toUpperCase())}</span>
+        <div style="flex:1;min-width:0;">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;">
+            <h2>${escapeHtml(group.title)}</h2>
+            <span style="font-size:10px;font-weight:700;color:#64748b;background:#f1f5f9;padding:1px 6px;border-radius:8px;">${group.reports.length}</span>
+          </div>
           <p>${escapeHtml(group.note)}</p>
         </div>
       </header>
-      <div>
+      <div class="report-group-buttons" style="display:grid;gap:8px;">
         ${group.reports.map((report) => `
-          <button data-report-view="${escapeHtml(report.id)}" type="button">
+          <button data-report-view="${escapeHtml(report.id)}" type="button" class="report-card-item-btn">
             <strong>${escapeHtml(report.title)}</strong>
             <small>${escapeHtml(report.note)}</small>
           </button>
@@ -20068,7 +22064,9 @@ function gstWorkspaceTemplate(activeGstView = "gstDashboard") {
           </div>
         `).join("")}
       </aside>
-      <main class="report-main">${gstViewContent(current)}</main>
+      <main class="report-main">
+        ${gstViewContent(current)}
+      </main>
     </section>
   `;
 }
@@ -20197,7 +22195,7 @@ function gstDashboardReport() {
             <svg class="gi-icon" style="width:14px;height:14px;"><use href="#gi-calendar"></use></svg>
             FY 2026-27
           </span>
-          <button class="secondary-button compact-button" data-view="appSettings" data-settings-target="COMPANY" type="button" style="background:rgba(255,255,255,0.15);color:#fff;border-color:rgba(255,255,255,0.3);">
+          <button class="secondary-button compact-button" data-view="appSettings" data-settings-target="COMPANY" type="button">
             Edit Profile
           </button>
         </div>
@@ -23150,21 +25148,21 @@ function journalEntryReport() {
         <form id="journalVoucherForm" style="padding:16px;display:grid;gap:12px;">
           <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;">
             <label>Date<input class="form-input" type="date" name="entryDate" value="${new Date().toISOString().slice(0,10)}" required></label>
-            <label>Voucher No<input class="form-input" type="text" name="voucherNo" placeholder="JV-001"></label>
-            <label>Narration<input class="form-input" type="text" name="narration" placeholder="Description of entry" required></label>
+            <label>Voucher No<input class="form-input" type="text" name="voucherNo" placeholder="Voucher No"></label>
+            <label>Narration<input class="form-input" type="text" name="narration" placeholder="Narration" required></label>
           </div>
           <div style="overflow-x:auto;">
             <table class="data-table" id="journalLinesTable" style="min-width:600px;">
               <thead><tr><th>Account</th><th class="num">Debit (Dr)</th><th class="num">Credit (Cr)</th><th></th></tr></thead>
               <tbody id="journalLinesBody">
                 <tr class="journal-line-row">
-                  <td><input class="form-input" type="text" name="account" list="chartOfAccounts" placeholder="Account name" required></td>
+                  <td><input class="form-input" type="text" name="account" list="chartOfAccounts" placeholder="Account Name" required></td>
                   <td><input class="form-input num" type="number" name="debit" placeholder="0.00" min="0" step="0.01"></td>
                   <td><input class="form-input num" type="number" name="credit" placeholder="0.00" min="0" step="0.01"></td>
                   <td><button type="button" class="outline-mini-button remove-journal-line">✕</button></td>
                 </tr>
                 <tr class="journal-line-row">
-                  <td><input class="form-input" type="text" name="account" list="chartOfAccounts" placeholder="Account name" required></td>
+                  <td><input class="form-input" type="text" name="account" list="chartOfAccounts" placeholder="Account Name" required></td>
                   <td><input class="form-input num" type="number" name="debit" placeholder="0.00" min="0" step="0.01"></td>
                   <td><input class="form-input num" type="number" name="credit" placeholder="0.00" min="0" step="0.01"></td>
                   <td><button type="button" class="outline-mini-button remove-journal-line">✕</button></td>
@@ -23516,8 +25514,8 @@ const SETTINGS_TABS = [
   { id: "INVOICING", label: "Invoicing & Sequences", note: "Prefix, numbers & terms", icon: "receipt" },
   { id: "PRINTING", label: "Print & Thermal POS", note: "A4, 80mm/58mm & QR", icon: "printer" },
   { id: "TAX_INVENTORY", label: "Inventory & Tax Rules", note: "Negative stock, MRP & HSN", icon: "box" },
-  { id: "WHATSAPP", label: "WhatsApp Integration", note: "Direct & Meta Cloud API", icon: "whatsapp" },
   { id: "CUSTOM_FIELDS", label: "Custom Fields", note: "Extra transaction fields", icon: "tools" },
+  { id: "ABOUT", label: "About & Version", note: "System info & build", icon: "help" },
 ];
 
 function settingsTemplate(active = "COMPANY") {
@@ -23530,8 +25528,8 @@ function settingsTemplate(active = "COMPANY") {
     if (active === "INVOICING") return settingsInvoicingTemplate();
     if (active === "PRINTING") return settingsPrintingTemplate();
     if (active === "TAX_INVENTORY") return settingsTaxInventoryTemplate();
-    if (active === "WHATSAPP") return settingsWhatsAppTemplate();
     if (active === "CUSTOM_FIELDS") return customFieldsSettingsTemplate();
+    if (active === "ABOUT") return settingsAboutTemplate();
     return settingsCompanyProfileTemplate();
   };
 
@@ -23584,11 +25582,11 @@ function settingsCompanyProfileTemplate() {
           </div>
           <div class="settings-field-group">
             <label>Business Name *</label>
-            <input class="form-input" name="businessName" value="${escapeHtml(settings.businessName || state.activeCompany || "testt")}" placeholder="Enter registered business name" required>
+            <input class="form-input" name="businessName" value="${escapeHtml(settings.businessName || state.activeCompany || "testt")}" placeholder="Business Name" required>
           </div>
           <div class="settings-field-group">
             <label>Registered Address</label>
-            <textarea class="form-input" name="address" rows="3" placeholder="Shop / Office address, Street, City, PIN">${escapeHtml(settings.address || "")}</textarea>
+            <textarea class="form-input" name="address" rows="3" placeholder="Registered Address">${escapeHtml(settings.address || "")}</textarea>
           </div>
           <div class="settings-field-group">
             <label>State *</label>
@@ -23604,12 +25602,12 @@ function settingsCompanyProfileTemplate() {
           </div>
           <div class="settings-field-group">
             <label>GSTIN</label>
-            <input class="form-input" name="gstin" value="${escapeHtml(settings.gstin || "")}" placeholder="e.g. 29AAAAA0000A1Z5" maxlength="15" style="text-transform:uppercase;">
+            <input class="form-input" name="gstin" value="${escapeHtml(settings.gstin || "")}" placeholder="GSTIN" maxlength="15" style="text-transform:uppercase;">
             <small class="field-hint">15-digit Goods and Services Tax Identification Number.</small>
           </div>
           <div class="settings-field-group">
             <label>Permanent Account Number (PAN)</label>
-            <input class="form-input" name="pan" value="${escapeHtml(settings.pan || "")}" placeholder="e.g. AAAAA0000A" maxlength="10" style="text-transform:uppercase;">
+            <input class="form-input" name="pan" value="${escapeHtml(settings.pan || "")}" placeholder="PAN" maxlength="10" style="text-transform:uppercase;">
             <small class="field-hint">10-character PAN of business or proprietor.</small>
           </div>
         </section>
@@ -23659,7 +25657,7 @@ function settingsInvoicingTemplate() {
           </div>
           <div class="settings-field-group">
             <label>Invoice Prefix *</label>
-            <input class="form-input" name="invoicePrefix" value="${escapeHtml(prefix)}" placeholder="e.g. INV or GI" required>
+            <input class="form-input" name="invoicePrefix" value="${escapeHtml(prefix)}" placeholder="Invoice Prefix" required>
             <small class="field-hint">Prefix added before invoice numbers (e.g. ${escapeHtml(prefix)}-001).</small>
           </div>
           <div class="settings-field-group">
@@ -23693,11 +25691,28 @@ function settingsInvoicingTemplate() {
 
         <section class="settings-card" style="grid-column: 1 / -1;">
           <div class="settings-card-head">
+            <h3>Additional Fields</h3>
+            <span class="badge">Invoice Custom Fields</span>
+          </div>
+          <div class="settings-toggle-stack">
+            <label class="settings-toggle-row">
+              <input type="checkbox" name="enableAdditionalFields" id="settingEnableAdditionalFields" ${settings.enableAdditionalFields !== false ? "checked" : ""}>
+              <div class="settings-toggle-info">
+                <strong>Enable Additional Fields in Invoices</strong>
+                <span>Display PO Number, Vehicle Number, Delivery Date, and Reference Number on invoices.</span>
+              </div>
+            </label>
+          </div>
+          <small class="field-hint" style="margin-top: 8px; display: block;">When enabled, the Additional Fields section appears in the invoice editor. Uncheck to hide this section from all invoice and transaction windows.</small>
+        </section>
+
+        <section class="settings-card" style="grid-column: 1 / -1;">
+          <div class="settings-card-head">
             <h3>Default Terms &amp; Conditions</h3>
             <span class="badge">Printed on Invoices</span>
           </div>
           <div class="settings-field-group">
-            <textarea class="form-input" name="terms" rows="4" placeholder="Enter standard terms (e.g. 1. Goods once sold will not be taken back. 2. Interest @18% p.a. charged for delayed payment. 3. Subject to local jurisdiction.)">${escapeHtml(settings.terms || "")}</textarea>
+            <textarea class="form-input" name="terms" rows="4" placeholder="Terms & Conditions">${escapeHtml(settings.terms || "")}</textarea>
             <small class="field-hint">These notes and conditions will automatically appear at the bottom of every new invoice and quotation.</small>
           </div>
         </section>
@@ -23987,142 +26002,6 @@ function settingsTaxInventoryTemplate() {
   `;
 }
 
-function settingsWhatsAppTemplate() {
-  const settings = state.businessSettings || defaultBusinessSettings();
-  const wa = settings.whatsappSettings || {};
-  const currentMode = wa.mode || "direct";
-  const autoShare = Boolean(wa.autoShareOnSave);
-  const phoneNumberId = wa.phoneNumberId || "";
-  const wabaId = wa.wabaId || "";
-  const accessToken = wa.accessToken || "";
-  const templateName = wa.templateName || "invoice_notification";
-  const languageCode = wa.languageCode || "en";
-  const customMsg = wa.customMessageTemplate || "";
-
-  return `
-    <header class="settings-page-header">
-      <div>
-        <h2>WhatsApp Integration</h2>
-        <p>Choose between 100% Free Direct Deep-Link sharing (Zero-Ban Risk) and Official Meta WhatsApp Cloud API.</p>
-      </div>
-      <div class="settings-header-actions">
-        <span class="settings-status-indicator" id="businessSettingsStatus"></span>
-        <button class="primary-button" type="submit" form="businessSettingsForm">Save WhatsApp Settings</button>
-      </div>
-    </header>
-
-    <form class="business-settings-form" id="businessSettingsForm" data-settings-subtab="WHATSAPP">
-      <div class="settings-form-grid">
-        <section class="settings-card" style="grid-column: 1 / -1;">
-          <div class="settings-card-head">
-            <h3>Default WhatsApp Dispatch Mode</h3>
-            <span class="badge">Both Modes Supported</span>
-          </div>
-
-          <div class="wa-mode-grid">
-            <label class="wa-mode-card ${currentMode === "direct" ? "active" : ""}">
-              <input type="radio" name="whatsappMode" value="direct" ${currentMode === "direct" ? "checked" : ""}>
-              <div class="wa-mode-header">
-                <span class="wa-mode-icon">${icon("whatsapp")}</span>
-                <div>
-                  <strong>Direct WhatsApp (wa.me &amp; Desktop App)</strong>
-                  <span class="wa-badge free">100% Free &bull; Zero Ban Risk</span>
-                </div>
-              </div>
-              <p style="font-size:12.5px;color:#475569;margin:0;line-height:1.5;">Opens WhatsApp Desktop or WhatsApp Web directly with pre-formatted invoice text, customer number, and attached PDF. Zero setup, zero Meta fees, completely ban-proof.</p>
-            </label>
-
-            <label class="wa-mode-card ${currentMode === "cloud_api" ? "active" : ""}">
-              <input type="radio" name="whatsappMode" value="cloud_api" ${currentMode === "cloud_api" ? "checked" : ""}>
-              <div class="wa-mode-header">
-                <span class="wa-mode-icon" style="background:#e0f2fe;color:#0284c7;">${icon("zap")}</span>
-                <div>
-                  <strong>Official Meta WhatsApp Cloud API</strong>
-                  <span class="wa-badge enterprise">Meta Verified &bull; Automated Background</span>
-                </div>
-              </div>
-              <p style="font-size:12.5px;color:#475569;margin:0;line-height:1.5;">Programmatically sends pre-approved utility messages directly to customers via Meta's official Graph API in the background. Requires Meta Business Manager account.</p>
-            </label>
-          </div>
-
-          <div class="settings-field-group" style="margin-top:16px;">
-            <label class="editor-checkbox-label">
-              <input type="checkbox" name="autoShareOnSave" ${autoShare ? "checked" : ""}>
-              <span><strong>Auto-prompt WhatsApp share on invoice save</strong> (Automatically opens WhatsApp modal immediately after saving a new sale invoice)</span>
-            </label>
-          </div>
-        </section>
-
-        <section class="settings-card">
-          <div class="settings-card-head">
-            <h3>Custom Message Template</h3>
-            <span class="badge">Direct &amp; Fallback</span>
-          </div>
-          <div class="settings-field-group">
-            <label>Invoice Text Template</label>
-            <textarea class="form-input" name="customMessageTemplate" id="waCustomMessageTemplate" rows="8" placeholder="Leave blank to use the standard billing template, or customize with placeholders.">${escapeHtml(customMsg)}</textarea>
-            <div class="wa-token-chips" style="margin-top:8px;">
-              <small style="display:block;margin-bottom:4px;color:#64748b;width:100%;">Click tokens to insert:</small>
-              <button type="button" class="wa-token-btn" data-token="{party_name}">{party_name}</button>
-              <button type="button" class="wa-token-btn" data-token="{business_name}">{business_name}</button>
-              <button type="button" class="wa-token-btn" data-token="{doc_type}">{doc_type}</button>
-              <button type="button" class="wa-token-btn" data-token="{doc_no}">{doc_no}</button>
-              <button type="button" class="wa-token-btn" data-token="{date}">{date}</button>
-              <button type="button" class="wa-token-btn" data-token="{amount}">{amount}</button>
-              <button type="button" class="wa-token-btn" data-token="{balance}">{balance}</button>
-              <button type="button" class="wa-token-btn" data-token="{due_date}">{due_date}</button>
-              <button type="button" class="wa-token-btn" data-token="{upi_id}">{upi_id}</button>
-            </div>
-            <button type="button" class="secondary-button" id="waResetTemplateBtn" style="margin-top:8px;font-size:12px;padding:4px 10px;">Reset to Default Template</button>
-          </div>
-        </section>
-
-        <section class="settings-card">
-          <div class="settings-card-head">
-            <h3>Meta Cloud API Credentials (Optional)</h3>
-            <span class="badge">Official Enterprise API</span>
-          </div>
-          <div class="settings-field-group">
-            <label>Phone Number ID *</label>
-            <input class="form-input" name="phoneNumberId" id="waPhoneNumberId" value="${escapeHtml(phoneNumberId)}" placeholder="e.g. 109823485729104">
-            <small class="field-hint">Found under WhatsApp &gt; API Setup in your Meta App Dashboard.</small>
-          </div>
-          <div class="settings-field-group">
-            <label>WhatsApp Business Account ID (WABA ID)</label>
-            <input class="form-input" name="wabaId" value="${escapeHtml(wabaId)}" placeholder="e.g. 104829381029384">
-          </div>
-          <div class="settings-field-group">
-            <label>Permanent Access Token *</label>
-            <div style="display:flex;gap:6px;">
-              <input class="form-input" type="password" name="accessToken" id="waAccessToken" value="${escapeHtml(accessToken)}" placeholder="EAAG... (System User Token)">
-              <button type="button" class="secondary-button" id="waToggleTokenBtn" style="padding:0 10px;">Show</button>
-            </div>
-            <small class="field-hint">Generate a permanent token from Meta Business Manager &gt; System Users with whatsapp_business_messaging permission.</small>
-          </div>
-          <div class="settings-field-group">
-            <label>Template Name</label>
-            <input class="form-input" name="templateName" value="${escapeHtml(templateName)}" placeholder="e.g. invoice_notification">
-            <small class="field-hint">The pre-approved template name in Meta WhatsApp Manager.</small>
-          </div>
-          <div class="settings-field-group">
-            <label>Template Language Code</label>
-            <input class="form-input" name="languageCode" value="${escapeHtml(languageCode)}" placeholder="e.g. en or en_US">
-          </div>
-          <div class="wa-test-box" style="margin-top:12px;padding:12px;border-radius:8px;background:#f8fafc;border:1px solid #e2e8f0;">
-            <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;">
-              <div>
-                <strong>Connection Test</strong>
-                <div id="waTestStatus" style="font-size:12px;color:#64748b;margin-top:2px;">Check if Meta Cloud API credentials are valid and active.</div>
-              </div>
-              <button type="button" class="secondary-button" id="waTestConnectionBtn" style="white-space:nowrap;">Test Connection</button>
-            </div>
-          </div>
-        </section>
-      </div>
-    </form>
-  `;
-}
-
 function openWhatsAppPaymentReminder(partyOrId, invoice = null) {
   let party = typeof partyOrId === "object" && partyOrId
     ? partyOrId
@@ -24293,7 +26172,7 @@ Warm regards,
               <label><strong>Recipient WhatsApp Phone *</strong></label>
               <div class="whatsapp-phone-input-wrap">
                 <span class="phone-prefix">+91</span>
-                <input class="form-input" id="waRecipientPhone" type="tel" value="${escapeHtml(cleanPhone)}" placeholder="10-digit mobile number, e.g. 9876543210" autofocus>
+                <input class="form-input" id="waRecipientPhone" type="tel" value="${escapeHtml(cleanPhone)}" placeholder="Mobile Number" autofocus>
               </div>
               <small class="field-hint">Enter the customer's mobile number with active WhatsApp.</small>
             </div>
@@ -24685,7 +26564,7 @@ function customFieldsSettingsTemplate() {
           </div>
           <div class="field-col">
             <label>Field Label *</label>
-            <input class="form-input" name="label" placeholder="e.g. Vehicle No, Batch ID, PO Ref" required>
+            <input class="form-input" name="label" placeholder="Field Label" required>
           </div>
           <div class="field-col">
             <label>Field Type</label>
@@ -24700,7 +26579,7 @@ function customFieldsSettingsTemplate() {
           </div>
           <div class="field-col options-col">
             <label>Dropdown Options (comma-separated)</label>
-            <input class="form-input" name="options" placeholder="e.g. Express, Normal, Priority">
+            <input class="form-input" name="options" placeholder="Dropdown Options">
           </div>
           <div class="submit-col">
             <button class="primary-button" type="submit">+ Add Field</button>
@@ -24751,6 +26630,84 @@ function customFieldRowTemplate(field) {
 
 function businessSettingsForm() {
   return settingsCompanyProfileTemplate();
+}
+
+function settingsAboutTemplate() {
+  return `
+    <header class="settings-page-header">
+      <div>
+        <h2>About & Version Management</h2>
+        <p>Software release version, environment details, and architecture specifications.</p>
+      </div>
+    </header>
+
+    <div class="settings-form-grid">
+      <section class="settings-card" style="grid-column: 1 / -1;">
+        <div class="settings-card-head">
+          <div style="display:flex;align-items:center;gap:12px;">
+            <div style="width:44px;height:44px;border-radius:10px;background:#0c65c2;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:800;font-size:18px;">GI</div>
+            <div>
+              <h3 style="margin:0;font-size:18px;color:#0f172a;">GI Billing Software</h3>
+              <p style="margin:2px 0 0;font-size:13px;color:#64748b;">Enterprise Desktop Billing, Accounting &amp; GST Management</p>
+            </div>
+          </div>
+          <span class="badge" style="background:#e0f2fe;color:#0369a1;font-weight:700;font-size:13px;padding:4px 10px;">v1.1.0 Release</span>
+        </div>
+
+        <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(220px, 1fr));gap:16px;margin-top:20px;">
+          <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:14px;">
+            <div style="font-size:11px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:0.04em;">Application Version</div>
+            <div style="font-size:18px;font-weight:700;color:#0f172a;margin-top:4px;">1.1.0</div>
+            <div style="font-size:12px;color:#10b981;margin-top:4px;font-weight:500;">✓ Up to Date (Production)</div>
+          </div>
+
+          <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:14px;">
+            <div style="font-size:11px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:0.04em;">Database Schema</div>
+            <div style="font-size:18px;font-weight:700;color:#0f172a;margin-top:4px;">Version 9</div>
+            <div style="font-size:12px;color:#0284c7;margin-top:4px;font-weight:500;">✓ SQLite Enterprise + Journal</div>
+          </div>
+
+          <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:14px;">
+            <div style="font-size:11px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:0.04em;">Architecture</div>
+            <div style="font-size:18px;font-weight:700;color:#0f172a;margin-top:4px;">Local-First</div>
+            <div style="font-size:12px;color:#64748b;margin-top:4px;">Offline Resilient + Cloud Sync</div>
+          </div>
+
+          <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:14px;">
+            <div style="font-size:11px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:0.04em;">Target Platform</div>
+            <div style="font-size:18px;font-weight:700;color:#0f172a;margin-top:4px;">Windows x64</div>
+            <div style="font-size:12px;color:#64748b;margin-top:4px;">Electron Desktop App</div>
+          </div>
+        </div>
+      </section>
+
+      <section class="settings-card">
+        <div class="settings-card-head">
+          <h3>Version Management Policy</h3>
+          <span class="badge">SemVer Standard</span>
+        </div>
+        <p style="font-size:13px;color:#475569;line-height:1.6;margin:0 0 12px;">GI Billing strictly follows <strong>Semantic Versioning (MAJOR.MINOR.PATCH)</strong> to ensure system reliability and zero business disruption:</p>
+        <ul style="font-size:12.5px;color:#334155;line-height:1.8;padding-left:18px;margin:0;">
+          <li><strong>MAJOR (v1.x.x ➔ v2.x.x):</strong> Structural architectural migrations or breaking data changes.</li>
+          <li><strong>MINOR (v1.0.x ➔ v1.1.0):</strong> Substantial backward-compatible business features, new modules, and report additions.</li>
+          <li><strong>PATCH (v1.1.0 ➔ v1.1.1):</strong> Critical bug fixes, UI polishes, and compliance adjustments.</li>
+        </ul>
+      </section>
+
+      <section class="settings-card">
+        <div class="settings-card-head">
+          <h3>Data Safety &amp; Migrations</h3>
+          <span class="badge">Automated</span>
+        </div>
+        <p style="font-size:13px;color:#475569;line-height:1.6;margin:0 0 12px;">Every version update undergoes automatic verification before applying schema changes:</p>
+        <ul style="font-size:12.5px;color:#334155;line-height:1.8;padding-left:18px;margin:0;">
+          <li><strong>Pre-Migration Snapshots:</strong> Automated database snapshot before any schema alteration.</li>
+          <li><strong>Foreign Key Integrity:</strong> Strict referential integrity enforcement on all transactions.</li>
+          <li><strong>Audit Trail:</strong> Immutable security log tracking critical data operations across versions.</li>
+        </ul>
+      </section>
+    </div>
+  `;
 }
 
 function indianStateOptions(selected = "") {
@@ -24872,35 +26829,7 @@ function globalSearchQuery() {
   return String(elements.searchInput?.value || "").trim().toLowerCase();
 }
 
-// ── Dashboard Smooth Animated Graph Engine ──────────────────────────────────
-let dashboardChartState = {
-  frameId: 0,
-  isAnimating: false,
-  startTime: 0,
-  duration: 650,
-  activePeriod: "This Month",
-  fromSalesValues: [],
-  targetSalesValues: [],
-  currentSalesValues: [],
-  fromPurchaseValues: [],
-  targetPurchaseValues: [],
-  currentPurchaseValues: [],
-  get fromValues() { return this.fromSalesValues; },
-  set fromValues(v) { this.fromSalesValues = v; },
-  get targetValues() { return this.targetSalesValues; },
-  set targetValues(v) { this.targetSalesValues = v; },
-  get currentValues() { return this.currentSalesValues; },
-  set currentValues(v) { this.currentSalesValues = v; },
-  labels: [],
-  title: "",
-  maxValue: 0,
-  niceMax: 1,
-  mouseX: -1,
-  mouseY: -1,
-  isHovered: false,
-  hoverOpacity: 0,
-  listenersAttached: false,
-};
+// ── Dashboard Smooth Animated Graph Engine Functions ────────────────────────
 
 function resampleChartArray(source, targetLen) {
   if (!source || !source.length) return new Array(targetLen).fill(0);
@@ -25672,6 +27601,32 @@ function icon(name, className = "") {
 
 // ── Payment-In Module ─────────────────────────────────────────────────────────
 
+function resolvePaymentInvoiceRef(p) {
+  if (p.invoiceNo && String(p.invoiceNo).trim()) return String(p.invoiceNo).trim();
+  if (p.referenceNo && String(p.referenceNo).trim()) return String(p.referenceNo).trim();
+  if (p.invoiceId) {
+    const inv = (state.invoices || []).find((i) => i.id === p.invoiceId);
+    if (inv?.invoiceNo) return inv.invoiceNo;
+  }
+  const match = String(p.notes || "").match(/((?:INV|PUR|TXN|PB)-\d{4}-\d{4})/i);
+  if (match) return match[1];
+  return "-";
+}
+
+function resolvePaymentParty(p) {
+  let party = String(p.party || "").trim();
+  if ((!party || party.toLowerCase() === "cash") && p.invoiceId) {
+    const inv = (state.invoices || []).find((i) => i.id === p.invoiceId);
+    if (inv && inv.party && inv.party.toLowerCase() !== "cash") {
+      return inv.party;
+    }
+  }
+  if (!party || party.toLowerCase() === "cash") {
+    return "Cash (Walk-in)";
+  }
+  return party;
+}
+
 function paymentInTemplate() {
   const payments = (state.payments || [])
     .filter((p) => p.type === "payment_in")
@@ -25685,38 +27640,45 @@ function paymentInTemplate() {
   const thisMonthTotal = thisMonthPayments.reduce((sum, p) => sum + Number(p.amount || 0), 0);
   const totalReceived  = payments.reduce((s, p) => s + Number(p.amount || 0), 0);
 
-  const searchQ = String(reportSearchQuery || "").trim().toLowerCase();
+  const searchQ = String(paymentInSearchQuery || "").trim().toLowerCase();
   const visible  = searchQ
-    ? payments.filter((p) => [p.party, p.invoiceNo, p.referenceNo, p.method, p.notes].filter(Boolean).join(" ").toLowerCase().includes(searchQ))
+    ? payments.filter((p) => {
+        const invRef = resolvePaymentInvoiceRef(p);
+        const partyName = resolvePaymentParty(p);
+        return [partyName, p.party, invRef, p.invoiceNo, p.referenceNo, p.method, p.notes].filter(Boolean).join(" ").toLowerCase().includes(searchQ);
+      })
     : payments;
 
   return `
     <section class="invoice-workspace sale-workspace">
       <header class="app-page-header invoice-page-header">
         <div>
-          <p class="muted-label">Sales</p>
           <h1>Payment-In</h1>
-          <small>${payments.length} payment${payments.length === 1 ? "" : "s"} recorded</small>
         </div>
         <div class="invoice-header-actions">
           <button class="sale-button" data-action="create-payment-in" type="button">+ Record Payment</button>
         </div>
       </header>
 
+      <div class="top-filter-bar">
+        <div class="top-filter-search-box">
+          <svg class="gi-icon top-filter-search-icon" style="width:14px;height:14px;"><use href="#gi-search"></use></svg>
+          <input
+            type="text"
+            class="top-filter-search-input"
+            data-payment-in-search
+            placeholder="Search customer, invoice ref, method, notes..."
+            value="${escapeHtml(paymentInSearchQuery)}"
+          />
+          ${paymentInSearchQuery ? `<button class="top-filter-search-clear" data-payment-in-search-clear type="button" title="Clear search">×</button>` : ""}
+        </div>
+      </div>
+
       <section class="kpi-grid invoice-kpis">
         ${kpiCard("This Month", formatCurrency(thisMonthTotal), `${thisMonthPayments.length} payment${thisMonthPayments.length === 1 ? "" : "s"} received`, "success")}
-        ${kpiCard("Total Received", formatCurrency(totalReceived), "All time", "neutral")}
+        ${kpiCard("Total Received", formatCurrency(totalReceived), "All time collected", "neutral")}
         ${kpiCard("Receivable", formatCurrency(receivable), "Pending customer balances", receivable > 0 ? "danger" : "success")}
         ${kpiCard("Payments", String(payments.length), "All recorded", "info")}
-      </section>
-
-      <section class="app-toolbar" style="padding:8px 0 4px;">
-        <label class="toolbar-search">
-          <span>Search</span>
-          <input class="form-input" data-payment-in-search type="search"
-            value="${escapeHtml(reportSearchQuery)}"
-            placeholder="Customer, invoice ref, method, notes">
-        </label>
       </section>
 
       <section class="data-table-card invoice-data-card">
@@ -25734,27 +27696,39 @@ function paymentInTemplate() {
               </tr>
             </thead>
             <tbody>
-              ${visible.map((p) => `
+              ${visible.map((p) => {
+                const invRef = resolvePaymentInvoiceRef(p);
+                const displayParty = resolvePaymentParty(p);
+                return `
                 <tr>
                   <td>${formatDate(p.paymentDate || p.createdAt)}</td>
-                  <td><strong>${escapeHtml(p.party || "-")}</strong></td>
-                  <td>${escapeHtml(p.invoiceNo || p.referenceNo || "-")}</td>
+                  <td><strong>${escapeHtml(displayParty)}</strong></td>
+                  <td>${invRef !== "-" ? `<span class="invoice-ref-clean">${escapeHtml(invRef)}</span>` : `<span class="muted-text">-</span>`}</td>
                   <td><span class="status-badge">${escapeHtml(p.method || "Cash")}</span></td>
                   <td class="num amount-cell strong">${formatCurrency(p.amount || 0)}</td>
                   <td class="muted-text">${escapeHtml(p.notes || "-")}</td>
                   <td>
-                    <details class="invoice-row-details">
-                      <summary>⋮</summary>
-                      <div class="invoice-action-menu">
-                        <section>
-                          <span>Actions</span>
-                          <button type="button" data-payment-in-action="delete" data-payment-id="${escapeHtml(String(p.id || ""))}">Delete</button>
-                        </section>
-                      </div>
-                    </details>
+                    <div class="invoice-row-actions">
+                      <details>
+                        <summary aria-label="Payment actions" title="More options">
+                          <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+                            <circle cx="12" cy="5" r="2.2"></circle>
+                            <circle cx="12" cy="12" r="2.2"></circle>
+                            <circle cx="12" cy="19" r="2.2"></circle>
+                          </svg>
+                        </summary>
+                        <div class="invoice-action-menu">
+                          <button type="button" data-payment-in-action="delete" data-payment-id="${escapeHtml(String(p.id || ""))}" class="danger-action">
+                            <svg class="gi-icon" style="width:14px;height:14px;"><use href="#gi-trash"></use></svg>
+                            Delete
+                          </button>
+                        </div>
+                      </details>
+                    </div>
                   </td>
                 </tr>
-              `).join("")}
+              `;
+              }).join("")}
             </tbody>
           </table>
         ` : `
@@ -25771,7 +27745,36 @@ function paymentInTemplate() {
 
 function openPaymentInModal() {
   const invoices = activeInvoiceRowsForType("sale").filter((inv) => invoiceBalanceValue(inv) > 0);
-  const customers = (state.parties || []).filter((p) => p.type === "customer" || p.type === "both");
+  const knownCustomerNames = new Set();
+  const customers = [];
+  (state.parties || []).forEach((p) => {
+    if (p.type !== "supplier") {
+      const name = String(p.name || "").trim();
+      if (name && !knownCustomerNames.has(name.toLowerCase())) {
+        knownCustomerNames.add(name.toLowerCase());
+        customers.push(p);
+      }
+    }
+  });
+  (state.invoices || []).forEach((inv) => {
+    if (inv.type === "sale" && inv.party) {
+      const name = String(inv.party).trim();
+      if (name && name.toLowerCase() !== "cash" && !knownCustomerNames.has(name.toLowerCase())) {
+        knownCustomerNames.add(name.toLowerCase());
+        customers.push({ name, type: "customer" });
+      }
+    }
+  });
+  (state.payments || []).forEach((p) => {
+    if (p.type === "payment_in" && p.party) {
+      const name = String(p.party).trim();
+      if (name && name.toLowerCase() !== "cash" && !knownCustomerNames.has(name.toLowerCase())) {
+        knownCustomerNames.add(name.toLowerCase());
+        customers.push({ name, type: "customer" });
+      }
+    }
+  });
+
   const existingModal = document.getElementById("paymentInModal");
   if (existingModal) existingModal.remove();
   const modal = document.createElement("div");
@@ -25794,19 +27797,22 @@ function openPaymentInModal() {
       <form id="paymentInForm" class="payment-entry-form" novalidate>
         <div class="payment-modal-body">
           <div class="payment-form-grid">
-            <div class="party-field-group full-width">
+            <div class="party-field-group full-width" style="position:relative;">
               <label class="field-label">Customer <span class="req">*</span></label>
-              <input class="form-input" name="party" list="paymentPartyList" placeholder="Select or enter customer name" autocomplete="off" required>
-              <datalist id="paymentPartyList">
-                ${(customers.length ? customers : state.parties || []).map((p) => `<option value="${escapeHtml(p.name)}">`).join("")}
-              </datalist>
+              <div class="party-combobox-wrap" style="position:relative;">
+                <input class="form-input" name="party" id="paymentInPartyInput" placeholder="Customer" autocomplete="off" required style="padding-right:32px;">
+                <button type="button" id="paymentInPartyToggle" style="position:absolute;right:8px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:#64748b;padding:4px;display:flex;align-items:center;" title="Show customers list">
+                  <svg class="gi-icon" style="width:14px;height:14px;"><use href="#gi-chevron-down"></use></svg>
+                </button>
+                <div class="custom-party-dropdown hidden" id="paymentInPartyDropdown"></div>
+              </div>
             </div>
 
             <div class="party-field-group full-width">
               <label class="field-label">Invoice Reference</label>
-              <select class="form-input" name="invoiceRef">
+              <select class="form-input" name="invoiceRef" id="paymentInInvoiceRef">
                 <option value="">— Select invoice (optional) —</option>
-                ${invoices.map((inv) => `<option value="${escapeHtml(inv.invoiceNo || inv.id)}" data-party="${escapeHtml(inv.party)}" data-balance="${invoiceBalanceValue(inv)}">${escapeHtml(inv.invoiceNo || inv.id)} — ${escapeHtml(inv.party)} — Due: ${formatCurrency(invoiceBalanceValue(inv))}</option>`).join("")}
+                ${invoices.map((inv) => `<option value="${escapeHtml(inv.invoiceNo || inv.id)}" data-party="${escapeHtml(inv.party)}" data-balance="${invoiceBalanceValue(inv)}">${escapeHtml(inv.invoiceNo || inv.id)} — Due: ${formatCurrency(invoiceBalanceValue(inv))}</option>`).join("")}
               </select>
             </div>
 
@@ -25832,7 +27838,7 @@ function openPaymentInModal() {
 
             <div class="party-field-group">
               <label class="field-label">Notes / Remarks</label>
-              <input class="form-input" name="notes" placeholder="Reference number, cheque no, etc.">
+              <input class="form-input" name="notes" placeholder="Notes / Remarks">
             </div>
           </div>
         </div>
@@ -25850,20 +27856,112 @@ function openPaymentInModal() {
   `;
   document.body.append(modal);
 
-  const selectEl = modal.querySelector('[name="invoiceRef"]');
-  const partyInput = modal.querySelector('[name="party"]');
+  const selectEl = modal.querySelector('#paymentInInvoiceRef');
+  const partyInput = modal.querySelector('#paymentInPartyInput');
+  const partyToggle = modal.querySelector('#paymentInPartyToggle');
+  const partyDropdown = modal.querySelector('#paymentInPartyDropdown');
   const amountInput = modal.querySelector('[name="amount"]');
+  const customerComboboxWrap = modal.querySelector('.party-combobox-wrap');
+
+  function renderPartyDropdown(query = "") {
+    const q = String(query || "").trim().toLowerCase();
+    const sourceList = customers.length ? customers : (state.parties || []);
+    const matches = sourceList.filter((c) => {
+      if (!q) return true;
+      return (c.name || "").toLowerCase().includes(q) || String(c.phone || "").includes(q);
+    });
+    if (!matches.length) {
+      partyDropdown.innerHTML = `<div style="padding:10px 14px;color:#94a3b8;font-size:12.5px;">No matching customers found. You can type a new name directly.</div>`;
+      partyDropdown.classList.remove("hidden");
+      return;
+    }
+    partyDropdown.innerHTML = matches.map((c) => {
+      const bal = partyBalanceValue(c);
+      const balText = bal > 0 ? `Due: ${formatCurrency(bal)}` : (bal < 0 ? `Adv: ${formatCurrency(Math.abs(bal))}` : "Settled");
+      const balColor = bal > 0 ? "#e11d48" : (bal < 0 ? "#0284c7" : "#059669");
+      return `
+        <div class="custom-party-dropdown-item" data-party-name="${escapeHtml(c.name)}">
+          <div>
+            <strong>${escapeHtml(c.name)}</strong>
+            ${c.phone ? `<span style="color:#64748b;font-size:11.5px;margin-left:6px;">📞 ${escapeHtml(c.phone)}</span>` : ""}
+          </div>
+          <span style="font-size:11.5px;font-weight:600;color:${balColor};">${balText}</span>
+        </div>
+      `;
+    }).join("");
+    partyDropdown.classList.remove("hidden");
+
+    partyDropdown.querySelectorAll(".custom-party-dropdown-item").forEach((item) => {
+      item.addEventListener("mousedown", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        selectCustomer(item.dataset.partyName);
+      });
+    });
+  }
+
+  function selectCustomer(name) {
+    partyInput.value = name;
+    partyDropdown.classList.add("hidden");
+    filterInvoicesForCustomer(name);
+  }
+
+  function filterInvoicesForCustomer(name) {
+    const cleanName = String(name || "").trim().toLowerCase();
+    const matchingInvoices = cleanName
+      ? invoices.filter((inv) => (inv.party || "").toLowerCase() === cleanName)
+      : invoices;
+
+    selectEl.innerHTML = `
+      <option value="">— Select invoice (optional) —</option>
+      ${matchingInvoices.map((inv) => `<option value="${escapeHtml(inv.invoiceNo || inv.id)}" data-party="${escapeHtml(inv.party)}" data-balance="${invoiceBalanceValue(inv)}">${escapeHtml(inv.invoiceNo || inv.id)} — Due: ${formatCurrency(invoiceBalanceValue(inv))}</option>`).join("")}
+    `;
+
+    if (matchingInvoices.length === 1) {
+      selectEl.value = matchingInvoices[0].invoiceNo || matchingInvoices[0].id;
+      if (!amountInput.value || Number(amountInput.value) === 0) {
+        amountInput.value = invoiceBalanceValue(matchingInvoices[0]);
+      }
+    }
+  }
+
+  partyInput?.addEventListener("focus", () => renderPartyDropdown(partyInput.value));
+  partyInput?.addEventListener("click", () => renderPartyDropdown(partyInput.value));
+  partyInput?.addEventListener("input", () => {
+    renderPartyDropdown(partyInput.value);
+    filterInvoicesForCustomer(partyInput.value);
+  });
+
+  partyToggle?.addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (partyDropdown?.classList.contains("hidden")) {
+      renderPartyDropdown("");
+      partyInput?.focus();
+    } else {
+      partyDropdown?.classList.add("hidden");
+    }
+  });
+
+  const handleDocMouseDown = (e) => {
+    if (!customerComboboxWrap?.contains(e.target)) {
+      partyDropdown?.classList.add("hidden");
+    }
+  };
+  document.addEventListener("mousedown", handleDocMouseDown);
+
   selectEl?.addEventListener("change", () => {
     const opt = selectEl.selectedOptions[0];
     if (opt?.dataset.party) {
       partyInput.value = opt.dataset.party;
     }
-    if (opt?.dataset.balance && !amountInput.value) {
+    if (opt?.dataset.balance && (!amountInput.value || Number(amountInput.value) === 0)) {
       amountInput.value = opt.dataset.balance;
     }
   });
 
   const closeModal = () => {
+    document.removeEventListener("mousedown", handleDocMouseDown);
     modal.remove();
     window.removeEventListener("keydown", handleEscape);
   };
@@ -25896,6 +27994,8 @@ function openPaymentInModal() {
       notes: String(form.get("notes") || "").trim(),
       createdAt: new Date().toISOString(),
     };
+    showGlobalLoader("Recording Payment-In...", "Updating customer ledger and receipts...");
+    await new Promise((r) => requestAnimationFrame(() => setTimeout(r, 40)));
     try {
       if (window.giDB?.recordPaymentIn) {
         const invoiceRef = form.get("invoiceRef");
@@ -25938,45 +28038,141 @@ function openPaymentInModal() {
     } catch (err) {
       const status = modal.querySelector("#paymentInStatus");
       if (status) status.textContent = err.message || "Unable to record payment.";
+    } finally {
+      hideGlobalLoader();
     }
   });
 }
 
 // ── CSV Import Module ─────────────────────────────────────────────────────────
 
-let csvImportRows = [];
-let csvImportType = "items";
+function splitCsvLine(line) {
+  const values = [];
+  let current = "";
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const char = line[i];
+    if (char === '"') {
+      if (inQuotes && line[i + 1] === '"') {
+        current += '"';
+        i++;
+      } else {
+        inQuotes = !inQuotes;
+      }
+    } else if (char === ',' && !inQuotes) {
+      values.push(current.trim().replace(/^"|"$/g, ""));
+      current = "";
+    } else {
+      current += char;
+    }
+  }
+  values.push(current.trim().replace(/^"|"$/g, ""));
+  return values;
+}
+
+function parseCsv(text) {
+  const lines = text.trim().split(/\r?\n/).filter((l) => l.trim().length > 0);
+  if (lines.length < 2) return [];
+  const headers = splitCsvLine(lines[0]);
+  return lines.slice(1).map((line) => {
+    const values = splitCsvLine(line);
+    const row = {};
+    headers.forEach((header, i) => { row[header] = values[i] !== undefined ? values[i] : ""; });
+    return row;
+  }).filter((row) => Object.values(row).some((val) => String(val || "").trim().length > 0));
+}
+
+function getCsvField(row, aliases) {
+  if (!row || typeof row !== "object") return "";
+  const rowKeys = Object.keys(row);
+
+  // 1. Direct alias match
+  for (const alias of aliases) {
+    if (row[alias] !== undefined && row[alias] !== null && String(row[alias]).trim() !== "") {
+      return String(row[alias]).trim();
+    }
+  }
+
+  // 2. Case-insensitive and normalized alphanumeric match
+  for (const alias of aliases) {
+    const cleanAlias = alias.toLowerCase().replace(/[^a-z0-9]/g, "");
+    for (const key of rowKeys) {
+      const cleanKey = key.toLowerCase().replace(/[^a-z0-9]/g, "");
+      if (cleanKey === cleanAlias) {
+        const val = row[key];
+        if (val !== undefined && val !== null && String(val).trim() !== "") {
+          return String(val).trim();
+        }
+      }
+    }
+  }
+
+  return "";
+}
+
+function detectCsvContentType(rows) {
+  if (!rows || !rows.length) return "unknown";
+  const headerKeys = Object.keys(rows[0]).map((k) => k.toLowerCase().replace(/[^a-z0-9]/g, ""));
+
+  const itemMarkers = ["itemname", "sku", "itemcode", "saleprice", "sellingprice", "purchaseprice", "costprice", "currentstock", "openingstock", "hsnsac", "hsncode", "hsn", "stockvaluation"];
+  const partyMarkers = ["partyname", "customername", "suppliername", "phone", "mobile", "gstin", "gstnumber", "billingaddress", "openingbalance"];
+
+  let itemScore = 0;
+  let partyScore = 0;
+
+  headerKeys.forEach((key) => {
+    if (itemMarkers.includes(key)) itemScore++;
+    if (partyMarkers.includes(key)) partyScore++;
+  });
+
+  if (itemScore >= 2 && itemScore > partyScore) return "items";
+  if (partyScore >= 2 && partyScore > itemScore) return "parties";
+  if (itemScore > partyScore && itemScore > 0) return "items";
+  if (partyScore > itemScore && partyScore > 0) return "parties";
+  return "unknown";
+}
 
 function csvImportTemplate(importType = "items") {
   csvImportType = importType;
   const isItems = importType === "items";
   const title = isItems ? "Import Items" : "Import Parties";
   const templateHeaders = isItems
-    ? ["Name", "SKU", "Category", "Unit", "HSN Code", "Sale Price", "Purchase Price", "Tax Rate", "Opening Stock"]
-    : ["Name", "Phone", "Email", "GSTIN", "State", "Billing Address", "Opening Balance"];
+    ? ["Item Name", "SKU", "Category", "Unit", "HSN Code", "Sale Price", "Purchase Price", "Tax Rate", "Current Stock / Opening Stock"]
+    : ["Party Name", "Phone", "Email", "GSTIN", "State", "Billing Address", "Opening Balance"];
 
   return `
-    <section class="feature-page" data-import-type="${importType}">
-      <header class="app-page-header">
+    <section class="invoice-workspace" data-import-type="${importType}">
+      <header class="app-page-header invoice-page-header">
         <div>
-          <p class="muted-label">Utilities</p>
           <h1>${title}</h1>
-          <small>Upload a CSV file to bulk import</small>
         </div>
         <div class="invoice-header-actions">
-          <button class="secondary-button" data-action="csv-import-export-template" type="button">Download Template</button>
+          <button class="secondary-button" data-action="csv-import-export-template" type="button">
+            <svg class="gi-icon" style="width:14px;height:14px;margin-right:6px;"><use href="#gi-download"></use></svg>
+            Download CSV Template
+          </button>
         </div>
       </header>
-      <section class="data-table-card" style="padding:2rem;margin:1rem 0;">
-        <h3>Step 1 — Choose CSV File</h3>
-        <p style="margin:.5rem 0 1rem;color:var(--text-muted)">CSV must have headers: <code>${templateHeaders.join(", ")}</code></p>
-        <label class="secondary-button" for="csvFileInput" style="display:inline-block;cursor:pointer;">Choose File</label>
-        <input type="file" id="csvFileInput" accept=".csv,text/csv" style="display:none">
-        <span id="csvFileName" style="margin-left:1rem;color:var(--text-muted)">No file chosen</span>
-      </section>
-      <section id="csvPreviewSection" class="data-table-card" style="padding:2rem;margin:1rem 0;display:none;">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;">
-          <h3>Step 2 — Preview &amp; Import</h3>
+
+      <div style="padding:16px 20px 0;">
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 20px;background:#ffffff;border:1px solid #e2e8f0;border-radius:8px;box-shadow:0 1px 3px rgba(15,23,42,0.03);flex-wrap:wrap;gap:12px;">
+          <div>
+            <strong style="font-size:14px;color:#0f172a;display:block;">Select CSV File to Import</strong>
+            <span style="font-size:12px;color:#64748b;">Supported columns: <code style="font-size:11.5px;color:#2563eb;">${templateHeaders.join(", ")}</code></span>
+          </div>
+          <div style="display:flex;align-items:center;gap:12px;">
+            <label class="primary-button" for="csvFileInput" style="cursor:pointer;margin:0;">
+              Choose File
+            </label>
+            <input type="file" id="csvFileInput" accept=".csv,text/csv" style="display:none">
+            <span id="csvFileName" style="font-size:13px;color:#64748b;font-weight:600;">No file chosen</span>
+          </div>
+        </div>
+      </div>
+
+      <section id="csvPreviewSection" class="data-table-card invoice-data-card" style="margin-top:14px;display:none;">
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 18px;border-bottom:1px solid #e2e8f0;background:#f8fafc;">
+          <strong style="font-size:14px;color:#0f172a;">Preview Import Rows</strong>
           <button class="sale-button" data-action="csv-import-run" type="button">Import All Rows</button>
         </div>
         <div id="csvPreviewTable"></div>
@@ -25989,8 +28185,13 @@ function handleCsvFileSelected(input) {
   const file = input.files[0];
   const nameSpan = elements.featureView.querySelector("#csvFileName");
   const previewSection = elements.featureView.querySelector("#csvPreviewSection");
+  csvImportFileName = file ? file.name : "";
   if (nameSpan) nameSpan.textContent = file ? file.name : "No file chosen";
-  if (!file) { if (previewSection) previewSection.style.display = "none"; return; }
+  if (!file) {
+    csvImportRows = [];
+    if (previewSection) previewSection.style.display = "none";
+    return;
+  }
   const reader = new FileReader();
   reader.onload = (e) => {
     const text = e.target.result;
@@ -26000,60 +28201,124 @@ function handleCsvFileSelected(input) {
   reader.readAsText(file);
 }
 
-function parseCsv(text) {
-  const lines = text.trim().split(/\r?\n/);
-  if (lines.length < 2) return [];
-  const headers = lines[0].split(",").map((h) => h.trim().replace(/^"|"$/g, ""));
-  return lines.slice(1).map((line) => {
-    const values = line.split(",").map((v) => v.trim().replace(/^"|"$/g, ""));
-    const row = {};
-    headers.forEach((header, i) => { row[header] = values[i] || ""; });
-    return row;
-  }).filter((row) => Object.values(row).some(Boolean));
-}
-
 function renderCsvPreview() {
   const previewSection = elements.featureView.querySelector("#csvPreviewSection");
   const previewTable = elements.featureView.querySelector("#csvPreviewTable");
   if (!previewSection || !previewTable) return;
   if (!csvImportRows.length) {
-    previewTable.innerHTML = "<p>No rows found in CSV.</p>";
+    previewTable.innerHTML = "<p style='padding:16px;color:#64748b;'>No rows found in CSV.</p>";
     previewSection.style.display = "";
     return;
   }
   const headers = Object.keys(csvImportRows[0]);
+  const detectedType = detectCsvContentType(csvImportRows);
+  const isMismatch = detectedType !== "unknown" && detectedType !== csvImportType;
+
+  let mismatchBanner = "";
+  if (isMismatch) {
+    if (csvImportType === "parties" && detectedType === "items") {
+      mismatchBanner = `
+        <div class="csv-mismatch-banner" style="margin:12px 16px;padding:12px 16px;background:#fff1f2;border:1px solid #fecdd3;border-radius:8px;display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;">
+          <div style="display:flex;align-items:center;gap:10px;">
+            <svg class="gi-icon" style="width:20px;height:20px;color:#e11d48;flex-shrink:0;"><use href="#gi-alert-circle"></use></svg>
+            <div>
+              <strong style="color:#9f1239;font-size:13.5px;display:block;">You have selected an Items CSV file on the "Import Parties" page</strong>
+              <span style="color:#be123c;font-size:12px;">This file contains <strong>${csvImportRows.length} inventory items</strong> (Item Name, SKU, Sale Price). To import them into your items inventory, switch to Import Items.</span>
+            </div>
+          </div>
+          <button type="button" class="primary-button" data-action="switch-to-import-items" style="background:#0284c7;border-color:#0284c7;color:#fff;font-weight:600;padding:6px 14px;font-size:12.5px;white-space:nowrap;">
+            Switch to Import Items &rarr;
+          </button>
+        </div>
+      `;
+    } else if (csvImportType === "items" && detectedType === "parties") {
+      mismatchBanner = `
+        <div class="csv-mismatch-banner" style="margin:12px 16px;padding:12px 16px;background:#fff1f2;border:1px solid #fecdd3;border-radius:8px;display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;">
+          <div style="display:flex;align-items:center;gap:10px;">
+            <svg class="gi-icon" style="width:20px;height:20px;color:#e11d48;flex-shrink:0;"><use href="#gi-alert-circle"></use></svg>
+            <div>
+              <strong style="color:#9f1239;font-size:13.5px;display:block;">You have selected a Parties CSV file on the "Import Items" page</strong>
+              <span style="color:#be123c;font-size:12px;">This file contains <strong>${csvImportRows.length} customer/supplier parties</strong> (GSTIN, Phone, Address). To import them as parties, switch to Import Parties.</span>
+            </div>
+          </div>
+          <button type="button" class="primary-button" data-action="switch-to-import-parties" style="background:#0284c7;border-color:#0284c7;color:#fff;font-weight:600;padding:6px 14px;font-size:12.5px;white-space:nowrap;">
+            Switch to Import Parties &rarr;
+          </button>
+        </div>
+      `;
+    }
+  }
+
   previewTable.innerHTML = `
-    <table class="data-table">
-      <thead><tr>${headers.map((h) => `<th>${escapeHtml(h)}</th>`).join("")}</tr></thead>
-      <tbody>
-        ${csvImportRows.slice(0, 20).map((row) => `<tr>${headers.map((h) => `<td>${escapeHtml(row[h] || "")}</td>`).join("")}</tr>`).join("")}
-      </tbody>
-    </table>
-    ${csvImportRows.length > 20 ? `<p style="margin-top:.5rem;color:var(--text-muted)">Showing 20 of ${csvImportRows.length} rows</p>` : ""}
-    <p style="margin-top:1rem;"><strong>${csvImportRows.length} row${csvImportRows.length === 1 ? "" : "s"}</strong> ready to import.</p>
+    ${mismatchBanner}
+    <div style="overflow-x:auto;">
+      <table class="data-table">
+        <thead><tr>${headers.map((h) => `<th>${escapeHtml(h)}</th>`).join("")}</tr></thead>
+        <tbody>
+          ${csvImportRows.slice(0, 20).map((row) => `<tr>${headers.map((h) => `<td>${escapeHtml(row[h] || "")}</td>`).join("")}</tr>`).join("")}
+        </tbody>
+      </table>
+    </div>
+    <div style="padding:10px 18px 16px;">
+      ${csvImportRows.length > 20 ? `<p style="margin-top:.25rem;color:var(--text-muted);font-size:12px;">Showing 20 of ${csvImportRows.length} rows</p>` : ""}
+      <p style="margin-top:.5rem;font-size:13px;color:#334155;"><strong>${csvImportRows.length} row${csvImportRows.length === 1 ? "" : "s"}</strong> ready to import.</p>
+    </div>
   `;
   previewSection.style.display = "";
+
+  previewTable.querySelector("[data-action='switch-to-import-items']")?.addEventListener("click", () => {
+    showView("importItems");
+  });
+  previewTable.querySelector("[data-action='switch-to-import-parties']")?.addEventListener("click", () => {
+    showView("importParties");
+  });
 }
 
 async function runCsvImport() {
   if (!csvImportRows.length) { showToast("No rows to import."); return; }
   const isItems = csvImportType === "items";
+  const detectedType = detectCsvContentType(csvImportRows);
+  if (csvImportType === "parties" && detectedType === "items") {
+    showToast({
+      title: "Wrong Screen Selected",
+      message: "This file contains Item data (Item Name, SKU). Please click 'Switch to Import Items' above to import items.",
+      type: "error",
+    });
+    return;
+  }
+  if (csvImportType === "items" && detectedType === "parties") {
+    showToast({
+      title: "Wrong Screen Selected",
+      message: "This file contains Party data (Name, Phone, GSTIN). Please click 'Switch to Import Parties' above to import parties.",
+      type: "error",
+    });
+    return;
+  }
+
+  showGlobalLoader(
+    isItems ? "Importing Items..." : "Importing Parties...",
+    `Processing ${csvImportRows.length} rows and updating database records...`
+  );
+  await new Promise((r) => requestAnimationFrame(() => setTimeout(r, 40)));
   let success = 0;
   let errors = 0;
   let warnings = [];
   let errorDetails = [];
-  for (let index = 0; index < csvImportRows.length; index++) {
-    const row = csvImportRows[index];
-    const name = (row["Name"] || row["name"] || "").trim();
-    if (!name) {
-      errors++;
-      errorDetails.push(`Row ${index + 1}: Name is required`);
-      continue;
-    }
-    try {
+  try {
+    for (let index = 0; index < csvImportRows.length; index++) {
+      const row = csvImportRows[index];
       if (isItems) {
-        const rawCategory = (row["Category"] || row["category"] || "").trim();
-        const rawUnit = (row["Unit"] || row["unit"] || "Pcs").trim();
+        const name = getCsvField(row, [
+          "Name", "Item Name", "Item", "ItemName", "Product Name", "Product", "Title", "item_name", "product_name"
+        ]);
+        if (!name) {
+          errors++;
+          errorDetails.push(`Row ${index + 1}: Item Name is required`);
+          continue;
+        }
+
+        const rawCategory = getCsvField(row, ["Category", "category", "Group", "group", "Item Category", "item_category"]);
+        const rawUnit = getCsvField(row, ["Unit", "unit", "UOM", "uom", "Measurement", "Unit of Measure"]) || "Pcs";
 
         let categoryName = rawCategory;
         let unitName = rawUnit;
@@ -26077,68 +28342,126 @@ async function runCsvImport() {
           }
         }
 
+        const sku = getCsvField(row, ["SKU", "sku", "Item Code", "item_code", "Code", "code", "Barcode", "barcode"]);
+        const hsnSac = getCsvField(row, ["HSN Code", "hsn_code", "HSN/SAC", "hsn_sac", "HSN", "hsn", "SAC", "sac"]);
+        const salePrice = Number(getCsvField(row, ["Sale Price", "sale_price", "salePrice", "Selling Price", "selling_price", "Price", "price", "Rate", "rate", "MRP", "mrp"]) || 0);
+        const purchasePrice = Number(getCsvField(row, ["Purchase Price", "purchase_price", "purchasePrice", "Cost Price", "cost_price", "Cost", "cost", "Buy Price"]) || 0);
+        const taxRateRaw = getCsvField(row, ["Tax Rate", "tax_rate", "taxRate", "GST Rate", "gst_rate", "Tax %", "Tax", "tax", "GST", "gst"]);
+        const taxRate = parseTaxRate(taxRateRaw);
+        const stockRaw = getCsvField(row, [
+          "Opening Stock", "opening_stock", "openingStock",
+          "Current Stock", "current_stock", "currentStock",
+          "Stock", "stock", "Qty", "qty", "Quantity", "quantity"
+        ]);
+        const stockNum = Number(stockRaw || 0);
+
         const itemDetails = {
           name,
-          sku: row["SKU"] || row["sku"] || "",
+          sku,
           category: categoryName,
           unit: unitName,
-          hsnSac: row["HSN Code"] || row["HSN/SAC"] || "",
-          salePrice: Number(row["Sale Price"] || row["salePrice"] || 0),
-          purchasePrice: Number(row["Purchase Price"] || row["purchasePrice"] || 0),
-          taxRate: Number(row["Tax Rate"] || row["taxRate"] || 0),
-          openingStock: Number(row["Opening Stock"] || row["openingStock"] || 0),
-          currentStock: Number(row["Opening Stock"] || row["openingStock"] || 0),
+          hsnSac,
+          salePrice,
+          purchasePrice,
+          taxRate,
+          taxType: taxOptionLabel(taxRate),
+          openingStock: stockNum,
+          currentStock: stockNum,
           itemType: "product",
           notes: "",
         };
-        if (window.giDB?.createItem) {
-          state = normalizeState(await window.giDB.createItem(itemDetails));
-        } else {
-          if (!state.items.some((item) => item.name.toLowerCase() === name.toLowerCase())) {
-            state.items.unshift({ ...itemDetails, id: Date.now() + Math.random(), createdAt: new Date().toISOString() });
+
+        try {
+          if (window.giDB?.createItem) {
+            state = normalizeState(await window.giDB.createItem(itemDetails));
+          } else {
+            const existingIdx = state.items.findIndex((item) => item.name.toLowerCase() === name.toLowerCase());
+            if (existingIdx !== -1) {
+              state.items[existingIdx] = { ...state.items[existingIdx], ...itemDetails };
+            } else {
+              state.items.unshift({ ...itemDetails, id: Date.now() + Math.random(), createdAt: new Date().toISOString() });
+            }
           }
+          success++;
+        } catch (err) {
+          errors++;
+          errorDetails.push(`Row ${index + 1} ("${name}"): ${err.message || "Failed to save"}`);
         }
       } else {
+        const name = getCsvField(row, [
+          "Name", "name", "Party Name", "party_name", "Customer Name", "customer_name", "Supplier Name", "supplier_name", "Party", "party", "Company Name", "company_name"
+        ]);
+        if (!name) {
+          errors++;
+          errorDetails.push(`Row ${index + 1}: Party Name is required`);
+          continue;
+        }
+
+        const phone = getCsvField(row, ["Phone", "phone", "Mobile", "mobile", "Mobile Number", "mobile_number", "Phone Number", "phone_number", "Contact", "contact", "Telephone"]);
+        const email = getCsvField(row, ["Email", "email", "Email Address", "email_address", "Mail"]);
+        const gstin = getCsvField(row, ["GSTIN", "gstin", "GST Number", "gst_number", "GST No", "gst_no", "GST", "gst", "Tax ID"]);
+        const partyState = getCsvField(row, ["State", "state", "Place of Supply", "place_of_supply", "State / UT", "State/UT", "Province"]);
+        const billingAddress = getCsvField(row, ["Billing Address", "billing_address", "billingAddress", "Address", "address", "Address Line 1", "Street"]);
+        const openingBalance = Number(getCsvField(row, ["Opening Balance", "opening_balance", "openingBalance", "Balance", "balance", "Outstanding"]) || 0);
+
         const partyDetails = {
           name,
-          phone: row["Phone"] || row["phone"] || "",
-          email: row["Email"] || row["email"] || "",
-          gstin: row["GSTIN"] || row["gstin"] || "",
-          state: row["State"] || row["state"] || "",
-          billingAddress: row["Billing Address"] || row["billingAddress"] || "",
-          openingBalance: Number(row["Opening Balance"] || row["openingBalance"] || 0),
+          phone,
+          email,
+          gstin,
+          state: partyState,
+          billingAddress,
+          openingBalance,
           type: "party",
-          taxType: row["GSTIN"] ? "gst_registered" : "unregistered",
+          taxType: gstin ? "gst_registered" : "unregistered",
           notes: "",
         };
-        if (window.giDB?.createParty) {
-          state = normalizeState(await window.giDB.createParty(partyDetails));
-        } else {
-          if (!state.parties.some((p) => p.name.toLowerCase() === name.toLowerCase())) {
-            state.parties.unshift({ ...partyDetails, id: Date.now() + Math.random(), createdAt: new Date().toISOString() });
+
+        try {
+          if (window.giDB?.createParty) {
+            state = normalizeState(await window.giDB.createParty(partyDetails));
+          } else {
+            const pIdx = state.parties.findIndex((p) => p.name.toLowerCase() === name.toLowerCase());
+            if (pIdx !== -1) {
+              state.parties[pIdx] = { ...state.parties[pIdx], ...partyDetails };
+            } else {
+              state.parties.unshift({ ...partyDetails, id: Date.now() + Math.random(), createdAt: new Date().toISOString() });
+            }
           }
+          success++;
+        } catch (err) {
+          errors++;
+          errorDetails.push(`Row ${index + 1} ("${name}"): ${err.message || "Failed to save"}`);
         }
       }
-      success++;
-    } catch (err) {
-      errors++;
-      errorDetails.push(`Row ${index + 1} ("${name}"): ${err.message || "Failed to save"}`);
     }
+    if (!window.giDB) saveState();
+    csvImportRows = [];
+    csvImportFileName = "";
+    const warnText = warnings.length ? ` (${warnings.slice(0, 3).join("; ")}${warnings.length > 3 ? "..." : ""})` : "";
+    const errorSummary = errorDetails.length ? ` (${errorDetails.slice(0, 2).join("; ")}${errorDetails.length > 2 ? ` +${errorDetails.length - 2} more` : ""})` : "";
+    
+    if (errors === 0) {
+      showToast(`Import complete: ${success} ${isItems ? "items" : "parties"} imported successfully${warnText}.`, "success");
+    } else {
+      showToast({
+        title: "Import Finished with Issues",
+        message: `${success} added, ${errors} skipped${errorSummary}${warnText}.`,
+        type: "warning"
+      });
+    }
+    renderFeatureView(csvImportType === "items" ? "importItems" : "importParties");
+  } finally {
+    hideGlobalLoader();
   }
-  if (!window.giDB) saveState();
-  csvImportRows = [];
-  const warnText = warnings.length ? ` (${warnings.slice(0, 3).join("; ")}${warnings.length > 3 ? "..." : ""})` : "";
-  const errorSummary = errorDetails.length ? ` (${errorDetails.slice(0, 2).join("; ")}${errorDetails.length > 2 ? ` +${errorDetails.length - 2} more` : ""})` : "";
-  showToast(`Import complete: ${success} added${errors ? `, ${errors} skipped${errorSummary}` : ""}${warnText}.`);
-  renderFeatureView(csvImportType === "items" ? "importItems" : "importParties");
 }
 
 function exportCsvTemplate(importType = "items") {
   const headers = importType === "items"
-    ? ["Name", "SKU", "Category", "Unit", "HSN Code", "Sale Price", "Purchase Price", "Tax Rate", "Opening Stock"]
-    : ["Name", "Phone", "Email", "GSTIN", "State", "Billing Address", "Opening Balance"];
+    ? ["Item Name", "SKU", "Category", "Unit", "HSN Code", "Sale Price", "Purchase Price", "Tax Rate", "Current Stock"]
+    : ["Party Name", "Phone", "Email", "GSTIN", "State", "Billing Address", "Opening Balance"];
   const sampleRow = importType === "items"
-    ? ["Sample Item", "SKU001", "Electronics", "Pcs", "8471", "1000", "800", "18", "100"]
+    ? ["Sample Item", "SKU001", "Electronics", "Pcs", "8471", "1000", "800", "18%", "100"]
     : ["Sample Customer", "9876543210", "customer@example.com", "22AAAAA0000A1Z5", "Karnataka", "123 Main Street", "5000"];
   const csv = [headers.join(","), sampleRow.join(",")].join("\n");
   const blob = new Blob([csv], { type: "text/csv" });
@@ -26212,3 +28535,12 @@ document.addEventListener("click", (e) => {
     document.querySelectorAll(".invoice-row-actions details[open]").forEach((d) => d.removeAttribute("open"));
   }
 });
+
+document.addEventListener("toggle", (e) => {
+  if (e.target?.matches?.(".invoice-row-actions details[open]")) {
+    document.querySelectorAll(".invoice-row-actions details[open]").forEach((d) => {
+      if (d !== e.target) d.removeAttribute("open");
+    });
+  }
+}, true);
+
