@@ -11,7 +11,7 @@ const syncService = new SyncService({ database, adapter: new DisabledSyncAdapter
 
 const singleInstanceLock = app.requestSingleInstanceLock();
 if (!singleInstanceLock) {
-  console.log("GI Billing is already running. Focusing the existing instance...");
+  console.log("ZynBill is already running. Focusing the existing instance...");
   app.exit(0);
 }
 
@@ -35,6 +35,7 @@ function scheduleInputFocus(window = mainWindow, options = {}) {
 }
 
 function createMainWindow() {
+  const windowIconPath = path.join(__dirname, "assets", "icon.ico");
   const window = new BrowserWindow({
     width: 1366,
     height: 768,
@@ -42,7 +43,8 @@ function createMainWindow() {
     minHeight: 680,
     show: true,
     center: true,
-    title: "GI Billing",
+    title: "ZynBill",
+    icon: fs.existsSync(windowIconPath) ? windowIconPath : undefined,
     backgroundColor: "#eef3f8",
     autoHideMenuBar: true,
     webPreferences: {
@@ -63,7 +65,7 @@ function createMainWindow() {
     if (window.isMinimized()) window.restore();
     window.show();
     window.focus();
-    console.log("GI Billing window is active and displayed.");
+    console.log("ZynBill window is active and displayed.");
   };
 
   window.once("ready-to-show", revealWindow);
@@ -122,15 +124,19 @@ function showMainWindow() {
 }
 
 function createTrayIcon() {
+  const iconPath = path.join(__dirname, "assets", "zynbill-32.png");
+  if (fs.existsSync(iconPath)) {
+    return nativeImage.createFromPath(iconPath);
+  }
   const size = 16;
   const buffer = Buffer.alloc(size * size * 4);
   for (let y = 0; y < size; y++) {
     for (let x = 0; x < size; x++) {
       const idx = (y * size + x) * 4;
       if (x >= 1 && x < 15 && y >= 1 && y < 15) {
-        buffer[idx] = 12;
-        buffer[idx + 1] = 126;
-        buffer[idx + 2] = 232;
+        buffer[idx] = 0;
+        buffer[idx + 1] = 192;
+        buffer[idx + 2] = 243;
         buffer[idx + 3] = 255;
       }
     }
@@ -145,9 +151,9 @@ function createTray() {
     const icon = createTrayIcon();
     if (!icon || icon.isEmpty()) return;
     tray = new Tray(icon);
-    tray.setToolTip("GI Billing");
+    tray.setToolTip("ZynBill");
     tray.setContextMenu(Menu.buildFromTemplate([
-      { label: "Open GI Billing", click: showMainWindow },
+      { label: "Open ZynBill", click: showMainWindow },
       { type: "separator" },
       {
         label: "Quit",
@@ -183,12 +189,12 @@ function registerDatabaseHandlers() {
   ipcMain.handle("db:create-backup", async () => {
     const stamp = new Date().toISOString().slice(0, 10);
     const activeCompany = database.getCurrentCompany ? database.getCurrentCompany() : null;
-    const prefix = activeCompany?.name ? String(activeCompany.name).replace(/[^a-zA-Z0-9_-]/g, "_") : "gi-billing";
+    const prefix = activeCompany?.name ? String(activeCompany.name).replace(/[^a-zA-Z0-9_-]/g, "_") : "zynbill";
     const result = await dialog.showSaveDialog(mainWindow, {
-      title: "Save GI Billing Backup (.zyn)",
+      title: "Save ZynBill Backup (.zyn)",
       defaultPath: path.join(app.getPath("documents"), `${prefix}-backup-${stamp}.zyn`),
       filters: [
-        { name: "GI Billing Backup (*.zyn)", extensions: ["zyn"] },
+        { name: "ZynBill Backup (*.zyn)", extensions: ["zyn"] },
         { name: "SQLite Database (*.sqlite, *.db)", extensions: ["sqlite", "db"] },
         { name: "All Files (*.*)", extensions: ["*"] },
       ],
@@ -202,10 +208,10 @@ function registerDatabaseHandlers() {
 
   ipcMain.handle("db:restore-backup", async () => {
     const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
-      title: "Select GI Billing Backup to Restore (.zyn)",
+      title: "Select ZynBill Backup to Restore (.zyn)",
       properties: ["openFile"],
       filters: [
-        { name: "GI Billing Backup (*.zyn)", extensions: ["zyn"] },
+        { name: "ZynBill Backup (*.zyn)", extensions: ["zyn"] },
         { name: "SQLite Database (*.sqlite, *.db)", extensions: ["sqlite", "db"] },
         { name: "All Files (*.*)", extensions: ["*"] },
       ],
@@ -242,7 +248,7 @@ function registerDatabaseHandlers() {
       const pad = (n) => String(n).padStart(2, "0");
       const stamp = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}_${pad(now.getHours())}-${pad(now.getMinutes())}-${pad(now.getSeconds())}`;
       const activeCompany = database.getCurrentCompany ? database.getCurrentCompany() : null;
-      const compName = activeCompany?.name ? String(activeCompany.name).replace(/[^a-zA-Z0-9_-]/g, "_") : "gi-billing";
+      const compName = activeCompany?.name ? String(activeCompany.name).replace(/[^a-zA-Z0-9_-]/g, "_") : "zynbill";
       const defaultFilename = `${compName}-snapshot-${stamp}.zyn`;
 
       let targetPath = customLocation;
@@ -251,7 +257,7 @@ function registerDatabaseHandlers() {
           title: "Save Backup Snapshot (.zyn) - Choose Location",
           defaultPath: path.join(app.getPath("documents"), defaultFilename),
           filters: [
-            { name: "GI Billing Backup Snapshot (*.zyn)", extensions: ["zyn"] },
+            { name: "ZynBill Backup Snapshot (*.zyn)", extensions: ["zyn"] },
             { name: "SQLite Database (*.sqlite, *.db)", extensions: ["sqlite", "db"] },
             { name: "All Files (*.*)", extensions: ["*"] },
           ],
@@ -343,7 +349,7 @@ function registerDatabaseHandlers() {
         title: "Select Backup File to Preview (.zyn)",
         properties: ["openFile"],
         filters: [
-          { name: "GI Billing Backup (*.zyn)", extensions: ["zyn"] },
+          { name: "ZynBill Backup (*.zyn)", extensions: ["zyn"] },
           { name: "SQLite Database (*.sqlite, *.db)", extensions: ["sqlite", "db"] },
           { name: "All Files (*.*)", extensions: ["*"] },
         ],
@@ -529,7 +535,7 @@ function createMenu() {
         { type: "separator" },
         { label: "Refresh", accelerator: "Ctrl+R", click: (_item, win) => win?.webContents.executeJavaScript("window.dispatchEvent(new Event('gi-refresh'))") },
         { type: "separator" },
-        { label: `About GI Billing v${app.getVersion()}`, enabled: false },
+        { label: `About ZynBill v${app.getVersion()}`, enabled: false },
         { type: "separator" },
         {
           label: "Quit",
@@ -644,8 +650,8 @@ if (singleInstanceLock) {
       showMainWindow();
     });
   }).catch((error) => {
-    console.error("GI Billing startup failed:", error);
-    dialog.showErrorBox("GI Billing could not start", [
+    console.error("ZynBill startup failed:", error);
+    dialog.showErrorBox("ZynBill could not start", [
       error.message || "Startup failed.",
       error.cause?.message || "",
       `Database folder: ${app.getPath("userData")}`,

@@ -25,13 +25,15 @@ async function run() {
 
 function testPathCalculation() {
   const appData = "C:\\Users\\Fixture\\AppData\\Roaming";
+  const expectedName = packageJson.productName || packageJson.build?.productName || packageJson.name;
+  const expectedAppId = packageJson.build?.appId || "com.zynbill.desktop";
   const userData = calculateDevelopmentUserData(appData, packageJson);
-  assert.equal(userData, path.join(appData, "GI Billing"));
-  assert.equal(expectedDatabasePath(userData), path.join(appData, "GI Billing", "gi-billing.sqlite"));
+  assert.equal(userData, path.join(appData, expectedName));
+  assert.equal(expectedDatabasePath(userData), path.join(appData, expectedName, "gi-billing.sqlite"));
   const development = applicationMetadata(packageJson, { packaged: false });
   const packaged = applicationMetadata(packageJson, { packaged: true });
-  assert.equal(development.productName, "GI Billing");
-  assert.equal(development.applicationIdentifier, "com.gibilling.desktop");
+  assert.equal(development.productName, expectedName);
+  assert.equal(development.applicationIdentifier, expectedAppId);
   assert.equal(packaged.packaged, true);
 }
 

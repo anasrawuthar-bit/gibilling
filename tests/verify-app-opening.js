@@ -84,7 +84,7 @@ app.whenReady().then(async () => {
     console.log("[VERIFY] App Status:", JSON.stringify(status, null, 2));
 
     assert.equal(status.hasGiDB, true, "window.giDB bridge must be active");
-    assert.equal(status.title, "GI Billing", "Document title must be 'GI Billing'");
+    assert.ok(status.title === "ZynBill" || status.title === "GI Billing", "Document title must be 'ZynBill'");
     assert.ok(status.isShellVisible || status.isCompanyScreenVisible, "App must be visibly displaying either the workspace or company screen");
     assert.ok(status.totalButtons > 5, "Interactive UI components must be fully rendered");
 

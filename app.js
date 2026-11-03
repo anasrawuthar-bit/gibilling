@@ -1710,7 +1710,7 @@ function buildOpenAnythingResults(query) {
     { group: "Pages", title: "Payment-In", meta: "Incoming payments from customers", kind: "view", view: "paymentIn", keywords: "payment in received customer receipt" },
     { group: "Pages", title: "Sale Order", meta: "Customer orders before dispatch", kind: "view", view: "saleOrder", keywords: "sale order customer order so" },
     { group: "Pages", title: "Delivery Challan", meta: "Goods dispatch documentation", kind: "view", view: "deliveryChallan", keywords: "delivery challan dispatch goods dc" },
-    { group: "Pages", title: "GI POS", meta: "Counter billing and quick sales", kind: "view", view: "pos", keywords: "pos point of sale counter billing retail" },
+    { group: "Pages", title: "Zyn POS", meta: "Counter billing and quick sales", kind: "view", view: "pos", keywords: "pos point of sale counter billing retail zynbill" },
     { group: "Pages", title: "Purchase Bills", meta: "Purchases and payables", kind: "view", view: "purchases", keywords: "purchase purchases bill supplier payable" },
     { group: "Pages", title: "Expenses", meta: "Operating costs and input GST", kind: "view", view: "expenses", keywords: "expense expenses rent salary fuel gst payable" },
     { group: "Pages", title: "Reports", meta: "Business reports", kind: "view", view: "reports", keywords: "reports gst stock ledger statement" },
@@ -5389,7 +5389,7 @@ function renderA4Modern(data, bank, upiUri, flags = {}) {
         <div class="a4-modern-seller">
           ${logoSrc ? `<img class="a4-modern-logo" src="${logoSrc}" alt="Logo">` : ""}
           <div>
-            <h1 class="a4-modern-biz-name">${escapeHtml(data.business.businessName || state.activeCompany || "GI Billing")}</h1>
+            <h1 class="a4-modern-biz-name">${escapeHtml(data.business.businessName || state.activeCompany || "ZynBill")}</h1>
             <p class="a4-modern-sub">${escapeHtml(data.business.address || "-")}</p>
             <p class="a4-modern-tax-ids">
               ${data.business.gstin ? `<span>GSTIN: <b>${escapeHtml(data.business.gstin)}</b></span>` : ""}
@@ -5526,7 +5526,7 @@ function renderA4Modern(data, bank, upiUri, flags = {}) {
           </div>
           ${flags.showSignature ? `
             <div class="a4-modern-sign-box">
-              <small>For ${escapeHtml(data.business.businessName || state.activeCompany || "GI Billing")}</small>
+              <small>For ${escapeHtml(data.business.businessName || state.activeCompany || "ZynBill")}</small>
               <div class="a4-sign-line">Authorized Signatory</div>
             </div>
           ` : ""}
@@ -5551,7 +5551,7 @@ function renderA4Classic(data, bank, upiUri, flags = {}) {
       <div class="a4-classic-box-grid">
         <div class="a4-classic-cell a4-classic-seller">
           ${logoSrc ? `<img class="a4-classic-logo" src="${logoSrc}" alt="Logo">` : ""}
-          <strong>${escapeHtml(data.business.businessName || state.activeCompany || "GI Billing")}</strong>
+          <strong>${escapeHtml(data.business.businessName || state.activeCompany || "ZynBill")}</strong>
           <p>${escapeHtml(data.business.address || "-")}</p>
           <p>GSTIN/UIN: <b>${escapeHtml(data.business.gstin || "-")}</b></p>
           <p>State Name: ${escapeHtml(data.business.state || "-")}</p>
@@ -5695,7 +5695,7 @@ function renderA4Classic(data, bank, upiUri, flags = {}) {
             </div>
           ` : ""}
           <div class="a4-classic-signature-area">
-            <strong>for ${escapeHtml(data.business.businessName || state.activeCompany || "GI Billing")}</strong>
+            <strong>for ${escapeHtml(data.business.businessName || state.activeCompany || "ZynBill")}</strong>
             <div class="a4-classic-sign-space"></div>
             <span>Authorized Signatory</span>
           </div>
@@ -5715,7 +5715,7 @@ function renderA4Minimal(data, bank, upiUri, flags = {}) {
         <div class="a4-minimal-brand">
           ${logoSrc ? `<img class="a4-minimal-logo" src="${logoSrc}" alt="Logo">` : ""}
           <div>
-            <h1 class="a4-minimal-title">${escapeHtml(data.business.businessName || state.activeCompany || "GI Billing")}</h1>
+            <h1 class="a4-minimal-title">${escapeHtml(data.business.businessName || state.activeCompany || "ZynBill")}</h1>
             <p class="a4-minimal-sub">${escapeHtml(data.business.address || "-")}</p>
             <p class="a4-minimal-sub">GSTIN: ${escapeHtml(data.business.gstin || "-")} • PAN: ${escapeHtml(data.business.pan || "-")}</p>
           </div>
@@ -5822,7 +5822,7 @@ function renderA4Compact(data, bank, upiUri, flags = {}) {
         <div class="a4-compact-brand">
           ${logoSrc ? `<img class="a4-compact-logo" src="${logoSrc}" alt="Logo">` : ""}
           <div>
-            <h2>${escapeHtml(data.business.businessName || state.activeCompany || "GI Billing")}</h2>
+            <h2>${escapeHtml(data.business.businessName || state.activeCompany || "ZynBill")}</h2>
             <small>${escapeHtml(data.business.address || "-")} | GSTIN: ${escapeHtml(data.business.gstin || "-")}</small>
           </div>
         </div>
@@ -5891,7 +5891,7 @@ function renderThermalRetail(data, bank, upiUri, flags = {}) {
   return `
     <div class="invoice-thermal invoice-thermal-retail">
       <div class="thermal-center-header">
-        <h2 class="thermal-store-name">${escapeHtml(data.business.businessName || state.activeCompany || "GI BILLING")}</h2>
+        <h2 class="thermal-store-name">${escapeHtml(data.business.businessName || state.activeCompany || "ZYNBILL")}</h2>
         <p class="thermal-store-sub">${escapeHtml(data.business.address || "")}</p>
         ${data.business.gstin ? `<p class="thermal-store-sub">GSTIN: ${escapeHtml(data.business.gstin)}</p>` : ""}
         <div class="thermal-divider-heavy">================================</div>
@@ -6025,7 +6025,7 @@ function renderThermalDetailed(data, bank, upiUri, flags = {}) {
   return `
     <div class="invoice-thermal invoice-thermal-detailed">
       <div class="thermal-detailed-header">
-        <h3 class="detailed-store-name">${escapeHtml(data.business.businessName || state.activeCompany || "GI BILLING")}</h3>
+        <h3 class="detailed-store-name">${escapeHtml(data.business.businessName || state.activeCompany || "ZYNBILL")}</h3>
         <p>${escapeHtml(data.business.address || "")}</p>
         <p>GSTIN: <b>${escapeHtml(data.business.gstin || "-")}</b></p>
         <div class="thermal-divider-dashed">--------------------------------</div>
@@ -10880,7 +10880,7 @@ function posTemplate() {
           <button class="secondary-button compact-button" data-pos-action="exit-pos" type="button" title="Back to Dashboard">← Exit POS</button>
           <div>
             <p class="muted-label">Counter billing</p>
-            <h1>GI POS</h1>
+            <h1>Zyn POS</h1>
             <small>${posCart.length} cart lines - ${formatQuantity(totals.qty)} qty - ${filteredItems.length} products shown</small>
           </div>
         </div>
@@ -13597,7 +13597,7 @@ function exportCurrentReportToCsv() {
     .replace(/[^a-z0-9]+/g, "-");
   const stamp = new Date().toISOString().slice(0, 10);
   link.setAttribute("href", url);
-  link.setAttribute("download", `${heading || "gi-billing-report"}-${stamp}.csv`);
+  link.setAttribute("download", `${heading || "zynbill-report"}-${stamp}.csv`);
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
@@ -13608,7 +13608,7 @@ function exportCurrentReportToCsv() {
 async function exportCurrentReportToPdf() {
   const heading = (elements.featureView.querySelector(".report-hero h1, .app-page-header h1, .feature-titlebar h1")?.textContent || "Report").trim();
   const dateScopeText = formatReportDateScope(reportDateScope());
-  const companyName = state.businessSettings?.businessName || state.activeCompany || "GI Billing";
+  const companyName = state.businessSettings?.businessName || state.activeCompany || "ZynBill";
   const gstin = state.businessSettings?.gstin ? `GSTIN: ${escapeHtml(state.businessSettings.gstin)}` : "";
   const phone = state.businessSettings?.phone ? `Phone: ${escapeHtml(state.businessSettings.phone)}` : "";
   const address = state.businessSettings?.address ? escapeHtml(state.businessSettings.address) : "";
@@ -13729,7 +13729,7 @@ async function exportCurrentReportToPdf() {
   `).join("")}
 
   <footer class="pdf-footer">
-    <span>GI Billing Software | ${escapeHtml(companyName)}</span>
+    <span>ZynBill | ${escapeHtml(companyName)}</span>
   </footer>
 </body>
 </html>`;
@@ -25501,7 +25501,7 @@ function importTemplate(title = "Import Items") {
         <div class="import-options">
           <article class="import-option selected"><h3>Import From Barcode</h3><p>Import item details by scanning barcodes.</p></article>
           <article class="import-option"><h3>Import From Excel</h3><p>Import item data from excel files in your system.</p></article>
-          <article class="import-option import-wide"><h3>Import From GI Library</h3><p>Import items from GI Billing database.</p></article>
+          <article class="import-option import-wide"><h3>Import From ZynBill Library</h3><p>Import items from ZynBill database.</p></article>
         </div>
       </div>
       <div class="bottom-actions"><button class="sale-button">Continue</button></div>
@@ -26644,10 +26644,12 @@ function settingsAboutTemplate() {
     <div class="settings-form-grid">
       <section class="settings-card" style="grid-column: 1 / -1;">
         <div class="settings-card-head">
-          <div style="display:flex;align-items:center;gap:12px;">
-            <div style="width:44px;height:44px;border-radius:10px;background:#0c65c2;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:800;font-size:18px;">GI</div>
+          <div style="display:flex;align-items:center;gap:14px;">
+            <div style="width:48px;height:48px;border-radius:12px;background:#ffffff;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 12px rgba(0,192,243,0.18);border:1px solid #e2e8f0;padding:6px;box-sizing:border-box;">
+              <img src="assets/zynbill-logo.png" style="width:100%;height:100%;object-fit:contain;" alt="ZynBill Logo">
+            </div>
             <div>
-              <h3 style="margin:0;font-size:18px;color:#0f172a;">GI Billing Software</h3>
+              <h3 style="margin:0;font-size:18px;color:#0f172a;">ZynBill</h3>
               <p style="margin:2px 0 0;font-size:13px;color:#64748b;">Enterprise Desktop Billing, Accounting &amp; GST Management</p>
             </div>
           </div>
@@ -26686,7 +26688,7 @@ function settingsAboutTemplate() {
           <h3>Version Management Policy</h3>
           <span class="badge">SemVer Standard</span>
         </div>
-        <p style="font-size:13px;color:#475569;line-height:1.6;margin:0 0 12px;">GI Billing strictly follows <strong>Semantic Versioning (MAJOR.MINOR.PATCH)</strong> to ensure system reliability and zero business disruption:</p>
+        <p style="font-size:13px;color:#475569;line-height:1.6;margin:0 0 12px;">ZynBill strictly follows <strong>Semantic Versioning (MAJOR.MINOR.PATCH)</strong> to ensure system reliability and zero business disruption:</p>
         <ul style="font-size:12.5px;color:#334155;line-height:1.8;padding-left:18px;margin:0;">
           <li><strong>MAJOR (v1.x.x ➔ v2.x.x):</strong> Structural architectural migrations or breaking data changes.</li>
           <li><strong>MINOR (v1.0.x ➔ v1.1.0):</strong> Substantial backward-compatible business features, new modules, and report additions.</li>

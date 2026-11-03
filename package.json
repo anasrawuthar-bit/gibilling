@@ -1,7 +1,8 @@
 {
-  "name": "gi-billing-software",
+  "name": "zynbill",
   "version": "1.1.0",
-  "description": "GI Billing desktop app",
+  "description": "ZynBill desktop app",
+  "productName": "ZynBill",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
@@ -30,8 +31,8 @@
     "dist:portable": "electron-builder --win portable"
   },
   "build": {
-    "appId": "com.gibilling.desktop",
-    "productName": "GI Billing",
+    "appId": "com.zynbill.desktop",
+    "productName": "ZynBill",
     "directories": {
       "output": "dist"
     },
@@ -45,6 +46,7 @@
       "!migration-backups/*"
     ],
     "win": {
+      "icon": "assets/icon.ico",
       "target": [
         {
           "target": "nsis",
@@ -58,10 +60,11 @@
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "perMachine": false,
-      "deleteAppDataOnUninstall": false
+      "deleteAppDataOnUninstall": false,
+      "artifactName": "${productName} Setup ${version}.${ext}"
     }
   },
-  "author": "GI Billing",
+  "author": "ZynBill",
   "devDependencies": {
     "electron": "^44.4.3",
     "electron-builder": "^26.15.3"

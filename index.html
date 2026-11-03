@@ -4,7 +4,8 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'self'">
-    <title>GI Billing</title>
+    <title>ZynBill</title>
+    <link rel="icon" type="image/png" href="assets/zynbill-32.png">
     <link rel="stylesheet" href="styles.css">
   </head>
   <body>
@@ -82,13 +83,15 @@
     </div>
 
     <!-- Initial App Launch Splash Loader -->
-    <div id="appInitialSplash" class="app-initial-splash" role="status" aria-label="Starting GI Billing">
+    <div id="appInitialSplash" class="app-initial-splash" role="status" aria-label="Starting ZynBill">
       <div class="app-splash-card">
         <div class="app-splash-logo-wrap">
-          <div class="app-splash-logo">GI</div>
+          <div class="app-splash-logo">
+            <img src="assets/zynbill-logo.png" alt="ZynBill" class="app-splash-logo-img">
+          </div>
           <div class="app-splash-pulse"></div>
         </div>
-        <h2 class="app-splash-title">GI Billing Software</h2>
+        <h2 class="app-splash-title">ZynBill</h2>
         <p class="app-splash-status">Loading workspace...</p>
         <div class="app-splash-progress">
           <div class="app-splash-progress-bar"></div>
@@ -100,6 +103,10 @@
       <div class="company-card">
         <header class="company-card-header">
           <div>
+            <div class="company-brand-header">
+              <img src="assets/zynbill-logo.png" alt="ZynBill" class="company-brand-logo">
+              <span class="company-brand-title">ZynBill</span>
+            </div>
             <h1>Company Directory</h1>
             <nav class="company-tabs" aria-label="Company list tabs">
               <button class="active" type="button">My Businesses</button>
@@ -141,6 +148,12 @@
 
     <div class="app-shell hidden" id="appShell">
       <aside class="sidebar">
+        <div class="sidebar-brand-header">
+          <div class="sidebar-brand-logo-wrap">
+            <img src="assets/zynbill-logo.png" alt="ZynBill" class="sidebar-brand-logo">
+          </div>
+          <span class="sidebar-brand-name">ZynBill</span>
+        </div>
         <div class="quick-search-wrap">
           <input class="quick-search" id="searchInput" type="search" placeholder="Open Anything (Ctrl+F)" aria-label="Open Anything" autocomplete="off">
           <button class="sidebar-toggle-btn" id="sidebarToggleBtn" type="button" title="Collapse sidebar (Ctrl+B)" aria-label="Collapse sidebar">
@@ -181,7 +194,7 @@
             <button class="submenu-item" data-view="saleOrder" type="button">Sale Order</button>
             <button class="submenu-item" data-view="deliveryChallan" type="button">Delivery Challan</button>
             <button class="submenu-item" data-view="saleReturn" type="button">Sale Return / Credit Note</button>
-            <button class="submenu-item" data-view="pos" type="button">GI POS</button>
+            <button class="submenu-item" data-view="pos" type="button">Zyn POS</button>
           </div>
 
           <button class="nav-item" data-view="purchases" type="button" title="Purchases">
