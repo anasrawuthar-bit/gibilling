@@ -42,8 +42,8 @@ async function runTest() {
         state.invoices = [];
         state.transactions = [];
         state.businessSettings = {
-          invoicePrefix: "INV",
-          invoicePrefixB2B: "INV",
+          invoicePrefix: "B2B",
+          invoicePrefixB2B: "B2B",
           invoicePrefixB2C: "B2C",
           startingNo: 1,
           startingNoB2B: 1,
@@ -72,12 +72,12 @@ async function runTest() {
     assert(dropdownCheck.hasSelect, "Invoice series dropdown must exist in invoice number field");
     assert.deepStrictEqual(dropdownCheck.options, ["b2b", "b2c"], "Dropdown must have B2B and B2C options");
     assert.strictEqual(dropdownCheck.selectedOption, "b2b", "Initial selection should be B2B");
-    assert(dropdownCheck.invoiceNo.startsWith("INV-"), `B2B invoice should start with INV-, got ${dropdownCheck.invoiceNo}`);
+    assert(dropdownCheck.invoiceNo.startsWith("B2B-"), `B2B invoice should start with B2B-, got ${dropdownCheck.invoiceNo}`);
 
     // Capture B2B screenshot
     const b2bImg = await window.webContents.capturePage();
-    fs.writeFileSync(path.join(screenshotDir, "b2b_dropdown_selected.png"), b2bImg.toPNG());
-    console.log("  Saved b2b_dropdown_selected.png");
+    fs.writeFileSync(path.join(screenshotDir, "clean_b2b_dropdown_selected.png"), b2bImg.toPNG());
+    console.log("  Saved clean_b2b_dropdown_selected.png");
 
     console.log("Test 2: Switch dropdown to B2C and verify invoice number auto-switches to B2C sequence...");
     await window.webContents.executeJavaScript(`
@@ -105,8 +105,8 @@ async function runTest() {
 
     // Capture B2C screenshot
     const b2cImg = await window.webContents.capturePage();
-    fs.writeFileSync(path.join(screenshotDir, "b2c_dropdown_selected.png"), b2cImg.toPNG());
-    console.log("  Saved b2c_dropdown_selected.png");
+    fs.writeFileSync(path.join(screenshotDir, "clean_b2c_dropdown_selected.png"), b2cImg.toPNG());
+    console.log("  Saved clean_b2c_dropdown_selected.png");
 
     console.log("Test 3: Switch back to B2B and verify invoice number auto-switches back to B2B sequence...");
     await window.webContents.executeJavaScript(`
@@ -130,7 +130,7 @@ async function runTest() {
     `);
     console.log("  Switch back result:", b2bSwitchBack);
     assert.strictEqual(b2bSwitchBack.selectedOption, "b2b");
-    assert(b2bSwitchBack.invoiceNo.startsWith("INV-"), `Must revert to INV- prefix, got ${b2bSwitchBack.invoiceNo}`);
+    assert(b2bSwitchBack.invoiceNo.startsWith("B2B-"), `Must revert to B2B- prefix, got ${b2bSwitchBack.invoiceNo}`);
 
     console.log("Test 4: Verify independent counting in state - create B2C invoice and check sequences...");
     const countingCheck = await window.webContents.executeJavaScript(`
@@ -138,8 +138,8 @@ async function runTest() {
         // Mock 1 saved B2C invoice and 2 saved B2B invoices
         state.invoices = [
           { id: "inv-b2c-1", invoiceNo: "B2C-2627-0001", type: "sale", supplyType: "b2c", total: 100 },
-          { id: "inv-b2b-1", invoiceNo: "INV-2627-0001", type: "sale", supplyType: "b2b", total: 500 },
-          { id: "inv-b2b-2", invoiceNo: "INV-2627-0002", type: "sale", supplyType: "b2b", total: 700 }
+          { id: "inv-b2b-1", invoiceNo: "B2B-2627-0001", type: "sale", supplyType: "b2b", total: 500 },
+          { id: "inv-b2b-2", invoiceNo: "B2B-2627-0002", type: "sale", supplyType: "b2b", total: 700 }
         ];
 
         const nextB2C = computeNextDocumentNumber("sale", new Date(), "b2c");
@@ -180,7 +180,7 @@ async function runTest() {
     `);
     console.log("  Registered party auto-switch result:", registeredPartyCheck);
     assert.strictEqual(registeredPartyCheck.series, "b2b", "Registered party with GSTIN should auto-select B2B");
-    assert(registeredPartyCheck.invoiceNo.startsWith("INV-"), `Should propose INV- number, got ${registeredPartyCheck.invoiceNo}`);
+    assert(registeredPartyCheck.invoiceNo.startsWith("B2B-"), `Should propose B2B- number, got ${registeredPartyCheck.invoiceNo}`);
 
     console.log("Test 6: Check Settings Invoicing page renders B2B and B2C prefix inputs...");
     await window.webContents.executeJavaScript(`
@@ -211,7 +211,7 @@ async function runTest() {
     console.log("  Settings check result:", settingsCheck);
     assert(settingsCheck.hasB2BPrefix, "Settings must have B2B prefix field");
     assert(settingsCheck.hasB2CPrefix, "Settings must have B2C prefix field");
-    assert.strictEqual(settingsCheck.b2bPrefixVal, "INV");
+    assert.strictEqual(settingsCheck.b2bPrefixVal, "B2B");
     assert.strictEqual(settingsCheck.b2cPrefixVal, "B2C");
 
     const settingsImg = await window.webContents.capturePage();

@@ -41,12 +41,16 @@ async function runInvoiceNumberTests() {
         ];
 
         state.invoices = [
-          { id: "inv-existing-1", invoiceNo: "INV-2627-0001", type: "sale", party: "techii", date: "2026-10-10", total: 1000, balance: 1000 }
+          { id: "inv-existing-1", invoiceNo: "B2B-2627-0001", type: "sale", party: "techii", date: "2026-10-10", total: 1000, balance: 1000 }
         ];
 
         state.businessSettings = {
-          invoicePrefix: "INV",
+          invoicePrefix: "B2B",
+          invoicePrefixB2B: "B2B",
+          invoicePrefixB2C: "B2C",
           startingNo: 1,
+          startingNoB2B: 1,
+          startingNoB2C: 1,
           state: "Kerala"
         };
 
@@ -71,7 +75,7 @@ async function runInvoiceNumberTests() {
     assert(initialInvoiceVal.value, "Invoice number input must have a value");
     assert.notStrictEqual(initialInvoiceVal.value.toLowerCase(), "auto", "Invoice number must NOT be 'Auto'");
     // Since INV-2627-0001 exists, it should be INV-2627-0002!
-    assert(initialInvoiceVal.value.includes("0002"), "Should propose INV-2627-0002 because 0001 already exists");
+    assert(initialInvoiceVal.value.includes("0002"), "Should propose B2B-2627-0002 because 0001 already exists");
 
     // Capture screenshot of next invoice number populated (B2B)
     const img1 = await window.webContents.capturePage();
@@ -116,7 +120,7 @@ async function runInvoiceNumberTests() {
     await window.webContents.executeJavaScript(`
       (() => {
         const input = document.querySelector('[name="invoiceNo"]');
-        input.value = "INV-2627-0001"; // Duplicate of existing invoice
+        input.value = "B2B-2627-0001"; // Duplicate of existing invoice
         input.dispatchEvent(new Event("input", { bubbles: true }));
       })()
     `);

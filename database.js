@@ -159,6 +159,12 @@ async function initDatabase(userDataPath, options = {}) {
     ensurePartyAdditionalAddressesColumn();
     ensureShippingAddressColumns();
     seedDefaults();
+    try {
+      if (tableExists(db, "company_settings")) {
+        run(`UPDATE company_settings SET value = '"B2B"' WHERE key = 'invoicePrefixB2B' AND (value = '"INV"' OR value = 'INV')`);
+        run(`UPDATE company_settings SET value = '"B2B"' WHERE key = 'invoicePrefix' AND (value = '"INV"' OR value = 'INV')`);
+      }
+    } catch {}
     ensureLocalSyncIdentity();
     ensureUsersSchema();
     cleanupOrphanExpenseItems();
@@ -1945,8 +1951,8 @@ function createCompany(payload = {}) {
         ifsc: String(payload.ifsc || "").trim().toUpperCase(),
         upiId: String(payload.upiId || "").trim(),
       },
-      invoicePrefix: "INV",
-      invoicePrefixB2B: "INV",
+      invoicePrefix: "B2B",
+      invoicePrefixB2B: "B2B",
       invoicePrefixB2C: "B2C",
       startingNo: 1,
       startingNoB2B: 1,
@@ -1995,8 +2001,14 @@ function updateCompanyProfile(arg1 = {}, arg2 = null) {
       ifsc: String(payload.ifsc ?? current.bankDetails?.ifsc ?? "").trim().toUpperCase(),
       upiId: String(payload.upiId ?? current.bankDetails?.upiId ?? "").trim(),
     },
-    invoicePrefix: String(payload.invoicePrefix ?? payload.invoicePrefixB2B ?? current.invoicePrefix ?? "INV").trim().toUpperCase() || "INV",
-    invoicePrefixB2B: String(payload.invoicePrefixB2B ?? payload.invoicePrefix ?? current.invoicePrefixB2B ?? current.invoicePrefix ?? "INV").trim().toUpperCase() || "INV",
+    invoicePrefix: (function() {
+      const p = String(payload.invoicePrefix ?? payload.invoicePrefixB2B ?? current.invoicePrefix ?? "B2B").trim().toUpperCase() || "B2B";
+      return p === "INV" ? "B2B" : p;
+    })(),
+    invoicePrefixB2B: (function() {
+      const p = String(payload.invoicePrefixB2B ?? payload.invoicePrefix ?? current.invoicePrefixB2B ?? current.invoicePrefix ?? "B2B").trim().toUpperCase() || "B2B";
+      return p === "INV" ? "B2B" : p;
+    })(),
     invoicePrefixB2C: String(payload.invoicePrefixB2C ?? current.invoicePrefixB2C ?? "B2C").trim().toUpperCase() || "B2C",
     startingNo: Math.max(1, Number(payload.startingNo ?? payload.startingNoB2B ?? current.startingNo ?? 1) || 1),
     startingNoB2B: Math.max(1, Number(payload.startingNoB2B ?? payload.startingNo ?? current.startingNoB2B ?? current.startingNo ?? 1) || 1),
@@ -2175,8 +2187,8 @@ function defaultBusinessSettings(companyName = "testt") {
       ifsc: "",
       upiId: "",
     },
-    invoicePrefix: "INV",
-    invoicePrefixB2B: "INV",
+    invoicePrefix: "B2B",
+    invoicePrefixB2B: "B2B",
     invoicePrefixB2C: "B2C",
     estimatePrefix: "QT",
     proformaPrefix: "PI",
@@ -2235,7 +2247,7 @@ function getBusinessSettings(explicitCompanyId = null) {
       saved[row.key] = row.value;
     }
   });
-  return {
+  const res = {
     ...defaults,
     ...saved,
     bankDetails: {
@@ -2244,6 +2256,13 @@ function getBusinessSettings(explicitCompanyId = null) {
     },
     customFields: normalizeCustomFields(saved.customFields || defaults.customFields),
   };
+  if (!res.invoicePrefixB2B || res.invoicePrefixB2B === "INV") {
+    res.invoicePrefixB2B = "B2B";
+  }
+  if (!res.invoicePrefix || res.invoicePrefix === "INV") {
+    res.invoicePrefix = res.invoicePrefixB2B || "B2B";
+  }
+  return res;
 }
 
 function updateBusinessSettings(settings = {}) {
@@ -2266,8 +2285,14 @@ function updateBusinessSettings(settings = {}) {
       ifsc: String(settings.bankDetails?.ifsc ?? current.bankDetails.ifsc ?? "").trim().toUpperCase(),
       upiId: String(settings.bankDetails?.upiId ?? current.bankDetails.upiId ?? "").trim(),
     },
-    invoicePrefix: String(settings.invoicePrefix ?? settings.invoicePrefixB2B ?? current.invoicePrefix ?? "INV").trim().toUpperCase() || "INV",
-    invoicePrefixB2B: String(settings.invoicePrefixB2B ?? settings.invoicePrefix ?? current.invoicePrefixB2B ?? current.invoicePrefix ?? "INV").trim().toUpperCase() || "INV",
+    invoicePrefix: (function() {
+      const p = String(settings.invoicePrefix ?? settings.invoicePrefixB2B ?? current.invoicePrefix ?? "B2B").trim().toUpperCase() || "B2B";
+      return p === "INV" ? "B2B" : p;
+    })(),
+    invoicePrefixB2B: (function() {
+      const p = String(settings.invoicePrefixB2B ?? settings.invoicePrefix ?? current.invoicePrefixB2B ?? current.invoicePrefix ?? "B2B").trim().toUpperCase() || "B2B";
+      return p === "INV" ? "B2B" : p;
+    })(),
     invoicePrefixB2C: String(settings.invoicePrefixB2C ?? current.invoicePrefixB2C ?? "B2C").trim().toUpperCase() || "B2C",
     estimatePrefix: String(settings.estimatePrefix ?? current.estimatePrefix ?? "QT").trim().toUpperCase() || "QT",
     proformaPrefix: String(settings.proformaPrefix ?? current.proformaPrefix ?? "PI").trim().toUpperCase() || "PI",
@@ -6837,7 +6862,8 @@ function nextInvoiceNumber(companyIdOrType, maybeType, docDate = new Date(), may
       startNo = Math.max(1, Number(settings.startingNoB2C || 1));
       seqDocType = "sale_b2c";
     } else {
-      prefix = settings.invoicePrefixB2B || settings.invoicePrefix || "INV";
+      const b2b = settings.invoicePrefixB2B || settings.invoicePrefix || "B2B";
+      prefix = b2b === "INV" ? "B2B" : b2b;
       startNo = Math.max(1, Number(settings.startingNoB2B || settings.startingNo || 1));
       seqDocType = "sale";
     }
@@ -6930,7 +6956,8 @@ function previewNextInvoiceNumber(companyIdOrType, maybeType, docDate = new Date
       startNo = Math.max(1, Number(settings.startingNoB2C || 1));
       seqDocType = "sale_b2c";
     } else {
-      prefix = settings.invoicePrefixB2B || settings.invoicePrefix || "INV";
+      const b2b = settings.invoicePrefixB2B || settings.invoicePrefix || "B2B";
+      prefix = b2b === "INV" ? "B2B" : b2b;
       startNo = Math.max(1, Number(settings.startingNoB2B || settings.startingNo || 1));
       seqDocType = "sale";
     }
@@ -7003,7 +7030,8 @@ function syncDocumentSequence(companyId, docType, invoiceNo, docDate = new Date(
 
   if (docType === "sale") {
     const b2cPrefix = settings.invoicePrefixB2C || "B2C";
-    const b2bPrefix = settings.invoicePrefixB2B || settings.invoicePrefix || "INV";
+    const b2bSetting = settings.invoicePrefixB2B || settings.invoicePrefix || "B2B";
+    const b2bPrefix = b2bSetting === "INV" ? "B2B" : b2bSetting;
     const b2cRegex = new RegExp(`^${b2cPrefix}-${financialYear}-(\\d+)$`, "i");
     if (b2cRegex.test(invoiceNo.trim()) || maybeSeries === "b2c") {
       prefix = b2cPrefix;

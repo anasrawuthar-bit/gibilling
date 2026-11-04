@@ -650,8 +650,8 @@ function defaultBusinessSettings() {
       ifsc: "",
       upiId: "",
     },
-    invoicePrefix: "INV",
-    invoicePrefixB2B: "INV",
+    invoicePrefix: "B2B",
+    invoicePrefixB2B: "B2B",
     invoicePrefixB2C: "B2C",
     estimatePrefix: "QT",
     proformaPrefix: "PI",
@@ -2710,7 +2710,8 @@ function getDocumentTypePrefix(type, series = null) {
     if (series === "b2c") {
       return settings.invoicePrefixB2C || "B2C";
     }
-    return settings.invoicePrefixB2B || settings.invoicePrefix || "INV";
+    const b2b = settings.invoicePrefixB2B || settings.invoicePrefix || "B2B";
+    return b2b === "INV" ? "B2B" : b2b;
   }
   return {
     estimate: settings.estimatePrefix || "QT",
@@ -2725,12 +2726,15 @@ function getDocumentTypePrefix(type, series = null) {
     saleReturn: settings.creditNotePrefix || "CN",
     debit_note: "DN",
     purchaseReturn: "DN",
-    sale: "INV",
+    sale: (function() {
+      const b2b = settings.invoicePrefixB2B || settings.invoicePrefix || "B2B";
+      return b2b === "INV" ? "B2B" : b2b;
+    })(),
     purchase: "PB",
     expense: "EXP",
     payment_in: "PIN",
     payment_out: "POUT",
-  }[type] || "INV";
+  }[type] || "B2B";
 }
 
 function findTransactionEditRecord(type, id) {
@@ -4817,8 +4821,14 @@ async function handleBusinessSettingsSubmit(event) {
   if (form.has("ifsc")) settings.bankDetails.ifsc = String(form.get("ifsc") || "").trim().toUpperCase();
   if (form.has("upiId")) settings.bankDetails.upiId = String(form.get("upiId") || "").trim();
 
-  if (form.has("invoicePrefix")) settings.invoicePrefix = String(form.get("invoicePrefix") || "").trim().toUpperCase() || "INV";
-  if (form.has("invoicePrefixB2B")) settings.invoicePrefixB2B = String(form.get("invoicePrefixB2B") || "").trim().toUpperCase() || "INV";
+  if (form.has("invoicePrefix")) {
+    const val = String(form.get("invoicePrefix") || "").trim().toUpperCase() || "B2B";
+    settings.invoicePrefix = val === "INV" ? "B2B" : val;
+  }
+  if (form.has("invoicePrefixB2B")) {
+    const val = String(form.get("invoicePrefixB2B") || "").trim().toUpperCase() || "B2B";
+    settings.invoicePrefixB2B = val === "INV" ? "B2B" : val;
+  }
   if (form.has("invoicePrefixB2C")) settings.invoicePrefixB2C = String(form.get("invoicePrefixB2C") || "").trim().toUpperCase() || "B2C";
   if (settings.invoicePrefixB2B) settings.invoicePrefix = settings.invoicePrefixB2B;
   if (form.has("estimatePrefix")) settings.estimatePrefix = String(form.get("estimatePrefix") || "").trim().toUpperCase() || "QT";
@@ -26619,7 +26629,8 @@ function settingsCompanyProfileTemplate() {
 
 function settingsInvoicingTemplate() {
   const settings = state.businessSettings || defaultBusinessSettings();
-  const prefixB2B = settings.invoicePrefixB2B || settings.invoicePrefix || "INV";
+  const b2bSetting = settings.invoicePrefixB2B || settings.invoicePrefix || "B2B";
+  const prefixB2B = b2bSetting === "INV" ? "B2B" : b2bSetting;
   const prefixB2C = settings.invoicePrefixB2C || "B2C";
   const startNoB2B = Number(settings.startingNoB2B || settings.startingNo || 1);
   const startNoB2C = Number(settings.startingNoB2C || 1);
@@ -26646,7 +26657,7 @@ function settingsInvoicingTemplate() {
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
             <div class="settings-field-group">
               <label>B2B Invoice Prefix *</label>
-              <input class="form-input" name="invoicePrefixB2B" value="${escapeHtml(prefixB2B)}" placeholder="INV" required style="text-transform:uppercase;">
+              <input class="form-input" name="invoicePrefixB2B" value="${escapeHtml(prefixB2B)}" placeholder="B2B" required style="text-transform:uppercase;">
               <small class="field-hint">For GST registered businesses (e.g. ${escapeHtml(prefixB2B)}-${fy}-0001).</small>
             </div>
             <div class="settings-field-group">
