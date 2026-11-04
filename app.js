@@ -7,6 +7,10 @@ let partySearchQuery = "";
 let itemSearchQuery = "";
 let saleInvoiceSearchQuery = "";
 let purchaseInvoiceSearchQuery = "";
+let invoicePagination = {
+  sale: { page: 1, pageSize: 50 },
+  purchase: { page: 1, pageSize: 50 }
+};
 let estimateSearchQuery = "";
 let creditNoteSearchQuery = "";
 let debitNoteSearchQuery = "";
@@ -10510,6 +10514,20 @@ function invoiceWorkspaceTemplate(type) {
   const openCount = rows.filter((e) => invoiceBalanceValue(e) > 0).length;
   const cancelledCount = rows.filter((e) => invoiceStatusKey(e) === "cancelled").length;
 
+  if (!invoicePagination[type]) {
+    invoicePagination[type] = { page: 1, pageSize: 50 };
+  }
+  const pag = invoicePagination[type];
+  const pageSize = Number(pag.pageSize) || 50;
+  const totalRecords = rows.length;
+  const totalPages = pageSize === -1 ? 1 : Math.max(1, Math.ceil(totalRecords / pageSize));
+  const currentPage = Math.min(Math.max(1, pag.page || 1), totalPages);
+  pag.page = currentPage;
+
+  const displayRows = pageSize === -1
+    ? rows
+    : rows.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+
   const title = isSale ? "Sale Invoices" : "Purchase Bills";
   const eyebrow = isSale ? "Sales" : "Purchases";
   const partyLabel = isSale ? "Customer" : "Supplier";
@@ -10544,7 +10562,7 @@ function invoiceWorkspaceTemplate(type) {
       </section>
 
       <section class="data-table-card invoice-data-card">
-        ${rows.length ? invoiceRowsTable(rows, { isSale, partyLabel, numberLabel, paidLabel, colFilters, type }) : emptyWorkspace(emptyTitle, emptyCopy, hasFilters ? `<button class="top-filter-clear-btn" data-top-filter-clear="${type}" type="button" style="margin-top:14px;padding:8px 18px;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;">Show All ${isSale ? "Invoices" : "Bills"}</button>` : "")}
+        ${rows.length ? invoiceRowsTable(displayRows, { isSale, partyLabel, numberLabel, paidLabel, colFilters, type, pagination: { totalRecords, currentPage, totalPages, pageSize } }) : emptyWorkspace(emptyTitle, emptyCopy, hasFilters ? `<button class="top-filter-clear-btn" data-top-filter-clear="${type}" type="button" style="margin-top:14px;padding:8px 18px;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;">Show All ${isSale ? "Invoices" : "Bills"}</button>` : "")}
       </section>
     </section>
   `;
@@ -12661,7 +12679,7 @@ try {
   if (saved) currentTableWidthMode = saved;
 } catch {}
 
-function invoiceRowsTable(rows, { isSale, partyLabel, numberLabel, paidLabel, colFilters = {}, type = "sale" }) {
+function invoiceRowsTable(rows, { isSale, partyLabel, numberLabel, paidLabel, colFilters = {}, type = "sale", pagination = null }) {
   const cf = (col) => `<button class="col-filter-icon ${colFilters[col]?.value ? "active" : ""}" type="button" data-col-filter-btn="${col}" data-col-filter-type="${type}" title="Filter column" aria-label="Filter column"><svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polygon points="1.5 2.5 14.5 2.5 9.5 8.5 9.5 13.5 6.5 14.5 6.5 8.5 1.5 2.5"></polygon></svg></button>`;
   return `
     <div class="data-table-scroll-wrap">
@@ -12691,6 +12709,41 @@ function invoiceRowsTable(rows, { isSale, partyLabel, numberLabel, paidLabel, co
           `).join("")}
         </tbody>
       </table>
+    </div>
+    ${pagination ? invoicePaginationBarHTML(type, pagination) : ""}
+  `;
+}
+
+function invoicePaginationBarHTML(type, { totalRecords, currentPage, totalPages, pageSize }) {
+  if (totalRecords <= 0) return "";
+  const startIdx = pageSize === -1 ? 1 : Math.min((currentPage - 1) * pageSize + 1, totalRecords);
+  const endIdx = pageSize === -1 ? totalRecords : Math.min(currentPage * pageSize, totalRecords);
+
+  return `
+    <div class="table-pagination-bar" data-pagination-type="${type}">
+      <div class="table-pagination-info">
+        Showing <strong>${startIdx}–${endIdx}</strong> of <strong>${totalRecords}</strong> records
+      </div>
+      <div class="table-pagination-controls">
+        <label class="table-pagination-size-label">
+          <span>Per page:</span>
+          <select class="table-pagination-select" data-page-size-type="${type}">
+            <option value="25" ${pageSize === 25 ? "selected" : ""}>25</option>
+            <option value="50" ${pageSize === 50 ? "selected" : ""}>50</option>
+            <option value="100" ${pageSize === 100 ? "selected" : ""}>100</option>
+            <option value="-1" ${pageSize === -1 ? "selected" : ""}>All</option>
+          </select>
+        </label>
+        <div class="table-pagination-nav">
+          <button class="pagination-btn" type="button" data-page-action="prev" data-page-type="${type}" ${currentPage <= 1 ? "disabled" : ""} title="Previous page">
+            ‹ Prev
+          </button>
+          <span class="pagination-page-indicator">Page <strong>${currentPage}</strong> of <strong>${totalPages}</strong></span>
+          <button class="pagination-btn" type="button" data-page-action="next" data-page-type="${type}" ${currentPage >= totalPages ? "disabled" : ""} title="Next page">
+            Next ›
+          </button>
+        </div>
+      </div>
     </div>
   `;
 }
@@ -14693,6 +14746,7 @@ function bindFeatureActions() {
     } else {
       saleInvoiceSearchQuery = invoiceSearchInput.value.trim().toLowerCase();
     }
+    if (invoicePagination[invoiceType]) invoicePagination[invoiceType].page = 1;
     elements.featureView.innerHTML = invoiceWorkspaceTemplate(invoiceType);
     bindFeatureActions();
     const nextSearchInput = elements.featureView.querySelector("[data-invoice-search]");
@@ -14709,6 +14763,7 @@ function bindFeatureActions() {
       } else {
         saleInvoiceQuickFilter = value;
       }
+      if (invoicePagination[invoiceType]) invoicePagination[invoiceType].page = 1;
       elements.featureView.innerHTML = invoiceWorkspaceTemplate(invoiceType);
       bindFeatureActions();
     });
@@ -14742,6 +14797,7 @@ function bindFeatureActions() {
         targetFilter.dateFrom = targetFilter.dateFrom || currentRange.from;
         targetFilter.dateTo = targetFilter.dateTo || currentRange.to;
       }
+      if (invoicePagination[type]) invoicePagination[type].page = 1;
       refreshActiveTransactionView(type);
     });
   });
@@ -14753,6 +14809,7 @@ function bindFeatureActions() {
       const key = input.dataset.dateKey;
       const targetFilter = getTransactionTopFilter(type);
       targetFilter[key] = input.value;
+      if (invoicePagination[type]) invoicePagination[type].page = 1;
       refreshActiveTransactionView(type);
     });
   });
@@ -14763,6 +14820,7 @@ function bindFeatureActions() {
       const type = sel.dataset.topFilterParty;
       const targetFilter = getTransactionTopFilter(type);
       targetFilter.party = sel.value;
+      if (invoicePagination[type]) invoicePagination[type].page = 1;
       refreshActiveTransactionView(type);
     });
   });
@@ -14776,6 +14834,7 @@ function bindFeatureActions() {
       } else {
         saleInvoiceSearchQuery = "";
       }
+      if (invoicePagination[type]) invoicePagination[type].page = 1;
       refreshActiveTransactionView(type);
     });
   });
@@ -14802,6 +14861,7 @@ function bindFeatureActions() {
       } else if (type === "expenses") {
         expenseSearchQuery = "";
       }
+      if (invoicePagination[type]) invoicePagination[type].page = 1;
       refreshActiveTransactionView(type);
     });
   });
@@ -14885,6 +14945,7 @@ function bindFeatureActions() {
         const val2 = popover.querySelector("#colFilterValue2")?.value || "";
         if (type === "purchase") { purchaseColumnFilters[col] = { category: cat, value: val, value2: val2 }; }
         else { saleColumnFilters[col] = { category: cat, value: val, value2: val2 }; }
+        if (invoicePagination[type]) invoicePagination[type].page = 1;
         popover.remove();
         elements.featureView.innerHTML = invoiceWorkspaceTemplate(type);
         bindFeatureActions();
@@ -14894,10 +14955,37 @@ function bindFeatureActions() {
       popover.querySelector("#colFilterClear").addEventListener("click", () => {
         if (type === "purchase") { delete purchaseColumnFilters[col]; }
         else { delete saleColumnFilters[col]; }
+        if (invoicePagination[type]) invoicePagination[type].page = 1;
         popover.remove();
         elements.featureView.innerHTML = invoiceWorkspaceTemplate(type);
         bindFeatureActions();
       });
+    });
+  });
+
+  // Table pagination controls
+  elements.featureView.querySelectorAll("[data-page-action]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const type = btn.dataset.pageType;
+      const action = btn.dataset.pageAction;
+      if (!invoicePagination[type]) invoicePagination[type] = { page: 1, pageSize: 50 };
+      if (action === "prev") {
+        invoicePagination[type].page = Math.max(1, (invoicePagination[type].page || 1) - 1);
+      } else if (action === "next") {
+        invoicePagination[type].page = (invoicePagination[type].page || 1) + 1;
+      }
+      refreshActiveTransactionView(type);
+    });
+  });
+
+  elements.featureView.querySelectorAll("[data-page-size-type]").forEach((sel) => {
+    sel.addEventListener("change", () => {
+      const type = sel.dataset.pageSizeType;
+      const val = parseInt(sel.value, 10);
+      if (!invoicePagination[type]) invoicePagination[type] = { page: 1, pageSize: 50 };
+      invoicePagination[type].pageSize = isNaN(val) ? 50 : val;
+      invoicePagination[type].page = 1;
+      refreshActiveTransactionView(type);
     });
   });
 
@@ -20844,7 +20932,21 @@ function partiesTemplate(selectedPartyId = null, activeTab = "transactions", que
         <aside class="party-list-panel">
           <div class="party-list-meta">${escapeHtml(listMeta)}</div>
           <div class="party-list">
-            ${parties.map((party) => partyListButton(party, selectedId)).join("") || '<div class="empty-table">No parties match the current filters.</div>'}
+            ${(() => {
+              const PARTIES_DISPLAY_LIMIT = 80;
+              let displayParties = parties;
+              let hasMoreParties = false;
+              if (parties.length > PARTIES_DISPLAY_LIMIT) {
+                hasMoreParties = true;
+                displayParties = parties.slice(0, PARTIES_DISPLAY_LIMIT);
+                if (selectedParty && !displayParties.some((p) => String(p.id) === String(selectedParty.id))) {
+                  displayParties.push(selectedParty);
+                }
+              }
+              const buttons = displayParties.map((party) => partyListButton(party, selectedId)).join("");
+              const hint = hasMoreParties ? `<div class="party-list-more-hint">Showing 80 of ${parties.length} parties. Use search to find any party instantly.</div>` : "";
+              return (buttons || '<div class="empty-table">No parties match the current filters.</div>') + hint;
+            })()}
           </div>
         </aside>
         <main class="party-detail-panel">
@@ -21524,7 +21626,21 @@ function itemsTemplate(selectedItemId = null, activeTab = "overview", query = it
         <aside class="item-list-panel">
           <div class="item-list-meta">${escapeHtml(listMeta)}</div>
           <div class="item-list">
-            ${items.map((item) => itemListButton(item, selectedId)).join("") || '<div class="empty-table">No items match the current filters.</div>'}
+            ${(() => {
+              const ITEMS_DISPLAY_LIMIT = 80;
+              let displayItems = items;
+              let hasMoreItems = false;
+              if (items.length > ITEMS_DISPLAY_LIMIT) {
+                hasMoreItems = true;
+                displayItems = items.slice(0, ITEMS_DISPLAY_LIMIT);
+                if (selectedItem && !displayItems.some((i) => Number(i.id) === Number(selectedItem.id))) {
+                  displayItems.push(selectedItem);
+                }
+              }
+              const buttons = displayItems.map((item) => itemListButton(item, selectedId)).join("");
+              const hint = hasMoreItems ? `<div class="party-list-more-hint">Showing 80 of ${items.length} items. Use search to find any item instantly.</div>` : "";
+              return (buttons || '<div class="empty-table">No items match the current filters.</div>') + hint;
+            })()}
           </div>
         </aside>
         <main class="item-detail-panel">

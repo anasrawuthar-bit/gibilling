@@ -12,9 +12,19 @@ let lastMigrationResult = null;
 
 const SCHEMA_VERSION = 9;
 
-function enforceForeignKeys(database = db) {
+function configureDatabasePerformance(database = db) {
   if (!database) return;
   database.run("PRAGMA foreign_keys = ON;");
+  database.run("PRAGMA cache_size = -64000;"); // 64 MB memory page cache for high-volume transactions
+  database.run("PRAGMA temp_store = MEMORY;"); // Hold temp tables, joins, and sort hashes in RAM
+  database.run("PRAGMA automatic_index = ON;"); // Ephemeral indices for complex ad-hoc queries
+  database.run("PRAGMA synchronous = NORMAL;");
+  database.run("PRAGMA analysis_limit = 1000;");
+}
+
+function enforceForeignKeys(database = db) {
+  if (!database) return;
+  configureDatabasePerformance(database);
   const rows = queryRows(database, "PRAGMA foreign_keys;");
   const enabled = Number(rows[0]?.foreign_keys ?? Object.values(rows[0] || {})[0] ?? 0);
   if (enabled !== 1) {
@@ -169,6 +179,7 @@ async function initDatabase(userDataPath, options = {}) {
     ensureUsersSchema();
     cleanupOrphanExpenseItems();
     run("UPDATE sync_outbox SET status = 'retry', next_attempt_at = NULL, last_error_code = 'INTERRUPTED' WHERE status = 'uploading'");
+    createIndexes(db);
     persist();
     return getState();
   } catch (error) {
@@ -1276,36 +1287,87 @@ function migrate() {
   createIndexes();
 }
 
-function createIndexes() {
-  db.run(`
+function createIndexes(database = db) {
+  const target = database || db;
+  if (!target) return;
+
+  // 1. Base indexes for tables and columns present in initial schema
+  target.run(`
     CREATE INDEX IF NOT EXISTS idx_transactions_company_type_date ON transactions(company_id, type, transaction_date);
     CREATE INDEX IF NOT EXISTS idx_transactions_company_party ON transactions(company_id, party);
+    CREATE INDEX IF NOT EXISTS idx_transactions_company_created ON transactions(company_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_transactions_company_type_item ON transactions(company_id, type, item);
+
     CREATE INDEX IF NOT EXISTS idx_invoices_company_type_date ON invoices(company_id, type, invoice_date);
     CREATE INDEX IF NOT EXISTS idx_invoices_company_party ON invoices(company_id, party);
+    CREATE INDEX IF NOT EXISTS idx_invoices_company_created ON invoices(company_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_invoices_company_date ON invoices(company_id, invoice_date DESC);
+    CREATE INDEX IF NOT EXISTS idx_invoices_company_status ON invoices(company_id, status);
+    CREATE INDEX IF NOT EXISTS idx_invoices_company_type_status ON invoices(company_id, type, status);
+
     CREATE INDEX IF NOT EXISTS idx_invoice_items_invoice ON invoice_items(invoice_id);
     CREATE INDEX IF NOT EXISTS idx_invoice_items_item ON invoice_items(item_id);
+
     CREATE INDEX IF NOT EXISTS idx_estimates_company_status_date ON estimates(company_id, status, quote_date);
     CREATE INDEX IF NOT EXISTS idx_estimates_company_party ON estimates(company_id, party);
+    CREATE INDEX IF NOT EXISTS idx_estimates_company_created ON estimates(company_id, created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_estimate_items_estimate ON estimate_items(estimate_id);
     CREATE INDEX IF NOT EXISTS idx_estimate_items_item ON estimate_items(item_id);
+
     CREATE INDEX IF NOT EXISTS idx_credit_notes_company_status_date ON credit_notes(company_id, status, credit_date);
     CREATE INDEX IF NOT EXISTS idx_credit_notes_company_party ON credit_notes(company_id, party);
+    CREATE INDEX IF NOT EXISTS idx_credit_notes_company_created ON credit_notes(company_id, created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_credit_note_items_note ON credit_note_items(credit_note_id);
     CREATE INDEX IF NOT EXISTS idx_credit_note_items_item ON credit_note_items(item_id);
-    CREATE INDEX IF NOT EXISTS idx_debit_notes_company_status_date ON debit_notes(company_id, status, debit_date);
-    CREATE INDEX IF NOT EXISTS idx_debit_notes_company_party ON debit_notes(company_id, party);
-    CREATE INDEX IF NOT EXISTS idx_debit_note_items_note ON debit_note_items(debit_note_id);
-    CREATE INDEX IF NOT EXISTS idx_debit_note_items_item ON debit_note_items(item_id);
+
     CREATE INDEX IF NOT EXISTS idx_payments_company_date ON payments(company_id, payment_date);
+    CREATE INDEX IF NOT EXISTS idx_payments_company_created ON payments(company_id, created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_payments_invoice ON payments(invoice_id);
+
     CREATE INDEX IF NOT EXISTS idx_stock_movements_company_item_date ON stock_movements(company_id, item_id, movement_date);
-    CREATE INDEX IF NOT EXISTS idx_ledger_company_date ON ledger_entries(company_id, entry_date);
+    CREATE INDEX IF NOT EXISTS idx_stock_movements_covering ON stock_movements(company_id, item_id, movement_type, quantity);
+
     CREATE INDEX IF NOT EXISTS idx_parties_company_name ON parties(company_id, name);
+    CREATE INDEX IF NOT EXISTS idx_parties_company_id_desc ON parties(company_id, id DESC);
+    CREATE INDEX IF NOT EXISTS idx_parties_company_phone ON parties(company_id, phone);
+
     CREATE INDEX IF NOT EXISTS idx_items_company_name ON items(company_id, name);
+    CREATE INDEX IF NOT EXISTS idx_items_company_id_desc ON items(company_id, id DESC);
+    CREATE INDEX IF NOT EXISTS idx_items_company_sku ON items(company_id, sku);
+    CREATE INDEX IF NOT EXISTS idx_items_company_type ON items(company_id, item_type);
+
     CREATE INDEX IF NOT EXISTS idx_units_company_name ON units(company_id, name);
     CREATE INDEX IF NOT EXISTS idx_item_categories_company_name ON item_categories(company_id, name);
     CREATE INDEX IF NOT EXISTS idx_bank_accounts_company_default ON bank_accounts(company_id, is_default, display_name);
   `);
+
+  // 2. Progressive indexes for tables / columns introduced in later migrations (party_id, debit_notes, ledger, audit)
+  const progressiveIndexes = [
+    "CREATE INDEX IF NOT EXISTS idx_invoices_company_party_id_status ON invoices(company_id, party_id, status)",
+    "CREATE INDEX IF NOT EXISTS idx_credit_notes_company_party_id_status ON credit_notes(company_id, party_id, status)",
+    "CREATE INDEX IF NOT EXISTS idx_debit_notes_company_status_date ON debit_notes(company_id, status, debit_date)",
+    "CREATE INDEX IF NOT EXISTS idx_debit_notes_company_party ON debit_notes(company_id, party)",
+    "CREATE INDEX IF NOT EXISTS idx_debit_notes_company_party_id_status ON debit_notes(company_id, party_id, status)",
+    "CREATE INDEX IF NOT EXISTS idx_debit_notes_company_created ON debit_notes(company_id, created_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_debit_note_items_note ON debit_note_items(debit_note_id)",
+    "CREATE INDEX IF NOT EXISTS idx_debit_note_items_item ON debit_note_items(item_id)",
+    "CREATE INDEX IF NOT EXISTS idx_payments_company_party_id_invoice ON payments(company_id, party_id, invoice_id)",
+    "CREATE INDEX IF NOT EXISTS idx_ledger_company_date ON ledger_entries(company_id, entry_date)",
+    "CREATE INDEX IF NOT EXISTS idx_ledger_company_account_date ON ledger_entries(company_id, account_code, entry_date)",
+    "CREATE INDEX IF NOT EXISTS idx_ledger_source ON ledger_entries(source_type, source_id)",
+    "CREATE INDEX IF NOT EXISTS idx_audit_trail_company_created ON audit_trail(company_id, created_at DESC)"
+  ];
+
+  for (const idxSql of progressiveIndexes) {
+    try {
+      target.run(idxSql + ";");
+    } catch (_) {}
+  }
+
+  try {
+    target.run("ANALYZE;");
+    target.run("PRAGMA optimize;");
+  } catch (_) {}
 }
 
 function migrateGstComplianceAndJournalTables() {
@@ -1693,15 +1755,15 @@ function getState() {
        ) sb ON sb.item_id = i.id
        WHERE i.company_id = ?
          AND NOT (
-           EXISTS (SELECT 1 FROM transactions t WHERE t.company_id = i.company_id AND t.type = 'expense' AND LOWER(TRIM(t.item)) = LOWER(TRIM(i.name)))
+           COALESCE(i.opening_stock, 0) = 0
+           AND COALESCE(i.sale_price, 0) = 0
+           AND COALESCE(i.purchase_price, 0) = 0
+           AND EXISTS (SELECT 1 FROM transactions t WHERE t.company_id = i.company_id AND t.type = 'expense' AND LOWER(TRIM(t.item)) = LOWER(TRIM(i.name)))
            AND NOT EXISTS (SELECT 1 FROM invoice_items ii WHERE ii.item_id = i.id OR LOWER(TRIM(ii.item_name)) = LOWER(TRIM(i.name)))
            AND NOT EXISTS (SELECT 1 FROM estimate_items ei WHERE ei.item_id = i.id OR LOWER(TRIM(ei.item_name)) = LOWER(TRIM(i.name)))
            AND NOT EXISTS (SELECT 1 FROM credit_note_items cni WHERE cni.item_id = i.id OR LOWER(TRIM(cni.item_name)) = LOWER(TRIM(i.name)))
            AND NOT EXISTS (SELECT 1 FROM debit_note_items dni WHERE dni.item_id = i.id OR LOWER(TRIM(dni.item_name)) = LOWER(TRIM(i.name)))
            AND NOT EXISTS (SELECT 1 FROM stock_movements sm WHERE sm.item_id = i.id)
-           AND COALESCE(i.opening_stock, 0) = 0
-           AND COALESCE(i.sale_price, 0) = 0
-           AND COALESCE(i.purchase_price, 0) = 0
          )
        ORDER BY i.id DESC`,
       [currentCompany.id, currentCompany.id],
