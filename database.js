@@ -3202,6 +3202,21 @@ function createTransactionUnsafe(entry) {
     ],
   );
 
+  const rawSplits = Array.isArray(entry.splitPayments) && entry.splitPayments.length > 0
+    ? entry.splitPayments
+    : Array.isArray(entry.payments) && entry.payments.length > 0
+    ? entry.payments
+    : Array.isArray(entry.meta?.splitPayments) && entry.meta.splitPayments.length > 0
+    ? entry.meta.splitPayments
+    : null;
+  const splitPayments = Array.isArray(rawSplits) ? rawSplits.filter(p => Number(p.amount || 0) > 0) : null;
+  if (splitPayments && splitPayments.length > 0) {
+    entry.meta = { ...(entry.meta || {}), splitPayments };
+    if (!entry.paymentMethod || entry.paymentMethod === "Cash") {
+      entry.paymentMethod = splitPayments.map(p => p.method).filter(Boolean).join(", ");
+    }
+  }
+
   if (transaction.invoiceId && (transaction.type === "sale" || transaction.type === "purchase")) {
     createInvoiceRecord(company.id, transaction, entry, invoiceItems, invoiceTotals, now);
     postStockMovements(company.id, transaction, invoiceItems, now);
@@ -3254,7 +3269,7 @@ function createTransactionUnsafe(entry) {
     postExpenseTaxEntries(company.id, transaction, now);
   }
   if (transaction.invoiceId && invoiceTotals.received > 0) {
-    createInitialPayment(company.id, transaction, invoiceTotals.received, entry.paymentMethod || "Cash", now);
+    createInitialPayment(company.id, transaction, invoiceTotals.received, entry.paymentMethod || "Cash", now, splitPayments);
   }
   if (sourceEstimateId) {
     run("UPDATE estimates SET status = 'converted', converted_invoice_id = ?, updated_at = ? WHERE company_id = ? AND id = ?", [transaction.invoiceId, now, company.id, sourceEstimateId]);
@@ -3591,6 +3606,17 @@ function updateInvoiceUnsafe(entry) {
   );
 
   let meta = typeof entry.meta === "object" && entry.meta !== null ? { ...entry.meta } : {};
+  const rawSplits = Array.isArray(entry.splitPayments) && entry.splitPayments.length > 0
+    ? entry.splitPayments
+    : Array.isArray(entry.payments) && entry.payments.length > 0
+    ? entry.payments
+    : Array.isArray(entry.meta?.splitPayments) && entry.meta.splitPayments.length > 0
+    ? entry.meta.splitPayments
+    : null;
+  const splitPayments = Array.isArray(rawSplits) ? rawSplits.filter(p => Number(p.amount || 0) > 0) : null;
+  if (splitPayments && splitPayments.length > 0) {
+    meta.splitPayments = splitPayments;
+  }
   let existingMeta = {};
   try {
     existingMeta = JSON.parse(existing.metaJson || "{}");
@@ -3777,7 +3803,7 @@ function updateInvoiceUnsafe(entry) {
   }
   recordedPayments.forEach((payment) => postPaymentLedger(company.id, transaction, payment));
   if (!recordedPayments.length && invoiceTotals.received > 0) {
-    createInitialPayment(company.id, transaction, invoiceTotals.received, entry.paymentMethod || "Cash", now);
+    createInitialPayment(company.id, transaction, invoiceTotals.received, entry.paymentMethod || "Cash", now, splitPayments);
   }
   updatePurchaseDefaults(company.id, { ...entry, type }, invoiceItems);
   if (invoiceNo) {
@@ -5478,7 +5504,45 @@ function calculateInvoiceTotals(items, fallbackTotal, received, roundOff = false
   };
 }
 
-function createInitialPayment(companyId, transaction, amount, method, now) {
+function createInitialPayment(companyId, transaction, amount, method, now, splitPayments = null) {
+  const splits = Array.isArray(splitPayments) ? splitPayments.filter((p) => Number(p.amount || 0) > 0) : [];
+  if (splits.length > 0) {
+    for (const sp of splits) {
+      const splitAmt = Number(sp.amount || 0);
+      const splitMethod = String(sp.method || "Cash").trim();
+      const p = {
+        id: makeId(),
+        type: transaction.type === "sale" ? "payment_in" : "payment_out",
+        party: transaction.party,
+        amount: splitAmt,
+        method: splitMethod,
+        date: sp.date || sp.paymentDate || transaction.date || now,
+        notes: sp.notes || `Initial ${transaction.type === "sale" ? "receipt" : "payment"} for ${transaction.invoiceNo} (${splitMethod})`,
+      };
+      run(
+        `INSERT INTO payments
+          (id, company_id, invoice_id, transaction_id, type, party, party_id, amount, method, payment_date, notes, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          p.id,
+          companyId,
+          transaction.invoiceId,
+          transaction.id,
+          p.type,
+          p.party,
+          transaction.partyId || resolvePartyId(companyId, null, p.party),
+          p.amount,
+          p.method,
+          p.date,
+          p.notes,
+          now,
+        ],
+      );
+      postPaymentLedger(companyId, transaction, p);
+    }
+    return;
+  }
+
   const payment = {
     id: makeId(),
     type: transaction.type === "sale" ? "payment_in" : "payment_out",
@@ -5514,7 +5578,18 @@ function createInitialPayment(companyId, transaction, amount, method, now) {
 
 function validatePaymentRequest(payload = {}, invoiceType) {
   const company = getCurrentCompany();
-  const amount = Number(payload.amount);
+  let amount = Number(payload.amount);
+  if (Array.isArray(payload.payments) && payload.payments.length > 0) {
+    let sum = 0;
+    for (const p of payload.payments) {
+      const pAmt = Number(p.amount);
+      if (!Number.isFinite(pAmt) || pAmt <= 0) {
+        throw new Error('Each split payment amount must be finite and greater than zero.');
+      }
+      sum += pAmt;
+    }
+    amount = sum;
+  }
   if (!Number.isFinite(amount) || amount <= 0) throw new Error('Payment amount must be finite and greater than zero.');
   if (payload.allocations != null && !Array.isArray(payload.allocations)) throw new Error('Invalid payment allocations.');
   const allocations = payload.allocations || [];
@@ -5551,6 +5626,28 @@ function recordPaymentIn(payload) {
 }
 
 function recordPaymentInUnsafe(payload = {}) {
+  if (Array.isArray(payload.payments) && payload.payments.length > 0) {
+    const splitList = payload.payments.filter((p) => Number(p.amount || 0) > 0);
+    if (splitList.length > 0) {
+      for (const sp of splitList) {
+        recordPaymentInUnsafe({
+          ...payload,
+          payments: undefined,
+          amount: Number(sp.amount),
+          method: sp.method || payload.method || "Cash",
+          notes: sp.notes || payload.notes || "",
+          paymentDate: sp.paymentDate || payload.paymentDate || "",
+          _skipPersist: true,
+        });
+      }
+      if (!payload._skipPersist) {
+        persist();
+        return getState();
+      }
+      return;
+    }
+  }
+
   const {
     invoiceId = null,
     amount = 0,
@@ -5624,8 +5721,11 @@ function recordPaymentInUnsafe(payload = {}) {
       );
       postPaymentLedger(company.id, { id: txId, date }, { type: "payment_in", party: targetParty, amount: unallocated, method, date, notes: notes || "On-account payment" });
     }
-    persist();
-    return getState();
+    if (!payload._skipPersist) {
+      persist();
+      return getState();
+    }
+    return;
   }
 
   // Case B: Single invoice linked
@@ -5677,8 +5777,11 @@ function recordPaymentInUnsafe(payload = {}) {
       postPaymentLedger(company.id, { id: txId, date }, { type: "payment_in", party: invoice.party, amount: unallocatedAmount, method, date, notes: notes || "Advance receipt excess" });
     }
 
-    persist();
-    return getState();
+    if (!payload._skipPersist) {
+      persist();
+      return getState();
+    }
+    return;
   }
 
   // Case C: On-account payment / customer advance
@@ -5700,8 +5803,11 @@ function recordPaymentInUnsafe(payload = {}) {
   );
   postPaymentLedger(company.id, { id: txId, date }, { type: "payment_in", party: cleanParty, amount: numAmount, method, date, notes: notes || "On-account payment" });
 
-  persist();
-  return getState();
+  if (!payload._skipPersist) {
+    persist();
+    return getState();
+  }
+  return;
 }
 
 function recordPaymentOut(payload) {
@@ -5709,6 +5815,28 @@ function recordPaymentOut(payload) {
 }
 
 function recordPaymentOutUnsafe(payload = {}) {
+  if (Array.isArray(payload.payments) && payload.payments.length > 0) {
+    const splitList = payload.payments.filter((p) => Number(p.amount || 0) > 0);
+    if (splitList.length > 0) {
+      for (const sp of splitList) {
+        recordPaymentOutUnsafe({
+          ...payload,
+          payments: undefined,
+          amount: Number(sp.amount),
+          method: sp.method || payload.method || "Cash",
+          notes: sp.notes || payload.notes || "",
+          paymentDate: sp.paymentDate || payload.paymentDate || "",
+          _skipPersist: true,
+        });
+      }
+      if (!payload._skipPersist) {
+        persist();
+        return getState();
+      }
+      return;
+    }
+  }
+
   const {
     invoiceId = null,
     amount = 0,
@@ -5782,8 +5910,11 @@ function recordPaymentOutUnsafe(payload = {}) {
       );
       postPaymentLedger(company.id, { id: txId, date }, { type: "payment_out", party: targetParty, amount: unallocated, method, date, notes: notes || "Supplier advance" });
     }
-    persist();
-    return getState();
+    if (!payload._skipPersist) {
+      persist();
+      return getState();
+    }
+    return;
   }
 
   // Case B: Single purchase invoice linked
@@ -5835,8 +5966,11 @@ function recordPaymentOutUnsafe(payload = {}) {
       postPaymentLedger(company.id, { id: txId, date }, { type: "payment_out", party: invoice.party, amount: unallocatedAmount, method, date, notes: notes || "Supplier advance excess" });
     }
 
-    persist();
-    return getState();
+    if (!payload._skipPersist) {
+      persist();
+      return getState();
+    }
+    return;
   }
 
   // Case C: Supplier advance (no invoiceId)
@@ -5858,15 +5992,19 @@ function recordPaymentOutUnsafe(payload = {}) {
   );
   postPaymentLedger(company.id, { id: txId, date }, { type: "payment_out", party: cleanParty, amount: numAmount, method, date, notes: notes || "Supplier advance" });
 
-  persist();
-  return getState();
+  if (!payload._skipPersist) {
+    persist();
+    return getState();
+  }
+  return;
 }
 
 function recordInvoicePayment(payload) {
   return inDatabaseTransaction(() => recordInvoicePaymentUnsafe(payload));
 }
 
-function recordInvoicePaymentUnsafe({ invoiceId, amount = 0, method = "Cash", paymentDate = "", notes = "" }) {
+function recordInvoicePaymentUnsafe(payload = {}) {
+  const { invoiceId, amount = 0, method = "Cash", paymentDate = "", notes = "", payments } = payload;
   const company = getCurrentCompany();
   const inv = one(
     "SELECT type FROM invoices WHERE company_id = ? AND id = ?",
@@ -5874,9 +6012,9 @@ function recordInvoicePaymentUnsafe({ invoiceId, amount = 0, method = "Cash", pa
   );
   if (!inv) throw new Error("Invoice not found.");
   if (inv.type === "purchase") {
-    return recordPaymentOutUnsafe({ invoiceId, amount, method, paymentDate, notes });
+    return recordPaymentOutUnsafe({ invoiceId, amount, method, paymentDate, notes, payments });
   }
-  return recordPaymentInUnsafe({ invoiceId, amount, method, paymentDate, notes });
+  return recordPaymentInUnsafe({ invoiceId, amount, method, paymentDate, notes, payments });
 }
 
 function setInvoiceStatus(payload) {

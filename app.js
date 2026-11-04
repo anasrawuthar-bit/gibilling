@@ -2519,6 +2519,165 @@ function editorPaymentMethodOptions(isReturn = false, currentValue = "") {
   return html;
 }
 
+function renderEditorSplitPaymentRow(container, isReturn = false, initial = {}) {
+  const row = document.createElement("div");
+  row.className = "split-payment-row";
+  row.dataset.splitRow = "true";
+  const initialMethod = initial.method || (isReturn ? "Adjustment" : "Cash");
+  const initialAmount = Number(initial.amount || 0);
+  row.innerHTML = `
+    <select class="form-input split-method-select" title="Payment method">
+      ${editorPaymentMethodOptions(isReturn, initialMethod)}
+    </select>
+    <div class="split-amount-wrap">
+      <span class="prefix">₹</span>
+      <input type="number" step="0.01" min="0" class="form-input split-amount-input" value="${initialAmount > 0 ? initialAmount.toFixed(2) : ""}" placeholder="0.00" title="Amount for this method">
+    </div>
+    <button type="button" class="btn-remove-split" title="Remove method">&times;</button>
+  `;
+  container.appendChild(row);
+
+  const amountInput = row.querySelector(".split-amount-input");
+  const methodSelect = row.querySelector(".split-method-select");
+  const removeBtn = row.querySelector(".btn-remove-split");
+
+  amountInput?.addEventListener("input", () => recalcEditorSplitTotals());
+  methodSelect?.addEventListener("change", () => recalcEditorSplitTotals());
+  removeBtn?.addEventListener("click", () => {
+    row.remove();
+    recalcEditorSplitTotals();
+  });
+  return row;
+}
+
+function recalcEditorSplitTotals() {
+  const container = elements.featureView?.querySelector("#editorSplitPaymentRows");
+  if (!container) return;
+  const grandTotal = Number(elements.featureView.querySelector("#editorGrandTotal")?.value || 0);
+  const rows = [...container.querySelectorAll("[data-split-row]")];
+  let sum = 0;
+  rows.forEach((r) => {
+    const amt = Number(r.querySelector(".split-amount-input")?.value || 0);
+    if (amt > 0) sum += amt;
+  });
+  const display = elements.featureView.querySelector("#editorSplitTotalDisplay");
+  if (display) display.textContent = formatCurrency(sum);
+  const receivedInput = elements.featureView.querySelector("#editorReceived");
+  if (receivedInput) {
+    receivedInput.value = sum.toFixed(2);
+    receivedInput.dataset.manualPayment = "true";
+  }
+  const balanceElement = elements.featureView.querySelector("#editorBalance");
+  if (balanceElement) {
+    balanceElement.textContent = Math.max(0, grandTotal - sum).toFixed(2);
+  }
+  renderTransactionSmartChecks(grandTotal, sum);
+}
+
+function setupModalSplitPayments({
+  toggleBtn,
+  closeBtn,
+  addBtn,
+  splitBox,
+  rowsContainer,
+  totalDisplay,
+  singleMethodGroup,
+  amountInput,
+  isReturn = false,
+  getDefaultAmount = () => Number(amountInput?.value || 0),
+}) {
+  if (!toggleBtn || !splitBox || !rowsContainer) return { isSplitActive: () => false, getSplitPayments: () => [] };
+
+  const addRow = (initial = {}) => {
+    const row = document.createElement("div");
+    row.className = "split-payment-row";
+    row.dataset.splitRow = "true";
+    const initialMethod = initial.method || (isReturn ? "Adjustment" : "Cash");
+    const initialAmount = Number(initial.amount || 0);
+    row.innerHTML = `
+      <select class="form-input split-method-select" title="Payment method">
+        ${editorPaymentMethodOptions(isReturn, initialMethod)}
+      </select>
+      <div class="split-amount-wrap">
+        <span class="prefix">₹</span>
+        <input type="number" step="0.01" min="0" class="form-input split-amount-input" value="${initialAmount > 0 ? initialAmount.toFixed(2) : ""}" placeholder="0.00" title="Amount">
+      </div>
+      <button type="button" class="btn-remove-split" title="Remove method">&times;</button>
+    `;
+    rowsContainer.appendChild(row);
+
+    const amtInp = row.querySelector(".split-amount-input");
+    const mSel = row.querySelector(".split-method-select");
+    const remBtn = row.querySelector(".btn-remove-split");
+
+    amtInp?.addEventListener("input", recalc);
+    mSel?.addEventListener("change", recalc);
+    remBtn?.addEventListener("click", () => {
+      row.remove();
+      recalc();
+    });
+    return row;
+  };
+
+  const recalc = () => {
+    const rows = [...rowsContainer.querySelectorAll("[data-split-row]")];
+    let sum = 0;
+    rows.forEach((r) => {
+      const v = Number(r.querySelector(".split-amount-input")?.value || 0);
+      if (v > 0) sum += v;
+    });
+    if (totalDisplay) totalDisplay.textContent = formatCurrency(sum);
+    if (amountInput) amountInput.value = sum > 0 ? sum.toFixed(2) : "";
+  };
+
+  toggleBtn.addEventListener("click", () => {
+    splitBox.classList.remove("hidden");
+    toggleBtn.classList.add("hidden");
+    singleMethodGroup?.classList.add("hidden");
+    if (!rowsContainer.children.length) {
+      const curAmt = getDefaultAmount();
+      addRow({ method: isReturn ? "Adjustment" : "Cash", amount: curAmt > 0 ? curAmt : 0 });
+      addRow({ method: isReturn ? "Cash" : "UPI", amount: 0 });
+    }
+    recalc();
+  });
+
+  closeBtn?.addEventListener("click", () => {
+    splitBox.classList.add("hidden");
+    toggleBtn.classList.remove("hidden");
+    singleMethodGroup?.classList.remove("hidden");
+    rowsContainer.innerHTML = "";
+  });
+
+  addBtn?.addEventListener("click", () => {
+    const targetTotal = getDefaultAmount();
+    let curSum = 0;
+    const usedMethods = new Set();
+    [...rowsContainer.querySelectorAll("[data-split-row]")].forEach((r) => {
+      curSum += Number(r.querySelector(".split-amount-input")?.value || 0);
+      usedMethods.add(r.querySelector(".split-method-select")?.value);
+    });
+    const remaining = Math.max(0, targetTotal - curSum);
+    const candidateMethods = isReturn ? ["Adjustment", "Cash", "Bank", "UPI"] : ["Cash", "UPI", "Bank", "Cheque", "Card"];
+    const nextMethod = candidateMethods.find((m) => !usedMethods.has(m)) || "Cash";
+    addRow({ method: nextMethod, amount: remaining });
+    recalc();
+  });
+
+  return {
+    isSplitActive: () => !splitBox.classList.contains("hidden"),
+    getSplitPayments: () => {
+      if (splitBox.classList.contains("hidden")) return [];
+      return [...rowsContainer.querySelectorAll("[data-split-row]")].map((r) => ({
+        method: r.querySelector(".split-method-select")?.value || "Cash",
+        amount: Number(r.querySelector(".split-amount-input")?.value || 0),
+      })).filter((sp) => sp.amount > 0);
+    },
+    addRow,
+    recalc,
+  };
+}
+
 function getFinancialYearCode(date = new Date()) {
   let d;
   if (typeof date === "string") {
@@ -2993,7 +3152,28 @@ function transactionEditorTemplate(type = getTransactionEditorType()) {
           </aside>
           <aside class="editor-totals">
             <input type="hidden" name="paymentType" id="editorPaymentType" value="${isEstimate ? "quote" : isReturn ? "return" : "cash"}">
-            ${isEstimate ? "" : `<label class="editor-payment-method-line">${isReturn ? "Adjustment Method" : "Payment Method"}<select class="form-input" name="paymentMethod" id="editorPaymentMethod">${editorPaymentMethodOptions(isReturn)}</select></label>`}
+            ${isEstimate ? "" : `
+              <div class="editor-payment-method-container" id="editorPaymentMethodContainer">
+                <div class="editor-payment-method-single-row" id="editorSinglePaymentMethodRow">
+                  <label class="editor-payment-method-line">
+                    ${isReturn ? "Adjustment Method" : "Payment Method"}
+                    <select class="form-input" name="paymentMethod" id="editorPaymentMethod">${editorPaymentMethodOptions(isReturn)}</select>
+                  </label>
+                  <button type="button" class="btn-split-toggle-link" id="btnToggleSplitPayment" title="Split payment across multiple methods">+ Split Payment</button>
+                </div>
+                <div class="editor-split-payments-box hidden" id="editorSplitPaymentsBox">
+                  <div class="split-payments-header">
+                    <span><strong>Split Payment Methods</strong></span>
+                    <button type="button" class="btn-split-close-link" id="btnCloseSplitPayment" title="Revert to single payment method">Single Method</button>
+                  </div>
+                  <div class="split-payments-list" id="editorSplitPaymentRows"></div>
+                  <div class="split-payments-footer">
+                    <button type="button" class="btn-add-split-row" id="btnAddSplitRow">+ Add Method</button>
+                    <span class="split-total-badge">Split Total: <strong id="editorSplitTotalDisplay">₹0.00</strong></span>
+                  </div>
+                </div>
+              </div>
+            `}
             <div class="editor-total-line"><span>Subtotal</span><strong id="editorSubtotal">0.00</strong></div>
             <div class="editor-total-line"><span>Discount</span><strong id="editorDiscountTotal">0.00</strong></div>
             <div class="editor-total-line"><span>Tax</span><strong id="editorTaxTotal">0.00</strong></div>
@@ -3215,6 +3395,26 @@ function populateTransactionEditorDraft(draft) {
   if (paymentAmountInput && draft.received !== undefined) {
     paymentAmountInput.value = Number(draft.received || 0).toFixed(2);
     paymentAmountInput.dataset.manualPayment = "true";
+  }
+
+  const draftSplits = Array.isArray(draft.splitPayments) && draft.splitPayments.length > 0
+    ? draft.splitPayments
+    : Array.isArray(draft.meta?.splitPayments) && draft.meta.splitPayments.length > 0
+    ? draft.meta.splitPayments
+    : null;
+  if (draftSplits && draftSplits.length > 0) {
+    const splitBox = elements.featureView.querySelector("#editorSplitPaymentsBox");
+    const singleRow = elements.featureView.querySelector("#editorSinglePaymentMethodRow");
+    const rowsContainer = elements.featureView.querySelector("#editorSplitPaymentRows");
+    const editorType = getTransactionEditorType();
+    const isReturn = editorType === "saleReturn" || editorType === "purchaseReturn";
+    if (splitBox && singleRow && rowsContainer) {
+      splitBox.classList.remove("hidden");
+      singleRow.classList.add("hidden");
+      rowsContainer.innerHTML = "";
+      draftSplits.forEach((sp) => renderEditorSplitPaymentRow(rowsContainer, isReturn, sp));
+      recalcEditorSplitTotals();
+    }
   }
   populateCustomFieldValues(draft.customFields || draft.meta?.customFields || {});
 
@@ -3502,6 +3702,55 @@ function bindTransactionEditor() {
   elements.featureView.querySelector("#editorReceived")?.addEventListener("input", () => {
     const paymentAmount = elements.featureView.querySelector("#editorReceived");
     if (paymentAmount) paymentAmount.dataset.manualPayment = "true";
+  });
+  elements.featureView.querySelector("#btnToggleSplitPayment")?.addEventListener("click", () => {
+    const splitBox = elements.featureView.querySelector("#editorSplitPaymentsBox");
+    const singleRow = elements.featureView.querySelector("#editorSinglePaymentMethodRow");
+    const rowsContainer = elements.featureView.querySelector("#editorSplitPaymentRows");
+    const editorType = getTransactionEditorType();
+    const isReturn = editorType === "saleReturn" || editorType === "purchaseReturn";
+    if (!splitBox || !rowsContainer) return;
+    splitBox.classList.remove("hidden");
+    singleRow?.classList.add("hidden");
+    if (!rowsContainer.children.length) {
+      const curMethod = elements.featureView.querySelector("#editorPaymentMethod")?.value || (isReturn ? "Adjustment" : "Cash");
+      const grandTotal = Number(elements.featureView.querySelector("#editorGrandTotal")?.value || 0);
+      const curReceived = Number(elements.featureView.querySelector("#editorReceived")?.value || 0);
+      const initialAmt = curReceived > 0 ? curReceived : grandTotal;
+      renderEditorSplitPaymentRow(rowsContainer, isReturn, { method: curMethod, amount: initialAmt });
+      renderEditorSplitPaymentRow(rowsContainer, isReturn, { method: curMethod === "Cash" ? "UPI" : "Cash", amount: 0 });
+    }
+    recalcEditorSplitTotals();
+  });
+  elements.featureView.querySelector("#btnCloseSplitPayment")?.addEventListener("click", () => {
+    const splitBox = elements.featureView.querySelector("#editorSplitPaymentsBox");
+    const singleRow = elements.featureView.querySelector("#editorSinglePaymentMethodRow");
+    const rowsContainer = elements.featureView.querySelector("#editorSplitPaymentRows");
+    if (!splitBox) return;
+    splitBox.classList.add("hidden");
+    singleRow?.classList.remove("hidden");
+    if (rowsContainer) rowsContainer.innerHTML = "";
+    const paymentAmount = elements.featureView.querySelector("#editorReceived");
+    if (paymentAmount) delete paymentAmount.dataset.manualPayment;
+    recalcTransactionEditor();
+  });
+  elements.featureView.querySelector("#btnAddSplitRow")?.addEventListener("click", () => {
+    const rowsContainer = elements.featureView.querySelector("#editorSplitPaymentRows");
+    if (!rowsContainer) return;
+    const editorType = getTransactionEditorType();
+    const isReturn = editorType === "saleReturn" || editorType === "purchaseReturn";
+    const grandTotal = Number(elements.featureView.querySelector("#editorGrandTotal")?.value || 0);
+    let curSum = 0;
+    const usedMethods = new Set();
+    [...rowsContainer.querySelectorAll("[data-split-row]")].forEach((r) => {
+      curSum += Number(r.querySelector(".split-amount-input")?.value || 0);
+      usedMethods.add(r.querySelector(".split-method-select")?.value);
+    });
+    const remaining = Math.max(0, grandTotal - curSum);
+    const candidateMethods = isReturn ? ["Adjustment", "Cash", "Bank", "UPI"] : ["Cash", "UPI", "Bank", "Cheque", "Card"];
+    const nextMethod = candidateMethods.find((m) => !usedMethods.has(m)) || "Cash";
+    renderEditorSplitPaymentRow(rowsContainer, isReturn, { method: nextMethod, amount: remaining });
+    recalcEditorSplitTotals();
   });
   elements.featureView.querySelectorAll("[data-editor-action]").forEach((button) => {
     button.addEventListener("click", () => handleEditorAction(button.dataset.editorAction));
@@ -5401,6 +5650,17 @@ function buildInvoicePreviewData() {
     sgst: Number(elements.featureView.querySelector("#editorSgstTotal")?.textContent || 0),
     igst: Number(elements.featureView.querySelector("#editorIgstTotal")?.textContent || 0),
     total: Number(elements.featureView.querySelector("#editorGrandTotal")?.value || 0),
+    received: Number(elements.featureView.querySelector("#editorReceived")?.value || 0),
+    balance: Number(elements.featureView.querySelector("#editorBalance")?.textContent || 0),
+    paymentMethod: elements.featureView.querySelector("#editorPaymentMethod")?.value || "Cash",
+    splitPayments: (function() {
+      const box = elements.featureView.querySelector("#editorSplitPaymentsBox");
+      if (!box || box.classList.contains("hidden")) return [];
+      return [...elements.featureView.querySelectorAll("#editorSplitPaymentRows [data-split-row]")].map((r) => ({
+        method: r.querySelector(".split-method-select")?.value || "Cash",
+        amount: Number(r.querySelector(".split-amount-input")?.value || 0),
+      })).filter((sp) => sp.amount > 0);
+    })(),
   };
 }
 
@@ -5877,7 +6137,14 @@ function renderA4Modern(data, bank, upiUri, flags = {}) {
               <span>Grand Total:</span>
               <strong>${formatCurrency(data.total)}</strong>
             </div>
+            ${data.received > 0 ? `<div class="a4-calc-row"><span>Paid / Received:</span> <span>${formatCurrency(data.received)}</span></div>` : ""}
+            ${data.balance > 0 ? `<div class="a4-calc-row" style="color:#e11d48;font-weight:700;"><span>Balance Due:</span> <span>${formatCurrency(data.balance)}</span></div>` : ""}
           </div>
+          ${(data.splitPayments && data.splitPayments.length > 0) ? `
+            <div class="a4-modern-payment-split" style="margin-top:8px;padding:8px 10px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px;font-size:11px;color:#166534;">
+              <strong>Payment Breakdown:</strong> ${data.splitPayments.map(p => `${escapeHtml(p.method)}: ${formatCurrency(p.amount)}`).join(" • ")}
+            </div>
+          ` : ""}
           ${flags.showSignature ? `
             <div class="a4-modern-sign-box">
               <small>For ${escapeHtml(data.business.businessName || state.activeCompany || "ZynBill")}</small>
@@ -7819,6 +8086,18 @@ async function saveTransactionEditor(event) {
     }));
     const amount = Number(elements.featureView.querySelector("#editorGrandTotal")?.value || 0);
     const received = Number(elements.featureView.querySelector("#editorReceived")?.value || 0);
+    const splitBox = formElement.querySelector("#editorSplitPaymentsBox");
+    const isSplitActive = splitBox && !splitBox.classList.contains("hidden");
+    let splitPayments = null;
+    if (isSplitActive) {
+      splitPayments = [...formElement.querySelectorAll("#editorSplitPaymentRows [data-split-row]")].map((r) => ({
+        method: r.querySelector(".split-method-select")?.value || "Cash",
+        amount: Number(r.querySelector(".split-amount-input")?.value || 0),
+      })).filter((sp) => sp.amount > 0);
+    }
+    const finalReceived = (splitPayments && splitPayments.length > 0)
+      ? splitPayments.reduce((sum, sp) => sum + sp.amount, 0)
+      : received;
     const invoiceDescription = String(form.get("invoiceDescription") || "").trim();
     const customFields = collectCustomFieldValues(editorType);
     const isOpDoc = isOperationalDoc(editorType);
@@ -7834,7 +8113,9 @@ async function saveTransactionEditor(event) {
       partyId: validation.party.id,
       item: rows.length === 1 ? rows[0].item : `${rows.length} items`,
       amount,
-      received: isOpDoc ? 0 : received,
+      received: isOpDoc ? 0 : finalReceived,
+      splitPayments: (splitPayments && splitPayments.length > 0) ? splitPayments : undefined,
+      payments: (splitPayments && splitPayments.length > 0) ? splitPayments : undefined,
       phone: String(form.get("phone") || "").trim(),
       billingAddress: String(form.get("address") || "").trim(),
       shippingAddress: formElement?.querySelector('[name="useShippingAddress"]')?.checked ? String(form.get("shippingAddress") || "").trim() : "",
@@ -7842,7 +8123,9 @@ async function saveTransactionEditor(event) {
       originalInvoiceNo: String(form.get("originalInvoiceNo") || "").trim(),
       paymentType: String(form.get("paymentType") || "cash"),
       paymentTerms: String(form.get("paymentTerms") || "Net 30"),
-      paymentMethod: String(form.get("paymentMethod") || "Cash"),
+      paymentMethod: (splitPayments && splitPayments.length > 0)
+        ? splitPayments.map((sp) => sp.method).join(", ")
+        : String(form.get("paymentMethod") || "Cash"),
       supplyType: String(form.get("supplyType") || "b2c"),
       placeOfSupply: (function() {
         const rawState = form.get("state");
@@ -7866,8 +8149,9 @@ async function saveTransactionEditor(event) {
         roundOff: Boolean(elements.featureView.querySelector('#roundOffToggle')?.checked),
         shippingAddress: formElement?.querySelector('[name="useShippingAddress"]')?.checked ? String(form.get("shippingAddress") || "").trim() : "",
         attachments: editorActiveAttachments || [],
+        splitPayments: (splitPayments && splitPayments.length > 0) ? splitPayments : undefined,
       },
-      status: isOpDoc ? "draft" : received >= amount ? "paid" : "due",
+      status: isOpDoc ? "draft" : finalReceived >= amount ? "paid" : "due",
       notes: invoiceDescription,
       date: parseEditorDate(String(form.get("invoiceDate") || "")) || new Date().toISOString(),
     };
@@ -12653,6 +12937,14 @@ function invoicePreviewDataFromRecord(invoice, overrides = {}) {
     sgst: Number(invoice.sgstTotal || 0),
     igst: Number(invoice.igstTotal || 0),
     total: invoiceTotalValue(invoice),
+    received: Number(invoice.received || 0),
+    balance: Number(invoice.balance !== undefined ? invoice.balance : Math.max(0, invoiceTotalValue(invoice) - Number(invoice.received || 0))),
+    paymentMethod: invoice.paymentMethod || invoice.payment_method || "",
+    splitPayments: Array.isArray(invoice.splitPayments) && invoice.splitPayments.length > 0
+      ? invoice.splitPayments
+      : Array.isArray(invoice.meta?.splitPayments) && invoice.meta.splitPayments.length > 0
+      ? invoice.meta.splitPayments
+      : [],
     ...overrides,
   };
 }
@@ -12777,11 +13069,25 @@ function openInvoicePaymentModal(invoice) {
         <label>Amount
           <input class="form-input" name="amount" type="number" min="0.01" max="${balance}" step="0.01" value="${balance.toFixed(2)}" required>
         </label>
-        <label>Payment Method
+        <label id="invoicePaymentSingleMethodGroup">Payment Method
           <select class="form-input" name="method">
             ${editorPaymentMethodOptions(false)}
           </select>
         </label>
+        <div class="modal-split-toggle-row">
+          <button type="button" class="btn-split-toggle-link" id="btnInvoiceModalSplitToggle">+ Split across multiple methods</button>
+        </div>
+        <div class="modal-split-box hidden" id="invoiceModalSplitBox">
+          <div class="split-payments-header">
+            <span><strong>Split Payment Methods</strong></span>
+            <button type="button" class="btn-split-close-link" id="btnInvoiceModalCloseSplit">Single Method</button>
+          </div>
+          <div class="split-payments-list" id="invoiceModalSplitRows"></div>
+          <div class="split-payments-footer">
+            <button type="button" class="btn-add-split-row" id="btnInvoiceModalAddSplitRow">+ Add Method</button>
+            <span class="split-total-badge">Split Total: <strong id="invoiceModalSplitTotalDisplay">₹0.00</strong></span>
+          </div>
+        </div>
         <label>Payment Date
           <input class="form-input" name="paymentDate" type="date" value="${formatDateInput(new Date().toISOString())}" required>
         </label>
@@ -12797,14 +13103,39 @@ function openInvoicePaymentModal(invoice) {
   `;
   document.body.append(backdrop);
   bindInvoiceActionModalClose(backdrop);
+
+  const amountInput = backdrop.querySelector('[name="amount"]');
+  const splitHelper = setupModalSplitPayments({
+    toggleBtn: backdrop.querySelector("#btnInvoiceModalSplitToggle"),
+    closeBtn: backdrop.querySelector("#btnInvoiceModalCloseSplit"),
+    addBtn: backdrop.querySelector("#btnInvoiceModalAddSplitRow"),
+    splitBox: backdrop.querySelector("#invoiceModalSplitBox"),
+    rowsContainer: backdrop.querySelector("#invoiceModalSplitRows"),
+    totalDisplay: backdrop.querySelector("#invoiceModalSplitTotalDisplay"),
+    singleMethodGroup: backdrop.querySelector("#invoicePaymentSingleMethodGroup"),
+    amountInput,
+    getDefaultAmount: () => balance,
+  });
+
   backdrop.querySelector("#invoicePaymentForm")?.addEventListener("submit", async (event) => {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
+    const splitPayments = splitHelper.getSplitPayments();
+    const isSplit = splitHelper.isSplitActive() && splitPayments.length > 0;
+    const paymentDate = String(form.get("paymentDate") || new Date().toISOString());
+    const notes = String(form.get("notes") || "").trim();
+    const amount = isSplit
+      ? splitPayments.reduce((s, p) => s + p.amount, 0)
+      : Number(form.get("amount") || 0);
+    const method = isSplit
+      ? splitPayments.map((p) => p.method).join(", ")
+      : String(form.get("method") || "Cash");
     await recordPaymentForInvoice(invoice, {
-      amount: Number(form.get("amount") || 0),
-      method: String(form.get("method") || "Cash"),
-      paymentDate: String(form.get("paymentDate") || new Date().toISOString()),
-      notes: String(form.get("notes") || "").trim(),
+      amount,
+      method,
+      paymentDate,
+      notes,
+      payments: isSplit ? splitPayments.map((p) => ({ ...p, paymentDate, notes })) : undefined,
     }, backdrop);
   });
 }
@@ -12835,12 +13166,35 @@ async function recordPaymentForInvoice(invoice, payment, backdrop) {
 }
 
 function recordInvoicePaymentLocal(invoice, payment) {
-  const amount = Math.min(Math.max(0, Number(payment.amount || 0)), Math.max(0, invoiceBalanceValue(invoice)));
-  if (amount <= 0) throw new Error("Payment amount must be greater than zero.");
   const invoiceId = invoice.id || invoice.invoiceId;
   const transactionId = invoice.transactionId || invoice.id;
   const paymentDate = payment.paymentDate || new Date().toISOString();
   state.payments = state.payments || [];
+  if (Array.isArray(payment.payments) && payment.payments.length > 0) {
+    let totalAlloc = 0;
+    payment.payments.forEach((sp) => {
+      const spAmt = Number(sp.amount || 0);
+      if (spAmt > 0) {
+        totalAlloc += spAmt;
+        state.payments.unshift({
+          id: Date.now() + Math.random(),
+          invoiceId,
+          transactionId,
+          type: invoice.type === "purchase" ? "payment_out" : "payment_in",
+          party: invoice.party,
+          amount: spAmt,
+          method: sp.method || "Cash",
+          paymentDate: sp.paymentDate || paymentDate,
+          notes: sp.notes || payment.notes || "",
+          createdAt: new Date().toISOString(),
+        });
+      }
+    });
+    updateLocalInvoicePaymentTotals(invoiceId, totalAlloc);
+    return;
+  }
+  const amount = Math.min(Math.max(0, Number(payment.amount || 0)), Math.max(0, invoiceBalanceValue(invoice)));
+  if (amount <= 0) throw new Error("Payment amount must be greater than zero.");
   state.payments.unshift({
     id: Date.now() + Math.random(),
     invoiceId,
@@ -18975,11 +19329,26 @@ function openPaymentOutModal() {
               <input class="form-input" name="paymentDate" type="date" value="${new Date().toISOString().slice(0, 10)}">
             </div>
 
-            <div class="party-field-group">
+            <div class="party-field-group" id="paymentOutSingleMethodGroup">
               <label class="field-label">Payment Method</label>
               <select class="form-input" name="method">
                 ${editorPaymentMethodOptions(false)}
               </select>
+            </div>
+
+            <div class="modal-split-toggle-row">
+              <button type="button" class="btn-split-toggle-link" id="btnPaymentOutSplitToggle">+ Split across multiple methods</button>
+            </div>
+            <div class="modal-split-box hidden" id="paymentOutSplitBox">
+              <div class="split-payments-header">
+                <span><strong>Split Payment Methods</strong></span>
+                <button type="button" class="btn-split-close-link" id="btnPaymentOutCloseSplit">Single Method</button>
+              </div>
+              <div class="split-payments-list" id="paymentOutSplitRows"></div>
+              <div class="split-payments-footer">
+                <button type="button" class="btn-add-split-row" id="btnPaymentOutAddSplitRow">+ Add Method</button>
+                <span class="split-total-badge">Split Total: <strong id="paymentOutSplitTotalDisplay">₹0.00</strong></span>
+              </div>
             </div>
 
             <div class="party-field-group">
@@ -19121,10 +19490,26 @@ function openPaymentOutModal() {
   modal.addEventListener("click", (e) => { if (e.target === modal) closeModal(); });
   modal.addEventListener("click", (e) => { if (e.target === modal) closeModal(); });
 
+  const splitHelper = setupModalSplitPayments({
+    toggleBtn: modal.querySelector("#btnPaymentOutSplitToggle"),
+    closeBtn: modal.querySelector("#btnPaymentOutCloseSplit"),
+    addBtn: modal.querySelector("#btnPaymentOutAddSplitRow"),
+    splitBox: modal.querySelector("#paymentOutSplitBox"),
+    rowsContainer: modal.querySelector("#paymentOutSplitRows"),
+    totalDisplay: modal.querySelector("#paymentOutSplitTotalDisplay"),
+    singleMethodGroup: modal.querySelector("#paymentOutSingleMethodGroup"),
+    amountInput,
+    getDefaultAmount: () => Number(amountInput?.value || 0),
+  });
+
   modal.querySelector("#paymentOutForm")?.addEventListener("submit", async (e) => {
     e.preventDefault();
     const form = new FormData(e.currentTarget);
-    const amount = Number(form.get("amount") || 0);
+    const splitPayments = splitHelper.getSplitPayments();
+    const isSplit = splitHelper.isSplitActive() && splitPayments.length > 0;
+    const amount = isSplit
+      ? splitPayments.reduce((s, p) => s + p.amount, 0)
+      : Number(form.get("amount") || 0);
     let party = String(form.get("party") || "").trim();
     if (!amount || amount <= 0) {
       showToast("Please enter a valid amount.");
@@ -19144,6 +19529,10 @@ function openPaymentOutModal() {
       return;
     }
 
+    const finalMethod = isSplit ? splitPayments.map((p) => p.method).join(", ") : String(form.get("method") || "Cash");
+    const paymentDate = String(form.get("paymentDate") || new Date().toISOString().slice(0, 10));
+    const notes = String(form.get("notes") || "").trim();
+
     showGlobalLoader("Recording Payment-Out...", "Updating supplier ledger and balances...");
     await new Promise((r) => requestAnimationFrame(() => setTimeout(r, 40)));
     try {
@@ -19152,24 +19541,40 @@ function openPaymentOutModal() {
           invoiceId,
           party,
           amount,
-          method: String(form.get("method") || "Cash"),
-          notes: String(form.get("notes") || "").trim(),
-          paymentDate: String(form.get("paymentDate") || new Date().toISOString().slice(0, 10)),
+          method: finalMethod,
+          notes,
+          paymentDate,
+          payments: isSplit ? splitPayments.map((p) => ({ ...p, paymentDate, notes })) : undefined,
         }));
       } else {
-        const id = "pmt-" + Date.now();
         state.payments = state.payments || [];
-        state.payments.push({
-          id,
-          type: "payment_out",
-          invoiceId,
-          party,
-          amount,
-          method: String(form.get("method") || "Cash"),
-          notes: String(form.get("notes") || "").trim(),
-          paymentDate: String(form.get("paymentDate") || new Date().toISOString().slice(0, 10)),
-          createdAt: new Date().toISOString(),
-        });
+        if (isSplit) {
+          splitPayments.forEach((sp) => {
+            state.payments.push({
+              id: "pmt-" + Date.now() + Math.random(),
+              type: "payment_out",
+              invoiceId,
+              party,
+              amount: sp.amount,
+              method: sp.method || "Cash",
+              notes,
+              paymentDate,
+              createdAt: new Date().toISOString(),
+            });
+          });
+        } else {
+          state.payments.push({
+            id: "pmt-" + Date.now(),
+            type: "payment_out",
+            invoiceId,
+            party,
+            amount,
+            method: finalMethod,
+            notes,
+            paymentDate,
+            createdAt: new Date().toISOString(),
+          });
+        }
       }
       modal.remove();
       renderDashboard();
@@ -29065,11 +29470,26 @@ function openPaymentInModal() {
               <input class="form-input" name="paymentDate" type="date" value="${new Date().toISOString().slice(0, 10)}">
             </div>
 
-            <div class="party-field-group">
+            <div class="party-field-group" id="paymentInSingleMethodGroup">
               <label class="field-label">Payment Method</label>
               <select class="form-input" name="method">
                 ${editorPaymentMethodOptions(false)}
               </select>
+            </div>
+
+            <div class="modal-split-toggle-row">
+              <button type="button" class="btn-split-toggle-link" id="btnPaymentInSplitToggle">+ Split across multiple methods</button>
+            </div>
+            <div class="modal-split-box hidden" id="paymentInSplitBox">
+              <div class="split-payments-header">
+                <span><strong>Split Payment Methods</strong></span>
+                <button type="button" class="btn-split-close-link" id="btnPaymentInCloseSplit">Single Method</button>
+              </div>
+              <div class="split-payments-list" id="paymentInSplitRows"></div>
+              <div class="split-payments-footer">
+                <button type="button" class="btn-add-split-row" id="btnPaymentInAddSplitRow">+ Add Method</button>
+                <span class="split-total-badge">Split Total: <strong id="paymentInSplitTotalDisplay">₹0.00</strong></span>
+              </div>
             </div>
 
             <div class="party-field-group">
@@ -29210,24 +29630,44 @@ function openPaymentInModal() {
     btn.addEventListener("click", closeModal);
   });
   modal.addEventListener("click", (e) => { if (e.target === modal) closeModal(); });
+
+  const splitHelper = setupModalSplitPayments({
+    toggleBtn: modal.querySelector("#btnPaymentInSplitToggle"),
+    closeBtn: modal.querySelector("#btnPaymentInCloseSplit"),
+    addBtn: modal.querySelector("#btnPaymentInAddSplitRow"),
+    splitBox: modal.querySelector("#paymentInSplitBox"),
+    rowsContainer: modal.querySelector("#paymentInSplitRows"),
+    totalDisplay: modal.querySelector("#paymentInSplitTotalDisplay"),
+    singleMethodGroup: modal.querySelector("#paymentInSingleMethodGroup"),
+    amountInput,
+    getDefaultAmount: () => Number(amountInput?.value || 0),
+  });
+
   modal.querySelector("#paymentInForm")?.addEventListener("submit", async (e) => {
     e.preventDefault();
     const form = new FormData(e.currentTarget);
-    const amount = Number(form.get("amount") || 0);
+    const splitPayments = splitHelper.getSplitPayments();
+    const isSplit = splitHelper.isSplitActive() && splitPayments.length > 0;
+    const amount = isSplit
+      ? splitPayments.reduce((s, p) => s + p.amount, 0)
+      : Number(form.get("amount") || 0);
     let party = String(form.get("party") || "").trim();
     if (!amount || amount <= 0) {
       showToast("Please enter a valid amount.");
       return;
     }
+    const finalMethod = isSplit ? splitPayments.map((p) => p.method).join(", ") : String(form.get("method") || "Cash");
+    const paymentDate = String(form.get("paymentDate") || new Date().toISOString().slice(0, 10));
+    const notes = String(form.get("notes") || "").trim();
     const payment = {
       type: "payment_in",
       party,
       invoiceNo: String(form.get("invoiceRef") || ""),
       referenceNo: String(form.get("invoiceRef") || ""),
       amount,
-      paymentDate: String(form.get("paymentDate") || new Date().toISOString().slice(0, 10)),
-      method: String(form.get("method") || "Cash"),
-      notes: String(form.get("notes") || "").trim(),
+      paymentDate,
+      method: finalMethod,
+      notes,
       createdAt: new Date().toISOString(),
     };
     showGlobalLoader("Recording Payment-In...", "Updating customer ledger and receipts...");
@@ -29251,20 +29691,48 @@ function openPaymentInModal() {
           invoiceId,
           party,
           amount,
-          method: payment.method,
-          notes: payment.notes,
-          paymentDate: payment.paymentDate,
+          method: finalMethod,
+          notes,
+          paymentDate,
+          payments: isSplit ? splitPayments.map((p) => ({ ...p, paymentDate, notes })) : undefined,
         }));
       } else if (window.giDB?.recordInvoicePayment) {
         const invoiceRef = form.get("invoiceRef");
         if (invoiceRef) {
           const invoice = findInvoiceRecord(invoiceRef) || activeInvoiceRowsForType("sale").find((inv) => inv.invoiceNo === invoiceRef);
           if (invoice) {
-            state = normalizeState(await window.giDB.recordInvoicePayment({ invoiceId: invoice.id || invoice.invoiceId, amount, method: payment.method, notes: payment.notes, paymentDate: payment.paymentDate }));
+            state = normalizeState(await window.giDB.recordInvoicePayment({
+              invoiceId: invoice.id || invoice.invoiceId,
+              amount,
+              method: finalMethod,
+              notes,
+              paymentDate,
+              payments: isSplit ? splitPayments.map((p) => ({ ...p, paymentDate, notes })) : undefined,
+            }));
           }
         }
       } else {
-        state.payments = [payment, ...(state.payments || [])];
+        if (isSplit) {
+          splitPayments.forEach((sp) => {
+            state.payments = [
+              {
+                id: "pmt-" + Date.now() + Math.random(),
+                type: "payment_in",
+                party,
+                invoiceNo: String(form.get("invoiceRef") || ""),
+                referenceNo: String(form.get("invoiceRef") || ""),
+                amount: sp.amount,
+                paymentDate,
+                method: sp.method || "Cash",
+                notes,
+                createdAt: new Date().toISOString(),
+              },
+              ...(state.payments || []),
+            ];
+          });
+        } else {
+          state.payments = [payment, ...(state.payments || [])];
+        }
         saveState();
       }
       modal.remove();
