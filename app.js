@@ -144,6 +144,7 @@ let openAnythingActiveIndex = 0;
 let currentEntryRecordId = null;
 let activeTransactionEditorType = "sale";
 let activeTransactionEditInvoiceId = null;
+let editorActiveAttachments = [];
 let entryReturnContext = null;
 let purchasePdfImportDraft = null;
 let transactionEditorInitialSnapshot = "";
@@ -2348,7 +2349,12 @@ function openTransactionEditor(type, options = {}) {
   bindTransactionEditor();
   const savedDraft = options.draft || activeTab.draft || options.editInvoiceId || options.newTab ? null : loadTransactionDraft(type);
   const draft = options.draft || activeTab.draft || savedDraft;
-  if (draft) populateTransactionEditorDraft(draft);
+  if (draft) {
+    populateTransactionEditorDraft(draft);
+  } else {
+    editorActiveAttachments = [];
+    renderEditorAttachmentList();
+  }
   const invoiceInput = elements.featureView.querySelector('[name="invoiceNo"]');
   const isCurrentNoDuplicate = invoiceInput && isDuplicateInvoiceNumber(invoiceInput.value, type, activeTransactionEditInvoiceId);
   const shouldRefreshNo = !activeTransactionEditInvoiceId && (!invoiceInput?.value || isCurrentNoDuplicate || invoiceInput.value.toLowerCase() === "auto");
@@ -2967,8 +2973,7 @@ function transactionEditorTemplate(type = getTransactionEditorType()) {
             ${type === "purchase" ? '<label class="purchase-default-option"><input type="checkbox" name="updatePurchaseDefaults"> Update default purchase prices</label>' : ''}
             <div class="editor-extra-buttons-row">
               <button type="button" class="disabled-action editor-extra-btn" data-editor-extra="description" title="Click to write or focus Notes">${icon("file-plus")} ${isEstimate ? "Quote Notes" : "Notes"}</button>
-              <button type="button" class="disabled-action editor-extra-btn" data-editor-extra="image" title="Attach Image">${icon("image")} Image</button>
-              <button type="button" class="disabled-action editor-extra-btn" data-editor-extra="document" title="Attach Document">${icon("paperclip")} Document</button>
+              <button type="button" class="disabled-action editor-extra-btn" data-editor-extra="document" title="Attach Document or Photo">${icon("paperclip")} Document</button>
             </div>
             <div class="editor-bottom-notes-section" id="editorNotesSection">
               <label class="editor-bottom-notes-label">
@@ -2976,8 +2981,7 @@ function transactionEditorTemplate(type = getTransactionEditorType()) {
                 <textarea class="form-input editor-bottom-notes-textarea" name="invoiceDescription" rows="2" placeholder="Notes / Remarks"></textarea>
               </label>
             </div>
-            <input class="hidden" id="editorImageInput" type="file" accept="image/*" multiple>
-            <input class="hidden" id="editorDocumentInput" type="file" accept=".pdf,.doc,.docx,.xls,.xlsx,.txt,.csv,image/*" multiple>
+            <input class="hidden" id="editorDocumentInput" type="file" accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.csv" multiple>
             <div class="editor-attachment-list hidden" id="editorAttachmentList"></div>
           </aside>
           <aside class="editor-smart-panel">
@@ -3152,6 +3156,15 @@ function populateTransactionEditorDraft(draft) {
   }
   if (paymentTypeInput && draft.paymentType) paymentTypeInput.value = draft.paymentType;
   if (paymentMethodInput && draft.paymentMethod) ensureSelectValue(paymentMethodInput, draft.paymentMethod);
+  if (Array.isArray(draft.attachments) && draft.attachments.length) {
+    editorActiveAttachments = draft.attachments.map((att) => ({
+      ...att,
+      id: att.id || (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`),
+    }));
+  } else {
+    editorActiveAttachments = [];
+  }
+  renderEditorAttachmentList();
 
   const body = elements.featureView.querySelector("#transactionRows");
   const rows = Array.isArray(draft.items) && draft.items.length ? draft.items : [{}];
@@ -3541,15 +3554,28 @@ function bindTransactionEditor() {
       toggleAdditionalBtn.classList.toggle("collapsed", isHidden);
     });
   }
-  elements.featureView.querySelector("#editorImageInput")?.addEventListener("change", () => {
+  const docInput = elements.featureView.querySelector("#editorDocumentInput");
+  docInput?.addEventListener("change", async () => {
+    const files = Array.from(docInput.files || []);
+    if (!files.length) return;
+    for (const file of files) {
+      try {
+        const dataUrl = await readFileAsDataUrl(file);
+        editorActiveAttachments.push({
+          id: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+          name: file.name,
+          size: file.size,
+          type: file.type || (file.name.match(/\.(png|jpe?g|gif|webp|bmp|svg)$/i) ? "image/jpeg" : "application/octet-stream"),
+          data: dataUrl,
+        });
+      } catch (err) {
+        console.error("Failed to read attachment file:", err);
+      }
+    }
+    docInput.value = "";
     renderEditorAttachmentList();
     updateTransactionEditorDirtyState();
-    if (editorAttachmentNames("image").length) showToast("Image attached.");
-  });
-  elements.featureView.querySelector("#editorDocumentInput")?.addEventListener("change", () => {
-    renderEditorAttachmentList();
-    updateTransactionEditorDirtyState();
-    if (editorAttachmentNames("document").length) showToast("Document attached.");
+    showToast(`${files.length} document${files.length > 1 ? "s" : ""} attached.`);
   });
 
   elements.featureView.querySelectorAll("#closeTransactionEditor, [data-editor-close]").forEach((button) => button.addEventListener("click", () => {
@@ -3752,6 +3778,7 @@ function collectCurrentTransactionDraft() {
     invoiceDescription: String(form.get("invoiceDescription") || "").trim(),
     customFields: collectCustomFieldValues(getTransactionEditorType()),
     attachmentNames: editorAttachmentNames().map((file) => ({ kind: file.kind, label: file.label, name: file.name, size: file.size })),
+    attachments: editorActiveAttachments || [],
     items: [...elements.featureView.querySelectorAll("#transactionRows tr")].map((row) => ({
       item: row.querySelector('[name="item"]')?.value.trim() || "",
       itemId: row.querySelector('[name="item"]')?.dataset.selectedItemId || "",
@@ -3815,22 +3842,30 @@ function handleEditorExtraAction(action) {
     button?.classList.add("active");
     return;
   }
-  if (action === "image") {
-    elements.featureView.querySelector("#editorImageInput")?.click();
-    return;
-  }
   if (action === "document") {
     elements.featureView.querySelector("#editorDocumentInput")?.click();
   }
 }
 
-function editorAttachmentNames(kind) {
-  const imageInput = elements.featureView.querySelector("#editorImageInput");
-  const documentInput = elements.featureView.querySelector("#editorDocumentInput");
-  const images = Array.from(imageInput?.files || []).map((file) => ({ kind: "image", label: "Image", name: file.name, size: file.size }));
-  const documents = Array.from(documentInput?.files || []).map((file) => ({ kind: "document", label: "Document", name: file.name, size: file.size }));
-  const files = [...images, ...documents];
-  return kind ? files.filter((file) => file.kind === kind) : files;
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+function editorAttachmentNames() {
+  return editorActiveAttachments.map((f) => ({
+    id: f.id,
+    kind: f.type?.startsWith("image/") ? "image" : "document",
+    label: f.type?.startsWith("image/") ? "Photo" : "Document",
+    name: f.name,
+    size: f.size,
+    type: f.type,
+    data: f.data,
+  }));
 }
 
 function formatAttachmentSize(bytes) {
@@ -3840,20 +3875,130 @@ function formatAttachmentSize(bytes) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+function openAttachmentViewerModal(attachment) {
+  if (!attachment) return;
+  document.getElementById("attachmentViewerModal")?.remove();
+
+  const isImage = attachment.type?.startsWith("image/") || /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(attachment.name || "");
+  const isPdf = attachment.type === "application/pdf" || /\.pdf$/i.test(attachment.name || "");
+
+  const modal = document.createElement("div");
+  modal.className = "modal-backdrop attachment-viewer-backdrop";
+  modal.id = "attachmentViewerModal";
+  modal.style.zIndex = "999999";
+
+  let bodyHtml = "";
+  if (isImage && attachment.data) {
+    bodyHtml = `
+      <div style="display:flex;justify-content:center;align-items:center;min-height:200px;max-height:76vh;overflow:auto;padding:16px;background:#0f172a;border-radius:8px;">
+        <img src="${attachment.data}" alt="${escapeHtml(attachment.name)}" style="max-width:100%;max-height:72vh;object-fit:contain;border-radius:4px;" />
+      </div>
+    `;
+  } else if (isPdf && attachment.data) {
+    bodyHtml = `
+      <div style="width:100%;height:75vh;background:#f8fafc;border-radius:8px;overflow:hidden;">
+        <iframe src="${attachment.data}" style="width:100%;height:100%;border:none;"></iframe>
+      </div>
+    `;
+  } else {
+    bodyHtml = `
+      <div style="text-align:center;padding:40px 20px;background:#f8fafc;border-radius:8px;border:1px dashed #cbd5e1;">
+        <svg class="gi-icon" style="width:48px;height:48px;color:#64748b;margin-bottom:12px;"><use href="#gi-file"></use></svg>
+        <h3 style="font-size:16px;font-weight:600;margin:0 0 6px 0;color:#0f172a;">${escapeHtml(attachment.name)}</h3>
+        <p style="font-size:13px;color:#64748b;margin:0 0 16px 0;">${formatAttachmentSize(attachment.size)}</p>
+        ${attachment.data ? `<a href="${attachment.data}" download="${escapeHtml(attachment.name)}" class="primary-button" style="text-decoration:none;display:inline-flex;align-items:center;gap:6px;">Download Document</a>` : `<p class="muted-text">File preview not available</p>`}
+      </div>
+    `;
+  }
+
+  modal.innerHTML = `
+    <div class="modal-card" style="width:min(900px, 94vw);max-height:92vh;display:flex;flex-direction:column;padding:0;overflow:hidden;box-shadow:0 20px 40px rgba(0,0,0,0.25);">
+      <header class="modal-card-header" style="display:flex;justify-content:space-between;align-items:center;padding:14px 20px;border-bottom:1px solid #e2e8f0;background:#ffffff;">
+        <div style="display:flex;align-items:center;gap:10px;overflow:hidden;">
+          <svg class="gi-icon" style="width:18px;height:18px;color:#2563eb;flex-shrink:0;"><use href="${isImage ? '#gi-image' : '#gi-file'}"></use></svg>
+          <strong style="font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(attachment.name)}</strong>
+          <span style="font-size:12px;color:#64748b;flex-shrink:0;">(${formatAttachmentSize(attachment.size)})</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;">
+          ${attachment.data ? `<a href="${attachment.data}" download="${escapeHtml(attachment.name)}" class="outline-mini-button" style="text-decoration:none;padding:6px 12px;font-size:12px;font-weight:600;">Download</a>` : ""}
+          <button type="button" class="close-button" data-action="close-viewer" style="font-size:18px;cursor:pointer;padding:4px 8px;border:none;background:transparent;">&times;</button>
+        </div>
+      </header>
+      <div style="padding:16px;background:#f1f5f9;flex:1;overflow:auto;">
+        ${bodyHtml}
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(modal);
+
+  const closeViewer = () => {
+    modal.remove();
+    document.removeEventListener("keydown", escHandler);
+  };
+  const escHandler = (e) => {
+    if (e.key === "Escape") closeViewer();
+  };
+  document.addEventListener("keydown", escHandler);
+  modal.addEventListener("click", (e) => {
+    if (e.target === modal) closeViewer();
+  });
+  modal.querySelector('[data-action="close-viewer"]')?.addEventListener("click", closeViewer);
+}
+
 function renderEditorAttachmentList() {
   const list = elements.featureView.querySelector("#editorAttachmentList");
+  const docButton = elements.featureView.querySelector('[data-editor-extra="document"]');
   if (!list) return;
-  const files = editorAttachmentNames();
-  list.classList.toggle("hidden", !files.length);
-  list.innerHTML = files.map((file) => `
-    <div class="editor-attachment-chip">
-      <span>${escapeHtml(file.label)}</span>
-      <strong>${escapeHtml(file.name)}</strong>
-      <small>${escapeHtml(formatAttachmentSize(file.size))}</small>
-    </div>
-  `).join("");
-  elements.featureView.querySelector('[data-editor-extra="image"]')?.classList.toggle("active", editorAttachmentNames("image").length > 0);
-  elements.featureView.querySelector('[data-editor-extra="document"]')?.classList.toggle("active", editorAttachmentNames("document").length > 0);
+
+  list.classList.toggle("hidden", !editorActiveAttachments.length);
+  docButton?.classList.toggle("active", editorActiveAttachments.length > 0);
+
+  list.innerHTML = editorActiveAttachments.map((file) => {
+    const isImage = file.type?.startsWith("image/") || /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(file.name || "");
+    return `
+      <div class="editor-attachment-chip" data-attachment-id="${escapeHtml(String(file.id))}">
+        <svg class="gi-icon attachment-chip-icon"><use href="${isImage ? '#gi-image' : '#gi-file'}"></use></svg>
+        <span class="editor-attachment-name" title="${escapeHtml(file.name)} (Click to view)">${escapeHtml(file.name)}</span>
+        <small class="editor-attachment-size">${escapeHtml(formatAttachmentSize(file.size))}</small>
+        <button type="button" class="attachment-action-btn view-btn" data-attachment-action="view" data-attachment-id="${escapeHtml(String(file.id))}" title="View Document">
+          <svg class="gi-icon" style="width:13px;height:13px;"><use href="#gi-eye"></use></svg> View
+        </button>
+        <button type="button" class="attachment-action-btn remove-btn" data-attachment-action="remove" data-attachment-id="${escapeHtml(String(file.id))}" title="Remove Document">
+          &times;
+        </button>
+      </div>
+    `;
+  }).join("");
+
+  list.querySelectorAll('[data-attachment-action="view"]').forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const id = btn.dataset.attachmentId;
+      const att = editorActiveAttachments.find((a) => String(a.id) === String(id));
+      if (att) openAttachmentViewerModal(att);
+    });
+  });
+
+  list.querySelectorAll('.editor-attachment-name').forEach((nameSpan) => {
+    nameSpan.addEventListener("click", () => {
+      const chip = nameSpan.closest(".editor-attachment-chip");
+      const id = chip?.dataset.attachmentId;
+      const att = editorActiveAttachments.find((a) => String(a.id) === String(id));
+      if (att) openAttachmentViewerModal(att);
+    });
+  });
+
+  list.querySelectorAll('[data-attachment-action="remove"]').forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const id = btn.dataset.attachmentId;
+      editorActiveAttachments = editorActiveAttachments.filter((a) => String(a.id) !== String(id));
+      renderEditorAttachmentList();
+      updateTransactionEditorDirtyState();
+      showToast("Document removed.");
+    });
+  });
 }
 
 function editorAttachmentSummary() {
@@ -5051,6 +5196,24 @@ function openInvoicePreviewModal(previewData = null, options = {}) {
           <button class="preview-btn-close" type="button" data-preview-close title="Close (Esc)">&times;</button>
         </div>
       </header>
+      ${Array.isArray(preview.attachments) && preview.attachments.length ? `
+        <div class="invoice-preview-attachments-bar">
+          <span class="preview-attachments-title"><svg class="gi-icon" style="width:14px;height:14px;"><use href="#gi-paperclip"></use></svg> Attached Documents (${preview.attachments.length}):</span>
+          <div class="preview-attachments-chips">
+            ${preview.attachments.map((att) => {
+              const isImg = att.type?.startsWith("image/") || /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(att.name || "");
+              return `
+                <button type="button" class="preview-attachment-chip-btn" data-attachment-id="${escapeHtml(String(att.id || ''))}" title="Click to view ${escapeHtml(att.name || '')}">
+                  <svg class="gi-icon" style="width:13px;height:13px;"><use href="${isImg ? '#gi-image' : '#gi-file'}"></use></svg>
+                  <span>${escapeHtml(att.name || "Document")}</span>
+                  ${att.size ? `<small>(${escapeHtml(formatAttachmentSize(att.size))})</small>` : ""}
+                  <span class="view-chip-action"><svg class="gi-icon" style="width:12px;height:12px;"><use href="#gi-eye"></use></svg> View</span>
+                </button>
+              `;
+            }).join("")}
+          </div>
+        </div>
+      ` : ""}
       <div class="invoice-preview-stage">
         <div class="invoice-preview-paper ${currentFormat === "thermal" ? `paper-thermal width-${currentThermalWidth}` : `paper-a4 template-${currentA4Template}`}">
           ${invoicePreviewMarkup(preview, {
@@ -5064,6 +5227,14 @@ function openInvoicePreviewModal(previewData = null, options = {}) {
     </section>
   `;
   document.body.append(backdrop);
+
+  backdrop.querySelectorAll(".preview-attachment-chip-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const id = btn.dataset.attachmentId;
+      const att = (preview.attachments || []).find((a) => String(a.id || "") === String(id));
+      if (att) openAttachmentViewerModal(att);
+    });
+  });
 
   const modalSection = backdrop.querySelector(".invoice-preview-modal");
   const paperEl = backdrop.querySelector(".invoice-preview-paper");
@@ -7663,6 +7834,7 @@ async function saveTransactionEditor(event) {
         sourceEstimateId: formElement?.dataset?.sourceEstimateId || undefined,
         roundOff: Boolean(elements.featureView.querySelector('#roundOffToggle')?.checked),
         shippingAddress: formElement?.querySelector('[name="useShippingAddress"]')?.checked ? String(form.get("shippingAddress") || "").trim() : "",
+        attachments: editorActiveAttachments || [],
       },
       status: isOpDoc ? "draft" : received >= amount ? "paid" : "due",
       notes: invoiceDescription,
@@ -10647,6 +10819,7 @@ function creditNoteDraftFromRecord(note, options = {}) {
     partyGstin: note.partyGstin || "",
     invoiceDescription: sanitizeInvoiceUserNotes(note.notes || ""),
     customFields: note.meta?.customFields || {},
+    attachments: note.meta?.attachments || [],
     items: lines.map((line) => ({
       item: line.item || "",
       itemId: line.itemId || "",
@@ -10698,7 +10871,7 @@ function creditNotePreviewDataFromRecord(note, overrides = {}) {
       value: customFieldValue(field, note.meta?.customFields || {}),
     })).filter((field) => field.showOnPrint && (field.fieldType === "checkbox" ? field.value : String(field.value || "").trim())),
     description: [note.originalInvoiceNo ? `Against invoice ${note.originalInvoiceNo}` : "", note.notes || ""].filter(Boolean).join("\n"),
-    attachments: [],
+    attachments: note.meta?.attachments || [],
     subtotal: Number(note.subtotal ?? creditNoteTaxableValue(note)),
     discount: Number(note.discountTotal || 0),
     cgst: Number(note.cgstTotal || 0),
@@ -11989,6 +12162,7 @@ function estimateDraftFromRecord(quote, options = {}) {
     partyGstin: quote.partyGstin || "",
     invoiceDescription: sanitizeInvoiceUserNotes(quote.notes || ""),
     customFields: quote.meta?.customFields || {},
+    attachments: quote.meta?.attachments || [],
     items: estimateItemsFor(quote).map((line) => ({
       item: line.item || "",
       itemId: line.itemId || "",
@@ -12043,7 +12217,7 @@ function estimatePreviewDataFromRecord(quote, overrides = {}) {
       value: customFieldValue(field, quote.meta?.customFields || {}),
     })).filter((field) => field.showOnPrint && (field.fieldType === "checkbox" ? field.value : String(field.value || "").trim())),
     description: quote.notes || "",
-    attachments: [],
+    attachments: quote.meta?.attachments || [],
     subtotal: Number(quote.subtotal ?? estimateTaxableValue(quote)),
     discount: Number(quote.discountTotal || 0),
     cgst: Number(quote.cgstTotal || 0),
@@ -12371,6 +12545,7 @@ function invoiceDraftFromRecord(invoice, options = {}) {
     partyGstin: invoice.partyGstin || "",
     invoiceDescription: sanitizeInvoiceUserNotes(invoice.notes || ""),
     customFields: invoice.meta?.customFields || {},
+    attachments: invoice.meta?.attachments || [],
     items: lines.length ? lines.map((line) => ({
       item: line.item || "",
       itemId: line.itemId || "",
@@ -12445,7 +12620,7 @@ function invoicePreviewDataFromRecord(invoice, overrides = {}) {
       value: customFieldValue(field, invoice.meta?.customFields || {}),
     })).filter((field) => field.showOnPrint && (field.fieldType === "checkbox" ? field.value : String(field.value || "").trim())),
     description: invoice.notes || "",
-    attachments: [],
+    attachments: invoice.meta?.attachments || [],
     subtotal: Number(invoice.subtotal ?? invoiceTotalValue(invoice)),
     discount: Number(invoice.discountTotal || 0),
     cgst: Number(invoice.cgstTotal || 0),
@@ -17311,6 +17486,7 @@ function debitNoteDraftFromRecord(note, options = {}) {
     partyGstin: note.partyGstin || "",
     invoiceDescription: sanitizeInvoiceUserNotes(note.notes || ""),
     customFields: note.meta?.customFields || {},
+    attachments: note.meta?.attachments || [],
     items: lines.map((line) => ({
       item: line.item || "",
       itemId: line.itemId || "",
@@ -17362,7 +17538,7 @@ function debitNotePreviewDataFromRecord(note, overrides = {}) {
       value: customFieldValue(field, note.meta?.customFields || {}),
     })).filter((field) => field.showOnPrint && (field.fieldType === "checkbox" ? field.value : String(field.value || "").trim())),
     description: [note.originalInvoiceNo ? `Against purchase bill ${note.originalInvoiceNo}` : "", note.notes || ""].filter(Boolean).join("\n"),
-    attachments: [],
+    attachments: note.meta?.attachments || [],
     subtotal: Number(note.subtotal ?? debitNoteTaxableValue(note)),
     discount: Number(note.discountTotal || 0),
     cgst: Number(note.cgstTotal || 0),
