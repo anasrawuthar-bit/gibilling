@@ -9809,7 +9809,6 @@ function invoiceWorkspaceTemplate(type) {
         ${kpiCard(`Total ${isSale ? "Sales" : "Purchases"}`, formatCurrency(total), rows.length === 1 ? `1 ${isSale ? "invoice" : "bill"}` : `${rows.length} ${isSale ? "invoices" : "bills"}`, "neutral")}
         ${kpiCard(paidLabel, formatCurrency(paid), `${rows.filter((r) => invoiceBalanceValue(r) === 0 && invoiceTotalValue(r) > 0).length} fully settled`, "success")}
         ${kpiCard(balanceLabel, formatCurrency(balance), openCount > 0 ? `${openCount} pending` : "All settled", balance > 0 ? "danger" : "success")}
-        ${kpiCard("GST / Tax", formatCurrency(taxTotal), taxTotal > 0 ? (cancelledCount > 0 ? `${cancelledCount} cancelled` : "Tax component") : "No tax", "info")}
       </section>
 
       <section class="data-table-card invoice-data-card">
@@ -11916,9 +11915,7 @@ function invoiceRowsTable(rows, { isSale, partyLabel, numberLabel, paidLabel, co
             <th class="th-invoice-no"><span class="th-content">${numberLabel} #${cf("invoiceNo")}</span><span class="data-table-column-resizer" title="Drag to resize column"></span></th>
             <th class="th-party"><span class="th-content">${partyLabel} ${cf("party")}</span><span class="data-table-column-resizer" title="Drag to resize column"></span></th>
             <th class="th-amount amount-cell"><span class="th-content th-content-right">Total ${cf("total")}</span><span class="data-table-column-resizer" title="Drag to resize column"></span></th>
-            <th class="th-amount amount-cell"><span class="th-content th-content-right">${paidLabel} ${cf("received")}</span><span class="data-table-column-resizer" title="Drag to resize column"></span></th>
             <th class="th-amount amount-cell"><span class="th-content th-content-right">Balance ${cf("balance")}</span><span class="data-table-column-resizer" title="Drag to resize column"></span></th>
-            <th class="th-status"><span class="th-content">Status</span><span class="data-table-column-resizer" title="Drag to resize column"></span></th>
             <th class="th-actions"><span class="th-content th-content-right">Actions</span></th>
           </tr>
         </thead>
@@ -11929,9 +11926,7 @@ function invoiceRowsTable(rows, { isSale, partyLabel, numberLabel, paidLabel, co
               <td><strong class="invoice-no-cell">${escapeHtml(entry.invoiceNo || `${isSale ? "INV" : "PB"}-${String(index + 1).padStart(4, "0")}`)}</strong><small>${escapeHtml(entry.item || invoiceItemSummary(entry.id))}</small></td>
               <td><strong>${escapeHtml(entry.party || "-")}</strong><small>${escapeHtml(entry.phone || "")}</small></td>
               <td class="amount-cell strong">${formatCurrency(invoiceTotalValue(entry))}</td>
-              <td class="amount-cell">${formatCurrency(invoiceReceivedValue(entry))}</td>
               <td class="amount-cell ${invoiceBalanceValue(entry) > 0 ? "danger" : ""}">${formatCurrency(invoiceBalanceValue(entry))}</td>
-              <td>${invoiceStatusBadge(entry)}</td>
               <td>${invoiceRowActions(entry, { isSale })}</td>
             </tr>
           `).join("")}
@@ -11951,9 +11946,9 @@ function bindInvoiceTableWidthAndResize(root = elements.featureView) {
   // 1. Restore saved column widths if available
   try {
     const savedColWidths = JSON.parse(localStorage.getItem("gi-invoice-col-widths") || "null");
-    if (Array.isArray(savedColWidths) && savedColWidths.length) {
+    const ths = table.querySelectorAll("thead th");
+    if (Array.isArray(savedColWidths) && savedColWidths.length === ths.length) {
       table.style.tableLayout = "fixed";
-      const ths = table.querySelectorAll("thead th");
       ths.forEach((th, idx) => {
         if (savedColWidths[idx]) {
           th.style.width = savedColWidths[idx] + "px";

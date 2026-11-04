@@ -2409,6 +2409,10 @@ body.privacy-mode-active .chart-wrap canvas,
   background: #f6f8fb;
 }
 
+.invoice-kpis {
+  grid-template-columns: repeat(3, minmax(180px, 1fr));
+}
+
 .kpi-card {
   display: grid;
   align-content: center;
