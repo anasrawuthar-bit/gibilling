@@ -18141,6 +18141,86 @@ textarea:focus-visible {
   background: #20ba5a;
 }
 
+.wa-new-chat-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  background: #f0f2f5;
+  border: 1px solid #d1d7db;
+  color: #1e293b;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s ease;
+}
+
+.wa-new-chat-btn:hover {
+  background: #e2e8f0;
+  border-color: #cbd5e1;
+}
+
+.wa-no-phone-tag {
+  color: #d97706;
+  font-size: 11px;
+  font-weight: 600;
+  background: #fef3c7;
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+
+.wa-no-phone-container {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 32px 24px;
+  background: #efeae2;
+  text-align: center;
+}
+
+.wa-no-phone-card {
+  background: #ffffff;
+  border-radius: 16px;
+  padding: 36px 32px;
+  max-width: 440px;
+  width: 100%;
+  box-shadow: 0 10px 25px rgba(0,0,0,0.06);
+  border: 1px solid #e2e8f0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+.wa-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.45);
+  backdrop-filter: blur(2px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+}
+
+.wa-modal-backdrop.hidden {
+  display: none !important;
+}
+
+.wa-modal-box {
+  background: #ffffff;
+  border-radius: 16px;
+  width: 100%;
+  max-width: 420px;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+  overflow: hidden;
+  border: 1px solid #e2e8f0;
+}
+
 /* ==========================================================================
    FEATURE 1: ANALYTICS BUSINESS INTELLIGENCE DASHBOARD
    ========================================================================== */

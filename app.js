@@ -27649,13 +27649,23 @@ const WHATSAPP_CONNECT_STORAGE_KEY = "gi-whatsapp-connect-state";
 function loadWhatsAppConnectState() {
   try {
     const raw = localStorage.getItem(WHATSAPP_CONNECT_STORAGE_KEY);
-    if (raw) return JSON.parse(raw);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      return {
+        connected: Boolean(parsed.connected),
+        activePartyId: parsed.activePartyId || null,
+        searchQuery: parsed.searchQuery || "",
+        chats: parsed.chats || {},
+        directParties: Array.isArray(parsed.directParties) ? parsed.directParties : [],
+      };
+    }
   } catch (_) {}
   return {
-    connected: true,
+    connected: false,
     activePartyId: null,
     searchQuery: "",
     chats: {},
+    directParties: [],
   };
 }
 
@@ -27669,7 +27679,9 @@ function saveWhatsAppConnectState() {
 
 function getWhatsAppActiveParty() {
   const parties = state.parties || [];
-  if (!parties.length) {
+  const directParties = whatsappConnectState.directParties || [];
+  const allParties = [...directParties, ...parties];
+  if (!allParties.length) {
     return {
       id: "demo-1",
       name: "ajml",
@@ -27681,11 +27693,11 @@ function getWhatsAppActiveParty() {
     };
   }
   if (whatsappConnectState.activePartyId) {
-    const p = parties.find((item) => String(item.id) === String(whatsappConnectState.activePartyId));
+    const p = allParties.find((item) => String(item.id) === String(whatsappConnectState.activePartyId));
     if (p) return p;
   }
-  const partyWithBal = parties.find((item) => (Number(item.balance) || 0) > 0);
-  return partyWithBal || parties[0];
+  const partyWithBal = allParties.find((item) => (Number(item.balance) || 0) > 0);
+  return partyWithBal || allParties[0];
 }
 
 function ensureDefaultWhatsAppChatsForParty(party) {
@@ -27778,7 +27790,7 @@ async function renderWhatsAppPairingQr() {
 }
 
 function whatsappConnectTemplate() {
-  const isConnected = whatsappConnectState.connected !== false;
+  const isConnected = Boolean(whatsappConnectState.connected);
 
   if (!isConnected) {
     return `
@@ -27787,12 +27799,9 @@ function whatsappConnectTemplate() {
           <div class="wa-connect-brand">
             <svg class="gi-icon" style="width:24px;height:24px;color:#25D366;fill:currentColor;"><use href="#gi-whatsapp"></use></svg>
             <h1>WhatsApp Connect</h1>
-            <span class="wa-status-pill offline"><span class="wa-status-dot"></span> Not Paired</span>
+            <span class="wa-status-pill offline"><span class="wa-status-dot"></span> Not Paired / Logged Out</span>
           </div>
           <div class="wa-connect-actions">
-            <button type="button" class="outline-mini-button" data-wa-action="connect" title="Go to connected chat workspace">
-              Go to Chats &rarr;
-            </button>
             <button class="sale-button" data-home-action="sale" type="button"><svg class="gi-icon"><use href="#gi-plus"></use></svg> Add Sale</button>
             <button class="purchase-button" data-home-action="purchase" type="button"><svg class="gi-icon"><use href="#gi-plus"></use></svg> Add Purchase</button>
           </div>
@@ -27858,19 +27867,21 @@ function whatsappConnectTemplate() {
   }
 
   const parties = state.parties || [];
+  const directParties = whatsappConnectState.directParties || [];
   const query = String(whatsappConnectState.searchQuery || "").trim().toLowerCase();
+  const allParties = [...directParties, ...parties];
   const filteredParties = query
-    ? parties.filter((p) => (p.name || "").toLowerCase().includes(query) || (p.phone || "").includes(query))
-    : parties;
+    ? allParties.filter((p) => (p.name || "").toLowerCase().includes(query) || (p.phone || "").includes(query))
+    : allParties;
 
   const displayParties = filteredParties.length ? filteredParties : [
     { id: "demo-1", name: "ajml", phone: "9846515684", balance: 22800, receivable: 22800 }
   ];
 
   const activeParty = getWhatsAppActiveParty() || displayParties[0];
-  const messages = ensureDefaultWhatsAppChatsForParty(activeParty);
-
   const cleanPhone = String(activeParty.phone || "").replace(/\D/g, "");
+  const hasValidPhone = cleanPhone.length >= 7;
+  const messages = hasValidPhone ? ensureDefaultWhatsAppChatsForParty(activeParty) : [];
   const balanceDue = Number(activeParty.balance || activeParty.receivable || 0);
 
   return `
@@ -27882,8 +27893,8 @@ function whatsappConnectTemplate() {
           <span class="wa-status-pill online"><span class="wa-status-dot"></span> Connected</span>
         </div>
         <div class="wa-connect-actions">
-          <button type="button" class="outline-mini-button" data-wa-action="show-qr" title="Pair or Scan QR Code">
-            <svg class="gi-icon" style="width:13px;height:13px;"><use href="#gi-qr"></use></svg> Re-link QR
+          <button type="button" class="outline-mini-button" data-wa-action="disconnect" title="Log out from WhatsApp" style="color:#dc2626;border-color:#fecaca;background:#fff5f5;display:inline-flex;align-items:center;gap:4px;">
+            <svg class="gi-icon" style="width:13px;height:13px;color:#dc2626;"><use href="#gi-x"></use></svg> Disconnect
           </button>
           <button class="sale-button" data-home-action="sale" type="button"><svg class="gi-icon"><use href="#gi-plus"></use></svg> Add Sale</button>
           <button class="purchase-button" data-home-action="purchase" type="button"><svg class="gi-icon"><use href="#gi-plus"></use></svg> Add Purchase</button>
@@ -27893,18 +27904,28 @@ function whatsappConnectTemplate() {
       <div class="wa-chat-workspace">
         <aside class="wa-sidebar-pane">
           <div class="wa-search-header">
-            <div class="wa-search-wrap">
-              <svg class="gi-icon" style="width:14px;height:14px;color:#64748b;"><use href="#gi-search"></use></svg>
-              <input type="text" id="waChatSearchInput" placeholder="Search or start a new chat" value="${escapeHtml(whatsappConnectState.searchQuery || "")}" />
+            <div style="display:flex;gap:8px;align-items:center;">
+              <div class="wa-search-wrap" style="flex:1;">
+                <svg class="gi-icon" style="width:14px;height:14px;color:#64748b;"><use href="#gi-search"></use></svg>
+                <input type="text" id="waChatSearchInput" placeholder="Search or start a new chat" value="${escapeHtml(whatsappConnectState.searchQuery || "")}" />
+              </div>
+              <button type="button" class="wa-new-chat-btn" id="waNewChatBtn" title="Start chat with any phone number">
+                <svg viewBox="0 0 24 24" style="width:14px;height:14px;fill:currentColor;"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
+                <span>New</span>
+              </button>
             </div>
           </div>
           <ul class="wa-party-list">
             ${displayParties.map((p) => {
               const isActive = String(p.id) === String(activeParty.id);
               const pKey = String(p.id || p.name);
+              const pClean = String(p.phone || "").replace(/\D/g, "");
+              const pHasPhone = pClean.length >= 7;
               const pMsgs = whatsappConnectState.chats[pKey] || [];
               const lastMsg = pMsgs.length ? pMsgs[pMsgs.length - 1] : null;
-              const previewText = lastMsg ? lastMsg.text.replace(/\n+/g, " ") : (p.balance > 0 ? `Pending: ₹${formatCurrency(p.balance)}` : "Start conversation");
+              const previewText = pHasPhone
+                ? (lastMsg ? lastMsg.text.replace(/\n+/g, " ") : (p.balance > 0 ? `Pending: ${formatCurrency(p.balance)}` : "Start conversation"))
+                : "";
               const initials = (p.name || "C").trim().slice(0, 2).toUpperCase();
               return `
                 <li class="wa-party-item ${isActive ? "active" : ""}" data-wa-party-id="${escapeHtml(String(p.id))}">
@@ -27915,8 +27936,12 @@ function whatsappConnectTemplate() {
                       <span class="wa-party-time">${lastMsg ? escapeHtml(lastMsg.time || "Today") : ""}</span>
                     </div>
                     <div class="wa-party-preview">
-                      <span class="wa-check-icon">&#10003;&#10003;</span>
-                      <span>${escapeHtml(previewText)}</span>
+                      ${pHasPhone ? `
+                        <span class="wa-check-icon">&#10003;&#10003;</span>
+                        <span>${escapeHtml(previewText)}</span>
+                      ` : `
+                        <span class="wa-no-phone-tag">⚠️ No phone number</span>
+                      `}
                     </div>
                   </div>
                 </li>
@@ -27931,11 +27956,14 @@ function whatsappConnectTemplate() {
               <div class="wa-party-avatar" style="width:38px;height:38px;font-size:13px;">${escapeHtml((activeParty.name || "C").trim().slice(0, 2).toUpperCase())}</div>
               <div>
                 <div class="wa-chat-header-name">${escapeHtml(activeParty.name || "Customer")}</div>
-                <div class="wa-chat-header-phone">${escapeHtml(activeParty.phone || "No phone")} ${balanceDue > 0 ? `&bull; <span style="color:#dc2626;font-weight:600;">Due: ₹${formatCurrency(balanceDue)}</span>` : ""}</div>
+                <div class="wa-chat-header-phone">
+                  ${hasValidPhone ? escapeHtml(activeParty.phone) : `<span style="color:#d97706;font-weight:600;">⚠️ Phone number missing</span>`}
+                  ${balanceDue > 0 ? `&bull; <span style="color:#dc2626;font-weight:600;">Due: ${formatCurrency(balanceDue)}</span>` : ""}
+                </div>
               </div>
             </div>
             <div class="wa-chat-header-actions">
-              ${cleanPhone ? `
+              ${hasValidPhone ? `
                 <a href="https://web.whatsapp.com/send?phone=${cleanPhone}" target="_blank" class="outline-mini-button" style="text-decoration:none;display:inline-flex;align-items:center;gap:6px;font-size:11.5px;color:#128c7e;border-color:#128c7e;">
                   <svg class="gi-icon" style="width:13px;height:13px;fill:currentColor;"><use href="#gi-whatsapp"></use></svg> WhatsApp Web
                 </a>
@@ -27946,44 +27974,106 @@ function whatsappConnectTemplate() {
             </div>
           </header>
 
-          <div class="wa-chat-messages-scroll" id="waChatMessagesScroll">
-            <div class="wa-date-pill">TODAY</div>
-            ${messages.map((m) => `
-              <div class="wa-message-bubble ${m.from === "me" ? "sent" : "received"}">
-                <div class="wa-bubble-text">${escapeHtml(m.text)}</div>
-                <div class="wa-bubble-footer">
-                  <span>${escapeHtml(m.time || "5:18 PM")}</span>
-                  ${m.from === "me" ? '<span class="wa-check-icon">&#10003;&#10003;</span>' : ''}
+          ${!hasValidPhone ? `
+            <div class="wa-no-phone-container">
+              <div class="wa-no-phone-card">
+                <div style="width:56px;height:56px;border-radius:50%;background:#fef3c7;display:flex;align-items:center;justify-content:center;margin-bottom:16px;">
+                  <svg viewBox="0 0 24 24" style="width:28px;height:28px;fill:#d97706;"><path d="M20 15.5c-1.25 0-2.45-.2-3.57-.57a1.02 1.02 0 0 0-1.02.24l-2.2 2.2a15.045 15.045 0 0 1-6.59-6.59l2.2-2.21a.96.96 0 0 0 .25-1A11.36 11.36 0 0 1 8.5 4c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1 0 9.39 7.61 17 17 17 .55 0 1-.45 1-1v-3.5c0-.55-.45-1-1-1zM19 12h2a9 9 0 0 0-9-9v2c3.87 0 7 3.13 7 7zm-4 0h2c0-2.76-2.24-5-5-5v2c1.66 0 3 1.34 3 3z"/></svg>
                 </div>
+                <h2 style="font-size:18px;font-weight:700;color:#0f172a;margin:0 0 8px;">WhatsApp Number Missing</h2>
+                <p style="font-size:13px;color:#64748b;margin:0 0 20px;line-height:1.5;">
+                  <strong>${escapeHtml(activeParty.name || "This customer")}</strong> does not have a phone number linked. Enter a 10-digit mobile number below to start chatting, sending invoices, and payment reminders.
+                </p>
+                <form id="waInlinePhoneForm" style="width:100%;display:flex;flex-direction:column;gap:14px;text-align:left;">
+                  <div>
+                    <label style="font-size:12px;font-weight:600;color:#334155;display:block;margin-bottom:6px;">Mobile / WhatsApp Number *</label>
+                    <div style="display:flex;align-items:center;border:1px solid #cbd5e1;border-radius:8px;overflow:hidden;background:#ffffff;">
+                      <span style="background:#f1f5f9;color:#475569;font-weight:600;font-size:13px;padding:9px 12px;border-right:1px solid #cbd5e1;">+91</span>
+                      <input type="tel" id="waInlinePhoneInput" class="form-input" placeholder="e.g. 9846515684" maxlength="15" required style="border:none;box-shadow:none;padding:9px 12px;font-size:14px;font-weight:600;width:100%;outline:none;" />
+                    </div>
+                  </div>
+                  <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:#475569;cursor:pointer;">
+                    <input type="checkbox" id="waSavePhoneToParty" checked style="accent-color:#25D366;" />
+                    <span>Save this number to customer profile in database</span>
+                  </label>
+                  <button type="submit" class="primary-button" id="waSavePhoneBtn" style="background:#25D366;border-color:#25D366;font-size:13.5px;font-weight:700;padding:10px 16px;display:flex;align-items:center;justify-content:center;gap:8px;width:100%;">
+                    <svg class="gi-icon" style="width:16px;height:16px;fill:currentColor;"><use href="#gi-whatsapp"></use></svg> Save &amp; Start Chatting
+                  </button>
+                </form>
               </div>
-            `).join("")}
-          </div>
+            </div>
+          ` : `
+            <div class="wa-chat-messages-scroll" id="waChatMessagesScroll">
+              <div class="wa-date-pill">TODAY</div>
+              ${messages.map((m) => `
+                <div class="wa-message-bubble ${m.from === "me" ? "sent" : "received"}">
+                  <div class="wa-bubble-text">${escapeHtml(m.text)}</div>
+                  <div class="wa-bubble-footer">
+                    <span>${escapeHtml(m.time || "5:18 PM")}</span>
+                    ${m.from === "me" ? '<span class="wa-check-icon">&#10003;&#10003;</span>' : ''}
+                  </div>
+                </div>
+              `).join("")}
+            </div>
 
-          <div class="wa-quick-pills-bar">
-            <button type="button" class="wa-quick-pill" data-wa-quick="smart" title="Smart quick templates">
-              <span>&#10024; Smart Messaging &#709;</span>
-            </button>
-            <button type="button" class="wa-quick-pill" data-wa-quick="statement" title="Send Account Statement">
-              <span style="color:#ef4444;">&#128196;</span> Party Statement &#708;
-            </button>
-            <button type="button" class="wa-quick-pill" data-wa-quick="transactions" title="Send Recent Bills / Invoices">
-              <span style="color:#10b981;">&#128203;</span> Send Transactions &#708;
-            </button>
-            <button type="button" class="wa-quick-pill accent" data-wa-quick="reminder" title="Send Pending Payment Reminder">
-              <span>&#128276; Payment Reminder</span>
-            </button>
-          </div>
+            <div class="wa-quick-pills-bar">
+              <button type="button" class="wa-quick-pill" data-wa-quick="smart" title="Smart quick templates">
+                <span>&#10024; Smart Messaging &#709;</span>
+              </button>
+              <button type="button" class="wa-quick-pill" data-wa-quick="statement" title="Send Account Statement">
+                <span style="color:#ef4444;">&#128196;</span> Party Statement &#708;
+              </button>
+              <button type="button" class="wa-quick-pill" data-wa-quick="transactions" title="Send Recent Bills / Invoices">
+                <span style="color:#10b981;">&#128203;</span> Send Transactions &#708;
+              </button>
+              <button type="button" class="wa-quick-pill accent" data-wa-quick="reminder" title="Send Pending Payment Reminder">
+                <span>&#128276; Payment Reminder</span>
+              </button>
+            </div>
 
-          <footer class="wa-chat-input-bar">
-            <button type="button" class="wa-input-attach-btn" id="waAttachBtn" title="Attach Invoice / Document">&plus;</button>
-            <input type="text" id="waMessageInput" class="wa-text-input" placeholder="Type a Message" autocomplete="off" />
-            <button type="button" class="wa-send-action-btn" id="waSendBtn" title="Send Message (Enter)">
-              <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
-                <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"></path>
-              </svg>
-            </button>
-          </footer>
+            <footer class="wa-chat-input-bar">
+              <button type="button" class="wa-input-attach-btn" id="waAttachBtn" title="Attach Invoice / Document">&plus;</button>
+              <input type="text" id="waMessageInput" class="wa-text-input" placeholder="Type a Message" autocomplete="off" />
+              <button type="button" class="wa-send-action-btn" id="waSendBtn" title="Send Message (Enter)">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+                  <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"></path>
+                </svg>
+              </button>
+            </footer>
+          `}
         </main>
+      </div>
+
+      <!-- New Chat Modal -->
+      <div class="wa-modal-backdrop hidden" id="waNewChatModal">
+        <div class="wa-modal-box">
+          <header style="display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid #e2e8f0;">
+            <div style="display:flex;align-items:center;gap:10px;">
+              <svg class="gi-icon" style="width:20px;height:20px;color:#25D366;fill:currentColor;"><use href="#gi-whatsapp"></use></svg>
+              <h3 style="margin:0;font-size:16px;font-weight:700;color:#0f172a;">New WhatsApp Chat</h3>
+            </div>
+            <button type="button" id="waNewChatModalClose" style="background:none;border:none;font-size:20px;color:#64748b;cursor:pointer;padding:4px;">&times;</button>
+          </header>
+          <form id="waNewChatForm" style="padding:20px;display:flex;flex-direction:column;gap:14px;">
+            <div>
+              <label style="font-size:12px;font-weight:600;color:#334155;display:block;margin-bottom:6px;">WhatsApp Phone Number *</label>
+              <div style="display:flex;align-items:center;border:1px solid #cbd5e1;border-radius:8px;overflow:hidden;background:#ffffff;">
+                <span style="background:#f1f5f9;color:#475569;font-weight:600;font-size:13px;padding:9px 12px;border-right:1px solid #cbd5e1;">+91</span>
+                <input type="tel" id="waDirectPhoneInput" class="form-input" placeholder="e.g. 9846515684" maxlength="15" required style="border:none;box-shadow:none;padding:9px 12px;font-size:14px;font-weight:600;width:100%;outline:none;" />
+              </div>
+            </div>
+            <div>
+              <label style="font-size:12px;font-weight:600;color:#334155;display:block;margin-bottom:6px;">Customer Name (Optional)</label>
+              <input type="text" id="waDirectNameInput" class="form-input" placeholder="e.g. Walk-in Customer" style="width:100%;padding:9px 12px;font-size:13px;" />
+            </div>
+            <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:10px;">
+              <button type="button" class="outline-mini-button" id="waNewChatModalCancel" style="padding:8px 16px;">Cancel</button>
+              <button type="submit" class="primary-button" style="background:#25D366;border-color:#25D366;font-weight:700;padding:8px 18px;display:inline-flex;align-items:center;gap:6px;">
+                <svg class="gi-icon" style="width:14px;height:14px;fill:currentColor;"><use href="#gi-whatsapp"></use></svg> Start Chat
+              </button>
+            </div>
+          </form>
+        </div>
       </div>
     </section>
   `;
@@ -27997,6 +28087,7 @@ function bindWhatsAppConnectActions() {
     renderWhatsAppPairingQr();
   }
 
+  // 1. Link / Connect Action
   view.querySelectorAll("[data-wa-action='connect']").forEach((btn) => {
     btn.addEventListener("click", () => {
       whatsappConnectState.connected = true;
@@ -28007,15 +28098,18 @@ function bindWhatsAppConnectActions() {
     });
   });
 
-  view.querySelectorAll("[data-wa-action='show-qr']").forEach((btn) => {
+  // 2. Disconnect / Re-link QR Action
+  view.querySelectorAll("[data-wa-action='disconnect'], [data-wa-action='show-qr']").forEach((btn) => {
     btn.addEventListener("click", () => {
       whatsappConnectState.connected = false;
       saveWhatsAppConnectState();
       elements.featureView.innerHTML = whatsappConnectTemplate();
       bindFeatureActions();
+      showToast("WhatsApp Disconnected.");
     });
   });
 
+  // 3. Search Filter
   const searchInput = view.querySelector("#waChatSearchInput");
   searchInput?.addEventListener("input", (e) => {
     whatsappConnectState.searchQuery = e.target.value;
@@ -28026,6 +28120,7 @@ function bindWhatsAppConnectActions() {
     });
   });
 
+  // 4. Select Party in List
   view.querySelectorAll(".wa-party-item").forEach((item) => {
     item.addEventListener("click", () => {
       const partyId = item.dataset.waPartyId;
@@ -28036,6 +28131,85 @@ function bindWhatsAppConnectActions() {
     });
   });
 
+  // 5. Direct / New Chat Modal Triggers
+  const newChatBtn = view.querySelector("#waNewChatBtn");
+  const newChatModal = view.querySelector("#waNewChatModal");
+  newChatBtn?.addEventListener("click", () => {
+    if (newChatModal) {
+      newChatModal.classList.remove("hidden");
+      newChatModal.querySelector("#waDirectPhoneInput")?.focus();
+    }
+  });
+  view.querySelector("#waNewChatModalClose")?.addEventListener("click", () => {
+    newChatModal?.classList.add("hidden");
+  });
+  view.querySelector("#waNewChatModalCancel")?.addEventListener("click", () => {
+    newChatModal?.classList.add("hidden");
+  });
+
+  // 6. Direct New Chat Form Submission
+  const newChatForm = view.querySelector("#waNewChatForm");
+  newChatForm?.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const phoneInput = view.querySelector("#waDirectPhoneInput");
+    const nameInput = view.querySelector("#waDirectNameInput");
+    const entered = (phoneInput?.value || "").trim();
+    const clean = entered.replace(/\D/g, "");
+    if (clean.length < 7) {
+      showToast("Please enter a valid mobile number.");
+      return;
+    }
+    const name = (nameInput?.value || "").trim() || entered;
+    const directId = "direct-" + clean;
+    whatsappConnectState.directParties = whatsappConnectState.directParties || [];
+    let directParty = whatsappConnectState.directParties.find((p) => p.id === directId);
+    if (!directParty) {
+      directParty = { id: directId, name, phone: entered, balance: 0, isDirect: true };
+      whatsappConnectState.directParties.unshift(directParty);
+    } else {
+      directParty.name = name;
+      directParty.phone = entered;
+    }
+    whatsappConnectState.activePartyId = directId;
+    saveWhatsAppConnectState();
+    elements.featureView.innerHTML = whatsappConnectTemplate();
+    bindFeatureActions();
+    showToast(`Chat started with ${name}!`);
+  });
+
+  // 7. Inline Phone Form Submission (for accounts without phone number)
+  const inlinePhoneForm = view.querySelector("#waInlinePhoneForm");
+  inlinePhoneForm?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const phoneInput = view.querySelector("#waInlinePhoneInput");
+    const saveCheck = view.querySelector("#waSavePhoneToParty");
+    const entered = (phoneInput?.value || "").trim();
+    const clean = entered.replace(/\D/g, "");
+    if (clean.length < 7) {
+      showToast("Please enter a valid mobile number.");
+      return;
+    }
+    const currentParty = getWhatsAppActiveParty();
+    if (currentParty) {
+      currentParty.phone = entered;
+      const shouldSaveToDb = saveCheck ? saveCheck.checked : true;
+      if (shouldSaveToDb && currentParty.id && !String(currentParty.id).startsWith("demo-") && !String(currentParty.id).startsWith("direct-")) {
+        try {
+          const inStateParty = (state.parties || []).find((p) => String(p.id) === String(currentParty.id));
+          if (inStateParty) inStateParty.phone = entered;
+          if (window.giDB?.updateParty) {
+            await window.giDB.updateParty({ ...currentParty, phone: entered });
+          }
+        } catch (err) {
+          console.error("Failed to update party phone in DB:", err);
+        }
+      }
+      showToast(`Phone number updated for ${currentParty.name}!`);
+      elements.featureView.innerHTML = whatsappConnectTemplate();
+      bindFeatureActions();
+    }
+  });
+
   const activeParty = getWhatsAppActiveParty();
   const input = view.querySelector("#waMessageInput");
   const business = state.businessSettings || defaultBusinessSettings();
@@ -28043,7 +28217,7 @@ function bindWhatsAppConnectActions() {
   const businessPhone = business.phone || "9846515684";
   const bal = Number(activeParty?.balance ?? activeParty?.receivable ?? 22800);
 
-  // 1. Payment Reminder (Image 2 format)
+  // 8. Payment Reminder Quick Pill
   view.querySelector("[data-wa-quick='reminder']")?.addEventListener("click", () => {
     if (!input || !activeParty) return;
     const msg = `Dear, ${activeParty.name}\nYour payment of ${bal.toFixed(2)} is pending with ${businessName}\n\nIf you have already made the payment, kindly ignore this message.\n\nThank You\n${businessName}\n${businessPhone}`;
@@ -28052,16 +28226,16 @@ function bindWhatsAppConnectActions() {
     showToast("Payment reminder drafted into message box.");
   });
 
-  // 2. Party Statement
+  // 9. Party Statement Quick Pill
   view.querySelector("[data-wa-quick='statement']")?.addEventListener("click", () => {
     if (!input || !activeParty) return;
-    const msg = `Dear ${activeParty.name},\nCurrent Statement Summary with ${businessName}:\nTotal Balance Due: ₹${formatCurrency(bal)}\n\nPlease clear the balance at your earliest convenience.\nWarm regards,\n${businessName}`;
+    const msg = `Dear ${activeParty.name},\nCurrent Statement Summary with ${businessName}:\nTotal Balance Due: ${formatCurrency(bal)}\n\nPlease clear the balance at your earliest convenience.\nWarm regards,\n${businessName}`;
     input.value = msg;
     input.focus();
     showToast("Party statement drafted into message box.");
   });
 
-  // 3. Send Transactions (Recent Invoice)
+  // 10. Send Transactions (Recent Invoice) Quick Pill
   view.querySelector("[data-wa-quick='transactions']")?.addEventListener("click", () => {
     if (!input || !activeParty) return;
     const partyInvoices = (state.invoices || []).filter((inv) => String(inv.partyId) === String(activeParty.id) || (inv.party && inv.party === activeParty.name));
@@ -28074,11 +28248,11 @@ function bindWhatsAppConnectActions() {
     showToast("Transaction details drafted into message box.");
   });
 
-  // 4. Smart Messaging Templates
+  // 11. Smart Messaging Templates Quick Pill
   view.querySelector("[data-wa-quick='smart']")?.addEventListener("click", () => {
     if (!input || !activeParty) return;
     const templates = [
-      `Dear ${activeParty.name}, thank you for your recent payment of ₹${formatCurrency(bal)}. It was a pleasure doing business with you! - ${businessName}`,
+      `Dear ${activeParty.name}, thank you for your recent payment of ${formatCurrency(bal)}. It was a pleasure doing business with you! - ${businessName}`,
       `Hello ${activeParty.name}, greetings from ${businessName}! Hope you are doing well. Please let us know if you need any goods or assistance.`,
       `Dear ${activeParty.name}, your order has been dispatched and is on its way. Thank you for choosing ${businessName}!`
     ];
@@ -28088,7 +28262,7 @@ function bindWhatsAppConnectActions() {
     showToast("Smart message template inserted.");
   });
 
-  // 5. Attach Invoice / Doc Button (+)
+  // 12. Attach Invoice / Doc Button (+)
   view.querySelector("#waAttachBtn")?.addEventListener("click", () => {
     if (!activeParty) return;
     const partyInvoices = (state.invoices || []).filter((inv) => String(inv.partyId) === String(activeParty.id) || (inv.party && inv.party === activeParty.name));
@@ -28099,7 +28273,7 @@ function bindWhatsAppConnectActions() {
     }
   });
 
-  // 6. Send Message handler
+  // 13. Send Message handler
   const sendBtn = view.querySelector("#waSendBtn");
   const doSend = () => {
     const text = (input?.value || "").trim();

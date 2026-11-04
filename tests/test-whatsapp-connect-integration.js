@@ -152,7 +152,7 @@ app.whenReady().then(async () => {
     console.log("TEST 5: Switching to QR Pairing Screen (Image 1)...");
     await win.webContents.executeJavaScript(`
       (() => {
-        const qrBtn = document.querySelector('[data-wa-action="show-qr"]');
+        const qrBtn = document.querySelector('[data-wa-action="show-qr"]') || document.querySelector('[data-wa-action="disconnect"]');
         if (qrBtn) qrBtn.click();
       })()
     `);
