@@ -2168,6 +2168,12 @@ function defaultBusinessSettings(companyName = "testt") {
       upiId: "",
     },
     invoicePrefix: "INV",
+    estimatePrefix: "QT",
+    proformaPrefix: "PI",
+    saleOrderPrefix: "SO",
+    challanPrefix: "DC",
+    purchaseOrderPrefix: "PO",
+    creditNotePrefix: "CN",
     startingNo: 1,
     terms: "",
     customFields: defaultCustomFields(),
@@ -2249,6 +2255,12 @@ function updateBusinessSettings(settings = {}) {
       upiId: String(settings.bankDetails?.upiId ?? current.bankDetails.upiId ?? "").trim(),
     },
     invoicePrefix: String(settings.invoicePrefix ?? current.invoicePrefix ?? "INV").trim().toUpperCase() || "INV",
+    estimatePrefix: String(settings.estimatePrefix ?? current.estimatePrefix ?? "QT").trim().toUpperCase() || "QT",
+    proformaPrefix: String(settings.proformaPrefix ?? current.proformaPrefix ?? "PI").trim().toUpperCase() || "PI",
+    saleOrderPrefix: String(settings.saleOrderPrefix ?? current.saleOrderPrefix ?? "SO").trim().toUpperCase() || "SO",
+    challanPrefix: String(settings.challanPrefix ?? current.challanPrefix ?? "DC").trim().toUpperCase() || "DC",
+    purchaseOrderPrefix: String(settings.purchaseOrderPrefix ?? current.purchaseOrderPrefix ?? "PO").trim().toUpperCase() || "PO",
+    creditNotePrefix: String(settings.creditNotePrefix ?? current.creditNotePrefix ?? "CN").trim().toUpperCase() || "CN",
     startingNo: Math.max(1, Number(settings.startingNo ?? current.startingNo ?? 1) || 1),
     terms: String(settings.terms ?? current.terms ?? "").trim(),
     customFields: normalizeCustomFields(settings.customFields ?? current.customFields),
@@ -6627,25 +6639,23 @@ function nextInvoiceNumber(companyIdOrType, maybeType, docDate = new Date()) {
   docDate = args.docDate;
 
   const settings = getBusinessSettings();
-  const prefix = type === "sale" && settings.invoicePrefix
-    ? settings.invoicePrefix
-    : {
-    estimate: "QT",
-    proforma: "PI",
-    sale_order: "SO",
-    saleOrder: "SO",
-    delivery_challan: "DC",
-    deliveryChallan: "DC",
-    purchase_order: "PO",
-    purchaseOrder: "PO",
-    credit_note: "CN",
+  const prefix = {
+    estimate: settings.estimatePrefix || "QT",
+    proforma: settings.proformaPrefix || "PI",
+    sale_order: settings.saleOrderPrefix || "SO",
+    saleOrder: settings.saleOrderPrefix || "SO",
+    delivery_challan: settings.challanPrefix || "DC",
+    deliveryChallan: settings.challanPrefix || "DC",
+    purchase_order: settings.purchaseOrderPrefix || "PO",
+    purchaseOrder: settings.purchaseOrderPrefix || "PO",
+    credit_note: settings.creditNotePrefix || "CN",
     debit_note: "DN",
-    sale: "INV",
+    sale: settings.invoicePrefix || "INV",
     purchase: "PB",
     expense: "EXP",
     payment_in: "PIN",
     payment_out: "POUT",
-  }[type] || "INV";
+  }[type] || (type === "sale" ? settings.invoicePrefix || "INV" : "INV");
   const startNo = type === "sale" ? Math.max(1, Number(settings.startingNo || 1)) : 1;
   const financialYear = currentFinancialYear(docDate);
   const pattern = `${prefix}-${financialYear}-%`;
@@ -6703,25 +6713,23 @@ function previewNextInvoiceNumber(companyIdOrType, maybeType, docDate = new Date
   docDate = args.docDate;
 
   const settings = getBusinessSettings();
-  const prefix = type === "sale" && settings.invoicePrefix
-    ? settings.invoicePrefix
-    : {
-    estimate: "QT",
-    proforma: "PI",
-    sale_order: "SO",
-    saleOrder: "SO",
-    delivery_challan: "DC",
-    deliveryChallan: "DC",
-    purchase_order: "PO",
-    purchaseOrder: "PO",
-    credit_note: "CN",
+  const prefix = {
+    estimate: settings.estimatePrefix || "QT",
+    proforma: settings.proformaPrefix || "PI",
+    sale_order: settings.saleOrderPrefix || "SO",
+    saleOrder: settings.saleOrderPrefix || "SO",
+    delivery_challan: settings.challanPrefix || "DC",
+    deliveryChallan: settings.challanPrefix || "DC",
+    purchase_order: settings.purchaseOrderPrefix || "PO",
+    purchaseOrder: settings.purchaseOrderPrefix || "PO",
+    credit_note: settings.creditNotePrefix || "CN",
     debit_note: "DN",
-    sale: "INV",
+    sale: settings.invoicePrefix || "INV",
     purchase: "PB",
     expense: "EXP",
     payment_in: "PIN",
     payment_out: "POUT",
-  }[type] || "INV";
+  }[type] || (type === "sale" ? settings.invoicePrefix || "INV" : "INV");
   const startNo = type === "sale" ? Math.max(1, Number(settings.startingNo || 1)) : 1;
   const financialYear = currentFinancialYear(docDate);
   const pattern = `${prefix}-${financialYear}-%`;

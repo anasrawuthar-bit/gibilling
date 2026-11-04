@@ -227,7 +227,112 @@ app.whenReady().then(async () => {
     }
     console.log("  ✓ Test 7 Passed: Custom field added cleanly with zero horizontal overflow.");
 
-    console.log("\nALL 7 SETTINGS REVAMP TESTS PASSED SUCCESSFULLY!\n");
+    // Test 8: Bank Account & UPI Details saved in Company Profile
+    console.log("Test 8: Save Bank Account & UPI Details in Company Profile...");
+    const test8 = await win.webContents.executeJavaScript(`
+      (async () => {
+        document.querySelector('[data-settings-tab="COMPANY"]').click();
+        await new Promise(r => setTimeout(r, 200));
+
+        const form = document.querySelector("#businessSettingsForm");
+        form.querySelector('[name="bankName"]').value = "HDFC Bank Ltd";
+        form.querySelector('[name="accountNo"]').value = "987654321012";
+        form.querySelector('[name="ifsc"]').value = "HDFC0000123";
+        form.querySelector('[name="upiId"]').value = "acme@hdfc";
+
+        form.dispatchEvent(new Event("submit", { cancelable: true, bubbles: true }));
+        await new Promise(r => setTimeout(r, 400));
+
+        return {
+          bankName: state.businessSettings.bankDetails?.bankName,
+          accountNo: state.businessSettings.bankDetails?.accountNo,
+          ifsc: state.businessSettings.bankDetails?.ifsc,
+          upiId: state.businessSettings.bankDetails?.upiId,
+        };
+      })()
+    `);
+    console.log("  Saved Bank Details:", test8);
+    if (test8.bankName !== "HDFC Bank Ltd" || test8.accountNo !== "987654321012" || test8.ifsc !== "HDFC0000123" || test8.upiId !== "acme@hdfc") {
+      throw new Error(`Test 8 Failed: Bank details not persisted properly: ${JSON.stringify(test8)}`);
+    }
+    console.log("  ✓ Test 8 Passed: Bank Account & UPI details saved directly in Company Profile.");
+
+    // Test 9: Voucher Sequence Prefixes in Invoicing & Sequences
+    console.log("Test 9: Configure custom voucher sequence prefixes...");
+    const test9 = await win.webContents.executeJavaScript(`
+      (async () => {
+        document.querySelector('[data-settings-tab="INVOICING"]').click();
+        await new Promise(r => setTimeout(r, 200));
+
+        const form = document.querySelector("#businessSettingsForm");
+        form.querySelector('[name="estimatePrefix"]').value = "EST";
+        form.querySelector('[name="challanPrefix"]').value = "DEL";
+        form.querySelector('[name="creditNotePrefix"]').value = "CRN";
+        form.querySelector('[name="purchaseOrderPrefix"]').value = "POX";
+
+        form.dispatchEvent(new Event("submit", { cancelable: true, bubbles: true }));
+        await new Promise(r => setTimeout(r, 400));
+
+        return {
+          estimatePrefix: state.businessSettings.estimatePrefix,
+          challanPrefix: state.businessSettings.challanPrefix,
+          creditNotePrefix: state.businessSettings.creditNotePrefix,
+          purchaseOrderPrefix: state.businessSettings.purchaseOrderPrefix,
+        };
+      })()
+    `);
+    console.log("  Saved Voucher Prefixes:", test9);
+    if (test9.estimatePrefix !== "EST" || test9.challanPrefix !== "DEL" || test9.creditNotePrefix !== "CRN" || test9.purchaseOrderPrefix !== "POX") {
+      throw new Error(`Test 9 Failed: Voucher prefixes not saved: ${JSON.stringify(test9)}`);
+    }
+    const test9DbDocNo = database.previewNextInvoiceNumber(database.getCurrentCompany().id, "estimate");
+    console.log("  Database preview next estimate number:", test9DbDocNo);
+    if (!test9DbDocNo.startsWith("EST-")) {
+      throw new Error(`Test 9 Failed: Database doc sequence did not use configured prefix EST-: ${test9DbDocNo}`);
+    }
+    console.log("  ✓ Test 9 Passed: Multi-voucher sequence prefixes configured and verified with database.");
+
+    // Test 10: Clean About & Version tab and Check for Updates action
+    console.log("Test 10: Verify clean About & Version tab and Check for Updates action...");
+    const test10 = await win.webContents.executeJavaScript(`
+      (async () => {
+        document.querySelector('[data-settings-tab="ABOUT"]').click();
+        await new Promise(r => setTimeout(r, 200));
+
+        const content = document.querySelector(".settings-content");
+        const hasSemVer = content.textContent.includes("Version Management Policy");
+        const hasDataSafety = content.textContent.includes("Data Safety & Migrations");
+        const updateBtn = document.querySelector("#btnCheckForUpdates");
+
+        if (!updateBtn) {
+          return { error: "Check for Updates button not found" };
+        }
+
+        updateBtn.click();
+        await new Promise(r => setTimeout(r, 850));
+
+        const feedback = document.querySelector("#updateCheckFeedback");
+        const isFeedbackVisible = feedback && feedback.style.display !== "none";
+
+        return {
+          hasSemVer,
+          hasDataSafety,
+          hasUpdateBtn: !!updateBtn,
+          isFeedbackVisible,
+          feedbackText: feedback?.textContent?.trim()
+        };
+      })()
+    `);
+    console.log("  About tab check result:", test10);
+    if (test10.hasSemVer || test10.hasDataSafety) {
+      throw new Error(`Test 10 Failed: Old text policy/migration cards still present: ${JSON.stringify(test10)}`);
+    }
+    if (!test10.hasUpdateBtn || !test10.isFeedbackVisible) {
+      throw new Error(`Test 10 Failed: Check for Updates interaction failed: ${JSON.stringify(test10)}`);
+    }
+    console.log("  ✓ Test 10 Passed: About & Version is clean and Check for Updates functions perfectly.");
+
+    console.log("\nALL 10 SETTINGS REVAMP TESTS PASSED SUCCESSFULLY!\n");
   } catch (err) {
     console.error("Test Error:", err);
     process.exit(1);

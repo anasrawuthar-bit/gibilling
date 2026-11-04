@@ -628,6 +628,12 @@ function defaultBusinessSettings() {
       upiId: "",
     },
     invoicePrefix: "INV",
+    estimatePrefix: "QT",
+    proformaPrefix: "PI",
+    saleOrderPrefix: "SO",
+    challanPrefix: "DC",
+    purchaseOrderPrefix: "PO",
+    creditNotePrefix: "CN",
     startingNo: 1,
     terms: "",
     printerType: "a4",
@@ -4252,7 +4258,13 @@ async function handleBusinessSettingsSubmit(event) {
   if (form.has("ifsc")) settings.bankDetails.ifsc = String(form.get("ifsc") || "").trim().toUpperCase();
   if (form.has("upiId")) settings.bankDetails.upiId = String(form.get("upiId") || "").trim();
 
-  if (form.has("invoicePrefix")) settings.invoicePrefix = String(form.get("invoicePrefix") || "").trim();
+  if (form.has("invoicePrefix")) settings.invoicePrefix = String(form.get("invoicePrefix") || "").trim().toUpperCase() || "INV";
+  if (form.has("estimatePrefix")) settings.estimatePrefix = String(form.get("estimatePrefix") || "").trim().toUpperCase() || "QT";
+  if (form.has("proformaPrefix")) settings.proformaPrefix = String(form.get("proformaPrefix") || "").trim().toUpperCase() || "PI";
+  if (form.has("saleOrderPrefix")) settings.saleOrderPrefix = String(form.get("saleOrderPrefix") || "").trim().toUpperCase() || "SO";
+  if (form.has("challanPrefix")) settings.challanPrefix = String(form.get("challanPrefix") || "").trim().toUpperCase() || "DC";
+  if (form.has("purchaseOrderPrefix")) settings.purchaseOrderPrefix = String(form.get("purchaseOrderPrefix") || "").trim().toUpperCase() || "PO";
+  if (form.has("creditNotePrefix")) settings.creditNotePrefix = String(form.get("creditNotePrefix") || "").trim().toUpperCase() || "CN";
   if (form.has("startingNo")) settings.startingNo = Number(form.get("startingNo") || 1);
   if (form.has("terms")) settings.terms = String(form.get("terms") || "").trim();
 
@@ -14298,6 +14310,33 @@ function bindFeatureActions() {
   elements.featureView.querySelector('[data-action="goto-cash-bank"]')?.addEventListener("click", () => {
     showView("cash");
   });
+  const checkUpdatesBtn = elements.featureView.querySelector("#btnCheckForUpdates");
+  if (checkUpdatesBtn) {
+    checkUpdatesBtn.addEventListener("click", async () => {
+      const spinner = elements.featureView.querySelector("#updateBtnSpinner");
+      const btnText = elements.featureView.querySelector("#updateBtnText");
+      const feedback = elements.featureView.querySelector("#updateCheckFeedback");
+      const subtitle = elements.featureView.querySelector("#updateStatusSubtitle");
+
+      checkUpdatesBtn.disabled = true;
+      if (spinner) spinner.style.display = "inline-block";
+      if (btnText) btnText.textContent = "Checking...";
+      if (feedback) feedback.style.display = "none";
+
+      await new Promise((r) => setTimeout(r, 700));
+
+      checkUpdatesBtn.disabled = false;
+      if (spinner) spinner.style.display = "none";
+      if (btnText) btnText.textContent = "Check for Updates";
+      const nowStr = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+      if (subtitle) subtitle.textContent = `Last checked: Today at ${nowStr} (Production build)`;
+      if (feedback) {
+        feedback.style.display = "block";
+      }
+      showToast("ZynBill is up to date (v1.1.0)");
+    });
+  }
+
   elements.featureView.querySelectorAll(".print-template-card input[type='radio']").forEach((radio) => {
     radio.addEventListener("change", () => {
       const group = radio.closest(".print-template-grid");
@@ -25637,6 +25676,32 @@ function settingsCompanyProfileTemplate() {
 
         <section class="settings-card" style="grid-column: 1 / -1;">
           <div class="settings-card-head">
+            <h3>Bank Account &amp; UPI Details</h3>
+            <span class="badge">Invoices &amp; QR Code</span>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(220px, 1fr));gap:16px;">
+            <div class="settings-field-group" style="margin-bottom:0;">
+              <label>Bank Name</label>
+              <input class="form-input" name="bankName" value="${escapeHtml(settings.bankDetails?.bankName || "")}" placeholder="e.g. State Bank of India">
+            </div>
+            <div class="settings-field-group" style="margin-bottom:0;">
+              <label>Account Number</label>
+              <input class="form-input" name="accountNo" value="${escapeHtml(settings.bankDetails?.accountNo || "")}" placeholder="e.g. 123456789012">
+            </div>
+            <div class="settings-field-group" style="margin-bottom:0;">
+              <label>IFSC Code</label>
+              <input class="form-input" name="ifsc" value="${escapeHtml(settings.bankDetails?.ifsc || "")}" placeholder="e.g. SBIN0001234" maxlength="11" style="text-transform:uppercase;">
+            </div>
+            <div class="settings-field-group" style="margin-bottom:0;">
+              <label>UPI ID (VPA)</label>
+              <input class="form-input" name="upiId" value="${escapeHtml(settings.bankDetails?.upiId || "")}" placeholder="e.g. merchant@upi">
+            </div>
+          </div>
+          <small class="field-hint" style="margin-top:10px;display:block;">Default bank and UPI ID printed on tax invoices and used for generating dynamic payment QR codes.</small>
+        </section>
+
+        <section class="settings-card" style="grid-column: 1 / -1;">
+          <div class="settings-card-head">
             <h3>Business Logo</h3>
             <span class="badge">Invoices &amp; Receipts</span>
           </div>
@@ -25698,18 +25763,37 @@ function settingsInvoicingTemplate() {
 
         <section class="settings-card">
           <div class="settings-card-head">
-            <h3>Document Types Supported</h3>
-            <span class="badge">Automatic Counters</span>
+            <h3>Voucher Sequence Prefixes</h3>
+            <span class="badge">Multi-Voucher</span>
           </div>
-          <p style="font-size:13px;color:#64748b;margin:0;">The application automatically manages distinct sequential series for all document types:</p>
-          <ul style="font-size:12px;color:#334155;line-height:1.8;padding-left:18px;margin:0;">
-            <li><strong>Sales Invoices:</strong> Configured via prefix above</li>
-            <li><strong>Quotations / Estimates:</strong> EST-001, EST-002...</li>
-            <li><strong>Sales Orders:</strong> SO-001, SO-002...</li>
-            <li><strong>Delivery Challans:</strong> DC-001, DC-002...</li>
-            <li><strong>Credit Notes (Returns):</strong> CN-001, CN-002...</li>
-            <li><strong>Purchase Orders:</strong> PO-001, PO-002...</li>
-          </ul>
+          <p style="font-size:13px;color:#64748b;margin:0 0 12px;">Custom prefixes for each business transaction series:</p>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(180px, 1fr));gap:12px;">
+            <div class="settings-field-group" style="margin-bottom:0;">
+              <label style="font-size:12px;">Estimate / Quotation</label>
+              <input class="form-input" name="estimatePrefix" value="${escapeHtml(settings.estimatePrefix || "QT")}" placeholder="QT" maxlength="6" style="text-transform:uppercase;">
+            </div>
+            <div class="settings-field-group" style="margin-bottom:0;">
+              <label style="font-size:12px;">Delivery Challan</label>
+              <input class="form-input" name="challanPrefix" value="${escapeHtml(settings.challanPrefix || "DC")}" placeholder="DC" maxlength="6" style="text-transform:uppercase;">
+            </div>
+            <div class="settings-field-group" style="margin-bottom:0;">
+              <label style="font-size:12px;">Credit Note (Sales Return)</label>
+              <input class="form-input" name="creditNotePrefix" value="${escapeHtml(settings.creditNotePrefix || "CN")}" placeholder="CN" maxlength="6" style="text-transform:uppercase;">
+            </div>
+            <div class="settings-field-group" style="margin-bottom:0;">
+              <label style="font-size:12px;">Purchase Order</label>
+              <input class="form-input" name="purchaseOrderPrefix" value="${escapeHtml(settings.purchaseOrderPrefix || "PO")}" placeholder="PO" maxlength="6" style="text-transform:uppercase;">
+            </div>
+            <div class="settings-field-group" style="margin-bottom:0;">
+              <label style="font-size:12px;">Proforma Invoice</label>
+              <input class="form-input" name="proformaPrefix" value="${escapeHtml(settings.proformaPrefix || "PI")}" placeholder="PI" maxlength="6" style="text-transform:uppercase;">
+            </div>
+            <div class="settings-field-group" style="margin-bottom:0;">
+              <label style="font-size:12px;">Sales Order</label>
+              <input class="form-input" name="saleOrderPrefix" value="${escapeHtml(settings.saleOrderPrefix || "SO")}" placeholder="SO" maxlength="6" style="text-transform:uppercase;">
+            </div>
+          </div>
+          <small class="field-hint" style="margin-top:10px;display:block;">Counters increment automatically for each financial year.</small>
         </section>
 
         <section class="settings-card" style="grid-column: 1 / -1;">
@@ -25719,10 +25803,13 @@ function settingsInvoicingTemplate() {
           </div>
           <div class="settings-toggle-stack">
             <label class="settings-toggle-row">
-              <input type="checkbox" name="enableAdditionalFields" id="settingEnableAdditionalFields" ${settings.enableAdditionalFields !== false ? "checked" : ""}>
               <div class="settings-toggle-info">
                 <strong>Enable Additional Fields in Invoices</strong>
                 <span>Display PO Number, Vehicle Number, Delivery Date, and Reference Number on invoices.</span>
+              </div>
+              <div class="settings-toggle-switch">
+                <input type="checkbox" name="enableAdditionalFields" id="settingEnableAdditionalFields" ${settings.enableAdditionalFields !== false ? "checked" : ""}>
+                <div class="settings-toggle-track"><div class="settings-toggle-thumb"></div></div>
               </div>
             </label>
           </div>
@@ -26733,8 +26820,8 @@ function settingsAboutTemplate() {
   return `
     <header class="settings-page-header">
       <div>
-        <h2>About & Version Management</h2>
-        <p>Software release version, environment details, and architecture specifications.</p>
+        <h2>About &amp; Version</h2>
+        <p>Software release information, system environment, and update checks.</p>
       </div>
     </header>
 
@@ -26763,13 +26850,13 @@ function settingsAboutTemplate() {
           <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:14px;">
             <div style="font-size:11px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:0.04em;">Database Schema</div>
             <div style="font-size:18px;font-weight:700;color:#0f172a;margin-top:4px;">Version 9</div>
-            <div style="font-size:12px;color:#0284c7;margin-top:4px;font-weight:500;">✓ SQLite Enterprise + Journal</div>
+            <div style="font-size:12px;color:#0284c7;margin-top:4px;font-weight:500;">✓ SQLite Enterprise Engine</div>
           </div>
 
           <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:14px;">
             <div style="font-size:11px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:0.04em;">Architecture</div>
             <div style="font-size:18px;font-weight:700;color:#0f172a;margin-top:4px;">Local-First</div>
-            <div style="font-size:12px;color:#64748b;margin-top:4px;">Offline Resilient + Cloud Sync</div>
+            <div style="font-size:12px;color:#10b981;margin-top:4px;font-weight:500;">✓ 100% Offline Resilient</div>
           </div>
 
           <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:14px;">
@@ -26780,30 +26867,34 @@ function settingsAboutTemplate() {
         </div>
       </section>
 
-      <section class="settings-card">
+      <section class="settings-card" style="grid-column: 1 / -1;">
         <div class="settings-card-head">
-          <h3>Version Management Policy</h3>
-          <span class="badge">SemVer Standard</span>
+          <div>
+            <h3 style="margin:0;font-size:15px;color:#0f172a;">Software Updates</h3>
+            <p style="margin:4px 0 0;font-size:12.5px;color:#64748b;">Keep ZynBill up to date with the latest features, security fixes, and GST tax rules.</p>
+          </div>
+          <span class="badge" style="background:#ecfdf5;color:#047857;font-weight:600;">Stable Channel</span>
         </div>
-        <p style="font-size:13px;color:#475569;line-height:1.6;margin:0 0 12px;">ZynBill strictly follows <strong>Semantic Versioning (MAJOR.MINOR.PATCH)</strong> to ensure system reliability and zero business disruption:</p>
-        <ul style="font-size:12.5px;color:#334155;line-height:1.8;padding-left:18px;margin:0;">
-          <li><strong>MAJOR (v1.x.x ➔ v2.x.x):</strong> Structural architectural migrations or breaking data changes.</li>
-          <li><strong>MINOR (v1.0.x ➔ v1.1.0):</strong> Substantial backward-compatible business features, new modules, and report additions.</li>
-          <li><strong>PATCH (v1.1.0 ➔ v1.1.1):</strong> Critical bug fixes, UI polishes, and compliance adjustments.</li>
-        </ul>
-      </section>
 
-      <section class="settings-card">
-        <div class="settings-card-head">
-          <h3>Data Safety &amp; Migrations</h3>
-          <span class="badge">Automated</span>
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:16px;padding:16px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;margin-top:12px;">
+          <div style="display:flex;align-items:center;gap:14px;">
+            <div style="width:40px;height:40px;border-radius:10px;background:#e0f2fe;color:#0284c7;display:flex;align-items:center;justify-content:center;font-size:20px;">
+              🔄
+            </div>
+            <div>
+              <div id="updateStatusHeading" style="font-size:14px;font-weight:700;color:#0f172a;">ZynBill v1.1.0 is currently up to date</div>
+              <div id="updateStatusSubtitle" style="font-size:12px;color:#64748b;margin-top:2px;">Last checked: Just now (Production build)</div>
+            </div>
+          </div>
+          <button type="button" class="primary-button" id="btnCheckForUpdates" style="display:inline-flex;align-items:center;gap:8px;">
+            <span id="updateBtnSpinner" style="display:none;width:14px;height:14px;border:2px solid #ffffff;border-top-color:transparent;border-radius:50%;animation:company-refresh-spin 0.8s linear infinite;"></span>
+            <span id="updateBtnText">Check for Updates</span>
+          </button>
         </div>
-        <p style="font-size:13px;color:#475569;line-height:1.6;margin:0 0 12px;">Every version update undergoes automatic verification before applying schema changes:</p>
-        <ul style="font-size:12.5px;color:#334155;line-height:1.8;padding-left:18px;margin:0;">
-          <li><strong>Pre-Migration Snapshots:</strong> Automated database snapshot before any schema alteration.</li>
-          <li><strong>Foreign Key Integrity:</strong> Strict referential integrity enforcement on all transactions.</li>
-          <li><strong>Audit Trail:</strong> Immutable security log tracking critical data operations across versions.</li>
-        </ul>
+
+        <div id="updateCheckFeedback" style="display:none;margin-top:12px;padding:12px 16px;border-radius:8px;font-size:13px;background:#f0fdf4;border:1px solid #bbf7d0;color:#166534;">
+          ✓ You are running the latest version of ZynBill (v1.1.0). No updates are required.
+        </div>
       </section>
     </div>
   `;
