@@ -13858,9 +13858,20 @@ function bindFeatureActions() {
     });
   });
   elements.featureView.querySelectorAll("[data-invoice-action]").forEach((button) => {
-    button.addEventListener("click", () => {
+    button.addEventListener("click", (e) => {
+      e.stopPropagation();
       button.closest("details")?.removeAttribute("open");
       handleInvoiceListAction(button.dataset.invoiceAction, button.dataset.invoiceId);
+    });
+  });
+  elements.featureView.querySelectorAll(".invoice-row-actions summary, .party-transaction-actions summary").forEach((summary) => {
+    summary.addEventListener("click", (e) => {
+      e.stopPropagation();
+    });
+  });
+  elements.featureView.querySelectorAll(".invoice-row-actions details, .party-transaction-actions details").forEach((details) => {
+    details.addEventListener("click", (e) => {
+      e.stopPropagation();
     });
   });
   const invoiceSearchInput = elements.featureView.querySelector("[data-invoice-search]");
@@ -14713,6 +14724,9 @@ function bindFeatureActions() {
   });
   elements.featureView.querySelectorAll("[data-party-invoice-id]").forEach((button) => {
     button.addEventListener("click", (e) => {
+      if (e.target.closest(".actions-cell, .action-cell, .invoice-row-actions, .party-transaction-actions, details, summary, [data-invoice-action]")) {
+        return;
+      }
       e.stopPropagation();
       const invoiceId = button.dataset.partyInvoiceId;
       if (invoiceId) handleInvoiceListAction("view", invoiceId);

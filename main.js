@@ -41,7 +41,7 @@ function createMainWindow() {
     height: 768,
     minWidth: 1040,
     minHeight: 680,
-    show: true,
+    show: false,
     center: true,
     title: "ZynBill",
     icon: fs.existsSync(windowIconPath) ? windowIconPath : undefined,
@@ -55,6 +55,7 @@ function createMainWindow() {
     },
   });
 
+  window.maximize();
   window.setMenuBarVisibility(false);
   mainWindow = window;
 
@@ -63,6 +64,7 @@ function createMainWindow() {
     if (revealed || window.isDestroyed()) return;
     revealed = true;
     if (window.isMinimized()) window.restore();
+    if (!window.isMaximized()) window.maximize();
     window.show();
     window.focus();
     console.log("ZynBill window is active and displayed.");
