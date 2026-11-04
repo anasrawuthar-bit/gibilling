@@ -7120,8 +7120,6 @@ function updateRowSmartHint(row) {
   if (!hint) return;
   const itemName = row.querySelector('[name="item"]')?.value.trim() || "";
   const qty = Number(row.querySelector('[name="qty"]')?.value || 0);
-  const price = Number(row.querySelector('[name="price"]')?.value || 0);
-  const selectedTaxRate = parseTaxRate(row.querySelector('[name="tax"]')?.value || "");
 
   hint.className = "row-smart-hint";
   if (!itemName) {
@@ -7136,37 +7134,23 @@ function updateRowSmartHint(row) {
     return;
   }
 
-  const salePrice = Number(item.salePrice || 0);
   const stock = Number(item.currentStock || 0);
   const isService = String(item.itemType || "").toLowerCase() === "service";
-  const parts = [];
 
   const editorType = getTransactionEditorType();
-  const isSaleLike = editorType === "sale" || editorType === "estimate" || editorType === "saleReturn";
-  if ((editorType === "sale" || editorType === "estimate") && !isService) {
-    if (qty > stock) {
-      const projected = stock - qty;
-      parts.push(`Stock ${formatQuantity(stock)} → ${formatQuantity(projected)} (Negative)`);
-      if (state.businessSettings?.stopSaleOnNegativeStock) {
-        hint.classList.add("danger");
-      } else {
-        hint.classList.add("warn");
-      }
+  if ((editorType === "sale" || editorType === "estimate") && !isService && qty > stock) {
+    const projected = stock - qty;
+    hint.textContent = `Stock ${formatQuantity(stock)} → ${formatQuantity(projected)} (Negative)`;
+    if (state.businessSettings?.stopSaleOnNegativeStock) {
+      hint.classList.add("danger");
     } else {
-      parts.push(`Stock ${formatQuantity(stock)}`);
+      hint.classList.add("warn");
     }
-  } else if (!isService && stock > 0) {
-    parts.push(`Stock ${formatQuantity(stock)}`);
+    return;
   }
 
-  if (isSaleLike && salePrice) parts.push(`Sale ${formatCurrency(salePrice)}`);
-  if (Number(item.taxRate || 0)) parts.push(`GST ${formatPercent(item.taxRate)}`);
-  if (!selectedTaxRate && !Number(item.taxRate || 0)) {
-    parts.push("GST not set");
-    hint.classList.add("info");
-  }
-
-  hint.textContent = parts.join(" | ") || "Known item";
+  // Once item is selected, do not show stock, quantity, or GST under item column (already in table columns)
+  hint.textContent = "";
 }
 
 function renumberEditorRows() {

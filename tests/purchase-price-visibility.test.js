@@ -76,14 +76,14 @@ app.whenReady().then(async () => {
           assertLog(!editorHtml.includes("Purchase Cost</th>"), "Transaction editor table header omits 'Purchase Cost'");
           assertLog(!editorHtml.includes("row-purchase-price"), "Transaction editor rows omit 'row-purchase-price'");
 
-          // Test 4: Transaction Editor displays Cost on the stock hint line (.row-smart-hint)
+          // Test 4: Transaction Editor item column hint line (.row-smart-hint) is clean when item is added
           const dummyTable = document.createElement("table");
           dummyTable.innerHTML = '<tbody id="transactionRows">' + editorRowTemplate(1, testItem.name, "", 1, 750) + '</tbody>';
           const dummyRow = dummyTable.querySelector("tr");
           dummyRow.dataset.smartItem = testItem.name;
           updateRowSmartHint(dummyRow);
           const smartHintText = dummyRow.querySelector(".row-smart-hint")?.textContent || "";
-          assertLog(smartHintText.includes("Cost ₹500.00") || smartHintText.includes("Cost ₹500"), "Stock line (.row-smart-hint) displays 'Cost' price: " + smartHintText);
+          assertLog(smartHintText === "", "Item column hint line (.row-smart-hint) is clean when item is added: " + smartHintText);
 
           // Test 5: itemListButton includes price chips for both Sale and Purchase Cost
           const btnHtml = itemListButton(testItem, 991);
