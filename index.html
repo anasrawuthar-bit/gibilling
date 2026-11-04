@@ -184,6 +184,7 @@
           <button class="nav-item" data-view="sales" type="button" title="Sales">
             <span><svg class="gi-icon"><use href="#gi-receipt"></use></svg></span>
             <span class="nav-label">Sales</span>
+            <span class="nav-badge nav-badge--danger" id="navBadgeReceivable" aria-label="open receivables"></span>
             <b><svg class="gi-icon"><use href="#gi-chevron-down"></use></svg></b>
           </button>
           <div class="submenu hidden" id="saleSubmenu">
@@ -200,6 +201,7 @@
           <button class="nav-item" data-view="purchases" type="button" title="Purchases">
             <span><svg class="gi-icon"><use href="#gi-cart"></use></svg></span>
             <span class="nav-label">Purchases</span>
+            <span class="nav-badge nav-badge--blue" id="navBadgePayable" aria-label="open payables"></span>
             <b><svg class="gi-icon"><use href="#gi-chevron-down"></use></svg></b>
           </button>
           <div class="submenu hidden" id="purchaseSubmenu">
@@ -235,11 +237,9 @@
           </button>
           <div class="submenu hidden" id="utilitiesSubmenu">
             <button class="submenu-item" data-view="importItems" type="button">Import Items</button>
-            <button class="submenu-item" data-view="setupBusiness" type="button">Set Up My Business</button>
             <button class="submenu-item" data-view="barcodeGenerator" type="button">Barcode Generator</button>
             <button class="submenu-item" data-view="importParties" type="button">Import Parties</button>
             <button class="submenu-item" data-view="exportItems" type="button">Export Items</button>
-            <button class="submenu-item" data-view="verifyData" type="button">Verify My Data</button>
             <button class="submenu-item" data-view="sync" type="button">Sync &amp; Backup</button>
           </div>
           <button class="nav-item" data-view="appSettings" type="button" title="Settings">

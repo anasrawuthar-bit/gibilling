@@ -17496,38 +17496,285 @@ textarea:focus-visible {
   to { opacity: 1; transform: scale(1); }
 }
 
-/* Sync, Backup & Restore View Revamp */
-.sync-page-revamp {
-  display: block !important;
-  height: 100% !important;
-  min-height: 0 !important;
-  overflow-y: auto !important;
-  padding: 24px 32px !important;
-  background: #f8fafc !important;
+/* ─── Sync, Backup & Restore ──────────────────────────────────────── */
+.sync-page {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  height: 100%;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 24px 28px 32px;
+  background: #f6f8fb;
+  box-sizing: border-box;
 }
 
-.sync-page-revamp .app-page-header {
-  padding: 0 0 20px 0 !important;
-  border-bottom: 1px solid #e2e8f0 !important;
-  margin-bottom: 24px !important;
+/* ─── Backup & Restore (Revamped & Clean) ─────────────────────── */
+.sync-header-clean {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding-bottom: 16px;
+  border-bottom: 1px solid #e2e8f0;
+}
+.sync-header-clean h1 {
+  margin: 4px 0 6px;
+  font-size: 22px;
+  font-weight: 800;
+  color: #0f172a;
+}
+.sync-header-sub {
+  margin: 0;
+  font-size: 13px;
+  color: #64748b;
 }
 
-.sync-page-revamp .report-card {
-  flex: none !important;
-  margin: 0 0 20px 0 !important;
-  border: 1px solid #e2e8f0 !important;
-  border-radius: 12px !important;
-  background: #ffffff !important;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04) !important;
-  overflow: visible !important;
+/* Header badge */
+.sync-last-backup-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 999px;
+  font-size: 12.5px;
+  color: #475569;
+  box-shadow: 0 1px 2px rgba(15,23,42,0.04);
+}
+.sync-badge-indicator {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #94a3b8;
+}
+.sync-last-backup-badge--success .sync-badge-indicator { background: #10b981; }
+.sync-last-backup-badge--warn .sync-badge-indicator { background: #f59e0b; }
+.sync-last-backup-badge--danger .sync-badge-indicator { background: #ef4444; }
+
+/* 2 Action cards side-by-side */
+.sync-cards-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+.sync-action-box {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 22px;
+  gap: 18px;
+  box-shadow: 0 1px 3px rgba(15,23,42,0.04);
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.sync-action-box:hover {
+  border-color: #cbd5e1;
+  box-shadow: 0 4px 12px rgba(15,23,42,0.06);
+}
+.sync-action-box-main {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+}
+.sync-action-icon {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  flex-shrink: 0;
+}
+.sync-action-icon.blue {
+  background: #eff6ff;
+  color: #2563eb;
+}
+.sync-action-icon.green {
+  background: #f0fdf4;
+  color: #16a34a;
+}
+.sync-action-box-info h3 {
+  margin: 0 0 6px;
+  font-size: 15.5px;
+  font-weight: 700;
+  color: #0f172a;
+}
+.sync-action-box-info p {
+  margin: 0;
+  font-size: 13px;
+  color: #64748b;
+  line-height: 1.5;
 }
 
-.sync-page-revamp .sync-settings-card {
-  border-left: 4px solid #2563eb !important;
+/* Card layout */
+.sync-card {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(15,23,42,0.04);
+}
+.sync-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 20px;
+}
+.sync-card-head--split {
+  border-bottom: 1px solid #f1f5f9;
+}
+.sync-card-title {
+  margin: 0 0 3px;
+  font-size: 15px;
+  font-weight: 700;
+  color: #0f172a;
+}
+.sync-card-sub {
+  margin: 0;
+  font-size: 12.5px;
+  color: #64748b;
+  line-height: 1.5;
+}
+.sync-card-body {
+  padding: 16px 20px;
+}
+.sync-head-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
 }
 
-.sync-page-revamp #snapshotListContainer {
+/* Toggle switch */
+.sync-toggle-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  flex-shrink: 0;
+  user-select: none;
+}
+.sync-toggle-input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+.sync-toggle-track {
+  position: relative;
+  display: inline-block;
+  width: 40px;
+  height: 22px;
+  border-radius: 999px;
+  background: #cbd5e1;
+  transition: background 0.2s ease;
+  flex-shrink: 0;
+}
+.sync-toggle-input:checked + .sync-toggle-track {
+  background: #2563eb;
+}
+.sync-toggle-thumb {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.18);
+  transition: left 0.2s ease;
+}
+.sync-toggle-input:checked + .sync-toggle-track .sync-toggle-thumb {
+  left: 21px;
+}
+.sync-toggle-text {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #475569;
+}
+
+/* Snapshot empty state */
+.sync-empty-snapshots {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 36px 20px;
+  text-align: center;
+  border: 1px dashed #cbd5e1;
+  border-radius: 10px;
+  background: #f8fafc;
+}
+.sync-empty-icon {
+  margin-bottom: 4px;
+}
+.sync-empty-snapshots strong {
+  font-size: 14px;
+  color: #1e293b;
+}
+.sync-empty-snapshots p {
+  margin: 0 0 14px;
+  font-size: 12.5px;
+  color: #64748b;
+  max-width: 380px;
+}
+
+/* Snapshot table */
+.sync-snapshot-table-wrap {
   overflow-x: auto;
+}
+.sync-snapshot-table {
+  min-width: 700px;
+}
+.sync-snap-file {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.sync-snap-icon {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 6px;
+  background: #eff6ff;
+  flex-shrink: 0;
+}
+.sync-snap-file strong {
+  display: block;
+  font-size: 13px;
+  color: #0f172a;
+}
+.sync-snap-file small {
+  display: block;
+  font-size: 11px;
+  color: #94a3b8;
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sync-status-line {
+  margin: 0;
+  font-size: 12.5px;
+  color: #475569;
+  min-height: 18px;
+}
+.sync-loading {
+  padding: 24px;
+  text-align: center;
+  color: #94a3b8;
+  font-size: 13px;
+}
+
+@media (max-width: 900px) {
+  .sync-cards-grid { grid-template-columns: 1fr; }
 }
 
 /* ── GST Compliance Center & Dashboard ────────────────────────────── */

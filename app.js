@@ -191,7 +191,7 @@ const SIDEBAR_GROUPS = {
   },
   settings: {
     defaultView: "importItems",
-    views: new Set(["settings", "importItems", "setupBusiness", "barcodeGenerator", "importParties", "exportItems", "verifyData", "sync"]),
+    views: new Set(["settings", "importItems", "barcodeGenerator", "importParties", "exportItems", "sync"]),
   },
 };
 
@@ -13321,7 +13321,6 @@ function showView(view, title) {
     const isAutoCollapseView = view === "reports" ||
                                view === "appSettings" ||
                                view === "settings" ||
-                               view === "setupBusiness" ||
                                view === "accountantAccess" ||
                                isGstView(view);
 
@@ -13376,12 +13375,10 @@ function showView(view, title) {
       "appSettings",
       "items",
       "grow",
-      "setupBusiness",
       "accountantAccess",
       "barcodeGenerator",
       "importParties",
       "exportItems",
-      "verifyData",
       "saleOrder",
       "deliveryChallan",
       "proforma",
@@ -13511,12 +13508,10 @@ function renderFeatureView(view, context) {
     appSettings: () => settingsTemplate(context || "GENERAL"),
     items: () => itemsTemplate(),
     grow: () => growTemplate(),
-    setupBusiness: () => setupBusinessTemplate(),
     accountantAccess: () => reportsTemplate(),
     barcodeGenerator: () => barcodeGeneratorTemplate(),
     importParties: () => csvImportTemplate("parties"),
     exportItems: () => exportItemsTemplate(),
-    verifyData: () => verifyDataTemplate(),
     purchaseOrder: () => estimateTemplate(),
     purchaseReturn: () => purchaseReturnTemplate(),
     saleOrder: () => estimateTemplate(),
@@ -19534,88 +19529,109 @@ function syncDefaultBankSettingsFromState() {
 
 function syncTemplate() {
   const autoBackupEnabled = localStorage.getItem("gi_auto_backup_on_exit") === "true";
+  const lastBackupTs   = localStorage.getItem("gi_last_backup_ts") || "";
+  const lastBackupFmt  = lastBackupTs
+    ? (() => {
+        const d = new Date(lastBackupTs);
+        if (Number.isNaN(d.getTime())) return "Unknown";
+        const diff = Date.now() - d.getTime();
+        const mins  = Math.floor(diff / 60000);
+        const hours = Math.floor(diff / 3600000);
+        const days  = Math.floor(diff / 86400000);
+        if (mins  < 2)   return "Just now";
+        if (mins  < 60)  return `${mins}m ago`;
+        if (hours < 24)  return `${hours}h ago`;
+        if (days  < 30)  return `${days}d ago`;
+        return d.toLocaleDateString("en-IN");
+      })()
+    : "Never";
+  const lastBackupTone = !lastBackupTs ? "danger" : (() => {
+    const days = (Date.now() - new Date(lastBackupTs).getTime()) / 86400000;
+    return days > 7 ? "warn" : "success";
+  })();
+
   return `
-    <section class="report-page sync-page-revamp">
-      <header class="app-page-header">
-        <div style="display:flex;justify-content:space-between;align-items:center;width:100%;flex-wrap:wrap;gap:12px;">
-          <div>
-            <p class="muted-label" style="font-size:12px;font-weight:600;color:#64748b;margin:0 0 2px;">Data Security &amp; Safety</p>
-            <h1 style="margin:0;font-size:24px;font-weight:800;color:#0f172a;">Sync, Backup &amp; Restore</h1>
-          </div>
-          <div style="display:flex;gap:10px;">
-            <button class="primary-button square" data-action="create-snapshot" type="button" style="display:inline-flex;align-items:center;gap:8px;">
-              <svg class="gi-icon" style="width:16px;height:16px;"><use href="#gi-save"></use></svg>
-              Create Backup Snapshot (.zyn) Now
-            </button>
-          </div>
+    <section class="sync-page sync-page-revamp">
+
+      <!-- Header -->
+      <header class="sync-header-clean">
+        <div>
+          <p class="muted-label">Utilities</p>
+          <h1>Backup &amp; Restore</h1>
+          <p class="sync-header-sub">Keep your accounting and business records safe with quick file exports and local snapshot recovery.</p>
+        </div>
+        <div class="sync-last-backup-badge sync-last-backup-badge--${lastBackupTone}">
+          <span class="sync-badge-indicator"></span>
+          <span>Last Backup: <strong id="syncLastBackup">${escapeHtml(lastBackupFmt)}</strong></span>
         </div>
       </header>
 
-      <!-- KPI overview -->
-      <section class="kpi-grid" style="margin-bottom:20px;">
-        ${kpiCard("Database", "SQLite WAL", "Local relational data")}
-        <article class="kpi-card">
-          <span class="kpi-card-label">Auto-Backup on Exit</span>
-          <div class="kpi-card-value" id="syncKpiAutoBackup">${autoBackupEnabled ? "Enabled" : "Disabled"}</div>
-          <span class="kpi-card-sub">Automatic shutdown .zyn snapshot</span>
-        </article>
-        <article class="kpi-card">
-          <span class="kpi-card-label">Restore Points</span>
-          <div class="kpi-card-value" id="syncKpiSnapshotCount">Checking...</div>
-          <span class="kpi-card-sub">Available .zyn snapshots</span>
-        </article>
-        ${kpiCard("Sync Mode", "Offline-First", "Zero latency & 100% private")}
-      </section>
-
-      <!-- Auto-backup settings card -->
-      <section class="data-table-card report-card sync-settings-card" style="margin-bottom:20px;padding:20px;">
-        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:16px;">
-          <div style="max-width:620px;">
-            <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
-              <svg class="gi-icon" style="width:18px;height:18px;color:#2563eb;"><use href="#gi-shield"></use></svg>
-              <h3 style="margin:0;font-size:16px;font-weight:700;color:#0f172a;">Automatic Snapshot on Exit</h3>
+      <!-- Section 1: Export & Restore Quick Actions -->
+      <section class="sync-cards-grid">
+        <div class="sync-action-box">
+          <div class="sync-action-box-main">
+            <div class="sync-action-icon blue">
+              <svg class="gi-icon" style="width:20px;height:20px;"><use href="#gi-arrow-down"></use></svg>
             </div>
-            <p style="margin:0;font-size:13px;color:#64748b;line-height:1.5;">When enabled, GI Billing will automatically generate a timestamped .zyn snapshot into your local backup directory every time you close the application.</p>
+            <div class="sync-action-box-info">
+              <h3>Export Backup (.zyn)</h3>
+              <p>Download a complete standalone backup file of your company data to your PC, USB drive, or folder.</p>
+            </div>
           </div>
-          <label style="display:inline-flex;align-items:center;gap:10px;cursor:pointer;background:#f8fafc;padding:10px 16px;border-radius:8px;border:1px solid #e2e8f0;">
-            <input type="checkbox" id="autoBackupExitToggle" ${autoBackupEnabled ? "checked" : ""} style="width:18px;height:18px;accent-color:#2563eb;cursor:pointer;">
-            <span style="font-weight:700;font-size:13px;color:#1e293b;">Enable Auto-Backup</span>
-          </label>
-        </div>
-      </section>
-
-      <!-- Instant Snapshot & Restore Table -->
-      <section class="data-table-card report-card" style="margin-bottom:20px;padding:20px;">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:12px;">
-          <div>
-            <h3 style="margin:0 0 4px;font-size:16px;font-weight:700;color:#0f172a;">Local Snapshot Restore Points (.zyn)</h3>
-            <p style="margin:0;font-size:13px;color:#64748b;">Instant local backups stored safely in your user data directory. You can restore back to any point in time in one click.</p>
-          </div>
-          <button class="secondary-button compact-button" type="button" data-action="refresh-snapshots" style="display:inline-flex;align-items:center;gap:6px;">
-            <svg class="gi-icon" style="width:14px;height:14px;"><use href="#gi-refresh"></use></svg>
-            Refresh
+          <button class="primary-button square" data-action="backup-db" type="button">
+            <svg class="gi-icon" style="width:14px;height:14px;margin-right:6px;"><use href="#gi-arrow-down"></use></svg>
+            Export Backup File
           </button>
         </div>
 
-        <div id="snapshotListContainer">
-          <div style="padding:24px;text-align:center;color:#64748b;font-size:13px;">
-            Loading local snapshot history...
+        <div class="sync-action-box">
+          <div class="sync-action-box-main">
+            <div class="sync-action-icon green">
+              <svg class="gi-icon" style="width:20px;height:20px;"><use href="#gi-arrow-up"></use></svg>
+            </div>
+            <div class="sync-action-box-info">
+              <h3>Restore from Backup (.zyn)</h3>
+              <p>Restore your data from an existing .zyn file. An automatic safety snapshot is saved before restoring.</p>
+            </div>
           </div>
+          <button class="secondary-button square" data-action="restore-db" type="button">
+            <svg class="gi-icon" style="width:14px;height:14px;margin-right:6px;"><use href="#gi-arrow-up"></use></svg>
+            Restore Backup File…
+          </button>
         </div>
       </section>
 
-      <!-- Manual Backup / Restore File Panel -->
-      <section class="data-table-card report-card backup-panel" style="padding:20px;">
-        <article>
-          <h3 style="margin:0 0 6px;font-size:16px;font-weight:700;color:#0f172a;">Manual File Export &amp; Import (.zyn)</h3>
-          <p style="margin:0 0 16px;font-size:13px;color:#64748b;">Export an explicit .zyn backup file to an external USB drive, or restore an existing .zyn database file from your computer.</p>
-          <div class="backup-actions" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
-            <button class="secondary-button square" data-action="backup-db" type="button">Export .zyn File...</button>
-            <button class="secondary-button square" data-action="restore-db" type="button">Import &amp; Restore .zyn File...</button>
-            <span id="backupStatus" style="font-size:13px;color:#64748b;">Ready.</span>
+      <p class="sync-status-line" id="backupStatus"></p>
+
+      <!-- Section 2: Automated Local Snapshots & Auto-Backup -->
+      <section class="sync-card">
+        <div class="sync-card-head sync-card-head--split">
+          <div>
+            <h2 class="sync-card-title">Local Snapshots &amp; Auto-Backup</h2>
+            <p class="sync-card-sub">Point-in-time recovery copies stored on this computer for rollback and safety.</p>
           </div>
-        </article>
+          <div class="sync-head-controls">
+            <label class="sync-toggle-label" title="Automatically save snapshot on application exit">
+              <input type="checkbox" id="autoBackupExitToggle" class="sync-toggle-input" ${autoBackupEnabled ? "checked" : ""}>
+              <span class="sync-toggle-track">
+                <span class="sync-toggle-thumb"></span>
+              </span>
+              <span class="sync-toggle-text" id="autoBackupToggleText">Auto-Backup on Exit (${autoBackupEnabled ? "On" : "Off"})</span>
+            </label>
+
+            <button class="secondary-button compact-button" data-action="refresh-snapshots" type="button" title="Refresh snapshot list">
+              ↺ Refresh
+            </button>
+            <button class="primary-button square compact-button" data-action="create-snapshot" type="button">
+              + Create Snapshot
+            </button>
+          </div>
+        </div>
+        <div class="sync-card-body" id="snapshotListContainer">
+          <div class="sync-loading">Loading snapshots…</div>
+        </div>
       </section>
+
     </section>
   `;
 }
@@ -19637,7 +19653,8 @@ async function handleCreateSnapshot() {
       showToast("Backup snapshot cancelled.");
       return;
     }
-    showToast(`Snapshot created: ${result.filename} (${result.formattedSize})`);
+    localStorage.setItem("gi_last_backup_ts", new Date().toISOString());
+    showToast(`Snapshot saved: ${result.filename} (${result.formattedSize})`);
     await loadSnapshotList();
   } catch (err) {
     showToast(`Snapshot failed: ${err.message || "Unknown error"}`);
@@ -19665,13 +19682,11 @@ async function loadSnapshotList() {
     if (kpiCount) kpiCount.textContent = String(list ? list.length : 0);
     if (!list || list.length === 0) {
       container.innerHTML = `
-        <div style="padding:32px 20px;text-align:center;border:1px dashed #cbd5e1;border-radius:10px;background:#f8fafc;">
-          <div style="width:44px;height:44px;border-radius:50%;background:#e0e7ff;color:#2563eb;display:inline-flex;align-items:center;justify-content:center;margin-bottom:10px;">
-            <svg class="gi-icon" style="width:22px;height:22px;"><use href="#gi-save"></use></svg>
-          </div>
-          <div style="font-weight:700;font-size:14px;color:#1e293b;margin-bottom:4px;">No Snapshot Restore Points Yet</div>
-          <p style="font-size:12px;color:#64748b;max-width:380px;margin:0 auto 14px;">Snapshots provide 1-click points in time you can safely rewind to whenever needed.</p>
-          <button class="primary-button compact-button" data-action="create-snapshot" type="button">+ Create First Snapshot Now</button>
+        <div class="sync-empty-snapshots">
+          <div class="sync-empty-icon"><svg class="gi-icon" style="width:34px;height:34px;color:#94a3b8;"><use href="#gi-database"></use></svg></div>
+          <strong>No snapshots recorded yet</strong>
+          <p>Create your first snapshot or enable Auto-Backup on Exit to build automated restore points.</p>
+          <button class="primary-button square" data-action="create-snapshot" type="button">+ Create First Snapshot</button>
         </div>
       `;
       container.querySelector("[data-action='create-snapshot']")?.addEventListener("click", handleCreateSnapshot);
@@ -19679,42 +19694,36 @@ async function loadSnapshotList() {
     }
 
     container.innerHTML = `
-      <div style="overflow-x:auto;">
-        <table class="data-table" style="width:100%;border-collapse:collapse;">
+      <div class="sync-snapshot-table-wrap">
+        <table class="data-table sync-snapshot-table">
           <thead>
             <tr>
-              <th style="padding:10px 14px;font-size:12px;color:#64748b;font-weight:700;border-bottom:1px solid #e2e8f0;">Snapshot File</th>
-              <th style="padding:10px 14px;font-size:12px;color:#64748b;font-weight:700;border-bottom:1px solid #e2e8f0;">Created At</th>
-              <th style="padding:10px 14px;font-size:12px;color:#64748b;font-weight:700;border-bottom:1px solid #e2e8f0;">File Size</th>
-              <th style="padding:10px 14px;font-size:12px;color:#64748b;font-weight:700;border-bottom:1px solid #e2e8f0;">Integrity</th>
-              <th style="padding:10px 14px;font-size:12px;color:#64748b;font-weight:700;border-bottom:1px solid #e2e8f0;text-align:right;">Actions</th>
+              <th>Snapshot File</th>
+              <th>Created</th>
+              <th>Size</th>
+              <th>Type</th>
+              <th class="num">Action</th>
             </tr>
           </thead>
           <tbody>
             ${list.map((snap) => `
               <tr>
-                <td style="padding:12px 14px;border-bottom:1px solid #f1f5f9;">
-                  <div style="display:flex;align-items:center;gap:10px;">
-                    <div style="width:32px;height:32px;border-radius:8px;background:#eff6ff;color:#2563eb;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
-                      <svg class="gi-icon" style="width:16px;height:16px;"><use href="#gi-file-text"></use></svg>
-                    </div>
+                <td>
+                  <div class="sync-snap-file">
+                    <span class="sync-snap-icon"><svg class="gi-icon" style="width:16px;height:16px;color:#2563eb;"><use href="#gi-database"></use></svg></span>
                     <div>
-                      <strong style="font-size:13px;color:#0f172a;display:block;">${escapeHtml(snap.filename)}</strong>
-                      <span style="font-size:11px;color:#94a3b8;">${escapeHtml(snap.path || "")}</span>
+                      <strong>${escapeHtml(snap.filename)}</strong>
+                      <small>${escapeHtml(snap.path || "")}</small>
                     </div>
                   </div>
                 </td>
-                <td style="padding:12px 14px;font-size:13px;color:#334155;border-bottom:1px solid #f1f5f9;">
-                  ${escapeHtml(new Date(snap.createdAt).toLocaleString())}
-                </td>
-                <td style="padding:12px 14px;font-size:13px;border-bottom:1px solid #f1f5f9;">
-                  <span class="kpi-badge badge-blue">${escapeHtml(snap.formattedSize || "Unknown")}</span>
-                </td>
-                <td style="padding:12px 14px;font-size:13px;border-bottom:1px solid #f1f5f9;">
-                  <span class="kpi-badge badge-green">Verified SQLite</span>
-                </td>
-                <td style="padding:12px 14px;text-align:right;border-bottom:1px solid #f1f5f9;">
-                  <button class="secondary-button compact-button" type="button" data-restore-snapshot="${escapeHtml(snap.path)}" data-restore-filename="${escapeHtml(snap.filename)}" style="font-size:12px;padding:4px 10px;">
+                <td>${escapeHtml(new Date(snap.createdAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" }))}</td>
+                <td><span class="status-badge">${escapeHtml(snap.formattedSize || "—")}</span></td>
+                <td><span class="status-badge ${snap.isAuto ? "status-badge--info" : "status-badge--success"}">${snap.isAuto ? "Auto" : "Manual"}</span></td>
+                <td class="num">
+                  <button class="secondary-button compact-button" type="button"
+                    data-restore-snapshot="${escapeHtml(snap.path)}"
+                    data-restore-filename="${escapeHtml(snap.filename)}">
                     ↺ Restore
                   </button>
                 </td>
@@ -19767,8 +19776,10 @@ function bindSyncEvents() {
     autoToggle.addEventListener("change", (e) => {
       const enabled = e.target.checked;
       localStorage.setItem("gi_auto_backup_on_exit", enabled ? "true" : "false");
-      const kpi = elements.featureView?.querySelector("#syncKpiAutoBackup");
-      if (kpi) kpi.textContent = enabled ? "Enabled" : "Disabled";
+      const kpi  = elements.featureView?.querySelector("#syncKpiAutoBackup");
+      const text = elements.featureView?.querySelector("#autoBackupToggleText");
+      if (kpi)  kpi.textContent  = enabled ? "On" : "Off";
+      if (text) text.textContent = enabled ? "Enabled" : "Disabled";
       showToast(`Auto-backup on exit ${enabled ? "enabled" : "disabled"}.`);
     });
   }
