@@ -15925,6 +15925,65 @@ textarea:focus-visible {
   grid-template-columns: minmax(180px, 1.8fr) minmax(180px, 1.8fr) minmax(120px, 1fr) minmax(120px, 1fr) !important;
 }
 
+.editor-unified-secondary-row.shipping-hidden,
+.editor-more-details-grid.editor-unified-secondary-row.shipping-hidden {
+  grid-template-columns: minmax(280px, 2.5fr) minmax(120px, 1fr) minmax(120px, 1fr) minmax(140px, 1.2fr) !important;
+}
+
+.editor-unified-secondary-row.shipping-hidden.gstin-hidden,
+.editor-more-details-grid.editor-unified-secondary-row.shipping-hidden.gstin-hidden {
+  grid-template-columns: minmax(320px, 3fr) minmax(130px, 1fr) minmax(130px, 1fr) !important;
+}
+
+.editor-compact-label-row {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 8px !important;
+  margin-bottom: 2px !important;
+  min-height: 16px !important;
+  width: 100% !important;
+  box-sizing: border-box !important;
+}
+
+.editor-compact-label-row .editor-compact-label-title {
+  color: #475467 !important;
+  font-size: 10px !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.15px !important;
+  white-space: nowrap !important;
+}
+
+.use-shipping-toggle-label {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 4px !important;
+  font-size: 10px !important;
+  font-weight: 500 !important;
+  color: #2563eb !important;
+  cursor: pointer !important;
+  user-select: none !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  line-height: 1 !important;
+  white-space: nowrap !important;
+  transition: color 0.15s ease;
+}
+
+.use-shipping-toggle-label:hover {
+  color: #1d4ed8 !important;
+}
+
+.use-shipping-checkbox {
+  width: 12px !important;
+  height: 12px !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  cursor: pointer !important;
+  accent-color: #2563eb !important;
+  vertical-align: middle !important;
+}
+
 .editor-unified-more-details .editor-custom-fields-panel {
   margin: 4px 0 0 0 !important;
   border: 0 !important;

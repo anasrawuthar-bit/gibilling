@@ -2815,15 +2815,19 @@ function transactionEditorTemplate(type = getTransactionEditorType()) {
 
             <details class="editor-more-details editor-unified-more-details">
               <summary class="editor-unified-details-summary" style="display:none;"><span>More details</span></summary>
-              <div class="editor-unified-secondary-row">
+              <div class="editor-unified-secondary-row shipping-hidden">
                 <div class="editor-compact-col col-address">
-                  <label class="editor-compact-label">
-                    <span>Billing Address</span>
-                    <textarea class="form-input compact-textarea" name="address" rows="1" placeholder="Billing address" readonly tabindex="-1"></textarea>
-                  </label>
+                  <div class="editor-compact-label-row">
+                    <span class="editor-compact-label-title">Billing Address</span>
+                    <label class="use-shipping-toggle-label" title="Enable separate shipping address">
+                      <input type="checkbox" name="useShippingAddress" id="useShippingAddressToggle" class="use-shipping-checkbox">
+                      <span>Use Shipping Address</span>
+                    </label>
+                  </div>
+                  <textarea class="form-input compact-textarea" name="address" rows="1" placeholder="Billing address" readonly tabindex="-1"></textarea>
                 </div>
 
-                <div class="editor-compact-col col-shipping-address">
+                <div class="editor-compact-col col-shipping-address hidden">
                   <label class="editor-compact-label">
                     <span>Shipping Address</span>
                     <textarea class="form-input compact-textarea" name="shippingAddress" rows="1" placeholder="Shipping address" readonly tabindex="-1"></textarea>
@@ -3052,9 +3056,15 @@ function populateTransactionEditorDraft(draft) {
 
   if (phoneInput && draft.phone) phoneInput.value = draft.phone;
   if (addressInput && (draft.billingAddress || draft.address)) addressInput.value = draft.billingAddress || draft.address;
-  if (shippingInput && (draft.shippingAddress || draft.billingAddress || draft.address)) {
-    shippingInput.value = draft.shippingAddress || draft.billingAddress || draft.address || "";
+  const useShippingToggle = elements.featureView.querySelector('[name="useShippingAddress"]');
+  const hasExplicitShipping = Boolean(draft.useShippingAddress && draft.shippingAddress && String(draft.shippingAddress).trim());
+  if (shippingInput) {
+    shippingInput.value = hasExplicitShipping ? String(draft.shippingAddress || "").trim() : "";
   }
+  if (useShippingToggle) {
+    useShippingToggle.checked = hasExplicitShipping;
+  }
+  updateEditorShippingVisibility();
   if (invoiceNoInput) {
     const editorType = getTransactionEditorType();
     const isDraftDuplicate = draft.invoiceNo && isDuplicateInvoiceNumber(draft.invoiceNo, editorType, activeTransactionEditInvoiceId);
@@ -3235,6 +3245,23 @@ function updateEditorGstinVisibility() {
   }
 }
 
+function updateEditorShippingVisibility(root = elements.featureView) {
+  if (!root) return;
+  const form = root.querySelector("#transactionEditorForm");
+  if (!form) return;
+  const toggle = form.querySelector('[name="useShippingAddress"]');
+  const colShipping = form.querySelector(".col-shipping-address");
+  const secondaryRow = form.querySelector(".editor-unified-secondary-row");
+  const useShipping = Boolean(toggle?.checked);
+
+  if (colShipping) {
+    colShipping.classList.toggle("hidden", !useShipping);
+  }
+  if (secondaryRow) {
+    secondaryRow.classList.toggle("shipping-hidden", !useShipping);
+  }
+}
+
 function bindTransactionEditor() {
   bindEditorColumnResize();
   const partyInput = elements.featureView.querySelector('[name="party"]');
@@ -3245,16 +3272,30 @@ function bindTransactionEditor() {
   phoneInput?.addEventListener("focus", () => renderPartyLookupPanel("phone"));
   const editorAddress = elements.featureView.querySelector('[name="address"]');
   const editorShipping = elements.featureView.querySelector('[name="shippingAddress"]');
-  if (editorAddress && editorShipping) {
-    editorAddress.addEventListener("input", () => {
-      if (!editorShipping.dataset.manuallyEdited && !editorShipping.readOnly) {
-        editorShipping.value = editorAddress.value;
+  const useShippingToggle = elements.featureView.querySelector('[name="useShippingAddress"]');
+
+  if (editorShipping) {
+    editorShipping.addEventListener("input", () => {
+      if (editorShipping.value.trim() && useShippingToggle && !useShippingToggle.checked) {
+        useShippingToggle.checked = true;
+        updateEditorShippingVisibility();
       }
     });
-    editorShipping.addEventListener("input", () => {
-      editorShipping.dataset.manuallyEdited = "true";
+  }
+
+  if (useShippingToggle && editorShipping) {
+    useShippingToggle.addEventListener("change", () => {
+      const isChecked = useShippingToggle.checked;
+      updateEditorShippingVisibility();
+      if (isChecked) {
+        editorShipping.focus();
+      } else {
+        editorShipping.value = "";
+      }
     });
   }
+
+  updateEditorShippingVisibility();
   elements.featureView.querySelector('[name="paymentTerms"]')?.addEventListener("change", syncDueDateFromPaymentTerms);
   const invoiceNoInput = elements.featureView.querySelector('[name="invoiceNo"]');
   if (invoiceNoInput) {
@@ -3605,7 +3646,8 @@ function collectCurrentTransactionDraft() {
     party: String(form.get("party") || "").trim(),
     phone: String(form.get("phone") || "").trim(),
     billingAddress: String(form.get("address") || "").trim(),
-    shippingAddress: String(form.get("shippingAddress") || "").trim(),
+    shippingAddress: formElement?.querySelector('[name="useShippingAddress"]')?.checked ? String(form.get("shippingAddress") || "").trim() : "",
+    useShippingAddress: Boolean(formElement?.querySelector('[name="useShippingAddress"]')?.checked),
     invoiceNo: String(form.get("invoiceNo") || "").trim(),
     invoiceDate: String(form.get("invoiceDate") || "").trim(),
     paymentTerms: String(form.get("paymentTerms") || "").trim(),
@@ -5045,7 +5087,7 @@ function buildInvoicePreviewData() {
     date: elements.featureView.querySelector('[name="invoiceDate"]')?.value || "",
     validUntil: editorType === "estimate" ? elements.featureView.querySelector('[name="dueDate"]')?.value || "" : "",
     address: elements.featureView.querySelector('[name="address"]')?.value || "",
-    shippingAddress: elements.featureView.querySelector('[name="shippingAddress"]')?.value || elements.featureView.querySelector('[name="address"]')?.value || "",
+    shippingAddress: elements.featureView.querySelector('[name="useShippingAddress"]')?.checked ? (elements.featureView.querySelector('[name="shippingAddress"]')?.value?.trim() || "") : "",
     placeOfSupply: elements.featureView.querySelector('[name="state"]')?.value || "",
     customFields: customFieldsForModule(editorType).map((field) => ({
       ...field,
@@ -6449,7 +6491,15 @@ function selectTransactionParty(party, options = {}) {
   }
   if (phoneInput) phoneInput.value = party.phone || "";
   if (addressInput) addressInput.value = party.billingAddress || "";
-  if (shippingInput) shippingInput.value = party.shippingAddress || party.billingAddress || "";
+  const rawPartyShipping = String(party.shippingAddress || "").trim();
+  const rawPartyBilling = String(party.billingAddress || "").trim();
+  const hasDistinctPartyShipping = Boolean(rawPartyShipping && rawPartyShipping !== rawPartyBilling);
+  if (shippingInput) shippingInput.value = hasDistinctPartyShipping ? rawPartyShipping : "";
+  const partyShippingToggle = elements.featureView.querySelector('[name="useShippingAddress"]');
+  if (partyShippingToggle) {
+    partyShippingToggle.checked = hasDistinctPartyShipping;
+  }
+  updateEditorShippingVisibility();
   if (partyGstin) partyGstin.value = party.gstin || "";
   const firmState = state.businessSettings?.state || "Kerala";
   const derivedGstinState = getStateByGstin(party.gstin);
@@ -6812,10 +6862,14 @@ function applyEditorPartyIntelligence() {
       } else {
         shippingInput.readOnly = false;
         shippingInput.removeAttribute("tabindex");
-        shippingInput.placeholder = "Enter shipping address for " + partyInput.value.trim() + "...";
+        shippingInput.placeholder = "Enter shipping address...";
       }
     }
     updateEditorGstinVisibility();
+    const useShippingToggle = elements.featureView.querySelector('[name="useShippingAddress"]');
+    if (useShippingToggle && !useShippingToggle.checked) {
+      updateEditorShippingVisibility();
+    }
     renderTransactionSmartChecks();
     return;
   }
@@ -6834,19 +6888,27 @@ function applyEditorPartyIntelligence() {
       addressInput.placeholder = "Enter billing address for " + (party.name || "party") + "...";
     }
   }
-  const partyShipping = String(party.shippingAddress || party.billingAddress || "").trim();
+  const rawPartyBilling = String(party.billingAddress || "").trim();
+  const rawPartyShipping = String(party.shippingAddress || "").trim();
+  const hasDistinctPartyShipping = Boolean(rawPartyShipping && rawPartyShipping !== rawPartyBilling);
   if (shippingInput) {
-    if (partyShipping) {
-      shippingInput.value = partyShipping;
+    if (hasDistinctPartyShipping) {
+      shippingInput.value = rawPartyShipping;
       shippingInput.readOnly = true;
       shippingInput.setAttribute("tabindex", "-1");
       shippingInput.placeholder = "Auto-filled from selected party";
     } else {
+      shippingInput.value = "";
       shippingInput.readOnly = false;
       shippingInput.removeAttribute("tabindex");
       shippingInput.placeholder = "Enter shipping address for " + (party.name || "party") + "...";
     }
   }
+  const partyShippingToggle = elements.featureView.querySelector('[name="useShippingAddress"]');
+  if (partyShippingToggle) {
+    partyShippingToggle.checked = hasDistinctPartyShipping;
+  }
+  updateEditorShippingVisibility();
   const firmState = state.businessSettings?.state || "Kerala";
   const derivedGstinState = getStateByGstin(party.gstin);
   const resolvedPartyState = resolveIndianStateName(party.state);
@@ -7445,7 +7507,7 @@ async function saveTransactionEditor(event) {
       received: isOpDoc ? 0 : received,
       phone: String(form.get("phone") || "").trim(),
       billingAddress: String(form.get("address") || "").trim(),
-      shippingAddress: String(form.get("shippingAddress") || "").trim(),
+      shippingAddress: formElement?.querySelector('[name="useShippingAddress"]')?.checked ? String(form.get("shippingAddress") || "").trim() : "",
       originalInvoiceId: String(form.get("originalInvoiceId") || "").trim(),
       originalInvoiceNo: String(form.get("originalInvoiceNo") || "").trim(),
       paymentType: String(form.get("paymentType") || "cash"),
@@ -7464,7 +7526,7 @@ async function saveTransactionEditor(event) {
         customFields,
         sourceEstimateId: formElement?.dataset?.sourceEstimateId || undefined,
         roundOff: Boolean(elements.featureView.querySelector('#roundOffToggle')?.checked),
-        shippingAddress: String(form.get("shippingAddress") || "").trim(),
+        shippingAddress: formElement?.querySelector('[name="useShippingAddress"]')?.checked ? String(form.get("shippingAddress") || "").trim() : "",
       },
       status: isOpDoc ? "draft" : received >= amount ? "paid" : "due",
       notes: [invoiceDescription, itemSummary, attachmentSummary].filter(Boolean).join(" | "),
@@ -8092,7 +8154,7 @@ function validateTransactionEditorSelections() {
     name: partyName || (editorType === "purchase" ? "Paid Supplier" : "Paid Customer"),
     phone: elements.featureView.querySelector('[name="phone"]')?.value || "",
     billingAddress: elements.featureView.querySelector('[name="address"]')?.value || "",
-    shippingAddress: elements.featureView.querySelector('[name="shippingAddress"]')?.value || "",
+    shippingAddress: elements.featureView.querySelector('[name="useShippingAddress"]')?.checked ? (elements.featureView.querySelector('[name="shippingAddress"]')?.value || "") : "",
     gstin: "",
     taxType: "unregistered",
     state: stateInput?.value || "",
@@ -8807,6 +8869,15 @@ function resetPartyAddressCards(record = null) {
   if (!shippingList.querySelector(".address-card.active") && primaryShippingCard) {
     primaryShippingCard.classList.add("active");
   }
+
+  const partyShippingTa = primaryShippingCard?.querySelector("textarea");
+  if (partyShippingTa) {
+    if (!record || !record.shippingAddress) {
+      delete partyShippingTa.dataset.manuallyEdited;
+    } else if (record.shippingAddress !== record.billingAddress) {
+      partyShippingTa.dataset.manuallyEdited = "true";
+    }
+  }
 }
 
 function initPartyAddressCardEvents() {
@@ -8838,6 +8909,19 @@ function initPartyAddressCardEvents() {
 
   const primaryShippingCard = shippingList?.querySelector(".address-card");
   if (primaryShippingCard && shippingList) bindAddressCardEvents(primaryShippingCard, shippingList, "shipping");
+
+  const partyBillingTa = primaryBillingCard?.querySelector("textarea");
+  const partyShippingTa = primaryShippingCard?.querySelector("textarea");
+  if (partyBillingTa && partyShippingTa) {
+    partyBillingTa.addEventListener("input", () => {
+      if (!partyShippingTa.dataset.manuallyEdited) {
+        partyShippingTa.value = partyBillingTa.value;
+      }
+    });
+    partyShippingTa.addEventListener("input", () => {
+      partyShippingTa.dataset.manuallyEdited = "true";
+    });
+  }
 
 
   updatePartySummaryPills();
