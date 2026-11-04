@@ -13803,6 +13803,7 @@ function showView(view, title) {
       "pos",
       "saleReturn",
       "parties",
+      "whatsapp",
       "settings",
       "importItems",
       "appSettings",
@@ -13936,6 +13937,7 @@ function renderFeatureView(view, context) {
     pos: () => posTemplate(),
     saleReturn: () => saleReturnTemplate(),
     parties: () => partiesTemplate(),
+    whatsapp: () => whatsappConnectTemplate(),
     settings: () => csvImportTemplate("items"),
     importItems: () => csvImportTemplate("items"),
     appSettings: () => settingsTemplate(context || "GENERAL"),
@@ -15406,6 +15408,9 @@ function bindFeatureActions() {
   });
 
   bindInvoiceTableWidthAndResize();
+  if (currentView === "whatsapp" || elements.featureView.querySelector(".whatsapp-connect-view")) {
+    bindWhatsAppConnectActions();
+  }
 }
 
 function modulePageTemplate(config) {
@@ -27198,6 +27203,522 @@ Warm regards,
   });
 }
 
+// ── WHATSAPP CONNECT WORKSPACE INTEGRATION ──────────────────────────────────
+const WHATSAPP_CONNECT_STORAGE_KEY = "gi-whatsapp-connect-state";
+
+function loadWhatsAppConnectState() {
+  try {
+    const raw = localStorage.getItem(WHATSAPP_CONNECT_STORAGE_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch (_) {}
+  return {
+    connected: true,
+    activePartyId: null,
+    searchQuery: "",
+    chats: {},
+  };
+}
+
+let whatsappConnectState = loadWhatsAppConnectState();
+
+function saveWhatsAppConnectState() {
+  try {
+    localStorage.setItem(WHATSAPP_CONNECT_STORAGE_KEY, JSON.stringify(whatsappConnectState));
+  } catch (_) {}
+}
+
+function getWhatsAppActiveParty() {
+  const parties = state.parties || [];
+  if (!parties.length) {
+    return {
+      id: "demo-1",
+      name: "ajml",
+      phone: "9846515684",
+      balance: 22800,
+      receivable: 22800,
+      payable: 0,
+      state: "Kerala",
+    };
+  }
+  if (whatsappConnectState.activePartyId) {
+    const p = parties.find((item) => String(item.id) === String(whatsappConnectState.activePartyId));
+    if (p) return p;
+  }
+  const partyWithBal = parties.find((item) => (Number(item.balance) || 0) > 0);
+  return partyWithBal || parties[0];
+}
+
+function ensureDefaultWhatsAppChatsForParty(party) {
+  if (!party) return [];
+  const partyKey = String(party.id || party.name || "default");
+  if (whatsappConnectState.chats && whatsappConnectState.chats[partyKey] && whatsappConnectState.chats[partyKey].length) {
+    return whatsappConnectState.chats[partyKey];
+  }
+  whatsappConnectState.chats = whatsappConnectState.chats || {};
+  const business = state.businessSettings || defaultBusinessSettings();
+  const businessName = business.businessName || state.activeCompany || "aesthec";
+  const businessPhone = business.phone || "9846515684";
+  const bal = Number(party.balance ?? 22800);
+  const formattedBal = bal.toFixed(2);
+
+  const initialMsgs = [
+    {
+      id: "msg-init-1",
+      text: `Invoice Amount: ${formattedBal}\nBalance: ${formattedBal}\n\nThanks for doing business with us.\nRegards,\n${businessName}`,
+      time: "5:18 PM",
+      from: "me",
+      status: "delivered",
+    },
+    {
+      id: "msg-init-2",
+      text: `Dear, ${party.name || "Customer"}\nYour payment of ${formattedBal} is pending with ${businessName}\n\nIf you have already made the payment, kindly ignore this message.\n\nThank You\n${businessName}\n${businessPhone}`,
+      time: "5:18 PM",
+      from: "me",
+      status: "delivered",
+    }
+  ];
+  whatsappConnectState.chats[partyKey] = initialMsgs;
+  saveWhatsAppConnectState();
+  return initialMsgs;
+}
+
+async function renderWhatsAppPairingQr() {
+  const container = elements.featureView.querySelector("#waPairingQrContainer");
+  if (!container) return;
+  const qrUrl = "https://web.whatsapp.com/connect?app=zynbill&t=" + Date.now();
+  if (window.giApp?.generateQrSvg) {
+    try {
+      const res = await window.giApp.generateQrSvg({ text: qrUrl, options: { margin: 1, errorCorrectionLevel: "M" } });
+      if (res?.success && res.svg) {
+        container.innerHTML = `
+          <div class="wa-pairing-qr-wrap" style="position:relative;display:inline-block;">
+            ${res.svg}
+            <div class="wa-pairing-qr-center-logo">
+              <svg viewBox="0 0 24 24" style="width:24px;height:24px;color:#25D366;fill:currentColor;"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 0 1-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 0 1-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 0 1 2.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0 0 12.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 0 0 5.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.82 11.82 0 0 0-3.48-8.413Z"/></svg>
+            </div>
+          </div>
+        `;
+        return;
+      }
+    } catch (_) {}
+  }
+  container.innerHTML = `
+    <div class="wa-pairing-qr-wrap" style="position:relative;display:inline-block;padding:8px;background:#ffffff;border:1px solid #e2e8f0;border-radius:12px;">
+      <svg viewBox="0 0 200 200" width="200" height="200">
+        <rect width="200" height="200" fill="#ffffff"/>
+        <rect x="15" y="15" width="45" height="45" rx="4" fill="#000000"/>
+        <rect x="22" y="22" width="31" height="31" rx="2" fill="#ffffff"/>
+        <rect x="28" y="28" width="19" height="19" rx="1" fill="#000000"/>
+        <rect x="140" y="15" width="45" height="45" rx="4" fill="#000000"/>
+        <rect x="147" y="22" width="31" height="31" rx="2" fill="#ffffff"/>
+        <rect x="153" y="28" width="19" height="19" rx="1" fill="#000000"/>
+        <rect x="15" y="140" width="45" height="45" rx="4" fill="#000000"/>
+        <rect x="22" y="147" width="31" height="31" rx="2" fill="#ffffff"/>
+        <rect x="28" y="153" width="19" height="19" rx="1" fill="#000000"/>
+        <g fill="#000000">
+          <rect x="70" y="18" width="8" height="8"/><rect x="85" y="18" width="14" height="8"/><rect x="115" y="18" width="8" height="8"/>
+          <rect x="68" y="32" width="12" height="6"/><rect x="92" y="32" width="6" height="14"/><rect x="108" y="32" width="14" height="6"/>
+          <rect x="75" y="45" width="14" height="8"/><rect x="118" y="45" width="8" height="8"/>
+          <rect x="18" y="70" width="8" height="14"/><rect x="35" y="72" width="12" height="6"/><rect x="55" y="70" width="8" height="8"/>
+          <rect x="142" y="70" width="14" height="8"/><rect x="165" y="70" width="14" height="8"/>
+          <rect x="20" y="90" width="14" height="6"/><rect x="42" y="88" width="8" height="14"/><rect x="148" y="85" width="8" height="14"/><rect x="168" y="90" width="12" height="6"/>
+          <rect x="18" y="112" width="10" height="8"/><rect x="38" y="110" width="14" height="8"/><rect x="58" y="114" width="8" height="8"/>
+          <rect x="140" y="112" width="12" height="6"/><rect x="162" y="110" width="18" height="8"/>
+          <rect x="70" y="145" width="14" height="8"/><rect x="92" y="142" width="8" height="14"/><rect x="110" y="145" width="12" height="6"/>
+          <rect x="75" y="165" width="8" height="14"/><rect x="90" y="168" width="16" height="8"/><rect x="115" y="165" width="8" height="8"/>
+          <rect x="142" y="145" width="10" height="8"/><rect x="160" y="142" width="8" height="14"/><rect x="175" y="145" width="10" height="6"/>
+          <rect x="145" y="165" width="18" height="8"/><rect x="170" y="168" width="14" height="12"/>
+        </g>
+      </svg>
+      <div class="wa-pairing-qr-center-logo">
+        <svg viewBox="0 0 24 24" style="width:24px;height:24px;color:#25D366;fill:currentColor;"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 0 1-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 0 1-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 0 1 2.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0 0 12.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 0 0 5.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.82 11.82 0 0 0-3.48-8.413Z"/></svg>
+      </div>
+    </div>
+  `;
+}
+
+function whatsappConnectTemplate() {
+  const isConnected = whatsappConnectState.connected !== false;
+
+  if (!isConnected) {
+    return `
+      <section class="whatsapp-connect-view">
+        <header class="wa-connect-topbar">
+          <div class="wa-connect-brand">
+            <svg class="gi-icon" style="width:24px;height:24px;color:#25D366;fill:currentColor;"><use href="#gi-whatsapp"></use></svg>
+            <h1>WhatsApp Connect</h1>
+            <span class="wa-status-pill offline"><span class="wa-status-dot"></span> Not Paired</span>
+          </div>
+          <div class="wa-connect-actions">
+            <button type="button" class="outline-mini-button" data-wa-action="connect" title="Go to connected chat workspace">
+              Go to Chats &rarr;
+            </button>
+            <button class="sale-button" data-home-action="sale" type="button"><svg class="gi-icon"><use href="#gi-plus"></use></svg> Add Sale</button>
+            <button class="purchase-button" data-home-action="purchase" type="button"><svg class="gi-icon"><use href="#gi-plus"></use></svg> Add Purchase</button>
+          </div>
+        </header>
+
+        <div class="wa-pairing-stage">
+          <div class="wa-pairing-grid">
+            <div class="wa-security-card">
+              <div class="wa-security-mockup">
+                <div class="wa-security-mockup-blur">
+                  <div class="wa-mock-chat-bubble"></div>
+                  <div class="wa-mock-chat-bubble right"></div>
+                  <div class="wa-mock-chat-bubble"></div>
+                  <div class="wa-mock-chat-bubble right"></div>
+                </div>
+                <div class="wa-security-lock-badge">
+                  <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+                    <path d="M7 11V7a5 5 0 0 1 9.9-1"></path>
+                  </svg>
+                </div>
+              </div>
+              <h3>Safety &amp; Security</h3>
+              <p>All messages are end-to-end encrypted, keeping your data fully protected.</p>
+              <div class="wa-carousel-dots">
+                <span class="wa-dot active"></span>
+                <span class="wa-dot"></span>
+                <span class="wa-dot"></span>
+              </div>
+            </div>
+
+            <div class="wa-qr-card-view">
+              <h2>Scan this QR code</h2>
+              <div class="wa-qr-display-box" id="waPairingQrContainer">
+                <div style="font-size:12px;color:#64748b;">Loading QR Code...</div>
+              </div>
+              <ul class="wa-instructions-list">
+                <li>
+                  <span class="wa-step-num">1</span>
+                  <span>Open WhatsApp on your mobile, <strong>"tap on &#8942; icon"</strong></span>
+                </li>
+                <li>
+                  <span class="wa-step-num">2</span>
+                  <span>Tap <strong>"Linked devices"</strong> to open the QR scanner</span>
+                </li>
+                <li>
+                  <span class="wa-step-num">3</span>
+                  <span><strong>"Scan the QR code"</strong> on the right side using your phone</span>
+                </li>
+              </ul>
+              <label class="wa-terms-check">
+                <input type="checkbox" id="waTermsCheck" checked />
+                <span>Proceed with Standard Usage Terms</span>
+              </label>
+              <button type="button" class="primary-button" data-wa-action="connect" style="background:#25D366;border-color:#25D366;padding:10px 24px;font-size:13.5px;font-weight:700;display:inline-flex;align-items:center;gap:8px;">
+                <svg class="gi-icon" style="width:16px;height:16px;fill:currentColor;"><use href="#gi-whatsapp"></use></svg> Link Device &amp; Start Messaging
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+    `;
+  }
+
+  const parties = state.parties || [];
+  const query = String(whatsappConnectState.searchQuery || "").trim().toLowerCase();
+  const filteredParties = query
+    ? parties.filter((p) => (p.name || "").toLowerCase().includes(query) || (p.phone || "").includes(query))
+    : parties;
+
+  const displayParties = filteredParties.length ? filteredParties : [
+    { id: "demo-1", name: "ajml", phone: "9846515684", balance: 22800, receivable: 22800 }
+  ];
+
+  const activeParty = getWhatsAppActiveParty() || displayParties[0];
+  const messages = ensureDefaultWhatsAppChatsForParty(activeParty);
+
+  const cleanPhone = String(activeParty.phone || "").replace(/\D/g, "");
+  const balanceDue = Number(activeParty.balance || activeParty.receivable || 0);
+
+  return `
+    <section class="whatsapp-connect-view">
+      <header class="wa-connect-topbar">
+        <div class="wa-connect-brand">
+          <svg class="gi-icon" style="width:24px;height:24px;color:#25D366;fill:currentColor;"><use href="#gi-whatsapp"></use></svg>
+          <h1>WhatsApp Connect</h1>
+          <span class="wa-status-pill online"><span class="wa-status-dot"></span> Connected</span>
+        </div>
+        <div class="wa-connect-actions">
+          <button type="button" class="outline-mini-button" data-wa-action="show-qr" title="Pair or Scan QR Code">
+            <svg class="gi-icon" style="width:13px;height:13px;"><use href="#gi-qr"></use></svg> Re-link QR
+          </button>
+          <button class="sale-button" data-home-action="sale" type="button"><svg class="gi-icon"><use href="#gi-plus"></use></svg> Add Sale</button>
+          <button class="purchase-button" data-home-action="purchase" type="button"><svg class="gi-icon"><use href="#gi-plus"></use></svg> Add Purchase</button>
+        </div>
+      </header>
+
+      <div class="wa-chat-workspace">
+        <aside class="wa-sidebar-pane">
+          <div class="wa-search-header">
+            <div class="wa-search-wrap">
+              <svg class="gi-icon" style="width:14px;height:14px;color:#64748b;"><use href="#gi-search"></use></svg>
+              <input type="text" id="waChatSearchInput" placeholder="Search or start a new chat" value="${escapeHtml(whatsappConnectState.searchQuery || "")}" />
+            </div>
+          </div>
+          <ul class="wa-party-list">
+            ${displayParties.map((p) => {
+              const isActive = String(p.id) === String(activeParty.id);
+              const pKey = String(p.id || p.name);
+              const pMsgs = whatsappConnectState.chats[pKey] || [];
+              const lastMsg = pMsgs.length ? pMsgs[pMsgs.length - 1] : null;
+              const previewText = lastMsg ? lastMsg.text.replace(/\n+/g, " ") : (p.balance > 0 ? `Pending: ₹${formatCurrency(p.balance)}` : "Start conversation");
+              const initials = (p.name || "C").trim().slice(0, 2).toUpperCase();
+              return `
+                <li class="wa-party-item ${isActive ? "active" : ""}" data-wa-party-id="${escapeHtml(String(p.id))}">
+                  <div class="wa-party-avatar">${escapeHtml(initials)}</div>
+                  <div class="wa-party-info">
+                    <div class="wa-party-info-top">
+                      <strong class="wa-party-name">${escapeHtml(p.name || "Customer")}</strong>
+                      <span class="wa-party-time">${lastMsg ? escapeHtml(lastMsg.time || "Today") : ""}</span>
+                    </div>
+                    <div class="wa-party-preview">
+                      <span class="wa-check-icon">&#10003;&#10003;</span>
+                      <span>${escapeHtml(previewText)}</span>
+                    </div>
+                  </div>
+                </li>
+              `;
+            }).join("")}
+          </ul>
+        </aside>
+
+        <main class="wa-chat-window-pane">
+          <header class="wa-chat-header">
+            <div class="wa-chat-header-user">
+              <div class="wa-party-avatar" style="width:38px;height:38px;font-size:13px;">${escapeHtml((activeParty.name || "C").trim().slice(0, 2).toUpperCase())}</div>
+              <div>
+                <div class="wa-chat-header-name">${escapeHtml(activeParty.name || "Customer")}</div>
+                <div class="wa-chat-header-phone">${escapeHtml(activeParty.phone || "No phone")} ${balanceDue > 0 ? `&bull; <span style="color:#dc2626;font-weight:600;">Due: ₹${formatCurrency(balanceDue)}</span>` : ""}</div>
+              </div>
+            </div>
+            <div class="wa-chat-header-actions">
+              ${cleanPhone ? `
+                <a href="https://web.whatsapp.com/send?phone=${cleanPhone}" target="_blank" class="outline-mini-button" style="text-decoration:none;display:inline-flex;align-items:center;gap:6px;font-size:11.5px;color:#128c7e;border-color:#128c7e;">
+                  <svg class="gi-icon" style="width:13px;height:13px;fill:currentColor;"><use href="#gi-whatsapp"></use></svg> WhatsApp Web
+                </a>
+                <a href="https://wa.me/${cleanPhone}" target="_blank" class="outline-mini-button" style="text-decoration:none;display:inline-flex;align-items:center;gap:4px;font-size:11.5px;">
+                  Open App
+                </a>
+              ` : ""}
+            </div>
+          </header>
+
+          <div class="wa-chat-messages-scroll" id="waChatMessagesScroll">
+            <div class="wa-date-pill">TODAY</div>
+            ${messages.map((m) => `
+              <div class="wa-message-bubble ${m.from === "me" ? "sent" : "received"}">
+                <div class="wa-bubble-text">${escapeHtml(m.text)}</div>
+                <div class="wa-bubble-footer">
+                  <span>${escapeHtml(m.time || "5:18 PM")}</span>
+                  ${m.from === "me" ? '<span class="wa-check-icon">&#10003;&#10003;</span>' : ''}
+                </div>
+              </div>
+            `).join("")}
+          </div>
+
+          <div class="wa-quick-pills-bar">
+            <button type="button" class="wa-quick-pill" data-wa-quick="smart" title="Smart quick templates">
+              <span>&#10024; Smart Messaging &#709;</span>
+            </button>
+            <button type="button" class="wa-quick-pill" data-wa-quick="statement" title="Send Account Statement">
+              <span style="color:#ef4444;">&#128196;</span> Party Statement &#708;
+            </button>
+            <button type="button" class="wa-quick-pill" data-wa-quick="transactions" title="Send Recent Bills / Invoices">
+              <span style="color:#10b981;">&#128203;</span> Send Transactions &#708;
+            </button>
+            <button type="button" class="wa-quick-pill accent" data-wa-quick="reminder" title="Send Pending Payment Reminder">
+              <span>&#128276; Payment Reminder</span>
+            </button>
+          </div>
+
+          <footer class="wa-chat-input-bar">
+            <button type="button" class="wa-input-attach-btn" id="waAttachBtn" title="Attach Invoice / Document">&plus;</button>
+            <input type="text" id="waMessageInput" class="wa-text-input" placeholder="Type a Message" autocomplete="off" />
+            <button type="button" class="wa-send-action-btn" id="waSendBtn" title="Send Message (Enter)">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+                <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"></path>
+              </svg>
+            </button>
+          </footer>
+        </main>
+      </div>
+    </section>
+  `;
+}
+
+function bindWhatsAppConnectActions() {
+  const view = elements.featureView.querySelector(".whatsapp-connect-view");
+  if (!view) return;
+
+  if (!whatsappConnectState.connected) {
+    renderWhatsAppPairingQr();
+  }
+
+  view.querySelectorAll("[data-wa-action='connect']").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      whatsappConnectState.connected = true;
+      saveWhatsAppConnectState();
+      elements.featureView.innerHTML = whatsappConnectTemplate();
+      bindFeatureActions();
+      showToast("WhatsApp Connected Successfully!");
+    });
+  });
+
+  view.querySelectorAll("[data-wa-action='show-qr']").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      whatsappConnectState.connected = false;
+      saveWhatsAppConnectState();
+      elements.featureView.innerHTML = whatsappConnectTemplate();
+      bindFeatureActions();
+    });
+  });
+
+  const searchInput = view.querySelector("#waChatSearchInput");
+  searchInput?.addEventListener("input", (e) => {
+    whatsappConnectState.searchQuery = e.target.value;
+    const query = (e.target.value || "").trim().toLowerCase();
+    view.querySelectorAll(".wa-party-item").forEach((item) => {
+      const name = item.querySelector(".wa-party-name")?.textContent?.toLowerCase() || "";
+      item.style.display = name.includes(query) ? "flex" : "none";
+    });
+  });
+
+  view.querySelectorAll(".wa-party-item").forEach((item) => {
+    item.addEventListener("click", () => {
+      const partyId = item.dataset.waPartyId;
+      whatsappConnectState.activePartyId = partyId;
+      saveWhatsAppConnectState();
+      elements.featureView.innerHTML = whatsappConnectTemplate();
+      bindFeatureActions();
+    });
+  });
+
+  const activeParty = getWhatsAppActiveParty();
+  const input = view.querySelector("#waMessageInput");
+  const business = state.businessSettings || defaultBusinessSettings();
+  const businessName = business.businessName || state.activeCompany || "aesthec";
+  const businessPhone = business.phone || "9846515684";
+  const bal = Number(activeParty?.balance ?? activeParty?.receivable ?? 22800);
+
+  // 1. Payment Reminder (Image 2 format)
+  view.querySelector("[data-wa-quick='reminder']")?.addEventListener("click", () => {
+    if (!input || !activeParty) return;
+    const msg = `Dear, ${activeParty.name}\nYour payment of ${bal.toFixed(2)} is pending with ${businessName}\n\nIf you have already made the payment, kindly ignore this message.\n\nThank You\n${businessName}\n${businessPhone}`;
+    input.value = msg;
+    input.focus();
+    showToast("Payment reminder drafted into message box.");
+  });
+
+  // 2. Party Statement
+  view.querySelector("[data-wa-quick='statement']")?.addEventListener("click", () => {
+    if (!input || !activeParty) return;
+    const msg = `Dear ${activeParty.name},\nCurrent Statement Summary with ${businessName}:\nTotal Balance Due: ₹${formatCurrency(bal)}\n\nPlease clear the balance at your earliest convenience.\nWarm regards,\n${businessName}`;
+    input.value = msg;
+    input.focus();
+    showToast("Party statement drafted into message box.");
+  });
+
+  // 3. Send Transactions (Recent Invoice)
+  view.querySelector("[data-wa-quick='transactions']")?.addEventListener("click", () => {
+    if (!input || !activeParty) return;
+    const partyInvoices = (state.invoices || []).filter((inv) => String(inv.partyId) === String(activeParty.id) || (inv.party && inv.party === activeParty.name));
+    const inv = partyInvoices[0];
+    const amount = inv ? Number(inv.total || inv.amount || bal) : bal;
+    const balance = inv ? Number(inv.balance ?? bal) : bal;
+    const msg = `Invoice Amount: ${amount.toFixed(2)}\nBalance: ${balance.toFixed(2)}\n\nThanks for doing business with us.\nRegards,\n${businessName}`;
+    input.value = msg;
+    input.focus();
+    showToast("Transaction details drafted into message box.");
+  });
+
+  // 4. Smart Messaging Templates
+  view.querySelector("[data-wa-quick='smart']")?.addEventListener("click", () => {
+    if (!input || !activeParty) return;
+    const templates = [
+      `Dear ${activeParty.name}, thank you for your recent payment of ₹${formatCurrency(bal)}. It was a pleasure doing business with you! - ${businessName}`,
+      `Hello ${activeParty.name}, greetings from ${businessName}! Hope you are doing well. Please let us know if you need any goods or assistance.`,
+      `Dear ${activeParty.name}, your order has been dispatched and is on its way. Thank you for choosing ${businessName}!`
+    ];
+    const chosen = templates[Math.floor(Math.random() * templates.length)];
+    input.value = chosen;
+    input.focus();
+    showToast("Smart message template inserted.");
+  });
+
+  // 5. Attach Invoice / Doc Button (+)
+  view.querySelector("#waAttachBtn")?.addEventListener("click", () => {
+    if (!activeParty) return;
+    const partyInvoices = (state.invoices || []).filter((inv) => String(inv.partyId) === String(activeParty.id) || (inv.party && inv.party === activeParty.name));
+    if (partyInvoices.length) {
+      openWhatsAppShareModal(partyInvoices[0], "sale");
+    } else {
+      showToast("Select or open any invoice to attach PDF or bill.");
+    }
+  });
+
+  // 6. Send Message handler
+  const sendBtn = view.querySelector("#waSendBtn");
+  const doSend = () => {
+    const text = (input?.value || "").trim();
+    if (!text || !activeParty) return;
+    const now = new Date();
+    const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const pKey = String(activeParty.id || activeParty.name || "default");
+    whatsappConnectState.chats[pKey] = whatsappConnectState.chats[pKey] || [];
+    whatsappConnectState.chats[pKey].push({
+      id: "msg-" + Date.now(),
+      text,
+      time: timeStr,
+      from: "me",
+      status: "delivered",
+    });
+    saveWhatsAppConnectState();
+    input.value = "";
+
+    const scrollArea = view.querySelector("#waChatMessagesScroll");
+    if (scrollArea) {
+      const bubble = document.createElement("div");
+      bubble.className = "wa-message-bubble sent";
+      bubble.innerHTML = `
+        <div class="wa-bubble-text">${escapeHtml(text)}</div>
+        <div class="wa-bubble-footer">
+          <span>${escapeHtml(timeStr)}</span>
+          <span class="wa-check-icon">&#10003;&#10003;</span>
+        </div>
+      `;
+      scrollArea.appendChild(bubble);
+      scrollArea.scrollTop = scrollArea.scrollHeight;
+    }
+
+    const cleanPhone = String(activeParty.phone || "").replace(/\D/g, "");
+    if (cleanPhone) {
+      const webUrl = `https://web.whatsapp.com/send?phone=${cleanPhone}&text=${encodeURIComponent(text)}`;
+      if (window.giApp?.openExternal) {
+        window.giApp.openExternal(webUrl);
+      } else {
+        window.open(webUrl, "_blank");
+      }
+    }
+    showToast(`Message sent to ${activeParty.name} via WhatsApp!`);
+  };
+
+  sendBtn?.addEventListener("click", doSend);
+  input?.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      doSend();
+    }
+  });
+
+  const scrollArea = view.querySelector("#waChatMessagesScroll");
+  if (scrollArea) {
+    scrollArea.scrollTop = scrollArea.scrollHeight;
+  }
+}
+
 function customFieldsSettingsTemplate() {
   const fields = normalizeCustomFieldDefinitions(state.businessSettings?.customFields);
   return `
@@ -27416,6 +27937,7 @@ function simplePage(title, message) {
 function viewTitle(view) {
   return {
     parties: "Parties",
+    whatsapp: "WhatsApp Connect",
     items: "Items",
     sales: "Sales",
     purchases: "Purchases",
