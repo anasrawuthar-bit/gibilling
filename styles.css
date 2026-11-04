@@ -5611,8 +5611,8 @@ body.privacy-mode-active .chart-wrap canvas,
 }
 
 .barcode-page {
-  display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr);
+  display: flex;
+  flex-direction: column;
   height: 100%;
   min-height: 0;
   overflow: hidden;
@@ -5620,42 +5620,485 @@ body.privacy-mode-active .chart-wrap canvas,
 }
 
 .barcode-titlebar {
-  min-height: 68px;
-  padding: 12px 20px;
+  min-height: 60px;
+  padding: 10px 20px;
   background: #ffffff;
   border-bottom: 1px solid #e2e8f0;
-}
-
-.barcode-titlebar > div:first-child {
   display: flex;
-  flex-direction: column;
-  gap: 2px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-shrink: 0;
 }
 
-.barcode-titlebar h1 {
-  font-size: 20px;
+.barcode-title-block {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.barcode-title-block h1 {
+  font-size: 18px;
   font-weight: 700;
   color: #0f172a;
   margin: 0;
   line-height: 1.2;
 }
 
-.barcode-titlebar .muted-label {
-  font-size: 11px;
+.barcode-active-setup-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  font-size: 11.5px;
   font-weight: 600;
+}
+
+.barcode-hardware-badge {
+  font-weight: 700;
+}
+
+.barcode-hardware-badge.thermal {
+  color: #0284c7;
+}
+
+.barcode-hardware-badge.regular {
+  color: #475569;
+}
+
+.barcode-preset-badge {
+  color: #334155;
+}
+
+.barcode-top-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.barcode-top-control-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #475569;
+}
+
+.barcode-top-control-item select {
+  font-size: 12px;
+  padding: 4px 8px;
+  height: 32px;
+}
+
+/* Setup Gatekeeper Modal */
+.barcode-setup-modal-wrap {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  background: rgba(15, 23, 42, 0.7);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.barcode-setup-modal-card {
+  max-width: 560px;
+  width: 100%;
+  background: #ffffff;
+  border-radius: 14px;
+  box-shadow: 0 25px 50px -12px rgba(15, 23, 42, 0.35);
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  animation: barcodeModalPop 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes barcodeModalPop {
+  from { opacity: 0; transform: scale(0.95); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+.barcode-setup-header {
+  text-align: center;
+}
+
+.barcode-setup-icon-banner {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: #eff6ff;
+  color: #2563eb;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 12px;
+}
+
+.barcode-setup-header h2 {
+  font-size: 20px;
+  font-weight: 800;
+  color: #0f172a;
+  margin: 0 0 4px;
+}
+
+.barcode-setup-header p {
+  font-size: 13px;
   color: #64748b;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
   margin: 0;
 }
 
-.barcode-titlebar small {
-  color: #64748b;
+.barcode-setup-section-title {
+  display: block;
   font-size: 12px;
-  font-weight: 500;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #475569;
+  margin-bottom: 8px;
 }
 
-/* Summary KPI Row */
+.barcode-setup-type-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.barcode-setup-type-card {
+  position: relative;
+  border: 2px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 14px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: #ffffff;
+  user-select: none;
+}
+
+.barcode-setup-type-card:hover {
+  border-color: #93c5fd;
+  background: #f8fafc;
+}
+
+.barcode-setup-type-card.selected {
+  border-color: #2563eb;
+  background: #eff6ff;
+  box-shadow: 0 0 0 1px #2563eb;
+}
+
+.barcode-type-card-radio {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2px solid #cbd5e1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.barcode-setup-type-card.selected .barcode-type-card-radio {
+  border-color: #2563eb;
+}
+
+.barcode-radio-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: transparent;
+  transition: background 0.12s;
+}
+
+.barcode-setup-type-card.selected .barcode-radio-dot {
+  background: #2563eb;
+}
+
+.barcode-type-card-icon {
+  font-size: 24px;
+  margin-bottom: 2px;
+}
+
+.barcode-type-card-content strong {
+  display: block;
+  font-size: 14px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.barcode-type-card-content small {
+  display: block;
+  font-size: 11px;
+  color: #64748b;
+  line-height: 1.3;
+  margin-top: 2px;
+}
+
+.barcode-setup-select {
+  width: 100%;
+  height: 38px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+/* 3-Column Professional Workspace */
+.barcode-3col-workspace {
+  display: grid;
+  grid-template-columns: 370px 1fr 350px;
+  gap: 14px;
+  min-height: 0;
+  height: 100%;
+  padding: 14px 18px;
+  overflow: hidden;
+  background: #f8fafc;
+}
+
+.barcode-col-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+  min-width: 0;
+}
+
+.barcode-col-left {
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.barcode-col-center {
+  overflow: hidden;
+}
+
+.barcode-col-right {
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.barcode-field-label {
+  font-size: 11.5px;
+  font-weight: 700;
+  color: #334155;
+  margin-bottom: 4px;
+  display: block;
+}
+
+.barcode-line-tier {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+.barcode-custom-input {
+  font-size: 12px;
+  padding: 5px 8px;
+  height: 30px;
+  border-color: #93c5fd;
+  background: #eff6ff;
+}
+
+.barcode-stepper-wrap {
+  display: flex;
+  align-items: center;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  overflow: hidden;
+  height: 34px;
+  background: #ffffff;
+}
+
+.barcode-stepper-btn {
+  width: 36px;
+  height: 100%;
+  border: none;
+  background: #f1f5f9;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+  color: #334155;
+  transition: background 0.12s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  user-select: none;
+}
+
+.barcode-stepper-btn:hover {
+  background: #e2e8f0;
+  color: #0f172a;
+}
+
+.barcode-copies-main-input {
+  flex: 1;
+  height: 100%;
+  border: none;
+  border-left: 1px solid #e2e8f0;
+  border-right: 1px solid #e2e8f0;
+  text-align: center;
+  font-weight: 700;
+  font-size: 13px;
+  padding: 0;
+}
+
+/* Single Live Sticker Preview */
+.barcode-single-preview-card {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.barcode-single-canvas-wrap {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #f1f5f9;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+  padding: 24px;
+  overflow: hidden;
+}
+
+.barcode-single-preview-canvas {
+  background: #ffffff;
+  border: 2px dashed #94a3b8;
+  border-radius: 8px;
+  box-shadow: 0 10px 25px -3px rgba(15, 23, 42, 0.12), 0 4px 6px -2px rgba(15, 23, 42, 0.05);
+  padding: 12px 14px;
+  width: 100%;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.barcode-single-preview-canvas .barcode-label {
+  border: none !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+  min-height: 0 !important;
+  height: 100% !important;
+  display: flex !important;
+  flex-direction: column !important;
+  justify-content: space-between !important;
+}
+
+.barcode-single-preview-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-top: 10px;
+  border-top: 1px solid #f1f5f9;
+  margin-top: 10px;
+  font-size: 11.5px;
+  color: #64748b;
+}
+
+/* Queue Summary Box */
+.barcode-queue-summary-box {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.barcode-summary-row-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+  color: #475569;
+}
+
+.barcode-summary-row-item strong {
+  font-size: 13px;
+  color: #0f172a;
+  font-weight: 700;
+}
+
+/* Full Print Preview Modal */
+.barcode-print-preview-modal-wrap {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  background: rgba(15, 23, 42, 0.7);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.barcode-print-preview-modal {
+  max-width: 960px;
+  width: 95%;
+  max-height: 90vh;
+  background: #ffffff;
+  border-radius: 12px;
+  box-shadow: 0 25px 50px -12px rgba(15, 23, 42, 0.35);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.barcode-print-preview-modal .modal-header {
+  padding: 14px 20px;
+  border-bottom: 1px solid #e2e8f0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.barcode-modal-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.barcode-skip-offset-inline {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #334155;
+}
+
+@media (max-width: 1180px) {
+  .barcode-3col-workspace {
+    grid-template-columns: 320px 1fr 300px;
+    gap: 10px;
+    padding: 10px 12px;
+  }
+}
+
+@media (max-width: 900px) {
+  .barcode-3col-workspace {
+    grid-template-columns: 1fr;
+    overflow-y: auto;
+  }
+}
+
+/* Summary KPI Row (Legacy) */
 .barcode-summary-row {
   display: grid;
   grid-template-columns: repeat(4, minmax(180px, 1fr));
@@ -6258,6 +6701,11 @@ body.privacy-mode-active .chart-wrap canvas,
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
+.barcode-sheet-a4-30 {
+  max-width: 840px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
 .barcode-sheet-a4-40 {
   max-width: 860px;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -6268,11 +6716,41 @@ body.privacy-mode-active .chart-wrap canvas,
   grid-template-columns: repeat(5, minmax(0, 1fr));
 }
 
+.barcode-sheet-a4-84 {
+  max-width: 920px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.barcode-sheet-a4-12 {
+  max-width: 800px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.barcode-sheet-a4-16 {
+  max-width: 800px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 .barcode-sheet-thermal-50,
-.barcode-sheet-thermal-38 {
+.barcode-sheet-thermal-50-25,
+.barcode-sheet-thermal-38,
+.barcode-sheet-thermal-38-25,
+.barcode-sheet-thermal-50-38 {
   max-width: 320px;
   grid-template-columns: 1fr;
   padding: 16px;
+}
+
+.barcode-sheet-thermal-75-50 {
+  max-width: 440px;
+  grid-template-columns: 1fr;
+  padding: 18px;
+}
+
+.barcode-sheet-thermal-100-50 {
+  max-width: 560px;
+  grid-template-columns: 1fr;
+  padding: 20px;
 }
 
 /* Die-cut label sticker */
@@ -6476,6 +6954,11 @@ body.privacy-mode-active .chart-wrap canvas,
     grid-template-columns: repeat(3, 1fr) !important;
     gap: 3mm !important;
   }
+  body.barcode-print-mode .barcode-sheet-a4-30 {
+    display: grid !important;
+    grid-template-columns: repeat(3, 1fr) !important;
+    gap: 2.5mm !important;
+  }
   body.barcode-print-mode .barcode-sheet-a4-40 {
     display: grid !important;
     grid-template-columns: repeat(4, 1fr) !important;
@@ -6485,6 +6968,21 @@ body.privacy-mode-active .chart-wrap canvas,
     display: grid !important;
     grid-template-columns: repeat(5, 1fr) !important;
     gap: 1.5mm !important;
+  }
+  body.barcode-print-mode .barcode-sheet-a4-84 {
+    display: grid !important;
+    grid-template-columns: repeat(4, 1fr) !important;
+    gap: 1mm !important;
+  }
+  body.barcode-print-mode .barcode-sheet-a4-12 {
+    display: grid !important;
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 4mm !important;
+  }
+  body.barcode-print-mode .barcode-sheet-a4-16 {
+    display: grid !important;
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 3.5mm !important;
   }
   body.barcode-print-mode .barcode-label {
     break-inside: avoid !important;
@@ -6499,6 +6997,15 @@ body.privacy-mode-active .chart-wrap canvas,
     grid-template-columns: 1fr !important;
     width: 50mm !important;
     padding: 0 !important;
+  }
+  body.barcode-thermal-roll .barcode-sheet-thermal-38 {
+    width: 38mm !important;
+  }
+  body.barcode-thermal-roll .barcode-sheet-thermal-75-50 {
+    width: 75mm !important;
+  }
+  body.barcode-thermal-roll .barcode-sheet-thermal-100-50 {
+    width: 100mm !important;
   }
 }
 

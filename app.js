@@ -26,6 +26,20 @@ let barcodeCustomDate = "";
 let barcodeActiveTab = "items";
 let barcodePreset = "a4-24";
 let barcodeStartOffset = 1;
+let barcodePrinterType = "regular"; // 'regular' or 'label'
+let barcodeSetupCompleted = false;
+let barcodeLineConfig = {
+  header: "company",
+  line1: "item_name",
+  line2: "price",
+  line3: "none",
+  line4: "none",
+  customHeader: "",
+  customLine1: "",
+  customLine2: "",
+  customLine3: "",
+  customLine4: "",
+};
 
 let csvImportRows = [];
 let csvImportFileName = "";
@@ -36,55 +50,176 @@ let userPreferredSidebarCollapsed = false;
 let autoCollapsedByView = false;
 
 const BARCODE_PRESETS = {
+  // Regular Printer (A4 Die-Cut Sticker Sheets)
   "a4-24": {
     name: "A4 Sheet — 24 Labels (3×8)",
+    label: "A4 — 24 Labels (3×8, 64 × 33.8 mm)",
     columns: 3,
     rows: 8,
     perSheet: 24,
     widthMm: 64,
     heightMm: 33.8,
     isThermal: false,
+    printerType: "regular",
     labelClass: "barcode-preset-a4-24",
+  },
+  "a4-30": {
+    name: "A4 Sheet — 30 Labels (3×10)",
+    label: "A4 — 30 Labels (3×10, 70 × 29.7 mm)",
+    columns: 3,
+    rows: 10,
+    perSheet: 30,
+    widthMm: 70,
+    heightMm: 29.7,
+    isThermal: false,
+    printerType: "regular",
+    labelClass: "barcode-preset-a4-30",
   },
   "a4-40": {
     name: "A4 Sheet — 40 Labels (4×10)",
+    label: "A4 — 40 Labels (4×10, 48.5 × 25.4 mm)",
     columns: 4,
     rows: 10,
     perSheet: 40,
     widthMm: 48.5,
     heightMm: 25.4,
     isThermal: false,
+    printerType: "regular",
     labelClass: "barcode-preset-a4-40",
   },
   "a4-65": {
     name: "A4 Sheet — 65 Labels (5×13)",
+    label: "A4 — 65 Labels (5×13, 38.1 × 21.2 mm)",
     columns: 5,
     rows: 13,
     perSheet: 65,
     widthMm: 38.1,
     heightMm: 21.2,
     isThermal: false,
+    printerType: "regular",
     labelClass: "barcode-preset-a4-65",
   },
+  "a4-84": {
+    name: "A4 Sheet — 84 Labels (4×21)",
+    label: "A4 — 84 Labels (4×21, 46 × 11.1 mm)",
+    columns: 4,
+    rows: 21,
+    perSheet: 84,
+    widthMm: 46,
+    heightMm: 11.1,
+    isThermal: false,
+    printerType: "regular",
+    labelClass: "barcode-preset-a4-84",
+  },
+  "a4-12": {
+    name: "A4 Sheet — 12 Labels (2×6)",
+    label: "A4 — 12 Labels (2×6, 105 × 48 mm)",
+    columns: 2,
+    rows: 6,
+    perSheet: 12,
+    widthMm: 105,
+    heightMm: 48,
+    isThermal: false,
+    printerType: "regular",
+    labelClass: "barcode-preset-a4-12",
+  },
+  "a4-16": {
+    name: "A4 Sheet — 16 Labels (2×8)",
+    label: "A4 — 16 Labels (2×8, 105 × 37 mm)",
+    columns: 2,
+    rows: 8,
+    perSheet: 16,
+    widthMm: 105,
+    heightMm: 37,
+    isThermal: false,
+    printerType: "regular",
+    labelClass: "barcode-preset-a4-16",
+  },
+
+  // Label Printer (Thermal Continuous Roll)
   "thermal-50": {
     name: "Thermal Roll — 50 × 25 mm",
+    label: "Roll — 50 × 25 mm (2\" × 1\")",
     columns: 1,
     rows: 1,
     perSheet: 1,
     widthMm: 50,
     heightMm: 25,
     isThermal: true,
+    printerType: "label",
     labelClass: "barcode-preset-thermal-50",
+  },
+  "thermal-50-25": {
+    name: "Thermal Roll — 50 × 25 mm",
+    label: "Roll — 50 × 25 mm (2\" × 1\")",
+    columns: 1,
+    rows: 1,
+    perSheet: 1,
+    widthMm: 50,
+    heightMm: 25,
+    isThermal: true,
+    printerType: "label",
+    labelClass: "barcode-preset-thermal-50",
+  },
+  "thermal-50-38": {
+    name: "Thermal Roll — 50 × 38 mm",
+    label: "Roll — 50 × 38 mm (2\" × 1.5\")",
+    columns: 1,
+    rows: 1,
+    perSheet: 1,
+    widthMm: 50,
+    heightMm: 38,
+    isThermal: true,
+    printerType: "label",
+    labelClass: "barcode-preset-thermal-50-38",
   },
   "thermal-38": {
     name: "Thermal Roll — 38 × 25 mm",
+    label: "Roll — 38 × 25 mm (1.5\" × 1\")",
     columns: 1,
     rows: 1,
     perSheet: 1,
     widthMm: 38,
     heightMm: 25,
     isThermal: true,
+    printerType: "label",
     labelClass: "barcode-preset-thermal-38",
+  },
+  "thermal-38-25": {
+    name: "Thermal Roll — 38 × 25 mm",
+    label: "Roll — 38 × 25 mm (1.5\" × 1\")",
+    columns: 1,
+    rows: 1,
+    perSheet: 1,
+    widthMm: 38,
+    heightMm: 25,
+    isThermal: true,
+    printerType: "label",
+    labelClass: "barcode-preset-thermal-38",
+  },
+  "thermal-75-50": {
+    name: "Thermal Roll — 75 × 50 mm",
+    label: "Roll — 75 × 50 mm (3\" × 2\")",
+    columns: 1,
+    rows: 1,
+    perSheet: 1,
+    widthMm: 75,
+    heightMm: 50,
+    isThermal: true,
+    printerType: "label",
+    labelClass: "barcode-preset-thermal-75-50",
+  },
+  "thermal-100-50": {
+    name: "Thermal Roll — 100 × 50 mm",
+    label: "Roll — 100 × 50 mm (4\" × 2\")",
+    columns: 1,
+    rows: 1,
+    perSheet: 1,
+    widthMm: 100,
+    heightMm: 50,
+    isThermal: true,
+    printerType: "label",
+    labelClass: "barcode-preset-thermal-100-50",
   },
 };
 let reportSearchQuery = "";
@@ -16649,355 +16784,494 @@ function accountantAccessTemplate() {
   });
 }
 
+function barcodePresetsForType(printerType) {
+  const isLabel = printerType === "label";
+  return Object.entries(BARCODE_PRESETS).filter(([key, p]) => {
+    if (isLabel) return p.isThermal && !key.endsWith("-25");
+    return !p.isThermal;
+  });
+}
+
+function renderPresetOptions(printerType, currentPresetKey) {
+  const presets = barcodePresetsForType(printerType);
+  return presets.map(([key, p]) => {
+    const isSelected = key === currentPresetKey || (key === "thermal-50" && currentPresetKey === "thermal-50-25");
+    return `<option value="${key}" ${isSelected ? "selected" : ""}>${escapeHtml(p.label || p.name)}</option>`;
+  }).join("");
+}
+
+function resolveBarcodeLine(field, customText, item, config) {
+  if (!field || field === "none") return "";
+  if (field === "custom") return String(customText || "").trim();
+  if (field === "company") return String(config.shopName || state.businessSettings?.businessName || state.currentCompany || "GI Store").trim();
+  if (field === "item_name") return String(item?.name || "Item Name").trim();
+  if (field === "sku") return String(config.code || barcodeValueForItem(item)).trim();
+  if (field === "price") {
+    const salePrice = Number(item?.salePrice || 0);
+    const rawFormatted = formatCurrency(salePrice).replace("₹", "").trim();
+    const prefix = config.pricePrefix || "MRP ₹";
+    const unitPart = (config.showUnit !== false && item?.unit) ? ` / ${item.unit}` : "";
+    return `${prefix}${rawFormatted}${unitPart}`;
+  }
+  if (field === "discount") {
+    if (item?.discount && Number(item.discount) > 0) {
+      return `Offer: ${item.discount}% OFF`;
+    }
+    return "Special Offer";
+  }
+  if (field === "category") return String(item?.category || "").trim();
+  if (field === "unit") return item?.unit ? `Unit: ${item.unit}` : "";
+  if (field === "incl_tax") return "(Incl. of all taxes)";
+  if (field === "hsn") return item?.hsnSac ? `HSN: ${item.hsnSac}` : "";
+  if (field === "date") {
+    const d = config.packedDate || barcodeCustomDate || (new Date().toLocaleString("en-IN", { month: "short", year: "numeric" }));
+    return `Pkd: ${d}`;
+  }
+  return "";
+}
+
 function barcodeGeneratorTemplate() {
   const items = state.items || [];
   const labelItems = barcodeLabelItems(items);
   const visibleItems = barcodeFilteredItems(items);
-  const selectedItem = visibleItems[0] || labelItems[0] || items[0] || null;
+
+  barcodeEnsureQueue(items);
+  const queueFirstItem = barcodeQueue && barcodeQueue[0] ? findBarcodeItem(barcodeQueue[0].itemId) : null;
+  const selectedItem = queueFirstItem || visibleItems[0] || labelItems[0] || items[0] || null;
   const initialCode = barcodeValueForItem(selectedItem);
   const readyItems = items.filter((item) => String(item.sku || "").trim()).length;
   const noSkuItems = items.filter((item) => itemKind(item).label !== "Service" && !String(item.sku || "").trim()).length;
   const defaultConfig = barcodeDefaultConfig(selectedItem, initialCode);
 
-  barcodeEnsureQueue(items);
   const totalLabels = barcodeTotalCopies(barcodeQueue);
   const currentPreset = BARCODE_PRESETS[barcodePreset] || BARCODE_PRESETS["a4-24"];
   const sheetsCount = currentPreset.isThermal ? totalLabels : Math.ceil((totalLabels + (barcodeStartOffset - 1)) / (currentPreset.perSheet || 24));
-
-  let filterLabel = `${labelItems.length || items.length} label items`;
-  if (barcodeSearchQuery) {
-    filterLabel = `${visibleItems.length} matching "${barcodeSearchQuery}"`;
-  } else if (barcodeQuickFilter === "missing") {
-    filterLabel = `${visibleItems.length} items missing SKU`;
-  } else if (barcodeQuickFilter === "ready") {
-    filterLabel = `${visibleItems.length} items with SKU ready`;
-  }
+  const activePrinterType = currentPreset.isThermal ? "label" : "regular";
+  barcodePrinterType = activePrinterType;
 
   return `
     <section class="barcode-page invoice-workspace">
-      <header class="app-page-header invoice-page-header barcode-titlebar">
-        <div>
-          <h1>Barcode Generator</h1>
+      <!-- SETUP GATEKEEPER MODAL -->
+      <div id="barcodeSetupModal" class="modal-backdrop barcode-setup-modal-wrap" style="${barcodeSetupCompleted ? "display:none;" : "display:flex;"}">
+        <div class="modal-card barcode-setup-modal-card">
+          <div class="barcode-setup-header">
+            <div class="barcode-setup-icon-banner">
+              <svg class="gi-icon" style="width:36px;height:36px;"><use href="#gi-printer"></use></svg>
+            </div>
+            <h2>Printer &amp; Label Setup</h2>
+            <p>Select your printer hardware and label size before configuring barcodes.</p>
+          </div>
+
+          <div class="barcode-setup-body">
+            <label class="barcode-setup-section-title">1. Select Printer Type</label>
+            <div class="barcode-setup-type-grid">
+              <div class="barcode-setup-type-card ${barcodePrinterType === "label" ? "selected" : ""}" data-printer-choice="label">
+                <div class="barcode-type-card-radio">
+                  <span class="barcode-radio-dot"></span>
+                </div>
+                <div class="barcode-type-card-icon">🏷️</div>
+                <div class="barcode-type-card-content">
+                  <strong>Label Printer</strong>
+                  <small>Thermal roll printer (TVS, TSC, Zebra, Xprinter)</small>
+                  <span class="badge badge-info" style="margin-top:6px;width:fit-content;font-size:10px;">1 Label Across Roll</span>
+                </div>
+              </div>
+
+              <div class="barcode-setup-type-card ${barcodePrinterType === "regular" ? "selected" : ""}" data-printer-choice="regular">
+                <div class="barcode-type-card-radio">
+                  <span class="barcode-radio-dot"></span>
+                </div>
+                <div class="barcode-type-card-icon">📄</div>
+                <div class="barcode-type-card-content">
+                  <strong>Regular Printer</strong>
+                  <small>Laser / Inkjet printer using A4 sticker sheets</small>
+                  <span class="badge badge-neutral" style="margin-top:6px;width:fit-content;font-size:10px;">Die-Cut A4 Sheets</span>
+                </div>
+              </div>
+            </div>
+
+            <div style="margin-top:16px;">
+              <label class="barcode-setup-section-title" for="barcodeSetupSizeSelect">2. Select Label Size</label>
+              <select id="barcodeSetupSizeSelect" class="form-input barcode-setup-select">
+                ${renderPresetOptions(barcodePrinterType, barcodePreset)}
+              </select>
+            </div>
+          </div>
+
+          <div class="barcode-setup-footer">
+            <button class="primary-button square" type="button" data-action="confirm-barcode-setup" style="width:100%;justify-content:center;padding:12px 18px;font-size:14px;font-weight:700;">
+              Continue to Barcode Generator &rarr;
+            </button>
+          </div>
         </div>
-        <div class="title-actions">
-          <button class="secondary-button ${barcodeQuickFilter === "missing" ? "active" : ""}" type="button" data-barcode-filter="${barcodeQuickFilter === "missing" ? "all" : "missing"}" title="Toggle items needing SKUs">
-            ${barcodeQuickFilter === "missing" ? "Show All Items" : `Filter Missing SKUs (${noSkuItems})`}
+      </div>
+
+      <!-- FULL PRINT PREVIEW MODAL -->
+      <div id="barcodePrintPreviewModal" class="modal-backdrop barcode-print-preview-modal-wrap" style="display:none;">
+        <div class="modal-card barcode-print-preview-modal">
+          <header class="modal-header">
+            <div>
+              <h2>Full Print Preview</h2>
+              <p id="barcodeModalSubtext">${totalLabels} labels across ${barcodeQueue.length} queued product(s) &bull; Preset: ${currentPreset.name}</p>
+            </div>
+            <div class="barcode-modal-header-actions">
+              ${!currentPreset.isThermal ? `
+                <div class="barcode-skip-offset-inline">
+                  <span>Start at sticker #:</span>
+                  <input id="barcodeStartOffset" type="number" min="1" max="${currentPreset.perSheet || 24}" value="${barcodeStartOffset}" class="form-input" style="width:65px;height:32px;padding:2px 6px;text-align:center;font-weight:700;">
+                </div>
+              ` : ""}
+              <button class="primary-button square" type="button" data-action="confirm-print">
+                <svg class="gi-icon" style="width:15px;height:15px;margin-right:6px;"><use href="#gi-printer"></use></svg>
+                Print Now
+              </button>
+              <button class="secondary-button" type="button" data-action="close-print-preview">
+                Close
+              </button>
+            </div>
+          </header>
+          <div class="modal-body barcode-sheet-scroll">
+            <div id="barcodeSheet" class="barcode-sheet barcode-sheet-${barcodePreset}">
+              ${barcodeSheetMarkup(barcodeQueue, defaultConfig)}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- TOP HEADER (NO KPI CARDS!) -->
+      <header class="app-page-header invoice-page-header barcode-titlebar">
+        <div class="barcode-title-block">
+          <h1>Barcode Generator</h1>
+          <div class="barcode-active-setup-pill">
+            <span class="barcode-hardware-badge ${currentPreset.isThermal ? "thermal" : "regular"}">
+              ${currentPreset.isThermal ? "🏷️ Label Printer" : "📄 Regular Printer"}
+            </span>
+            <span id="barcodeActiveSetupText" class="barcode-preset-badge">
+              ${currentPreset.name} (${currentPreset.widthMm}&times;${currentPreset.heightMm} mm)
+            </span>
+          </div>
+        </div>
+        <div class="barcode-top-controls">
+          <!-- Printer Type Switcher -->
+          <label class="barcode-top-control-item">
+            <span>Printer:</span>
+            <select id="barcodePrinterTypeSelect" class="form-input">
+              <option value="label" ${currentPreset.isThermal ? "selected" : ""}>🏷️ Label Printer (Roll)</option>
+              <option value="regular" ${!currentPreset.isThermal ? "selected" : ""}>📄 Regular Printer (A4)</option>
+            </select>
+          </label>
+
+          <!-- Label Size Switcher -->
+          <label class="barcode-top-control-item">
+            <span>Label Size:</span>
+            <select id="barcodePresetSelect" class="form-input">
+              ${renderPresetOptions(activePrinterType, barcodePreset)}
+            </select>
+          </label>
+
+          <!-- Hidden Sync Select for Tests -->
+          <select id="barcodePrinterFormat" style="display:none;">
+            <option value="sheet" ${currentPreset.isThermal ? "" : "selected"}>A4 Sheet</option>
+            <option value="thermal" ${currentPreset.isThermal ? "selected" : ""}>Thermal Roll</option>
+          </select>
+          <select id="barcodeSizeSelect" style="display:none;">
+            <option value="medium" selected>Standard Regular</option>
+          </select>
+
+          <button class="secondary-button square" type="button" data-action="open-barcode-setup" title="Change Printer Hardware & Size">
+            <svg class="gi-icon" style="width:14px;height:14px;margin-right:4px;"><use href="#gi-settings"></use></svg>
+            Change Setup
           </button>
-          <button class="secondary-button" type="button" data-view="items">Manage Items</button>
-          <button class="primary-button square" type="button" data-action="print-barcodes">
-            <svg class="gi-icon" style="width:15px;height:15px;margin-right:6px;vertical-align:text-bottom;"><use href="#gi-printer"></use></svg>
-            Print Labels (${totalLabels})
+
+          <button class="primary-button square" type="button" data-action="open-print-preview">
+            <svg class="gi-icon" style="width:15px;height:15px;margin-right:6px;"><use href="#gi-printer"></use></svg>
+            Preview All &amp; Print (<span id="barcodeTopCopyMetric">${totalLabels}</span>)
           </button>
         </div>
       </header>
 
-      <section class="kpi-grid invoice-kpis">
-        ${kpiCard("Total Items", String(items.length), "Products and services", "neutral")}
-        ${kpiCard("Queued Products", String(barcodeQueue.length), barcodeQueue.length ? "Ready in print queue" : "Queue is empty", barcodeQueue.length ? "info" : "neutral")}
-        ${kpiCard("Missing SKU", String(noSkuItems), noSkuItems > 0 ? "Needs SKU assignment" : "All products ready", noSkuItems > 0 ? "danger" : "success")}
-        ${kpiCard("Total Print Copies", String(totalLabels), `${sheetsCount} sheet(s) estimated`, "success")}
-      </section>
-
-      <div class="barcode-layout">
-        <aside class="barcode-control-panel">
-          <!-- NAVIGATION TABS -->
-          <nav class="barcode-nav-tabs">
-            <button type="button" class="barcode-nav-tab ${barcodeActiveTab === 'items' ? 'active' : ''}" data-barcode-tab="items">
-              <svg class="gi-icon" style="width:14px;height:14px;"><use href="#gi-box"></use></svg>
-              <span>Products &amp; Queue</span>
-              <span class="barcode-tab-badge">${barcodeQueue.length}</span>
-            </button>
-            <button type="button" class="barcode-nav-tab ${barcodeActiveTab === 'design' ? 'active' : ''}" data-barcode-tab="design">
-              <svg class="gi-icon" style="width:14px;height:14px;"><use href="#gi-settings"></use></svg>
-              <span>Sheet &amp; Design</span>
-            </button>
-          </nav>
-
-          <!-- TAB PANE 1: PRODUCTS & QUEUE -->
-          <div class="barcode-tab-pane ${barcodeActiveTab === 'items' ? 'active' : ''}" data-pane="items">
-            <!-- QUEUE CARD -->
-            <section class="barcode-panel-card barcode-queue-card">
-              <div class="barcode-section-head">
-                <div>
-                  <h2>Print Queue</h2>
-                  <p id="barcodeQueueSubtext">${barcodeQueue.length} product(s) • ${totalLabels} total label(s)</p>
-                </div>
-                <div class="barcode-card-actions">
-                  <button class="secondary-button" type="button" data-action="add-all-instock-queue" title="Add all products with stock > 0">+ All In-Stock</button>
-                  ${barcodeQueue.length ? `<button class="secondary-button" type="button" data-action="clear-barcode-queue">Clear</button>` : ""}
-                </div>
+      <!-- 3-COLUMN PROFESSIONAL WORKSPACE -->
+      <div class="barcode-3col-workspace">
+        <!-- COLUMN 1: PRODUCT & CONTENT CONFIGURATION -->
+        <aside class="barcode-col-panel barcode-col-left">
+          <!-- Section 1: Item & Copies -->
+          <section class="barcode-panel-card">
+            <div class="barcode-section-head">
+              <div>
+                <h2>Product &amp; Barcode</h2>
+                <p>Choose an item and quantity of labels</p>
               </div>
-              ${barcodeQueue.length ? `
-                <div class="barcode-queue-list" id="barcodeQueueContainer">
-                  ${barcodeQueue.map((entry, index) => {
-                    const item = findBarcodeItem(entry.itemId);
-                    if (!item) return "";
-                    const code = sanitizeBarcodeValue(entry.customCode || barcodeValueForItem(item));
-                    return `
-                      <div class="barcode-queue-item" data-queue-index="${index}">
-                        <div class="barcode-queue-item-info">
-                          <strong title="${escapeHtml(item.name)}">${escapeHtml(item.name)}</strong>
-                          <div class="barcode-queue-item-meta">
-                            <span class="barcode-sku-pill">${escapeHtml(code)}</span>
-                            <span class="barcode-queue-price">₹${formatCurrency(item.salePrice || 0).replace("₹", "").trim()}</span>
-                            <span class="barcode-queue-stock ${Number(item.currentStock || 0) > 0 ? "in-stock" : "out-of-stock"}">Stock: ${item.currentStock || 0}</span>
-                          </div>
-                        </div>
-                        <div class="barcode-queue-actions">
-                          <div class="barcode-queue-stepper">
-                            <button type="button" data-action="queue-dec" data-index="${index}" title="Decrease copies">−</button>
-                            <input type="number" min="1" max="200" value="${entry.copies}" data-queue-input="${index}" aria-label="Label copies">
-                            <button type="button" data-action="queue-inc" data-index="${index}" title="Increase copies">+</button>
-                          </div>
-                          <button class="barcode-queue-delete" type="button" data-action="queue-remove" data-index="${index}" title="Remove from queue">
-                            <svg class="gi-icon"><use href="#gi-trash"></use></svg>
-                          </button>
-                        </div>
-                      </div>
-                    `;
-                  }).join("")}
-                </div>
-              ` : `
-                <div class="barcode-queue-empty-box">
-                  <svg class="gi-icon" style="width:32px;height:32px;color:#94a3b8;margin-bottom:6px;"><use href="#gi-box"></use></svg>
-                  <p>No products queued for printing.</p>
-                  <button class="secondary-button" type="button" data-action="add-all-instock-queue">+ Add All In-Stock Products</button>
-                </div>
-              `}
-            </section>
+            </div>
 
-            <!-- PRODUCT CATALOG CHECKLIST CARD (MAX VERTICAL ROOM) -->
-            <section class="barcode-panel-card barcode-catalog-card">
-              <div class="barcode-section-head">
-                <div>
-                  <h2>Select from Inventory</h2>
-                  <p>Check products to add them directly to the print queue</p>
-                </div>
-                <button class="link-button" type="button" data-action="edit-barcode-item" ${selectedItem ? "" : "disabled"}>Edit Item</button>
-              </div>
-
-              <!-- Search and Filter Pills -->
-              <div style="display:grid;gap:6px;margin-bottom:8px;">
-                <input id="barcodeItemSearch" class="form-input" value="${escapeHtml(barcodeSearchQuery)}" placeholder="Search name, SKU, category...">
-                <div class="party-filter-pills" style="margin-top:2px;">
-                  <button class="party-filter-pill ${barcodeQuickFilter === "all" ? "active" : ""}" data-barcode-filter="all" type="button">All (${labelItems.length})</button>
-                  <button class="party-filter-pill ${barcodeQuickFilter === "ready" ? "active" : ""}" data-barcode-filter="ready" type="button">Ready (${readyItems})</button>
-                  <button class="party-filter-pill ${barcodeQuickFilter === "missing" ? "active" : ""}" data-barcode-filter="missing" type="button">Missing SKU (${noSkuItems})</button>
-                </div>
-              </div>
-
-              <!-- Bulk Batch Buttons -->
-              <div class="barcode-bulk-actions">
-                <button class="secondary-button" type="button" data-action="select-all-visible" style="font-size:11px;padding:4px 8px;">☑ Select All</button>
-                <button class="secondary-button" type="button" data-action="match-all-stock-copies" style="font-size:11px;padding:4px 8px;" title="Set print copies to current stock">Copies = Stock</button>
-                ${noSkuItems > 0 ? `<button class="secondary-button" type="button" data-action="autogen-all-missing" style="font-size:11px;padding:4px 8px;color:#0284c7;font-weight:700;" title="Auto-generate barcodes for all items missing SKUs">⚡ Auto-Generate SKUs</button>` : ""}
-              </div>
-
-              <!-- Fast Inventory Checklist Table -->
-              <div class="barcode-inventory-table-wrap">
-                <table class="barcode-inventory-table">
-                  <thead>
-                    <tr>
-                      <th style="width:30px;text-align:center;"><input type="checkbox" id="barcodeMasterCheck" ${visibleItems.length && visibleItems.every((i) => barcodeQueue.some((q) => Number(q.itemId) === Number(i.id))) ? "checked" : ""}></th>
-                      <th>Product</th>
-                      <th>Barcode / SKU</th>
-                      <th style="text-align:center;">Stock</th>
-                      <th style="width:90px;text-align:center;">Copies</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    ${visibleItems.map((item) => {
-                      const queueIndex = barcodeQueue.findIndex((entry) => Number(entry.itemId) === Number(item.id));
-                      const isChecked = queueIndex >= 0;
-                      const entry = isChecked ? barcodeQueue[queueIndex] : null;
-                      const copies = entry ? entry.copies : Math.max(1, Math.min(120, Number(item.currentStock || item.openingStock || 12)));
-                      const skuDisplay = item.sku ? `<code class="barcode-sku-pill">${escapeHtml(item.sku)}</code>` : `<button class="link-button" type="button" data-action="gen-row-sku" data-item-id="${item.id}" style="font-size:11px;font-weight:700;color:#0284c7;padding:0;">⚡ Gen</button>`;
-                      return `
-                        <tr class="${isChecked ? "selected" : ""}" data-item-id="${item.id}">
-                          <td style="text-align:center;">
-                            <input type="checkbox" data-item-check="${item.id}" ${isChecked ? "checked" : ""}>
-                          </td>
-                          <td>
-                            <strong>${escapeHtml(item.name)}</strong>
-                            <br><small style="color:#64748b;">${escapeHtml(item.category || item.unit || "")} • ₹${formatCurrency(item.salePrice || 0).replace("₹", "").trim()}</small>
-                          </td>
-                          <td>${skuDisplay}</td>
-                          <td style="text-align:center;"><span class="badge ${Number(item.currentStock || 0) > 0 ? "badge-success" : "badge-muted"}" style="font-size:10px;padding:2px 6px;">${item.currentStock || 0}</span></td>
-                          <td>
-                            <div class="barcode-queue-stepper">
-                              <button type="button" data-action="row-dec" data-item-id="${item.id}">-</button>
-                              <input type="number" min="1" max="200" value="${copies}" data-row-copies="${item.id}">
-                              <button type="button" data-action="row-inc" data-item-id="${item.id}">+</button>
-                            </div>
-                          </td>
-                        </tr>
-                      `;
-                    }).join("") || '<tr><td colspan="5" style="text-align:center;color:#64748b;padding:24px;">No items match the current filter.</td></tr>'}
-                  </tbody>
-                </table>
-              </div>
-
-              <!-- Quick Add by Dropdown or Custom Code -->
-              <details style="margin-top:8px;font-size:12px;color:#475569;" ${barcodeQueue.length === 0 ? "open" : ""}>
-                <summary style="cursor:pointer;font-weight:600;color:#0284c7;user-select:none;">+ Quick Add by Dropdown or Custom Code</summary>
-                <div style="margin-top:8px;padding:10px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;display:grid;gap:6px;">
-                  <label class="form-row" style="margin-bottom:0;">
-                    <span>Select item</span>
-                    <select id="barcodeItemSelect" class="form-input">
-                      ${barcodeItemOptions(visibleItems.length ? visibleItems : labelItems, selectedItem?.id)}
-                    </select>
-                  </label>
-                  <label class="form-row" style="margin-bottom:0;">
-                    <span>Barcode value (optional override)</span>
-                    <input id="barcodeValueInput" class="form-input" value="${escapeHtml(initialCode)}" placeholder="SKU or custom barcode">
-                  </label>
-                  <div style="display:flex;gap:6px;align-items:flex-end;margin-top:4px;">
-                    <label class="form-row" style="margin-bottom:0;flex:1;">
-                      <span>Copies to add</span>
-                      <input id="barcodeCopiesInput" class="form-input" type="number" min="1" max="120" value="${defaultConfig.copies}">
-                    </label>
-                    <button class="primary-button" type="button" data-action="add-to-queue" style="height:34px;font-size:12px;white-space:nowrap;">
-                      + Add to Queue
-                    </button>
-                  </div>
-                </div>
-              </details>
-            </section>
-          </div>
-
-          <!-- TAB PANE 2: SHEET & LABEL DESIGN -->
-          <div class="barcode-tab-pane ${barcodeActiveTab === 'design' ? 'active' : ''}" data-pane="design">
-            <!-- CARD 1: STICKER SHEET PRESET & PARTIAL SHEET SKIP -->
-            <section class="barcode-panel-card">
-              <div class="barcode-section-head">
-                <div>
-                  <h2>Sticker Sheet &amp; Printer</h2>
-                  <p>Standard die-cut labels and paper alignment</p>
-                </div>
-                <span class="badge" style="font-size:10px;font-weight:700;">PRESETS</span>
-              </div>
-
+            <div class="barcode-form-group">
               <label class="form-row">
-                <span>Sticker Sheet Preset</span>
-                <select id="barcodePresetSelect" class="form-input">
-                  <option value="a4-24" ${barcodePreset === "a4-24" ? "selected" : ""}>A4 Sheet — 24 Labels (3×8, 64 × 33.8 mm)</option>
-                  <option value="a4-40" ${barcodePreset === "a4-40" ? "selected" : ""}>A4 Sheet — 40 Labels (4×10, 48.5 × 25.4 mm)</option>
-                  <option value="a4-65" ${barcodePreset === "a4-65" ? "selected" : ""}>A4 Sheet — 65 Labels (5×13, 38.1 × 21.2 mm)</option>
-                  <option value="thermal-50" ${barcodePreset === "thermal-50" ? "selected" : ""}>Thermal Roll — 50 × 25 mm (1-Across Roll)</option>
-                  <option value="thermal-38" ${barcodePreset === "thermal-38" ? "selected" : ""}>Thermal Roll — 38 × 25 mm (1-Across Roll)</option>
+                <span class="barcode-field-label">Select Product</span>
+                <select id="barcodeItemSelect" class="form-input">
+                  ${barcodeItemOptions(visibleItems.length ? visibleItems : labelItems, selectedItem?.id)}
                 </select>
               </label>
 
-              <!-- Skip Used Stickers Offset (For Partial Sheet Reuse) -->
-              <div class="barcode-offset-group" style="${currentPreset.isThermal ? "display:none;" : "display:grid;"}gap:6px;margin-top:6px;padding:10px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px;">
-                <div style="display:flex;justify-content:space-between;align-items:center;">
-                  <strong style="font-size:12px;color:#166534;">Skip Already Used Stickers</strong>
-                  <span style="font-size:11px;font-weight:700;color:#15803d;">Slot #${barcodeStartOffset}</span>
+              <label class="form-row">
+                <span class="barcode-field-label">Barcode / SKU</span>
+                <div style="display:flex;gap:6px;">
+                  <input id="barcodeValueInput" class="form-input" value="${escapeHtml(initialCode)}" placeholder="Enter SKU or barcode">
+                  <button class="secondary-button" type="button" data-action="gen-active-sku" title="Generate barcode" style="padding:0 10px;font-size:12px;white-space:nowrap;font-weight:700;color:#0284c7;">⚡ Gen</button>
                 </div>
-                <p style="font-size:11px;color:#166534;margin:0;">Leave peeled positions blank to reuse partially used A4 sheets without waste.</p>
-                <div style="display:flex;gap:6px;align-items:center;margin-top:4px;">
-                  <span style="font-size:12px;font-weight:600;color:#334155;white-space:nowrap;">Start at Sticker #:</span>
-                  <input id="barcodeStartOffset" class="form-input" type="number" min="1" max="${currentPreset.perSheet || 24}" value="${barcodeStartOffset}" style="width:70px;text-align:center;font-weight:700;">
-                  <button class="secondary-button" type="button" data-action="offset-inc" style="padding:4px 8px;font-size:11px;" title="Skip one more">+1</button>
-                  <button class="secondary-button" type="button" data-action="offset-reset" style="padding:4px 8px;font-size:11px;" title="Reset to start from sticker 1">Reset (#1)</button>
-                </div>
-              </div>
+              </label>
 
-              <!-- Label Size and Printer Format (Fully synced with preset) -->
-              <div class="barcode-form-grid" style="margin-top:12px;">
-                <label class="form-row">
-                  <span>Label size scale</span>
-                  <select id="barcodeSizeSelect" class="form-input">
-                    <option value="small" ${defaultConfig.size === "small" ? "selected" : ""}>Small Compact</option>
-                    <option value="medium" ${defaultConfig.size === "medium" ? "selected" : ""}>Standard Regular</option>
-                    <option value="large" ${defaultConfig.size === "large" ? "selected" : ""}>Large High-Res</option>
+              <label class="form-row">
+                <span class="barcode-field-label">Number of Labels</span>
+                <div class="barcode-stepper-wrap">
+                  <button type="button" class="barcode-stepper-btn" data-action="copies-dec">−</button>
+                  <input id="barcodeCopiesInput" class="form-input barcode-copies-main-input" type="number" min="1" max="500" value="${defaultConfig.copies}">
+                  <button type="button" class="barcode-stepper-btn" data-action="copies-inc">+</button>
+                </div>
+              </label>
+            </div>
+          </section>
+
+          <!-- Section 2: 5-Tier Content Selectors -->
+          <section class="barcode-panel-card">
+            <div class="barcode-section-head">
+              <div>
+                <h2>Label Content Rows</h2>
+                <p>Select what to display on each line</p>
+              </div>
+            </div>
+
+            <div class="barcode-form-group">
+              <!-- Header -->
+              <div class="barcode-line-tier">
+                <label class="form-row" style="margin-bottom:2px;">
+                  <span class="barcode-field-label">Header (Top Line)</span>
+                  <select id="barcodeHeaderSelect" class="form-input">
+                    <option value="company" ${barcodeLineConfig.header === "company" ? "selected" : ""}>Company Name</option>
+                    <option value="item_name" ${barcodeLineConfig.header === "item_name" ? "selected" : ""}>Item Name</option>
+                    <option value="custom" ${barcodeLineConfig.header === "custom" ? "selected" : ""}>Custom Text</option>
+                    <option value="none" ${barcodeLineConfig.header === "none" ? "selected" : ""}>None (Empty)</option>
                   </select>
                 </label>
-                <label class="form-row">
-                  <span>Printer Output</span>
-                  <select id="barcodePrinterFormat" class="form-input">
-                    <option value="sheet" ${defaultConfig.printerFormat === "thermal" ? "" : "selected"}>A4 Sheet</option>
-                    <option value="thermal" ${defaultConfig.printerFormat === "thermal" ? "selected" : ""}>Thermal Roll</option>
+                <input id="barcodeHeaderCustomInput" class="form-input barcode-custom-input" placeholder="Type custom header text..." value="${escapeHtml(barcodeLineConfig.customHeader || "")}" style="${barcodeLineConfig.header === "custom" ? "display:block;" : "display:none;"}">
+              </div>
+
+              <!-- Line 1 -->
+              <div class="barcode-line-tier">
+                <label class="form-row" style="margin-bottom:2px;">
+                  <span class="barcode-field-label">Line 1 (Above Barcode)</span>
+                  <select id="barcodeLine1Select" class="form-input">
+                    <option value="item_name" ${barcodeLineConfig.line1 === "item_name" ? "selected" : ""}>Item Name</option>
+                    <option value="sku" ${barcodeLineConfig.line1 === "sku" ? "selected" : ""}>Barcode / SKU</option>
+                    <option value="price" ${barcodeLineConfig.line1 === "price" ? "selected" : ""}>Sale Price (MRP)</option>
+                    <option value="discount" ${barcodeLineConfig.line1 === "discount" ? "selected" : ""}>Discount / Offer</option>
+                    <option value="category" ${barcodeLineConfig.line1 === "category" ? "selected" : ""}>Category</option>
+                    <option value="custom" ${barcodeLineConfig.line1 === "custom" ? "selected" : ""}>Custom Text</option>
+                    <option value="none" ${barcodeLineConfig.line1 === "none" ? "selected" : ""}>None (Empty)</option>
                   </select>
                 </label>
-              </div>
-            </section>
-
-            <!-- CARD 2: SHOP HEADER & PRICE PREFIX -->
-            <section class="barcode-panel-card">
-              <div class="barcode-section-head">
-                <h2>Store Header &amp; Pricing</h2>
-                <span>Code 128</span>
+                <input id="barcodeLine1CustomInput" class="form-input barcode-custom-input" placeholder="Type custom Line 1 text..." value="${escapeHtml(barcodeLineConfig.customLine1 || "")}" style="${barcodeLineConfig.line1 === "custom" ? "display:block;" : "display:none;"}">
               </div>
 
-              <!-- Shop / Store Name -->
-              <div style="display:grid;gap:6px;margin-bottom:12px;padding-bottom:12px;border-bottom:1px solid #e2e8f0;">
-                <label style="font-weight:700;font-size:12px;color:#334155;display:flex;align-items:center;gap:6px;">
-                  <input id="barcodeShowShopName" type="checkbox" ${defaultConfig.showShopName ? "checked" : ""}> Shop / Store Name (Top Header)
+              <!-- Line 2 -->
+              <div class="barcode-line-tier">
+                <label class="form-row" style="margin-bottom:2px;">
+                  <span class="barcode-field-label">Line 2 (Below Barcode)</span>
+                  <select id="barcodeLine2Select" class="form-input">
+                    <option value="price" ${barcodeLineConfig.line2 === "price" ? "selected" : ""}>Sale Price (MRP)</option>
+                    <option value="discount" ${barcodeLineConfig.line2 === "discount" ? "selected" : ""}>Discount / Offer</option>
+                    <option value="sku" ${barcodeLineConfig.line2 === "sku" ? "selected" : ""}>Barcode / SKU</option>
+                    <option value="item_name" ${barcodeLineConfig.line2 === "item_name" ? "selected" : ""}>Item Name</option>
+                    <option value="unit" ${barcodeLineConfig.line2 === "unit" ? "selected" : ""}>Unit (UOM)</option>
+                    <option value="custom" ${barcodeLineConfig.line2 === "custom" ? "selected" : ""}>Custom Text</option>
+                    <option value="none" ${barcodeLineConfig.line2 === "none" ? "selected" : ""}>None (Empty)</option>
+                  </select>
                 </label>
-                <input id="barcodeShopNameInput" class="form-input" value="${escapeHtml(defaultConfig.shopName)}" placeholder="Shop / Store Name">
+                <input id="barcodeLine2CustomInput" class="form-input barcode-custom-input" placeholder="Type custom Line 2 text..." value="${escapeHtml(barcodeLineConfig.customLine2 || "")}" style="${barcodeLineConfig.line2 === "custom" ? "display:block;" : "display:none;"}">
               </div>
 
-              <!-- Price Prefix and Packed Date -->
-              <div class="barcode-form-grid">
-                <label class="form-row">
-                  <span>Price prefix</span>
+              <!-- Line 3 -->
+              <div class="barcode-line-tier">
+                <label class="form-row" style="margin-bottom:2px;">
+                  <span class="barcode-field-label">Line 3 (Bottom Left)</span>
+                  <select id="barcodeLine3Select" class="form-input">
+                    <option value="none" ${barcodeLineConfig.line3 === "none" ? "selected" : ""}>None (Empty)</option>
+                    <option value="discount" ${barcodeLineConfig.line3 === "discount" ? "selected" : ""}>Discount / Offer</option>
+                    <option value="incl_tax" ${barcodeLineConfig.line3 === "incl_tax" ? "selected" : ""}>Incl. of all taxes</option>
+                    <option value="unit" ${barcodeLineConfig.line3 === "unit" ? "selected" : ""}>Unit (UOM)</option>
+                    <option value="hsn" ${barcodeLineConfig.line3 === "hsn" ? "selected" : ""}>HSN Code</option>
+                    <option value="date" ${barcodeLineConfig.line3 === "date" ? "selected" : ""}>Packed Date</option>
+                    <option value="custom" ${barcodeLineConfig.line3 === "custom" ? "selected" : ""}>Custom Text</option>
+                  </select>
+                </label>
+                <input id="barcodeLine3CustomInput" class="form-input barcode-custom-input" placeholder="Type custom Line 3 text..." value="${escapeHtml(barcodeLineConfig.customLine3 || "")}" style="${barcodeLineConfig.line3 === "custom" ? "display:block;" : "display:none;"}">
+              </div>
+
+              <!-- Line 4 -->
+              <div class="barcode-line-tier">
+                <label class="form-row" style="margin-bottom:2px;">
+                  <span class="barcode-field-label">Line 4 (Bottom Right)</span>
+                  <select id="barcodeLine4Select" class="form-input">
+                    <option value="none" ${barcodeLineConfig.line4 === "none" ? "selected" : ""}>None (Empty)</option>
+                    <option value="incl_tax" ${barcodeLineConfig.line4 === "incl_tax" ? "selected" : ""}>Incl. of all taxes</option>
+                    <option value="date" ${barcodeLineConfig.line4 === "date" ? "selected" : ""}>Packed Date</option>
+                    <option value="hsn" ${barcodeLineConfig.line4 === "hsn" ? "selected" : ""}>HSN Code</option>
+                    <option value="custom" ${barcodeLineConfig.line4 === "custom" ? "selected" : ""}>Custom Text</option>
+                  </select>
+                </label>
+                <input id="barcodeLine4CustomInput" class="form-input barcode-custom-input" placeholder="Type custom Line 4 text..." value="${escapeHtml(barcodeLineConfig.customLine4 || "")}" style="${barcodeLineConfig.line4 === "custom" ? "display:block;" : "display:none;"}">
+              </div>
+            </div>
+
+            <!-- More Details Accordion (Store Name, Price Prefix, Date) -->
+            <details class="barcode-more-details" style="margin-top:10px;font-size:12px;border-top:1px solid #f1f5f9;padding-top:8px;">
+              <summary style="cursor:pointer;font-weight:600;color:#0284c7;user-select:none;">⚙️ Store Name, Price Prefix &amp; Date</summary>
+              <div style="display:grid;gap:8px;margin-top:8px;padding:8px;background:#f8fafc;border-radius:6px;border:1px solid #e2e8f0;">
+                <label class="form-row" style="margin-bottom:0;">
+                  <span>Store / Shop Name</span>
+                  <input id="barcodeShopNameInput" class="form-input" value="${escapeHtml(defaultConfig.shopName)}" placeholder="Company or Store Name">
+                </label>
+                <label class="form-row" style="margin-bottom:0;">
+                  <span>Price Prefix</span>
                   <select id="barcodePricePrefix" class="form-input">
                     <option value="MRP ₹" ${defaultConfig.pricePrefix === "MRP ₹" ? "selected" : ""}>MRP ₹...</option>
                     <option value="Price: ₹" ${defaultConfig.pricePrefix === "Price: ₹" ? "selected" : ""}>Price: ₹...</option>
                     <option value="₹" ${defaultConfig.pricePrefix === "₹" ? "selected" : ""}>₹... only</option>
                   </select>
                 </label>
-                <label class="form-row">
-                  <span>Packed date</span>
+                <label class="form-row" style="margin-bottom:0;">
+                  <span>Packed Date</span>
                   <input id="barcodeDateInput" class="form-input" value="${escapeHtml(defaultConfig.packedDate)}" placeholder="Packed Date">
                 </label>
+                <div style="display:flex;gap:12px;margin-top:4px;">
+                  <label style="font-size:11px;display:flex;align-items:center;gap:4px;cursor:pointer;">
+                    <input id="barcodeShowShopName" type="checkbox" ${defaultConfig.showShopName ? "checked" : ""}> Show Store
+                  </label>
+                  <label style="font-size:11px;display:flex;align-items:center;gap:4px;cursor:pointer;">
+                    <input id="barcodeShowHsn" type="checkbox" ${defaultConfig.showHsn ? "checked" : ""}> Show HSN
+                  </label>
+                  <label style="font-size:11px;display:flex;align-items:center;gap:4px;cursor:pointer;">
+                    <input id="barcodeShowDate" type="checkbox" ${defaultConfig.showDate ? "checked" : ""}> Show Date
+                  </label>
+                </div>
               </div>
-            </section>
+            </details>
 
-            <!-- CARD 3: FIELDS ON STICKER -->
-            <section class="barcode-panel-card">
-              <div class="barcode-section-head">
-                <h2>Fields on Sticker</h2>
-                <small>Toggle info</small>
-              </div>
-              <div class="barcode-content-options">
-                <label><input id="barcodeShowName" type="checkbox" ${defaultConfig.showName ? "checked" : ""}> Product name</label>
-                <label><input id="barcodeShowPrice" type="checkbox" ${defaultConfig.showPrice ? "checked" : ""}> Sale price / MRP</label>
-                <label><input id="barcodeShowUnit" type="checkbox" ${defaultConfig.showUnit ? "checked" : ""}> Unit (UOM)</label>
-                <label><input id="barcodeShowSku" type="checkbox" ${defaultConfig.showSku ? "checked" : ""}> SKU / code</label>
-                <label><input id="barcodeShowHsn" type="checkbox" ${defaultConfig.showHsn ? "checked" : ""}> HSN code</label>
-                <label><input id="barcodeShowDate" type="checkbox" ${defaultConfig.showDate ? "checked" : ""}> Packed date</label>
-              </div>
-            </section>
-          </div>
+            <button class="primary-button square barcode-add-queue-btn" type="button" data-action="add-to-queue" style="margin-top:12px;width:100%;justify-content:center;height:38px;font-weight:700;">
+              <svg class="gi-icon" style="width:14px;height:14px;margin-right:6px;"><use href="#gi-plus"></use></svg>
+              + Add to Print Queue
+            </button>
+          </section>
         </aside>
 
-        <!-- RIGHT MAIN PANE: FULL-HEIGHT PRINT SHEET -->
-        <main class="barcode-preview-panel">
-          <section class="barcode-panel-card barcode-sheet-card">
+        <!-- COLUMN 2: SINGLE LABEL LIVE PREVIEW -->
+        <main class="barcode-col-panel barcode-col-center">
+          <section class="barcode-panel-card barcode-single-preview-card">
             <div class="barcode-section-head">
               <div>
-                <h2>Print Sheet Preview</h2>
-                <p id="barcodeSheetMetaSub">${totalLabels} labels across ${barcodeQueue.length} queued product(s) • Preset: ${currentPreset.name}${barcodeStartOffset > 1 ? ` • Start #${barcodeStartOffset}` : ""}</p>
+                <h2>Live Sticker Preview</h2>
+                <p>Real-time 1:1 single barcode sticker preview</p>
               </div>
-              <div class="barcode-preview-header-actions">
-                <span id="barcodeSheetMeta" class="barcode-count-badge">
-                  ${totalLabels} label${totalLabels === 1 ? "" : "s"}${currentPreset.isThermal ? " (Roll)" : ` • ${sheetsCount} sheet(s)`}
-                </span>
-                <button class="primary-button square" type="button" data-action="print-barcodes">
-                  <svg class="gi-icon" style="width:15px;height:15px;margin-right:6px;vertical-align:text-bottom;"><use href="#gi-printer"></use></svg>
-                  Print Labels
-                </button>
+              <span id="barcodeLabelDimensionBadge" class="badge badge-info" style="font-size:11px;font-weight:700;">
+                ${currentPreset.widthMm} &times; ${currentPreset.heightMm} mm
+              </span>
+            </div>
+
+            <div class="barcode-single-canvas-wrap">
+              <div id="barcodeSinglePreviewCanvas" class="barcode-single-preview-canvas" style="aspect-ratio: ${currentPreset.widthMm} / ${currentPreset.heightMm}; max-width: ${Math.min(360, Math.max(220, currentPreset.widthMm * 4.5))}px;">
+                ${barcodeLabelMarkup(selectedItem, defaultConfig, currentPreset)}
               </div>
             </div>
-            <div class="barcode-sheet-scroll">
-              <div id="barcodeSheet" class="barcode-sheet barcode-sheet-${barcodePreset}">
-                ${barcodeSheetMarkup(barcodeQueue, defaultConfig)}
-              </div>
+
+            <div class="barcode-single-preview-meta">
+              <span>Physical size: <strong>${currentPreset.widthMm} &times; ${currentPreset.heightMm} mm</strong></span>
+              <span>Code Standard: <strong>Code 128 (High-Density)</strong></span>
             </div>
           </section>
         </main>
+
+        <!-- COLUMN 3: PRINT QUEUE & BATCH ACTIONS -->
+        <aside class="barcode-col-panel barcode-col-right">
+          <section class="barcode-panel-card barcode-queue-card">
+            <div class="barcode-section-head">
+              <div>
+                <h2>Print Queue</h2>
+                <p id="barcodeQueueSubtext">${barcodeQueue.length} product(s) &bull; ${totalLabels} total label(s)</p>
+              </div>
+              <div class="barcode-card-actions">
+                <button class="secondary-button" type="button" data-action="add-all-instock-queue" title="Add all products with stock > 0">+ In-Stock</button>
+                ${barcodeQueue.length ? `<button class="secondary-button" type="button" data-action="clear-barcode-queue">Clear</button>` : ""}
+              </div>
+            </div>
+
+            <!-- Queue Items List -->
+            <div class="barcode-queue-list" id="barcodeQueueContainer">
+              ${barcodeQueue.map((entry, index) => {
+                const item = findBarcodeItem(entry.itemId);
+                if (!item) return "";
+                const code = sanitizeBarcodeValue(entry.customCode || barcodeValueForItem(item));
+                return `
+                  <div class="barcode-queue-item" data-queue-index="${index}">
+                    <div class="barcode-queue-item-info">
+                      <strong title="${escapeHtml(item.name)}">${escapeHtml(item.name)}</strong>
+                      <div class="barcode-queue-item-meta">
+                        <span class="barcode-sku-pill">${escapeHtml(code)}</span>
+                        <span class="barcode-queue-price">&#8377;${formatCurrency(item.salePrice || 0).replace("₹", "").trim()}</span>
+                      </div>
+                    </div>
+                    <div class="barcode-queue-actions">
+                      <div class="barcode-queue-stepper">
+                        <button type="button" data-action="queue-dec" data-index="${index}" title="Decrease copies">&minus;</button>
+                        <input type="number" min="1" max="500" value="${entry.copies}" data-queue-input="${index}" aria-label="Label copies">
+                        <button type="button" data-action="queue-inc" data-index="${index}" title="Increase copies">+</button>
+                      </div>
+                      <button class="barcode-queue-delete" type="button" data-action="queue-remove" data-index="${index}" title="Remove from queue">
+                        <svg class="gi-icon"><use href="#gi-trash"></use></svg>
+                      </button>
+                    </div>
+                  </div>
+                `;
+              }).join("") || `
+                <div class="barcode-queue-empty-box">
+                  <svg class="gi-icon" style="width:32px;height:32px;color:#94a3b8;margin-bottom:6px;"><use href="#gi-box"></use></svg>
+                  <p>No products in print queue.</p>
+                  <small>Select an item and click <b>+ Add to Print Queue</b>, or click <b>+ In-Stock</b>.</small>
+                </div>
+              `}
+            </div>
+
+            <!-- Queue Summary Box -->
+            <div class="barcode-queue-summary-box">
+              <div class="barcode-summary-row-item">
+                <span>Queued Products:</span>
+                <strong id="barcodeQueueItemCount">${barcodeQueue.length}</strong>
+              </div>
+              <div class="barcode-summary-row-item">
+                <span>Total Print Labels:</span>
+                <strong id="barcodeCopyMetric">${totalLabels}</strong>
+              </div>
+              <div class="barcode-summary-row-item">
+                <span>Estimated Output:</span>
+                <strong id="barcodeQueueEstimatedPages">${currentPreset.isThermal ? `${totalLabels} Labels (Continuous Roll)` : `${sheetsCount} A4 Sheet(s)`}</strong>
+              </div>
+            </div>
+
+            <!-- Bulk Tools Drawer -->
+            <details class="barcode-queue-bulk-details" style="margin-top:10px;font-size:12px;">
+              <summary style="cursor:pointer;font-weight:600;color:#0284c7;user-select:none;">⚡ Batch Tools &amp; Catalog</summary>
+              <div class="barcode-bulk-actions" style="margin-top:8px;display:flex;gap:4px;flex-wrap:wrap;">
+                <button class="secondary-button" type="button" data-action="select-all-visible" style="font-size:11px;padding:4px 8px;">☑ Select All</button>
+                <button class="secondary-button" type="button" data-action="match-all-stock-copies" style="font-size:11px;padding:4px 8px;">Copies = Stock</button>
+                ${noSkuItems > 0 ? `<button class="secondary-button" type="button" data-action="autogen-all-missing" style="font-size:11px;padding:4px 8px;color:#0284c7;font-weight:700;">⚡ Gen Missing</button>` : ""}
+              </div>
+              <input id="barcodeItemSearch" class="form-input" style="font-size:11px;margin-top:6px;" value="${escapeHtml(barcodeSearchQuery)}" placeholder="Search catalog...">
+            </details>
+
+            <!-- Big Action Button -->
+            <button class="primary-button square preview-print-main-btn" type="button" data-action="open-print-preview" style="margin-top:14px;width:100%;justify-content:center;height:42px;font-size:13px;font-weight:700;">
+              <svg class="gi-icon" style="width:16px;height:16px;margin-right:6px;"><use href="#gi-printer"></use></svg>
+              Preview All &amp; Print (${totalLabels})
+            </button>
+          </section>
+        </aside>
       </div>
     </section>
   `;
@@ -17050,20 +17324,30 @@ function barcodeDefaultConfig(item, code = "") {
   return {
     code: sanitizeBarcodeValue(code || barcodeValueForItem(item)),
     shopName: barcodeCustomShopName || state.businessSettings?.businessName || state.currentCompany || "GI Store",
-    showShopName: true,
-    showName: true,
-    showPrice: true,
+    showShopName: barcodeLineConfig.header !== "none",
+    showName: barcodeLineConfig.line1 === "item_name" || barcodeLineConfig.line2 === "item_name",
+    showPrice: barcodeLineConfig.line1 === "price" || barcodeLineConfig.line2 === "price",
     showUnit: true,
     pricePrefix: "MRP ₹",
     showSku: true,
-    showHsn: false,
-    showDate: false,
+    showHsn: barcodeLineConfig.line3 === "hsn" || barcodeLineConfig.line4 === "hsn",
+    showDate: barcodeLineConfig.line3 === "date" || barcodeLineConfig.line4 === "date",
     packedDate: barcodeCustomDate || (new Date().toLocaleString("en-IN", { month: "short", year: "numeric" })),
     size: "medium",
     printerFormat: preset.isThermal ? "thermal" : "sheet",
     preset: barcodePreset || "a4-24",
     startOffset: barcodeStartOffset || 1,
     copies: 12,
+    header: barcodeLineConfig.header || "company",
+    line1: barcodeLineConfig.line1 || "item_name",
+    line2: barcodeLineConfig.line2 || "price",
+    line3: barcodeLineConfig.line3 || "none",
+    line4: barcodeLineConfig.line4 || "none",
+    customHeader: barcodeLineConfig.customHeader || "",
+    customLine1: barcodeLineConfig.customLine1 || "",
+    customLine2: barcodeLineConfig.customLine2 || "",
+    customLine3: barcodeLineConfig.customLine3 || "",
+    customLine4: barcodeLineConfig.customLine4 || "",
   };
 }
 
@@ -17104,23 +17388,49 @@ function barcodeLabelMarkup(item, config, preset = BARCODE_PRESETS[config?.prese
   const hsn = item?.hsnSac || "";
   const unit = item?.unit || "";
 
-  const shopName = String(config.shopName || "").trim();
+  const headerField = config.header || barcodeLineConfig.header || "company";
+  const line1Field = config.line1 || barcodeLineConfig.line1 || "item_name";
+  const line2Field = config.line2 || barcodeLineConfig.line2 || "price";
+  const line3Field = config.line3 || barcodeLineConfig.line3 || "none";
+  const line4Field = config.line4 || barcodeLineConfig.line4 || "none";
+
+  const customHeader = config.customHeader ?? barcodeLineConfig.customHeader ?? "";
+  const customLine1 = config.customLine1 ?? barcodeLineConfig.customLine1 ?? "";
+  const customLine2 = config.customLine2 ?? barcodeLineConfig.customLine2 ?? "";
+  const customLine3 = config.customLine3 ?? barcodeLineConfig.customLine3 ?? "";
+  const customLine4 = config.customLine4 ?? barcodeLineConfig.customLine4 ?? "";
+
+  const headerText = (config.showShopName !== false) ? resolveBarcodeLine(headerField, customHeader, item, config) : "";
+  const line1Text = resolveBarcodeLine(line1Field, customLine1, item, config);
+  const line2Text = resolveBarcodeLine(line2Field, customLine2, item, config);
+  let line3Text = resolveBarcodeLine(line3Field, customLine3, item, config);
+  let line4Text = resolveBarcodeLine(line4Field, customLine4, item, config);
+
+  if (config.showHsn && hsn && !line3Text.includes("HSN") && !line4Text.includes("HSN")) {
+    if (!line3Text) line3Text = `HSN: ${hsn}`;
+    else if (!line4Text) line4Text = `HSN: ${hsn}`;
+  }
+  if (config.showDate && config.packedDate && !line3Text.includes("Pkd") && !line4Text.includes("Pkd")) {
+    if (!line4Text) line4Text = `Pkd: ${config.packedDate}`;
+    else if (!line3Text) line3Text = `Pkd: ${config.packedDate}`;
+  }
+
   const rawFormatted = formatCurrency(salePrice).replace("₹", "").trim();
-  const priceDisplay = config.showPrice ? `${config.pricePrefix || "₹"}${rawFormatted}${config.showUnit && unit ? ` / ${unit}` : ""}` : "";
+  const priceDisplay = line2Text || (config.showPrice !== false ? `${config.pricePrefix || "MRP ₹"}${rawFormatted}${config.showUnit && unit ? ` / ${unit}` : ""}` : "");
 
   return `
     <article class="barcode-label barcode-label-${size} ${preset.labelClass || 'barcode-preset-a4-24'}">
-      ${config.showShopName && shopName ? `<span class="barcode-shop-name">${escapeHtml(shopName)}</span>` : ""}
-      ${config.showName ? `<strong class="barcode-item-title" title="${escapeHtml(itemName)}">${escapeHtml(itemName)}</strong>` : ""}
+      ${headerText ? `<span class="barcode-shop-name" title="${escapeHtml(headerText)}">${escapeHtml(headerText)}</span>` : ""}
+      ${line1Text ? `<strong class="barcode-item-title" title="${escapeHtml(line1Text)}">${escapeHtml(line1Text)}</strong>` : ""}
       <div class="barcode-svg-wrap">${barcodeSvg(code)}</div>
       <div class="barcode-label-row">
-        ${config.showSku ? `<span class="barcode-label-sku">${escapeHtml(code)}</span>` : "<span></span>"}
+        ${config.showSku !== false ? `<span class="barcode-label-sku">${escapeHtml(code)}</span>` : "<span></span>"}
         ${priceDisplay ? `<b class="barcode-label-price">${escapeHtml(priceDisplay)}</b>` : ""}
       </div>
-      ${(config.showHsn && hsn) || (config.showDate && config.packedDate) ? `
+      ${(line3Text || line4Text) ? `
         <div class="barcode-label-subrow">
-          ${config.showHsn && hsn ? `<span>HSN: ${escapeHtml(hsn)}</span>` : "<span></span>"}
-          ${config.showDate && config.packedDate ? `<span>Pkd: ${escapeHtml(config.packedDate)}</span>` : ""}
+          ${line3Text ? `<span>${escapeHtml(line3Text)}</span>` : "<span></span>"}
+          ${line4Text ? `<span>${escapeHtml(line4Text)}</span>` : ""}
         </div>
       ` : ""}
     </article>
@@ -17133,7 +17443,7 @@ function barcodeSheetMarkup(queue, config) {
       <div class="barcode-empty-queue">
         <svg class="gi-icon" style="width:48px;height:48px;color:#94a3b8;"><use href="#gi-barcode"></use></svg>
         <strong>Print Queue is Empty</strong>
-        <p>Add products using the checklist or click <b>+ All In-Stock</b> to prepare labels for printing.</p>
+        <p>Add products using the form on the left or click <b>+ In-Stock</b> to prepare labels for printing.</p>
       </div>
     `;
   }
@@ -17142,7 +17452,6 @@ function barcodeSheetMarkup(queue, config) {
   const startOffset = Math.max(1, Number(config?.startOffset || barcodeStartOffset || 1));
   const blankSlots = [];
 
-  // If A4 sheet and startOffset > 1, prepend skipped placeholder slots
   if (!preset.isThermal && startOffset > 1) {
     for (let i = 1; i < startOffset; i++) {
       blankSlots.push(`
@@ -17159,7 +17468,7 @@ function barcodeSheetMarkup(queue, config) {
   const labelMarkups = queue.flatMap((entry) => {
     const item = findBarcodeItem(entry.itemId);
     if (!item) return [];
-    const copies = Math.max(1, Math.min(200, Number(entry.copies || 1)));
+    const copies = Math.max(1, Math.min(500, Number(entry.copies || 1)));
     const itemConfig = { ...config, code: sanitizeBarcodeValue(entry.customCode || barcodeValueForItem(item)) };
     return Array.from({ length: copies }, () => barcodeLabelMarkup(item, itemConfig, preset));
   });
@@ -17197,103 +17506,263 @@ function bindBarcodeGeneratorActions() {
   if (!page) return;
 
   const itemSelect = page.querySelector("#barcodeItemSelect");
-  const itemSearch = page.querySelector("#barcodeItemSearch");
   const codeInput = page.querySelector("#barcodeValueInput");
   const copiesInput = page.querySelector("#barcodeCopiesInput");
+  const presetSelect = page.querySelector("#barcodePresetSelect");
+  const printerTypeSelect = page.querySelector("#barcodePrinterTypeSelect");
+  const formatSelect = page.querySelector("#barcodePrinterFormat");
+  const setupModal = page.querySelector("#barcodeSetupModal");
+  const setupSizeSelect = page.querySelector("#barcodeSetupSizeSelect");
+  const printPreviewModal = page.querySelector("#barcodePrintPreviewModal");
 
-  // Tab switching
-  page.querySelectorAll("[data-barcode-tab]").forEach((tabBtn) => {
-    tabBtn.addEventListener("click", () => {
-      barcodeActiveTab = tabBtn.dataset.barcodeTab || "items";
-      page.querySelectorAll(".barcode-nav-tab").forEach((t) => {
-        t.classList.toggle("active", t.dataset.barcodeTab === barcodeActiveTab);
+  // Setup modal printer choice cards
+  setupModal?.querySelectorAll("[data-printer-choice]").forEach((card) => {
+    card.addEventListener("click", () => {
+      const choice = card.dataset.printerChoice;
+      barcodePrinterType = choice;
+      setupModal.querySelectorAll("[data-printer-choice]").forEach((c) => {
+        c.classList.toggle("selected", c.dataset.printerChoice === choice);
       });
-      page.querySelectorAll(".barcode-tab-pane").forEach((pane) => {
-        pane.classList.toggle("active", pane.dataset.pane === barcodeActiveTab);
-      });
+      if (choice === "label" && (!BARCODE_PRESETS[barcodePreset] || !BARCODE_PRESETS[barcodePreset].isThermal)) {
+        barcodePreset = "thermal-50";
+      } else if (choice === "regular" && (!BARCODE_PRESETS[barcodePreset] || BARCODE_PRESETS[barcodePreset].isThermal)) {
+        barcodePreset = "a4-24";
+      }
+      if (setupSizeSelect) {
+        setupSizeSelect.innerHTML = renderPresetOptions(choice, barcodePreset);
+      }
     });
   });
 
-  // Preset selector
-  const presetSelect = page.querySelector("#barcodePresetSelect");
+  // Setup modal continue button
+  page.querySelector("[data-action='confirm-barcode-setup']")?.addEventListener("click", () => {
+    if (setupSizeSelect) barcodePreset = setupSizeSelect.value;
+    barcodeSetupCompleted = true;
+    if (setupModal) setupModal.style.display = "none";
+    elements.featureView.innerHTML = barcodeGeneratorTemplate();
+    bindBarcodeGeneratorActions();
+  });
+
+  // Open setup modal
+  page.querySelectorAll("[data-action='open-barcode-setup']").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      if (setupModal) {
+        setupModal.style.display = "flex";
+        if (setupSizeSelect) {
+          setupSizeSelect.innerHTML = renderPresetOptions(barcodePrinterType, barcodePreset);
+        }
+      }
+    });
+  });
+
+  // In-workspace printer type dropdown
+  printerTypeSelect?.addEventListener("change", () => {
+    const choice = printerTypeSelect.value;
+    barcodePrinterType = choice;
+    if (choice === "label" && (!BARCODE_PRESETS[barcodePreset] || !BARCODE_PRESETS[barcodePreset].isThermal)) {
+      barcodePreset = "thermal-50";
+    } else if (choice === "regular" && (!BARCODE_PRESETS[barcodePreset] || BARCODE_PRESETS[barcodePreset].isThermal)) {
+      barcodePreset = "a4-24";
+    }
+    const preset = BARCODE_PRESETS[barcodePreset] || BARCODE_PRESETS["a4-24"];
+    if (formatSelect) formatSelect.value = preset.isThermal ? "thermal" : "sheet";
+    if (presetSelect) presetSelect.innerHTML = renderPresetOptions(choice, barcodePreset);
+    updateBarcodePreview(page);
+  });
+
+  // In-workspace label size preset dropdown
   presetSelect?.addEventListener("change", () => {
     barcodePreset = presetSelect.value;
     const preset = BARCODE_PRESETS[barcodePreset] || BARCODE_PRESETS["a4-24"];
-
-    // Sync printer format dropdown
-    const formatSelect = page.querySelector("#barcodePrinterFormat");
-    if (formatSelect) {
-      formatSelect.value = preset.isThermal ? "thermal" : "sheet";
-    }
-
-    // Adjust max offset
-    const offsetInput = page.querySelector("#barcodeStartOffset");
-    if (offsetInput) {
-      offsetInput.max = preset.isThermal ? 1 : preset.perSheet;
-      if (preset.isThermal) offsetInput.value = 1;
-      if (Number(offsetInput.value) > preset.perSheet) offsetInput.value = 1;
-      barcodeStartOffset = Number(offsetInput.value || 1);
-    }
-
-    // Hide/show offset group if thermal
-    const offsetGroup = page.querySelector(".barcode-offset-group");
-    if (offsetGroup) {
-      offsetGroup.style.display = preset.isThermal ? "none" : "grid";
-    }
-
+    if (formatSelect) formatSelect.value = preset.isThermal ? "thermal" : "sheet";
     updateBarcodePreview(page);
   });
 
-  // Offset input & quick buttons
-  const offsetInput = page.querySelector("#barcodeStartOffset");
-  offsetInput?.addEventListener("input", () => {
-    barcodeStartOffset = Math.max(1, Number(offsetInput.value || 1));
+  // Item dropdown selection
+  itemSelect?.addEventListener("change", () => {
+    const item = findBarcodeItem(itemSelect.value);
+    if (codeInput && item) codeInput.value = barcodeValueForItem(item);
     updateBarcodePreview(page);
   });
-  page.querySelector("[data-action='offset-reset']")?.addEventListener("click", () => {
-    if (offsetInput) offsetInput.value = 1;
-    barcodeStartOffset = 1;
+
+  // Generate SKU button for active item
+  page.querySelector("[data-action='gen-active-sku']")?.addEventListener("click", () => {
+    const nextBarcode = generateUniqueStoreBarcode();
+    if (codeInput) codeInput.value = nextBarcode;
     updateBarcodePreview(page);
   });
-  page.querySelector("[data-action='offset-inc']")?.addEventListener("click", () => {
-    if (offsetInput) {
-      const preset = BARCODE_PRESETS[barcodePreset] || BARCODE_PRESETS["a4-24"];
-      offsetInput.value = Math.min(preset.perSheet || 24, Number(offsetInput.value || 1) + 1);
-      barcodeStartOffset = Number(offsetInput.value);
+
+  // Main copies steppers
+  page.querySelector("[data-action='copies-inc']")?.addEventListener("click", () => {
+    if (copiesInput) {
+      copiesInput.value = Math.min(500, Number(copiesInput.value || 1) + 1);
       updateBarcodePreview(page);
     }
   });
+  page.querySelector("[data-action='copies-dec']")?.addEventListener("click", () => {
+    if (copiesInput) {
+      copiesInput.value = Math.max(1, Number(copiesInput.value || 1) - 1);
+      updateBarcodePreview(page);
+    }
+  });
+  copiesInput?.addEventListener("input", () => updateBarcodePreview(page));
 
-  const controls = [
-    "#barcodeValueInput",
-    "#barcodeShopNameInput",
-    "#barcodeShowShopName",
-    "#barcodeSizeSelect",
-    "#barcodePrinterFormat",
-    "#barcodeCopiesInput",
-    "#barcodeShowName",
-    "#barcodeShowPrice",
-    "#barcodeShowUnit",
-    "#barcodePricePrefix",
-    "#barcodeShowSku",
-    "#barcodeShowHsn",
-    "#barcodeShowDate",
-    "#barcodeDateInput",
+  // Content line selects and custom inputs
+  const contentSelectors = [
+    { select: "#barcodeHeaderSelect", custom: "#barcodeHeaderCustomInput", key: "header", customKey: "customHeader" },
+    { select: "#barcodeLine1Select", custom: "#barcodeLine1CustomInput", key: "line1", customKey: "customLine1" },
+    { select: "#barcodeLine2Select", custom: "#barcodeLine2CustomInput", key: "line2", customKey: "customLine2" },
+    { select: "#barcodeLine3Select", custom: "#barcodeLine3CustomInput", key: "line3", customKey: "customLine3" },
+    { select: "#barcodeLine4Select", custom: "#barcodeLine4CustomInput", key: "line4", customKey: "customLine4" },
   ];
 
-  page.querySelectorAll("[data-barcode-filter]").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      barcodeQuickFilter = btn.dataset.barcodeFilter || "all";
-      elements.featureView.innerHTML = barcodeGeneratorTemplate();
-      bindFeatureActions();
+  contentSelectors.forEach(({ select, custom, key, customKey }) => {
+    const selEl = page.querySelector(select);
+    const customEl = page.querySelector(custom);
+    selEl?.addEventListener("change", () => {
+      barcodeLineConfig[key] = selEl.value;
+      if (customEl) {
+        customEl.style.display = selEl.value === "custom" ? "block" : "none";
+      }
+      updateBarcodePreview(page);
+    });
+    customEl?.addEventListener("input", () => {
+      barcodeLineConfig[customKey] = customEl.value;
+      updateBarcodePreview(page);
     });
   });
 
-  page.querySelector("[data-action='focus-queue']")?.addEventListener("click", () => {
-    barcodeActiveTab = "items";
-    elements.featureView.innerHTML = barcodeGeneratorTemplate();
-    bindFeatureActions();
-    page.querySelector(".barcode-queue-card")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  // More label details inputs
+  const moreDetailsInputs = [
+    "#barcodeValueInput",
+    "#barcodeShopNameInput",
+    "#barcodeShowShopName",
+    "#barcodePricePrefix",
+    "#barcodeDateInput",
+    "#barcodeShowHsn",
+    "#barcodeShowDate",
+  ];
+  moreDetailsInputs.forEach((selector) => {
+    page.querySelector(selector)?.addEventListener("input", () => updateBarcodePreview(page));
+    page.querySelector(selector)?.addEventListener("change", () => updateBarcodePreview(page));
+  });
+
+  function bindQueueListEvents(p) {
+    p.querySelectorAll("[data-action='queue-inc']").forEach((btn) => {
+      btn.onclick = () => {
+        const idx = Number(btn.dataset.index);
+        if (barcodeQueue[idx]) {
+          barcodeQueue[idx].copies = Math.min(500, barcodeQueue[idx].copies + 1);
+          refreshBarcodeQueueUi(p);
+        }
+      };
+    });
+
+    p.querySelectorAll("[data-action='queue-dec']").forEach((btn) => {
+      btn.onclick = () => {
+        const idx = Number(btn.dataset.index);
+        if (barcodeQueue[idx]) {
+          barcodeQueue[idx].copies = Math.max(1, barcodeQueue[idx].copies - 1);
+          refreshBarcodeQueueUi(p);
+        }
+      };
+    });
+
+    p.querySelectorAll("[data-queue-input]").forEach((input) => {
+      input.onchange = () => {
+        const idx = Number(input.dataset.queueInput);
+        if (barcodeQueue[idx]) {
+          barcodeQueue[idx].copies = Math.max(1, Math.min(500, Number(input.value || 1)));
+          refreshBarcodeQueueUi(p);
+        }
+      };
+    });
+
+    p.querySelectorAll("[data-action='queue-remove']").forEach((btn) => {
+      btn.onclick = () => {
+        const idx = Number(btn.dataset.index);
+        if (barcodeQueue[idx]) {
+          barcodeQueue.splice(idx, 1);
+          showToast("Removed from queue.");
+          refreshBarcodeQueueUi(p);
+        }
+      };
+    });
+  }
+
+  function refreshBarcodeQueueUi(p) {
+    const container = p.querySelector("#barcodeQueueContainer");
+    if (container) {
+      if (!barcodeQueue.length) {
+        container.innerHTML = `
+          <div class="barcode-queue-empty-box">
+            <svg class="gi-icon" style="width:32px;height:32px;color:#94a3b8;margin-bottom:6px;"><use href="#gi-box"></use></svg>
+            <p>No products in print queue.</p>
+            <small>Select an item and click <b>+ Add to Print Queue</b>, or click <b>+ In-Stock</b>.</small>
+          </div>
+        `;
+      } else {
+        container.innerHTML = barcodeQueue.map((entry, index) => {
+          const item = findBarcodeItem(entry.itemId);
+          if (!item) return "";
+          const code = sanitizeBarcodeValue(entry.customCode || barcodeValueForItem(item));
+          return `
+            <div class="barcode-queue-item" data-queue-index="${index}">
+              <div class="barcode-queue-item-info">
+                <strong title="${escapeHtml(item.name)}">${escapeHtml(item.name)}</strong>
+                <div class="barcode-queue-item-meta">
+                  <span class="barcode-sku-pill">${escapeHtml(code)}</span>
+                  <span class="barcode-queue-price">&#8377;${formatCurrency(item.salePrice || 0).replace("₹", "").trim()}</span>
+                </div>
+              </div>
+              <div class="barcode-queue-actions">
+                <div class="barcode-queue-stepper">
+                  <button type="button" data-action="queue-dec" data-index="${index}" title="Decrease copies">&minus;</button>
+                  <input type="number" min="1" max="500" value="${entry.copies}" data-queue-input="${index}" aria-label="Label copies">
+                  <button type="button" data-action="queue-inc" data-index="${index}" title="Increase copies">+</button>
+                </div>
+                <button class="barcode-queue-delete" type="button" data-action="queue-remove" data-index="${index}" title="Remove from queue">
+                  <svg class="gi-icon"><use href="#gi-trash"></use></svg>
+                </button>
+              </div>
+            </div>
+          `;
+        }).join("");
+      }
+      bindQueueListEvents(p);
+    }
+    updateBarcodePreview(p);
+  }
+
+  // Add to Queue button
+  page.querySelectorAll("[data-action='add-to-queue']").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const activeItemSelect = page.querySelector("#barcodeItemSelect");
+      const item = findBarcodeItem(activeItemSelect?.value) || (state.items || [])[0];
+      if (!item) {
+        showToast("Select an item first.");
+        return;
+      }
+      const copies = Math.max(1, Math.min(500, Number(copiesInput?.value || 1)));
+      const code = sanitizeBarcodeValue(codeInput?.value || barcodeValueForItem(item));
+
+      const existingIndex = barcodeQueue.findIndex((entry) => Number(entry.itemId) === Number(item.id));
+      if (existingIndex >= 0) {
+        barcodeQueue[existingIndex].copies += copies;
+        barcodeQueue[existingIndex].customCode = code;
+      } else {
+        barcodeQueue.push({ itemId: item.id, copies, customCode: code });
+      }
+
+      showToast(`Added ${copies} label(s) for "${item.name}" to queue.`);
+      refreshBarcodeQueueUi(page);
+    });
+  });
+
+  page.querySelector("[data-action='clear-barcode-queue']")?.addEventListener("click", () => {
+    barcodeQueue = [];
+    showToast("Print queue cleared.");
+    refreshBarcodeQueueUi(page);
   });
 
   page.querySelectorAll("[data-action='add-all-instock-queue']").forEach((btn) => {
@@ -17305,87 +17774,15 @@ function bindBarcodeGeneratorActions() {
       barcodeQueue = targets.map((item) => ({
         itemId: item.id,
         copies: Math.max(1, Math.min(120, Number(item.currentStock || item.openingStock || 1))),
-        customCode: barcodeValueForItem(item),
+        customCode: item.sku || barcodeValueForItem(item),
       }));
 
       showToast(`Added ${barcodeQueue.length} products to print queue.`);
-      elements.featureView.innerHTML = barcodeGeneratorTemplate();
-      bindFeatureActions();
+      refreshBarcodeQueueUi(page);
     });
   });
 
-  page.querySelector("[data-action='clear-barcode-queue']")?.addEventListener("click", () => {
-    barcodeQueue = [];
-    showToast("Print queue cleared.");
-    elements.featureView.innerHTML = barcodeGeneratorTemplate();
-    bindFeatureActions();
-  });
-
-  page.querySelector("[data-action='add-to-queue']")?.addEventListener("click", () => {
-    const item = findBarcodeItem(itemSelect?.value);
-    if (!item) {
-      showToast("Select an item first.");
-      return;
-    }
-    const copies = Math.max(1, Math.min(200, Number(copiesInput?.value || 1)));
-    const code = sanitizeBarcodeValue(codeInput?.value || barcodeValueForItem(item));
-
-    const existingIndex = barcodeQueue.findIndex((entry) => Number(entry.itemId) === Number(item.id));
-    if (existingIndex >= 0) {
-      barcodeQueue[existingIndex].copies += copies;
-      barcodeQueue[existingIndex].customCode = code;
-    } else {
-      barcodeQueue.push({ itemId: item.id, copies, customCode: code });
-    }
-
-    showToast(`Added ${copies} label(s) for "${item.name}" to queue.`);
-    elements.featureView.innerHTML = barcodeGeneratorTemplate();
-    bindFeatureActions();
-  });
-
-  page.querySelectorAll("[data-item-check]").forEach((checkbox) => {
-    checkbox.addEventListener("change", () => {
-      const itemId = Number(checkbox.dataset.itemCheck);
-      const item = findBarcodeItem(itemId);
-      if (!item) return;
-      const isChecked = checkbox.checked;
-      const existingIdx = barcodeQueue.findIndex((entry) => Number(entry.itemId) === itemId);
-      if (isChecked && existingIdx < 0) {
-        const input = page.querySelector(`[data-item-id="${itemId}"][data-queue-input]`);
-        const copies = Math.max(1, Math.min(200, Number(input?.value || item.currentStock || item.openingStock || 12)));
-        barcodeQueue.push({
-          itemId: item.id,
-          copies,
-          customCode: item.sku || barcodeValueForItem(item),
-        });
-      } else if (!isChecked && existingIdx >= 0) {
-        barcodeQueue.splice(existingIdx, 1);
-      }
-      elements.featureView.innerHTML = barcodeGeneratorTemplate();
-      bindFeatureActions();
-    });
-  });
-
-  page.querySelector("#barcodeMasterCheck")?.addEventListener("change", (e) => {
-    const checked = e.target.checked;
-    const visible = barcodeFilteredItems(state.items || []);
-    if (checked) {
-      visible.forEach((item) => {
-        if (!barcodeQueue.some((entry) => Number(entry.itemId) === Number(item.id))) {
-          barcodeQueue.push({
-            itemId: item.id,
-            copies: Math.max(1, Math.min(120, Number(item.currentStock || item.openingStock || 12))),
-            customCode: item.sku || barcodeValueForItem(item),
-          });
-        }
-      });
-    } else {
-      const visibleIds = new Set(visible.map((i) => Number(i.id)));
-      barcodeQueue = barcodeQueue.filter((entry) => !visibleIds.has(Number(entry.itemId)));
-    }
-    elements.featureView.innerHTML = barcodeGeneratorTemplate();
-    bindFeatureActions();
-  });
+  bindQueueListEvents(page);
 
   page.querySelector("[data-action='select-all-visible']")?.addEventListener("click", () => {
     const visible = barcodeFilteredItems(state.items || []);
@@ -17399,8 +17796,7 @@ function bindBarcodeGeneratorActions() {
       }
     });
     showToast(`Selected all ${visible.length} visible items.`);
-    elements.featureView.innerHTML = barcodeGeneratorTemplate();
-    bindFeatureActions();
+    refreshBarcodeQueueUi(page);
   });
 
   page.querySelector("[data-action='match-all-stock-copies']")?.addEventListener("click", () => {
@@ -17411,8 +17807,7 @@ function bindBarcodeGeneratorActions() {
       }
     });
     showToast("Print copies matched to in-stock inventory quantities.");
-    elements.featureView.innerHTML = barcodeGeneratorTemplate();
-    bindFeatureActions();
+    refreshBarcodeQueueUi(page);
   });
 
   page.querySelector("[data-action='autogen-all-missing']")?.addEventListener("click", async () => {
@@ -17433,154 +17828,72 @@ function bindBarcodeGeneratorActions() {
     if (!window.giDB) saveState();
     showToast(`⚡ Generated unique barcodes for ${missing.length} item(s)!`);
     elements.featureView.innerHTML = barcodeGeneratorTemplate();
-    bindFeatureActions();
+    bindBarcodeGeneratorActions();
   });
 
-  page.querySelectorAll("[data-action='gen-row-sku']").forEach((btn) => {
-    btn.addEventListener("click", async (e) => {
-      e.stopPropagation();
-      const itemId = Number(btn.dataset.itemId);
-      const item = findBarcodeItem(itemId);
-      if (!item) return;
-      const newSku = generateUniqueStoreBarcode();
-      const updated = { ...item, sku: newSku };
-      if (window.giDB?.updateItem) {
-        state = normalizeState(await window.giDB.updateItem(updated));
-      } else {
-        item.sku = newSku;
-        saveState();
-      }
-      showToast(`⚡ Generated barcode "${newSku}" for ${item.name}!`);
-      elements.featureView.innerHTML = barcodeGeneratorTemplate();
-      bindFeatureActions();
-    });
-  });
-
-  page.querySelectorAll("[data-action='queue-inc']").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const idx = Number(btn.dataset.index);
-      if (barcodeQueue[idx]) {
-        barcodeQueue[idx].copies = Math.min(200, barcodeQueue[idx].copies + 1);
-        updateBarcodePreview(page);
-        const input = page.querySelector(`[data-queue-input="${idx}"]`);
-        if (input) input.value = barcodeQueue[idx].copies;
-        syncQueueMetrics(page);
-      }
-    });
-  });
-
-  page.querySelectorAll("[data-action='queue-dec']").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const idx = Number(btn.dataset.index);
-      if (barcodeQueue[idx]) {
-        barcodeQueue[idx].copies = Math.max(1, barcodeQueue[idx].copies - 1);
-        updateBarcodePreview(page);
-        const input = page.querySelector(`[data-queue-input="${idx}"]`);
-        if (input) input.value = barcodeQueue[idx].copies;
-        syncQueueMetrics(page);
-      }
-    });
-  });
-
-  page.querySelectorAll("[data-queue-input]").forEach((input) => {
-    input.addEventListener("change", () => {
-      const idx = Number(input.dataset.queueInput);
-      if (barcodeQueue[idx]) {
-        barcodeQueue[idx].copies = Math.max(1, Math.min(200, Number(input.value || 1)));
-        input.value = barcodeQueue[idx].copies;
-        updateBarcodePreview(page);
-        syncQueueMetrics(page);
-      }
-    });
-  });
-
-  page.querySelectorAll("[data-action='row-inc']").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const itemId = Number(btn.dataset.itemId);
-      const input = page.querySelector(`[data-row-copies="${itemId}"]`);
-      if (input) {
-        input.value = Math.min(200, Number(input.value || 1) + 1);
-      }
-      const existing = barcodeQueue.find((e) => Number(e.itemId) === itemId);
-      if (existing) {
-        existing.copies = Math.min(200, existing.copies + 1);
-        elements.featureView.innerHTML = barcodeGeneratorTemplate();
-        bindFeatureActions();
-      }
-    });
-  });
-
-  page.querySelectorAll("[data-action='row-dec']").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const itemId = Number(btn.dataset.itemId);
-      const input = page.querySelector(`[data-row-copies="${itemId}"]`);
-      if (input) {
-        input.value = Math.max(1, Number(input.value || 1) - 1);
-      }
-      const existing = barcodeQueue.find((e) => Number(e.itemId) === itemId);
-      if (existing) {
-        existing.copies = Math.max(1, existing.copies - 1);
-        elements.featureView.innerHTML = barcodeGeneratorTemplate();
-        bindFeatureActions();
-      }
-    });
-  });
-
-  page.querySelectorAll("[data-action='queue-remove']").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const idx = Number(btn.dataset.index);
-      if (barcodeQueue[idx]) {
-        barcodeQueue.splice(idx, 1);
-        showToast("Removed from queue.");
-        elements.featureView.innerHTML = barcodeGeneratorTemplate();
-        bindFeatureActions();
-      }
-    });
-  });
-
-  itemSearch?.addEventListener("input", () => {
-    barcodeSearchQuery = itemSearch.value.trim().toLowerCase();
+  // Catalog search input
+  const catalogSearch = page.querySelector("#barcodeItemSearch");
+  catalogSearch?.addEventListener("input", () => {
+    barcodeSearchQuery = catalogSearch.value.trim().toLowerCase();
     updateBarcodeItemOptions(page);
   });
 
-  itemSelect?.addEventListener("change", () => {
-    const item = findBarcodeItem(itemSelect.value);
-    if (codeInput) codeInput.value = barcodeValueForItem(item);
-    page.querySelector("[data-action='edit-barcode-item']")?.toggleAttribute("disabled", !item);
-    updateBarcodePreview(page);
-  });
-
-  controls.forEach((selector) => {
-    page.querySelector(selector)?.addEventListener("input", () => updateBarcodePreview(page));
-    page.querySelector(selector)?.addEventListener("change", () => updateBarcodePreview(page));
-  });
-
-  page.querySelector("[data-action='edit-barcode-item']")?.addEventListener("click", () => {
-    const item = findBarcodeItem(itemSelect?.value);
-    if (item) openEntryModal("item", item);
-  });
-
-  page.querySelectorAll("[data-action='print-barcodes']").forEach((btn) => {
+  // Print Preview Modal actions
+  page.querySelectorAll("[data-action='open-print-preview']").forEach((btn) => {
     btn.addEventListener("click", () => {
-      const config = readBarcodeConfig(page);
-      updateBarcodePreview(page);
-      document.body.classList.add("barcode-print-mode");
-      if (config.printerFormat === "thermal") {
-        document.body.classList.add("barcode-thermal-roll");
-      } else {
-        document.body.classList.remove("barcode-thermal-roll");
+      if (printPreviewModal) {
+        const config = readBarcodeConfig(page);
+        const sheet = page.querySelector("#barcodeSheet");
+        if (sheet) {
+          sheet.className = `barcode-sheet barcode-sheet-${config.preset}`;
+          sheet.innerHTML = barcodeSheetMarkup(barcodeQueue, config);
+        }
+        syncQueueMetrics(page);
+        printPreviewModal.style.display = "flex";
       }
-      window.addEventListener("afterprint", () => {
-        document.body.classList.remove("barcode-print-mode");
-        document.body.classList.remove("barcode-thermal-roll");
-      }, { once: true });
-      window.print();
     });
+  });
+
+  page.querySelector("[data-action='close-print-preview']")?.addEventListener("click", () => {
+    if (printPreviewModal) printPreviewModal.style.display = "none";
+  });
+
+  // Start offset for partial A4 sheets
+  const offsetInput = page.querySelector("#barcodeStartOffset");
+  offsetInput?.addEventListener("input", () => {
+    barcodeStartOffset = Math.max(1, Number(offsetInput.value || 1));
+    const config = readBarcodeConfig(page);
+    const sheet = page.querySelector("#barcodeSheet");
+    if (sheet) sheet.innerHTML = barcodeSheetMarkup(barcodeQueue, config);
+    syncQueueMetrics(page);
+  });
+
+  // Print action
+  const runPrint = () => {
+    const config = readBarcodeConfig(page);
+    const preset = BARCODE_PRESETS[config.preset] || BARCODE_PRESETS["a4-24"];
+    updateBarcodePreview(page);
+    document.body.classList.add("barcode-print-mode");
+    if (preset.isThermal) {
+      document.body.classList.add("barcode-thermal-roll");
+    } else {
+      document.body.classList.remove("barcode-thermal-roll");
+    }
+    window.addEventListener("afterprint", () => {
+      document.body.classList.remove("barcode-print-mode");
+      document.body.classList.remove("barcode-thermal-roll");
+    }, { once: true });
+    window.print();
+  };
+
+  page.querySelector("[data-action='confirm-print']")?.addEventListener("click", runPrint);
+  page.querySelectorAll("[data-action='print-barcodes']").forEach((btn) => {
+    btn.addEventListener("click", runPrint);
   });
 }
 
 function syncQueueMetrics(page) {
-  if (!page) return;
+  if (!page) page = elements.featureView.querySelector(".barcode-page") || document;
   const totalLabels = barcodeTotalCopies(barcodeQueue);
   const preset = BARCODE_PRESETS[barcodePreset] || BARCODE_PRESETS["a4-24"];
   const sheetsCount = preset.isThermal ? totalLabels : Math.ceil((totalLabels + (barcodeStartOffset - 1)) / (preset.perSheet || 24));
@@ -17588,17 +17901,25 @@ function syncQueueMetrics(page) {
   const queueSubtext = page.querySelector("#barcodeQueueSubtext");
   const queueCountMetric = page.querySelector("#barcodeQueueItemCount");
   const copyMetric = page.querySelector("#barcodeCopyMetric");
-  const sheetMeta = page.querySelector("#barcodeSheetMeta");
-  const sheetMetaSub = page.querySelector("#barcodeSheetMetaSub");
+  const topCopyMetric = page.querySelector("#barcodeTopCopyMetric");
+  const totalCopiesMetric = page.querySelector("#barcodeQueueTotalCopies");
+  const estimatedPagesMetric = page.querySelector("#barcodeQueueEstimatedPages");
+  const modalSubtext = page.querySelector("#barcodeModalSubtext");
 
   if (queueSubtext) queueSubtext.textContent = `${barcodeQueue.length} product(s) • ${totalLabels} total label(s)`;
   if (queueCountMetric) queueCountMetric.textContent = String(barcodeQueue.length);
   if (copyMetric) copyMetric.textContent = String(totalLabels);
-  if (sheetMeta) sheetMeta.textContent = `${totalLabels} label${totalLabels === 1 ? "" : "s"}${preset.isThermal ? " (Roll)" : ` • ${sheetsCount} sheet(s)`}`;
-  if (sheetMetaSub) sheetMetaSub.textContent = `${totalLabels} labels across ${barcodeQueue.length} queued product(s) • Preset: ${preset.name}${barcodeStartOffset > 1 ? ` • Start #${barcodeStartOffset}` : ""}`;
+  if (topCopyMetric) topCopyMetric.textContent = String(totalLabels);
+  if (totalCopiesMetric) totalCopiesMetric.textContent = String(totalLabels);
+  if (estimatedPagesMetric) estimatedPagesMetric.textContent = preset.isThermal ? `${totalLabels} Labels (Continuous Roll)` : `${sheetsCount} A4 Sheet(s)`;
+  if (modalSubtext) modalSubtext.textContent = `${totalLabels} labels across ${barcodeQueue.length} queued product(s) • Preset: ${preset.name}`;
 
-  const tabBadge = page.querySelector(".barcode-tab-badge");
-  if (tabBadge) tabBadge.textContent = String(barcodeQueue.length);
+  page.querySelectorAll("[data-action='open-print-preview']").forEach((btn) => {
+    btn.innerHTML = `<svg class="gi-icon" style="width:15px;height:15px;margin-right:6px;"><use href="#gi-printer"></use></svg> Preview All &amp; Print (${totalLabels})`;
+  });
+  page.querySelectorAll("[data-action='print-barcodes']").forEach((btn) => {
+    btn.innerHTML = `<svg class="gi-icon" style="width:15px;height:15px;margin-right:6px;"><use href="#gi-printer"></use></svg> Print Labels (${totalLabels})`;
+  });
 }
 
 function updateBarcodeItemOptions(page = elements.featureView.querySelector(".barcode-page")) {
@@ -17618,17 +17939,11 @@ function updateBarcodeItemOptions(page = elements.featureView.querySelector(".ba
     itemSelect.value = "";
     if (codeInput) codeInput.value = barcodeValueForItem(null);
   }
-  page.querySelector("[data-action='edit-barcode-item']")?.toggleAttribute("disabled", !findBarcodeItem(itemSelect.value));
-  const titlebarCount = page.querySelector(".barcode-titlebar small");
-  if (titlebarCount) {
-    titlebarCount.textContent = barcodeSearchQuery
-      ? `${items.length} matching items`
-      : `${barcodeLabelItems().length} label items`;
-  }
   updateBarcodePreview(page);
 }
 
 function readBarcodeConfig(page) {
+  if (!page) page = elements.featureView.querySelector(".barcode-page") || document;
   const shopNameInput = page.querySelector("#barcodeShopNameInput");
   const dateInput = page.querySelector("#barcodeDateInput");
   const presetSelect = page.querySelector("#barcodePresetSelect");
@@ -17636,39 +17951,101 @@ function readBarcodeConfig(page) {
 
   if (shopNameInput) barcodeCustomShopName = shopNameInput.value.trim();
   if (dateInput) barcodeCustomDate = dateInput.value.trim();
-  if (presetSelect) barcodePreset = presetSelect.value;
+  if (presetSelect && presetSelect.value) barcodePreset = presetSelect.value;
   if (offsetInput) barcodeStartOffset = Math.max(1, Number(offsetInput.value || 1));
 
   const preset = BARCODE_PRESETS[barcodePreset] || BARCODE_PRESETS["a4-24"];
 
+  const headerSelect = page.querySelector("#barcodeHeaderSelect");
+  const line1Select = page.querySelector("#barcodeLine1Select");
+  const line2Select = page.querySelector("#barcodeLine2Select");
+  const line3Select = page.querySelector("#barcodeLine3Select");
+  const line4Select = page.querySelector("#barcodeLine4Select");
+
+  if (headerSelect) barcodeLineConfig.header = headerSelect.value;
+  if (line1Select) barcodeLineConfig.line1 = line1Select.value;
+  if (line2Select) barcodeLineConfig.line2 = line2Select.value;
+  if (line3Select) barcodeLineConfig.line3 = line3Select.value;
+  if (line4Select) barcodeLineConfig.line4 = line4Select.value;
+
+  const headerCustom = page.querySelector("#barcodeHeaderCustomInput");
+  const line1Custom = page.querySelector("#barcodeLine1CustomInput");
+  const line2Custom = page.querySelector("#barcodeLine2CustomInput");
+  const line3Custom = page.querySelector("#barcodeLine3CustomInput");
+  const line4Custom = page.querySelector("#barcodeLine4CustomInput");
+
+  if (headerCustom) barcodeLineConfig.customHeader = headerCustom.value;
+  if (line1Custom) barcodeLineConfig.customLine1 = line1Custom.value;
+  if (line2Custom) barcodeLineConfig.customLine2 = line2Custom.value;
+  if (line3Custom) barcodeLineConfig.customLine3 = line3Custom.value;
+  if (line4Custom) barcodeLineConfig.customLine4 = line4Custom.value;
+
+  const pricePrefixSelect = page.querySelector("#barcodePricePrefix");
+  const showHsnCheck = page.querySelector("#barcodeShowHsn");
+  const showDateCheck = page.querySelector("#barcodeShowDate");
+  const showShopNameCheck = page.querySelector("#barcodeShowShopName");
+
   return {
     code: sanitizeBarcodeValue(page.querySelector("#barcodeValueInput")?.value || ""),
     shopName: shopNameInput ? shopNameInput.value.trim() : (barcodeCustomShopName || state.businessSettings?.businessName || state.currentCompany || "GI Store"),
-    showShopName: page.querySelector("#barcodeShowShopName")?.checked ?? true,
-    showName: page.querySelector("#barcodeShowName")?.checked ?? true,
-    showPrice: page.querySelector("#barcodeShowPrice")?.checked ?? true,
-    showUnit: page.querySelector("#barcodeShowUnit")?.checked ?? true,
-    pricePrefix: page.querySelector("#barcodePricePrefix")?.value || "MRP ₹",
-    showSku: page.querySelector("#barcodeShowSku")?.checked ?? true,
-    showHsn: page.querySelector("#barcodeShowHsn")?.checked ?? false,
-    showDate: page.querySelector("#barcodeShowDate")?.checked ?? false,
+    showShopName: showShopNameCheck ? showShopNameCheck.checked : barcodeLineConfig.header !== "none",
+    showName: barcodeLineConfig.line1 === "item_name" || barcodeLineConfig.line2 === "item_name",
+    showPrice: barcodeLineConfig.line1 === "price" || barcodeLineConfig.line2 === "price",
+    showUnit: true,
+    pricePrefix: pricePrefixSelect?.value || "MRP ₹",
+    showSku: true,
+    showHsn: showHsnCheck ? showHsnCheck.checked : (barcodeLineConfig.line3 === "hsn" || barcodeLineConfig.line4 === "hsn"),
+    showDate: showDateCheck ? showDateCheck.checked : (barcodeLineConfig.line3 === "date" || barcodeLineConfig.line4 === "date"),
     packedDate: dateInput ? dateInput.value.trim() : (barcodeCustomDate || (new Date().toLocaleString("en-IN", { month: "short", year: "numeric" }))),
-    size: page.querySelector("#barcodeSizeSelect")?.value || "medium",
-    printerFormat: page.querySelector("#barcodePrinterFormat")?.value || (preset.isThermal ? "thermal" : "sheet"),
+    size: "medium",
+    printerFormat: preset.isThermal ? "thermal" : "sheet",
     preset: barcodePreset,
     startOffset: barcodeStartOffset,
-    copies: Math.max(1, Math.min(120, Number(page.querySelector("#barcodeCopiesInput")?.value || 1))),
+    copies: Math.max(1, Math.min(500, Number(page.querySelector("#barcodeCopiesInput")?.value || 1))),
+    header: barcodeLineConfig.header,
+    line1: barcodeLineConfig.line1,
+    line2: barcodeLineConfig.line2,
+    line3: barcodeLineConfig.line3,
+    line4: barcodeLineConfig.line4,
+    customHeader: barcodeLineConfig.customHeader,
+    customLine1: barcodeLineConfig.customLine1,
+    customLine2: barcodeLineConfig.customLine2,
+    customLine3: barcodeLineConfig.customLine3,
+    customLine4: barcodeLineConfig.customLine4,
   };
 }
 
 function updateBarcodePreview(page = elements.featureView.querySelector(".barcode-page")) {
   if (!page) return;
   const config = readBarcodeConfig(page);
+  const preset = BARCODE_PRESETS[config.preset] || BARCODE_PRESETS["a4-24"];
+
+  const singleCanvas = page.querySelector("#barcodeSinglePreviewCanvas");
+  if (singleCanvas) {
+    const itemSelect = page.querySelector("#barcodeItemSelect");
+    const activeItem = findBarcodeItem(itemSelect?.value) || (state.items || [])[0] || null;
+    singleCanvas.style.aspectRatio = `${preset.widthMm} / ${preset.heightMm}`;
+    const maxW = Math.min(360, Math.max(220, preset.widthMm * 4.5));
+    singleCanvas.style.maxWidth = `${maxW}px`;
+    singleCanvas.innerHTML = barcodeLabelMarkup(activeItem, config, preset);
+  }
+
+  const dimBadge = page.querySelector("#barcodeLabelDimensionBadge");
+  if (dimBadge) {
+    dimBadge.innerHTML = `${preset.widthMm} &times; ${preset.heightMm} mm`;
+  }
+
+  const activeSetupText = page.querySelector("#barcodeActiveSetupText");
+  if (activeSetupText) {
+    activeSetupText.textContent = `${preset.name} (${preset.widthMm}×${preset.heightMm} mm)`;
+  }
+
   const sheet = page.querySelector("#barcodeSheet");
   if (sheet) {
     sheet.className = `barcode-sheet barcode-sheet-${config.preset}`;
     sheet.innerHTML = barcodeSheetMarkup(barcodeQueue, config);
   }
+
   syncQueueMetrics(page);
 }
 
