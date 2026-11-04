@@ -2745,6 +2745,9 @@ function transactionEditorTemplate(type = getTransactionEditorType()) {
 
   const activeTab = editorTabs.find((tab) => tab.id === activeTransactionEditorTabId);
   const editRecord = isEditing ? findTransactionEditRecord(type, activeTransactionEditInvoiceId) : null;
+  const initialState = isEditing
+    ? (editRecord?.placeOfSupply !== undefined ? editRecord.placeOfSupply : (editRecord?.state !== undefined ? editRecord.state : (state.businessSettings?.state || "Kerala")))
+    : (activeTab?.draft?.state !== undefined ? activeTab.draft.state : (state.businessSettings?.state || "Kerala"));
   const currentSupplyType = isEditing
     ? (editRecord?.supplyType || (editRecord?.partyGstin ? "b2b" : "b2c"))
     : (activeTab?.draft?.supplyType || (activeTab?.draft?.partyGstin ? "b2b" : "b2b"));
@@ -2861,7 +2864,7 @@ function transactionEditorTemplate(type = getTransactionEditorType()) {
                 <label class="editor-compact-label">
                   <span>Place of Supply</span>
                   <select class="form-input compact-input" name="state">
-                    ${indianStateOptions(state.businessSettings?.state || "Kerala")}
+                    ${indianStateOptions(initialState, { includeNone: true })}
                   </select>
                 </label>
               </div>
@@ -3142,7 +3145,18 @@ function populateTransactionEditorDraft(draft) {
   if (dueDateInput && draft.dueDate) dueDateInput.value = toEditorDateString(draft.dueDate);
   const firmState = state.businessSettings?.state || "Kerala";
   const draftGstin = String(draft.partyGstin || "").trim().toUpperCase();
-  const draftState = resolveIndianStateName(draft.state) || getStateByGstin(draftGstin) || firmState;
+  let draftState = "";
+  const rawDraftState = draft.state !== undefined ? draft.state : draft.placeOfSupply;
+  if (rawDraftState !== undefined && rawDraftState !== null) {
+    const trimmed = String(rawDraftState).trim();
+    if (!trimmed || trimmed.toLowerCase() === "none") {
+      draftState = "";
+    } else {
+      draftState = resolveIndianStateName(trimmed) || trimmed;
+    }
+  } else {
+    draftState = getStateByGstin(draftGstin) || firmState;
+  }
   if (stateInput) ensureSelectValue(stateInput, draftState);
   if (supplyTypeInput && (draft.supplyType || draftGstin)) supplyTypeInput.value = draft.supplyType || (draftGstin ? "b2b" : "b2c");
   if (partyGstinInput && draftGstin) partyGstinInput.value = draftGstin;
@@ -5121,7 +5135,7 @@ const CITY_TO_STATE_MAP = {
 function resolveIndianStateName(val) {
   if (!val || typeof val !== "string") return "";
   const clean = val.trim().toLowerCase();
-  if (!clean) return "";
+  if (!clean || clean === "none") return "";
   const direct = INDIAN_STATES.find((s) => s.toLowerCase() === clean);
   if (direct) return direct;
   if (CITY_TO_STATE_MAP[clean]) return CITY_TO_STATE_MAP[clean];
@@ -6790,8 +6804,8 @@ function selectTransactionParty(party, options = {}) {
   const firmState = state.businessSettings?.state || "Kerala";
   const derivedGstinState = getStateByGstin(party.gstin);
   const resolvedPartyState = resolveIndianStateName(party.state);
-  const targetState = derivedGstinState || resolvedPartyState || firmState;
-  if (stateInput) ensureSelectValue(stateInput, targetState);
+  const targetState = derivedGstinState || resolvedPartyState;
+  if (targetState && stateInput) ensureSelectValue(stateInput, targetState);
   syncEditorTaxOptions();
   const terms = party.paymentTerms || (Number(party.dueDays || 0) ? `Net ${Number(party.dueDays || 0)}` : "");
   if (paymentTerms && terms) {
@@ -7198,8 +7212,8 @@ function applyEditorPartyIntelligence() {
   const firmState = state.businessSettings?.state || "Kerala";
   const derivedGstinState = getStateByGstin(party.gstin);
   const resolvedPartyState = resolveIndianStateName(party.state);
-  const targetState = derivedGstinState || resolvedPartyState || firmState;
-  if (stateInput) ensureSelectValue(stateInput, targetState);
+  const targetState = derivedGstinState || resolvedPartyState;
+  if (targetState && stateInput) ensureSelectValue(stateInput, targetState);
   syncEditorTaxOptions();
   const isRegistered = Boolean(party.gstin || party.taxType === "gst_registered" || party.taxType === "composition");
   if (partyGstin) partyGstin.value = party.gstin || "";
@@ -7380,7 +7394,16 @@ function findItemByName(name) {
 
 function ensureSelectValue(select, value) {
   let label = String(value || "").trim();
-  if (!select || !label) return;
+  if (!select) return;
+  if (!label || label.toLowerCase() === "none") {
+    const noneOption = [...select.options].find((option) => option.value === "" || option.value.toLowerCase() === "none" || option.textContent.trim().toLowerCase() === "none");
+    if (noneOption) {
+      select.value = noneOption.value;
+      return;
+    }
+    select.value = "";
+    return;
+  }
   if (select.name === "state") {
     label = resolveIndianStateName(label) || label;
   }
@@ -7821,7 +7844,15 @@ async function saveTransactionEditor(event) {
       paymentTerms: String(form.get("paymentTerms") || "Net 30"),
       paymentMethod: String(form.get("paymentMethod") || "Cash"),
       supplyType: String(form.get("supplyType") || "b2c"),
-      placeOfSupply: String(resolveIndianStateName(form.get("state")) || form.get("state") || getStateByGstin(form.get("partyGstin") || validation.party.gstin) || state.businessSettings?.state || "Kerala").trim(),
+      placeOfSupply: (function() {
+        const rawState = form.get("state");
+        if (rawState !== null && rawState !== undefined) {
+          const trimmed = String(rawState).trim();
+          if (!trimmed || trimmed.toLowerCase() === "none") return "";
+          return resolveIndianStateName(trimmed) || trimmed;
+        }
+        return "";
+      })(),
       partyGstin: String(form.get("partyGstin") || validation.party.gstin || "").trim().toUpperCase(),
       partyTaxType: String(validation.party.taxType || "unregistered"),
       firmState: state.businessSettings?.state || "Kerala",
@@ -8449,13 +8480,6 @@ function validateTransactionEditorSelections() {
       ensureSelectValue(stateInput, derivedState);
       recalcTransactionEditor();
     }
-  }
-  if (!stateInput?.value) {
-    return {
-      valid: false,
-      message: "State/place of supply is required for GST split.",
-      field: stateInput,
-    };
   }
   const invoiceParty = party || {
     id: "",
@@ -12616,7 +12640,7 @@ function invoicePreviewDataFromRecord(invoice, overrides = {}) {
     invoiceNo: invoice.invoiceNo || "-",
     date: displayDate,
     address: party.billingAddress || "",
-    placeOfSupply: invoice.placeOfSupply || party.state || "",
+    placeOfSupply: typeof invoice.placeOfSupply === "string" ? invoice.placeOfSupply : (party.state || ""),
     customFields: customFieldsForModule(invoice.type || "sale").map((field) => ({
       ...field,
       value: customFieldValue(field, invoice.meta?.customFields || {}),
@@ -18207,7 +18231,7 @@ function expenseModalTemplate(record = null) {
 
               <label class="expense-field gst-only expense-pos-field">
                 <span class="field-label">Place of Supply</span>
-                <select class="form-input" name="placeOfSupply" id="expensePlaceOfSupply">${indianStateOptions(placeOfSupply)}</select>
+                <select class="form-input" name="placeOfSupply" id="expensePlaceOfSupply">${indianStateOptions(placeOfSupply, { includeNone: true })}</select>
               </label>
             </div>
 
@@ -25095,13 +25119,13 @@ function gstr1ExportReport() {
   // B2C Large: unregistered, invoice value > 2.5L, inter-state
   const b2cLargeInvoices = invoices.filter((inv) => {
     const isB2C = invoiceSupplyType(inv) !== "b2b";
-    const isInterState = (inv.placeOfSupply || "") !== (state.businessSettings?.state || "");
+    const isInterState = Boolean(inv.placeOfSupply && inv.placeOfSupply.toLowerCase() !== (state.businessSettings?.state || "").toLowerCase());
     return isB2C && isInterState && invoiceTotalValue(inv) > 250000;
   });
   // B2C Small: rest
   const b2cSmallInvoices = invoices.filter((inv) => {
     const isB2C = invoiceSupplyType(inv) !== "b2b";
-    const isInterState = (inv.placeOfSupply || "") !== (state.businessSettings?.state || "");
+    const isInterState = Boolean(inv.placeOfSupply && inv.placeOfSupply.toLowerCase() !== (state.businessSettings?.state || "").toLowerCase());
     const isLarge = isInterState && invoiceTotalValue(inv) > 250000;
     return isB2C && !isLarge;
   });
@@ -25862,7 +25886,7 @@ function buildGstr1PortalJson() {
   // B2C Large
   const b2cl = invoices.filter((inv) => {
     const isB2C = invoiceSupplyType(inv) !== "b2b";
-    const isInterState = (inv.placeOfSupply || "") !== (state.businessSettings?.state || "");
+    const isInterState = Boolean(inv.placeOfSupply && inv.placeOfSupply.toLowerCase() !== (state.businessSettings?.state || "").toLowerCase());
     return isB2C && isInterState && invoiceTotalValue(inv) > 250000;
   }).map((inv) => ({
     pos: inv.placeOfSupply || "",
@@ -25878,7 +25902,7 @@ function buildGstr1PortalJson() {
   const b2csMap = new Map();
   invoices.filter((inv) => {
     const isB2C = invoiceSupplyType(inv) !== "b2b";
-    const isInterState = (inv.placeOfSupply || "") !== (state.businessSettings?.state || "");
+    const isInterState = Boolean(inv.placeOfSupply && inv.placeOfSupply.toLowerCase() !== (state.businessSettings?.state || "").toLowerCase());
     return isB2C && !(isInterState && invoiceTotalValue(inv) > 250000);
   }).forEach((inv) => {
     lines.filter((l) => l.invoiceId === inv.id).forEach((l) => {
@@ -27903,7 +27927,7 @@ function settingsAboutTemplate() {
   `;
 }
 
-function indianStateOptions(selected = "") {
+function indianStateOptions(selected = "", { includeNone = false } = {}) {
   const states = [
     "Andhra Pradesh", "Arunachal Pradesh", "Assam", "Bihar", "Chandigarh",
     "Chhattisgarh", "Dadra and Nagar Haveli and Daman and Diu", "Delhi", "Goa",
@@ -27913,7 +27937,16 @@ function indianStateOptions(selected = "") {
     "Nagaland", "Odisha", "Puducherry", "Punjab", "Rajasthan", "Sikkim",
     "Tamil Nadu", "Telangana", "Tripura", "Uttar Pradesh", "Uttarakhand", "West Bengal",
   ];
-  return states.map((stateName) => `<option ${stateName === selected ? "selected" : ""}>${escapeHtml(stateName)}</option>`).join("");
+  const cleanSelected = String(selected || "").trim();
+  const isNoneSelected = !cleanSelected || cleanSelected.toLowerCase() === "none";
+  const noneOption = includeNone
+    ? `<option value="" ${isNoneSelected ? "selected" : ""}>None</option>`
+    : "";
+  const stateOptions = states.map((stateName) => {
+    const isSelected = !isNoneSelected && stateName.toLowerCase() === cleanSelected.toLowerCase();
+    return `<option value="${escapeHtml(stateName)}" ${isSelected ? "selected" : ""}>${escapeHtml(stateName)}</option>`;
+  }).join("");
+  return noneOption + stateOptions;
 }
 
 function addItemTemplate() {

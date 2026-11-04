@@ -5329,7 +5329,7 @@ const DB_CITY_TO_STATE_MAP = {
 function resolveIndianStateName(val) {
   if (!val || typeof val !== "string") return "";
   const clean = val.trim().toLowerCase();
-  if (!clean) return "";
+  if (!clean || clean === "none") return "";
   const direct = DB_INDIAN_STATES.find((s) => s.toLowerCase() === clean);
   if (direct) return direct;
   if (DB_CITY_TO_STATE_MAP[clean]) return DB_CITY_TO_STATE_MAP[clean];
@@ -5355,9 +5355,19 @@ function invoiceTaxContext(companyId, entry) {
   const firmState = String(entry.firmState || businessSettings.state || "Kerala").trim();
   const partyGstin = String(entry.partyGstin || party.gstin || "").trim().toUpperCase();
   const partyTaxType = String(entry.partyTaxType || party.taxType || "unregistered").trim();
-  const rawPlace = String(entry.placeOfSupply || entry.state || party.state || "").trim();
-  const resolvedState = resolveIndianStateName(rawPlace) || getStateByGstin(partyGstin) || resolveIndianStateName(party.state);
-  const placeOfSupply = resolvedState || rawPlace || firmState;
+  let placeOfSupply = "";
+  if (entry.placeOfSupply !== undefined || entry.state !== undefined) {
+    const rawPlace = String(entry.placeOfSupply !== undefined ? entry.placeOfSupply : entry.state).trim();
+    if (!rawPlace || rawPlace.toLowerCase() === "none") {
+      placeOfSupply = "";
+    } else {
+      placeOfSupply = resolveIndianStateName(rawPlace) || rawPlace;
+    }
+  } else {
+    const rawPlace = String(party.state || "").trim();
+    const resolvedState = resolveIndianStateName(rawPlace) || getStateByGstin(partyGstin);
+    placeOfSupply = resolvedState || rawPlace || firmState;
+  }
   return {
     firmState,
     placeOfSupply,
