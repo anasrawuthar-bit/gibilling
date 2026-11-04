@@ -12355,6 +12355,7 @@ function invoiceRowsTable(rows, { isSale, partyLabel, numberLabel, paidLabel, co
             <th class="th-party"><span class="th-content">${partyLabel} ${cf("party")}</span><span class="data-table-column-resizer" title="Drag to resize column"></span></th>
             <th class="th-amount amount-cell"><span class="th-content th-content-right">Total ${cf("total")}</span><span class="data-table-column-resizer" title="Drag to resize column"></span></th>
             <th class="th-amount amount-cell"><span class="th-content th-content-right">Balance ${cf("balance")}</span><span class="data-table-column-resizer" title="Drag to resize column"></span></th>
+            <th class="th-status"><span class="th-content">Status</span><span class="data-table-column-resizer" title="Drag to resize column"></span></th>
             <th class="th-actions"><span class="th-content th-content-right">Actions</span></th>
           </tr>
         </thead>
@@ -12366,6 +12367,7 @@ function invoiceRowsTable(rows, { isSale, partyLabel, numberLabel, paidLabel, co
               <td><strong>${escapeHtml(entry.party || "-")}</strong><small>${escapeHtml(entry.phone || "")}</small></td>
               <td class="amount-cell strong">${formatCurrency(invoiceTotalValue(entry))}</td>
               <td class="amount-cell ${invoiceBalanceValue(entry) > 0 ? "danger" : ""}">${formatCurrency(invoiceBalanceValue(entry))}</td>
+              <td>${invoiceStatusBadge(entry)}</td>
               <td>${invoiceRowActions(entry, { isSale })}</td>
             </tr>
           `).join("")}
