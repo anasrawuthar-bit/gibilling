@@ -14305,6 +14305,18 @@ function bindFeatureActions() {
       radio.closest(".print-template-card")?.classList.add("active");
     });
   });
+  elements.featureView.querySelectorAll(".print-template-card").forEach((card) => {
+    card.addEventListener("click", () => {
+      const radio = card.querySelector("input[type='radio']");
+      if (radio && !radio.checked) {
+        radio.checked = true;
+        const group = card.closest(".print-template-grid");
+        group?.querySelectorAll(".print-template-card").forEach((c) => c.classList.remove("active"));
+        card.classList.add("active");
+        radio.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+    });
+  });
   elements.featureView.querySelector('[data-action="preview-selected-template"]')?.addEventListener("click", () => {
     const form = elements.featureView.querySelector("#businessSettingsForm");
     const printerType = form?.querySelector('[name="printerType"]')?.value || "a4";
@@ -25753,104 +25765,150 @@ function settingsPrintingTemplate() {
 
     <form class="business-settings-form" id="businessSettingsForm" data-settings-subtab="PRINTING">
       <div class="settings-form-grid">
-        <section class="settings-card">
-          <div class="settings-card-head">
-            <h3>Printer Format &amp; Paper Size</h3>
-            <span class="badge">Page Layout</span>
-          </div>
-          <div class="settings-field-group">
-            <label>Default Printer Format</label>
-            <select class="form-input" name="printerType" id="settingPrinterType">
-              <option value="a4" ${settings.printerType === "thermal" ? "" : "selected"}>Standard Laser / Inkjet (A4 / Letter)</option>
-              <option value="thermal" ${settings.printerType === "thermal" ? "selected" : ""}>Thermal POS Receipt (Roll Printer)</option>
-            </select>
-          </div>
-          <div class="settings-field-group">
-            <label>Thermal Paper Width</label>
-            <select class="form-input" name="thermalWidth">
-              <option value="80mm" ${settings.thermalWidth === "58mm" ? "" : "selected"}>80mm (3-inch Standard POS)</option>
-              <option value="58mm" ${settings.thermalWidth === "58mm" ? "selected" : ""}>58mm (2-inch Compact Mobile POS)</option>
-            </select>
-          </div>
+        <!-- Left Column: Hardware & Document Elements -->
+        <div class="settings-col-stack" style="display:flex;flex-direction:column;gap:16px;">
+          <section class="settings-card">
+            <div class="settings-card-head">
+              <h3>Printer Format &amp; Paper Size</h3>
+              <span class="badge">Page Layout</span>
+            </div>
+            <div class="settings-field-group">
+              <label>Default Printer Format</label>
+              <select class="form-input" name="printerType" id="settingPrinterType">
+                <option value="a4" ${settings.printerType === "thermal" ? "" : "selected"}>Standard Laser / Inkjet (A4 / Letter)</option>
+                <option value="thermal" ${settings.printerType === "thermal" ? "selected" : ""}>Thermal POS Receipt (Roll Printer)</option>
+              </select>
+            </div>
+            <div class="settings-field-group">
+              <label>Thermal Paper Width</label>
+              <select class="form-input" name="thermalWidth">
+                <option value="80mm" ${settings.thermalWidth === "58mm" ? "" : "selected"}>80mm (3-inch Standard POS)</option>
+                <option value="58mm" ${settings.thermalWidth === "58mm" ? "selected" : ""}>58mm (2-inch Compact Mobile POS)</option>
+              </select>
+            </div>
+          </section>
 
-          <div class="settings-card-head" style="margin-top:16px;">
-            <h3>Document Elements</h3>
-            <span class="badge">Show / Hide</span>
-          </div>
-          <div class="settings-toggle-stack">
-            <label class="settings-toggle-row">
-              <input type="checkbox" name="printCompanyLogo" ${settings.printCompanyLogo !== false ? "checked" : ""}>
-              <div class="settings-toggle-info">
-                <strong>Print Company Logo</strong>
-                <span>Display your uploaded business logo at the header of printed documents.</span>
-              </div>
-            </label>
-            <label class="settings-toggle-row">
-              <input type="checkbox" name="printBankDetails" ${settings.printBankDetails !== false ? "checked" : ""}>
-              <div class="settings-toggle-info">
-                <strong>Print Bank Account Details</strong>
-                <span>Pulls default bank from Cash &amp; Bank${defaultBank ? ` (<strong>${escapeHtml(defaultBank.displayName || defaultBank.bankName)}</strong>)` : ""}.</span>
-              </div>
-            </label>
-            <label class="settings-toggle-row">
-              <input type="checkbox" name="printUpiQr" ${settings.printUpiQr !== false ? "checked" : ""}>
-              <div class="settings-toggle-info">
-                <strong>Print Instant UPI Payment QR Code</strong>
-                <span>Generates a scannable dynamic UPI QR code on bills for instant customer payments.</span>
-              </div>
-            </label>
-            <label class="settings-toggle-row">
-              <input type="checkbox" name="printGstSummary" ${settings.printGstSummary !== false ? "checked" : ""}>
-              <div class="settings-toggle-info">
-                <strong>Print GST Tax Breakdown Table</strong>
-                <span>Displays itemized HSN, taxable value, CGST, and SGST tax summary.</span>
-              </div>
-            </label>
-            <label class="settings-toggle-row">
-              <input type="checkbox" name="printTerms" ${settings.printTerms !== false ? "checked" : ""}>
-              <div class="settings-toggle-info">
-                <strong>Print Terms &amp; Conditions</strong>
-                <span>Displays business terms and return notes at the document footer.</span>
-              </div>
-            </label>
-            <label class="settings-toggle-row">
-              <input type="checkbox" name="printSignature" ${settings.printSignature !== false ? "checked" : ""}>
-              <div class="settings-toggle-info">
-                <strong>Print Authorized Signatory Box</strong>
-                <span>Designated space for business signature and company seal.</span>
-              </div>
-            </label>
-          </div>
-        </section>
+          <section class="settings-card">
+            <div class="settings-card-head">
+              <h3>Document Elements</h3>
+              <span class="badge">Show / Hide</span>
+            </div>
+            <div class="settings-toggle-stack">
+              <label class="settings-toggle-row">
+                <div class="settings-toggle-info">
+                  <strong>Print Company Logo</strong>
+                  <span>Display your uploaded business logo at the header of printed documents.</span>
+                </div>
+                <div class="settings-toggle-switch">
+                  <input type="checkbox" name="printCompanyLogo" ${settings.printCompanyLogo !== false ? "checked" : ""}>
+                  <span class="settings-toggle-track"><span class="settings-toggle-thumb"></span></span>
+                </div>
+              </label>
 
-        <section class="settings-card">
+              <label class="settings-toggle-row">
+                <div class="settings-toggle-info">
+                  <strong>Print Bank Account Details</strong>
+                  <span>Pulls default bank from Cash &amp; Bank${defaultBank ? ` (<strong>${escapeHtml(defaultBank.displayName || defaultBank.bankName)}</strong>)` : ""}.</span>
+                </div>
+                <div class="settings-toggle-switch">
+                  <input type="checkbox" name="printBankDetails" ${settings.printBankDetails !== false ? "checked" : ""}>
+                  <span class="settings-toggle-track"><span class="settings-toggle-thumb"></span></span>
+                </div>
+              </label>
+
+              <label class="settings-toggle-row">
+                <div class="settings-toggle-info">
+                  <strong>Print Instant UPI Payment QR Code</strong>
+                  <span>Generates a scannable dynamic UPI QR code on bills for instant customer payments.</span>
+                </div>
+                <div class="settings-toggle-switch">
+                  <input type="checkbox" name="printUpiQr" ${settings.printUpiQr !== false ? "checked" : ""}>
+                  <span class="settings-toggle-track"><span class="settings-toggle-thumb"></span></span>
+                </div>
+              </label>
+
+              <label class="settings-toggle-row">
+                <div class="settings-toggle-info">
+                  <strong>Print GST Tax Breakdown Table</strong>
+                  <span>Displays itemized HSN, taxable value, CGST, and SGST tax summary.</span>
+                </div>
+                <div class="settings-toggle-switch">
+                  <input type="checkbox" name="printGstSummary" ${settings.printGstSummary !== false ? "checked" : ""}>
+                  <span class="settings-toggle-track"><span class="settings-toggle-thumb"></span></span>
+                </div>
+              </label>
+
+              <label class="settings-toggle-row">
+                <div class="settings-toggle-info">
+                  <strong>Print Terms &amp; Conditions</strong>
+                  <span>Displays business terms and return notes at the document footer.</span>
+                </div>
+                <div class="settings-toggle-switch">
+                  <input type="checkbox" name="printTerms" ${settings.printTerms !== false ? "checked" : ""}>
+                  <span class="settings-toggle-track"><span class="settings-toggle-thumb"></span></span>
+                </div>
+              </label>
+
+              <label class="settings-toggle-row">
+                <div class="settings-toggle-info">
+                  <strong>Print Authorized Signatory Box</strong>
+                  <span>Designated space for business signature and company seal.</span>
+                </div>
+                <div class="settings-toggle-switch">
+                  <input type="checkbox" name="printSignature" ${settings.printSignature !== false ? "checked" : ""}>
+                  <span class="settings-toggle-track"><span class="settings-toggle-thumb"></span></span>
+                </div>
+              </label>
+            </div>
+          </section>
+        </div>
+
+        <!-- Right Column: Visual Template Gallery -->
+        <section class="settings-card settings-card--templates">
           <div class="settings-card-head">
-            <h3>Invoice Print Templates</h3>
+            <div>
+              <h3 style="margin:0 0 2px;">Invoice Print Templates</h3>
+              <p style="margin:0;font-size:12px;color:#64748b;">Select preferred layouts for full-sheet A4 documents and counter roll receipts</p>
+            </div>
             <span class="badge">A4 &amp; Thermal</span>
           </div>
 
+          <!-- A4 Templates Section -->
           <div class="template-section-wrap">
-            <div class="template-section-title">
-              <span>📄 A4 Laser &amp; PDF Template</span>
-              <small>Select standard full-page invoice design</small>
+            <div class="template-section-head">
+              <div class="template-section-title">
+                <span>📄 Standard A4 &amp; PDF Invoices</span>
+              </div>
+              <span class="template-section-sub">Full page laser &amp; inkjet</span>
             </div>
             <div class="print-template-grid" data-template-group="a4Template">
+              <!-- Modern Accent -->
               <label class="print-template-card ${a4Tpl === "modern" ? "active" : ""}">
                 <input type="radio" name="a4Template" value="modern" ${a4Tpl === "modern" ? "checked" : ""}>
+                <div class="template-card-top">
+                  <span class="template-badge-pill">Recommended</span>
+                  <div class="template-select-indicator"></div>
+                </div>
                 <div class="template-card-preview mini-preview-modern">
                   <div class="mini-accent-bar"></div>
                   <div class="mini-meta-row"><span></span><span></span></div>
                   <div class="mini-boxes-row"><div></div><div></div></div>
                   <div class="mini-table-lines"><span></span><span></span><span></span></div>
+                  <div class="mini-total-pill"></div>
                 </div>
                 <div class="template-card-body">
                   <strong>Modern Accent</strong>
-                  <small>Branded header banner, 2-column cards &amp; highlight grand total</small>
+                  <small>Branded header banner, 2-column cards &amp; grand total highlight</small>
                 </div>
               </label>
 
+              <!-- Classic GST Boxed -->
               <label class="print-template-card ${a4Tpl === "classic" ? "active" : ""}">
                 <input type="radio" name="a4Template" value="classic" ${a4Tpl === "classic" ? "checked" : ""}>
+                <div class="template-card-top">
+                  <span class="template-badge-pill">Statutory GST</span>
+                  <div class="template-select-indicator"></div>
+                </div>
                 <div class="template-card-preview mini-preview-classic">
                   <div class="mini-box-frame">
                     <div class="mini-center-title">TAX INVOICE</div>
@@ -25864,8 +25922,13 @@ function settingsPrintingTemplate() {
                 </div>
               </label>
 
+              <!-- Minimalist Monochrome -->
               <label class="print-template-card ${a4Tpl === "minimal" ? "active" : ""}">
                 <input type="radio" name="a4Template" value="minimal" ${a4Tpl === "minimal" ? "checked" : ""}>
+                <div class="template-card-top">
+                  <span class="template-badge-pill">Ink Saver</span>
+                  <div class="template-select-indicator"></div>
+                </div>
                 <div class="template-card-preview mini-preview-minimal">
                   <div class="mini-clean-header"><span></span><span></span></div>
                   <div class="mini-clean-rule"></div>
@@ -25878,8 +25941,13 @@ function settingsPrintingTemplate() {
                 </div>
               </label>
 
+              <!-- Compact Wholesale -->
               <label class="print-template-card ${a4Tpl === "compact" ? "active" : ""}">
                 <input type="radio" name="a4Template" value="compact" ${a4Tpl === "compact" ? "checked" : ""}>
+                <div class="template-card-top">
+                  <span class="template-badge-pill">High Density</span>
+                  <div class="template-select-indicator"></div>
+                </div>
                 <div class="template-card-preview mini-preview-compact">
                   <div class="mini-dense-header"><span></span></div>
                   <div class="mini-dense-lines"><span></span><span></span><span></span><span></span><span></span></div>
@@ -25892,16 +25960,24 @@ function settingsPrintingTemplate() {
             </div>
           </div>
 
-          <div class="template-section-wrap" style="margin-top:16px;">
-            <div class="template-section-title">
-              <span>🧾 Thermal POS Roll Template</span>
-              <small>Optimized for 80mm and 58mm receipt printers</small>
+          <!-- Thermal POS Templates Section -->
+          <div class="template-section-wrap" style="margin-top:20px;">
+            <div class="template-section-head">
+              <div class="template-section-title">
+                <span>🧾 Thermal POS Roll Receipts</span>
+              </div>
+              <span class="template-section-sub">80mm &amp; 58mm roll printers</span>
             </div>
-            <div class="print-template-grid" data-template-group="thermalTemplate">
+            <div class="print-template-grid print-template-grid--thermal" data-template-group="thermalTemplate">
+              <!-- Retail Supermarket -->
               <label class="print-template-card ${thermalTpl === "retail" ? "active" : ""}">
                 <input type="radio" name="thermalTemplate" value="retail" ${thermalTpl === "retail" ? "checked" : ""}>
+                <div class="template-card-top">
+                  <span class="template-badge-pill">Supermarket</span>
+                  <div class="template-select-indicator"></div>
+                </div>
                 <div class="template-card-preview mini-preview-thermal-retail">
-                  <div class="mini-thermal-cut">--- STORE RECEIPT ---</div>
+                  <div class="mini-thermal-cut">STORE RECEIPT</div>
                   <div class="mini-thermal-lines"><span></span><span></span></div>
                   <div class="mini-thermal-bold">NET: ₹XXXX</div>
                   <div class="mini-thermal-tag">YOU SAVED!</div>
@@ -25912,8 +25988,13 @@ function settingsPrintingTemplate() {
                 </div>
               </label>
 
+              <!-- Modern Boutique / Cafe -->
               <label class="print-template-card ${thermalTpl === "boutique" ? "active" : ""}">
                 <input type="radio" name="thermalTemplate" value="boutique" ${thermalTpl === "boutique" ? "checked" : ""}>
+                <div class="template-card-top">
+                  <span class="template-badge-pill">Boutique &amp; Cafe</span>
+                  <div class="template-select-indicator"></div>
+                </div>
                 <div class="template-card-preview mini-preview-thermal-boutique">
                   <div class="mini-boutique-title">CAFE &amp; BOUTIQUE</div>
                   <div class="mini-boutique-lines"><span></span><span></span></div>
@@ -25925,8 +26006,13 @@ function settingsPrintingTemplate() {
                 </div>
               </label>
 
+              <!-- GST Detailed Roll -->
               <label class="print-template-card ${thermalTpl === "detailed" ? "active" : ""}">
                 <input type="radio" name="thermalTemplate" value="detailed" ${thermalTpl === "detailed" ? "checked" : ""}>
+                <div class="template-card-top">
+                  <span class="template-badge-pill">GST Tax Roll</span>
+                  <div class="template-select-indicator"></div>
+                </div>
                 <div class="template-card-preview mini-preview-thermal-detailed">
                   <div class="mini-detailed-head">TAX INVOICE (ROLL)</div>
                   <div class="mini-detailed-lines"><span></span><span></span></div>

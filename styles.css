@@ -7895,51 +7895,534 @@ body.privacy-mode-active .chart-wrap canvas,
 .settings-toggle-stack {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
 }
 
 .settings-toggle-row {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
+  justify-content: space-between;
   gap: 14px;
-  padding: 14px 16px;
+  padding: 12px 16px;
   border: 1px solid #e2e8f0;
-  border-radius: 8px;
-  background: #f8fafc;
+  border-radius: 10px;
+  background: #ffffff;
   cursor: pointer;
   transition: all 0.15s ease;
+  user-select: none;
 }
 
 .settings-toggle-row:hover {
-  background: #f1f5f9;
+  background: #f8fafc;
   border-color: #cbd5e1;
-}
-
-.settings-toggle-row input[type="checkbox"] {
-  margin-top: 2px;
-  width: 18px;
-  height: 18px;
-  accent-color: #3b82f6;
-  cursor: pointer;
-  flex-shrink: 0;
 }
 
 .settings-toggle-info {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 2px;
+  flex: 1;
 }
 
 .settings-toggle-info strong {
   font-size: 13px;
   font-weight: 700;
-  color: #1e293b;
+  color: #0f172a;
 }
 
 .settings-toggle-info span {
   font-size: 12px;
   color: #64748b;
   line-height: 1.4;
+}
+
+.settings-toggle-switch {
+  position: relative;
+  display: inline-block;
+  width: 38px;
+  height: 22px;
+  flex-shrink: 0;
+}
+
+.settings-toggle-switch input[type="checkbox"] {
+  opacity: 0;
+  width: 0;
+  height: 0;
+  position: absolute;
+  margin: 0;
+}
+
+.settings-toggle-track {
+  position: absolute;
+  inset: 0;
+  background-color: #cbd5e1;
+  border-radius: 999px;
+  transition: background-color 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.settings-toggle-switch input:checked + .settings-toggle-track {
+  background-color: #2563eb;
+}
+
+.settings-toggle-thumb {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 16px;
+  height: 16px;
+  background: #ffffff;
+  border-radius: 50%;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18);
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.settings-toggle-switch input:checked + .settings-toggle-track .settings-toggle-thumb {
+  transform: translateX(16px);
+}
+
+/* ── Print & Thermal POS Templates Gallery ──────────────────────────── */
+@media (min-width: 1080px) {
+  .business-settings-form[data-settings-subtab="PRINTING"] .settings-form-grid {
+    grid-template-columns: 380px minmax(0, 1fr);
+    align-items: start;
+  }
+}
+
+.template-section-wrap {
+  margin-top: 18px;
+}
+
+.template-section-wrap:first-child {
+  margin-top: 0;
+}
+
+.template-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.template-section-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13.5px;
+  font-weight: 700;
+  color: #0f172a;
+  margin: 0;
+}
+
+.template-section-sub {
+  font-size: 11.5px;
+  font-weight: 500;
+  color: #64748b;
+  margin: 0;
+}
+
+.print-template-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.print-template-grid--thermal {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+@media (max-width: 1240px) {
+  .print-template-grid--thermal {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.print-template-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  background: #ffffff;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 12px;
+  cursor: pointer;
+  transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+  user-select: none;
+  overflow: hidden;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03);
+}
+
+.print-template-card:hover {
+  border-color: #94a3b8;
+  transform: translateY(-2px);
+  box-shadow: 0 6px 14px rgba(15, 23, 42, 0.07);
+}
+
+.print-template-card.active {
+  border-color: #2563eb;
+  background: #f8faff;
+  box-shadow: 0 0 0 1px #2563eb, 0 6px 16px rgba(37, 99, 235, 0.12);
+}
+
+.print-template-card input[type="radio"] {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+
+.template-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.template-badge-pill {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: #f1f5f9;
+  color: #475569;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.print-template-card.active .template-badge-pill {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.template-select-indicator {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 1.5px solid #cbd5e1;
+  background: #fff;
+  transition: all 0.15s ease;
+}
+
+.print-template-card.active .template-select-indicator {
+  border-color: #2563eb;
+  background: #2563eb;
+}
+
+.template-select-indicator::after {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: transparent;
+  transition: background 0.15s ease;
+}
+
+.print-template-card.active .template-select-indicator::after {
+  background: #ffffff;
+}
+
+/* Miniature Mockup Container */
+.template-card-preview {
+  height: 92px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 7px;
+  padding: 8px;
+  margin-bottom: 10px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  position: relative;
+  overflow: hidden;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.02);
+  transition: background-color 0.15s ease;
+}
+
+.print-template-card.active .template-card-preview {
+  background: #ffffff;
+  border-color: #bfdbfe;
+}
+
+.template-card-body strong {
+  display: block;
+  font-size: 13px;
+  font-weight: 700;
+  color: #0f172a;
+  margin-bottom: 3px;
+}
+
+.template-card-body small {
+  display: block;
+  font-size: 11px;
+  color: #64748b;
+  line-height: 1.35;
+}
+
+/* 1. Modern Accent Mini Mockup */
+.mini-preview-modern .mini-accent-bar {
+  height: 12px;
+  background: linear-gradient(90deg, #2563eb, #38bdf8);
+  border-radius: 3px;
+}
+.mini-preview-modern .mini-meta-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 6px;
+}
+.mini-preview-modern .mini-meta-row span {
+  height: 5px;
+  background: #cbd5e1;
+  border-radius: 2px;
+  flex: 1;
+}
+.mini-preview-modern .mini-boxes-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 5px;
+}
+.mini-preview-modern .mini-boxes-row div {
+  height: 14px;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  border-radius: 3px;
+}
+.mini-preview-modern .mini-table-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 2.5px;
+}
+.mini-preview-modern .mini-table-lines span {
+  height: 4px;
+  background: #e2e8f0;
+  border-radius: 1px;
+}
+.mini-preview-modern .mini-total-pill {
+  height: 7px;
+  width: 40%;
+  background: #2563eb;
+  border-radius: 2px;
+  align-self: flex-end;
+}
+
+/* 2. Classic GST Mini Mockup */
+.mini-preview-classic {
+  padding: 4px;
+}
+.mini-preview-classic .mini-box-frame {
+  height: 100%;
+  border: 1px solid #334155;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 4px;
+  background: #ffffff;
+}
+.mini-preview-classic .mini-center-title {
+  font-size: 7.5px;
+  font-weight: 800;
+  text-align: center;
+  color: #0f172a;
+  letter-spacing: 0.5px;
+  border-bottom: 1px solid #cbd5e1;
+  padding-bottom: 2px;
+}
+.mini-preview-classic .mini-grid-3 {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 3px;
+}
+.mini-preview-classic .mini-grid-3 div {
+  height: 12px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+}
+.mini-preview-classic .mini-table-boxed {
+  height: 22px;
+  border: 1px solid #cbd5e1;
+  background: repeating-linear-gradient(0deg, #ffffff, #ffffff 6px, #f1f5f9 6px, #f1f5f9 7px);
+}
+
+/* 3. Minimalist Monochrome Mini Mockup */
+.mini-preview-minimal {
+  background: #ffffff !important;
+  border-color: #cbd5e1;
+}
+.mini-preview-minimal .mini-clean-header {
+  display: flex;
+  justify-content: space-between;
+}
+.mini-preview-minimal .mini-clean-header span:first-child {
+  width: 35%;
+  height: 7px;
+  background: #0f172a;
+  border-radius: 2px;
+}
+.mini-preview-minimal .mini-clean-header span:last-child {
+  width: 25%;
+  height: 5px;
+  background: #94a3b8;
+  border-radius: 2px;
+}
+.mini-preview-minimal .mini-clean-rule {
+  height: 1px;
+  background: #0f172a;
+  margin: 5px 0;
+}
+.mini-preview-minimal .mini-clean-table {
+  height: 24px;
+  background: repeating-linear-gradient(0deg, transparent, transparent 6px, #f1f5f9 6px, #f1f5f9 7px);
+}
+.mini-preview-minimal .mini-clean-total span {
+  display: block;
+  width: 30%;
+  height: 6px;
+  background: #0f172a;
+  margin-left: auto;
+  border-radius: 2px;
+}
+
+/* 4. Compact Wholesale Mini Mockup */
+.mini-preview-compact .mini-dense-header {
+  display: flex;
+  justify-content: space-between;
+}
+.mini-preview-compact .mini-dense-header span {
+  width: 50%;
+  height: 7px;
+  background: #334155;
+  border-radius: 2px;
+}
+.mini-preview-compact .mini-dense-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 2.5px;
+}
+.mini-preview-compact .mini-dense-lines span {
+  height: 4px;
+  background: #e2e8f0;
+  border-radius: 1px;
+}
+.mini-preview-compact .mini-dense-lines span:nth-child(even) {
+  background: #cbd5e1;
+}
+
+/* 5. Thermal Retail Supermarket Mini Mockup */
+.mini-preview-thermal-retail {
+  background: #ffffff !important;
+  border: 1px dashed #94a3b8 !important;
+  align-items: center;
+  text-align: center;
+  padding: 6px 4px;
+}
+.mini-preview-thermal-retail .mini-thermal-cut {
+  font-size: 7.5px;
+  font-weight: 700;
+  color: #475569;
+  letter-spacing: 0.5px;
+  border-bottom: 1px dashed #cbd5e1;
+  padding-bottom: 2px;
+  width: 100%;
+}
+.mini-preview-thermal-retail .mini-thermal-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 2.5px;
+  width: 80%;
+  margin: 4px 0;
+}
+.mini-preview-thermal-retail .mini-thermal-lines span {
+  height: 3.5px;
+  background: #e2e8f0;
+  border-radius: 1px;
+}
+.mini-preview-thermal-retail .mini-thermal-bold {
+  font-size: 8px;
+  font-weight: 800;
+  color: #0f172a;
+}
+.mini-preview-thermal-retail .mini-thermal-tag {
+  font-size: 7px;
+  font-weight: 700;
+  color: #16a34a;
+  background: #f0fdf4;
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+
+/* 6. Thermal Boutique / Cafe Mini Mockup */
+.mini-preview-thermal-boutique {
+  background: #ffffff !important;
+  border: 1px dashed #94a3b8 !important;
+  align-items: center;
+  text-align: center;
+  padding: 6px 4px;
+}
+.mini-preview-thermal-boutique .mini-boutique-title {
+  font-size: 7.5px;
+  font-weight: 800;
+  color: #1e293b;
+  letter-spacing: 0.6px;
+}
+.mini-preview-thermal-boutique .mini-boutique-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 2.5px;
+  width: 75%;
+  margin: 4px 0;
+}
+.mini-preview-thermal-boutique .mini-boutique-lines span {
+  height: 3.5px;
+  background: #e2e8f0;
+}
+.mini-preview-thermal-boutique .mini-boutique-badge {
+  font-size: 7px;
+  font-weight: 700;
+  color: #2563eb;
+  background: #eff6ff;
+  padding: 1px 5px;
+  border-radius: 3px;
+  border: 1px solid #bfdbfe;
+}
+
+/* 7. Thermal Detailed Roll Mini Mockup */
+.mini-preview-thermal-detailed {
+  background: #ffffff !important;
+  border: 1px dashed #94a3b8 !important;
+  align-items: center;
+  text-align: center;
+  padding: 6px 4px;
+}
+.mini-preview-thermal-detailed .mini-detailed-head {
+  font-size: 7.5px;
+  font-weight: 800;
+  color: #334155;
+  border-bottom: 1px solid #e2e8f0;
+  padding-bottom: 2px;
+  width: 100%;
+}
+.mini-preview-thermal-detailed .mini-detailed-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 2.5px;
+  width: 85%;
+  margin: 4px 0;
+}
+.mini-preview-thermal-detailed .mini-detailed-lines span {
+  height: 3px;
+  background: #e2e8f0;
+}
+.mini-preview-thermal-detailed .mini-detailed-gst-box {
+  font-size: 6.5px;
+  font-weight: 700;
+  color: #475569;
+  border: 1px solid #cbd5e1;
+  padding: 1px 3px;
+  border-radius: 2px;
+  background: #f8fafc;
 }
 
 .settings-info-banner {
