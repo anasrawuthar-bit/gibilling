@@ -1946,7 +1946,11 @@ function createCompany(payload = {}) {
         upiId: String(payload.upiId || "").trim(),
       },
       invoicePrefix: "INV",
+      invoicePrefixB2B: "INV",
+      invoicePrefixB2C: "B2C",
       startingNo: 1,
+      startingNoB2B: 1,
+      startingNoB2C: 1,
       terms: "",
     };
     Object.entries(settings).forEach(([key, value]) => {
@@ -1991,8 +1995,12 @@ function updateCompanyProfile(arg1 = {}, arg2 = null) {
       ifsc: String(payload.ifsc ?? current.bankDetails?.ifsc ?? "").trim().toUpperCase(),
       upiId: String(payload.upiId ?? current.bankDetails?.upiId ?? "").trim(),
     },
-    invoicePrefix: String(payload.invoicePrefix ?? current.invoicePrefix ?? "INV").trim().toUpperCase() || "INV",
-    startingNo: Math.max(1, Number(payload.startingNo ?? current.startingNo ?? 1) || 1),
+    invoicePrefix: String(payload.invoicePrefix ?? payload.invoicePrefixB2B ?? current.invoicePrefix ?? "INV").trim().toUpperCase() || "INV",
+    invoicePrefixB2B: String(payload.invoicePrefixB2B ?? payload.invoicePrefix ?? current.invoicePrefixB2B ?? current.invoicePrefix ?? "INV").trim().toUpperCase() || "INV",
+    invoicePrefixB2C: String(payload.invoicePrefixB2C ?? current.invoicePrefixB2C ?? "B2C").trim().toUpperCase() || "B2C",
+    startingNo: Math.max(1, Number(payload.startingNo ?? payload.startingNoB2B ?? current.startingNo ?? 1) || 1),
+    startingNoB2B: Math.max(1, Number(payload.startingNoB2B ?? payload.startingNo ?? current.startingNoB2B ?? current.startingNo ?? 1) || 1),
+    startingNoB2C: Math.max(1, Number(payload.startingNoB2C ?? current.startingNoB2C ?? 1) || 1),
     terms: String(payload.terms ?? current.terms ?? "").trim(),
   };
 
@@ -2168,6 +2176,8 @@ function defaultBusinessSettings(companyName = "testt") {
       upiId: "",
     },
     invoicePrefix: "INV",
+    invoicePrefixB2B: "INV",
+    invoicePrefixB2C: "B2C",
     estimatePrefix: "QT",
     proformaPrefix: "PI",
     saleOrderPrefix: "SO",
@@ -2175,6 +2185,8 @@ function defaultBusinessSettings(companyName = "testt") {
     purchaseOrderPrefix: "PO",
     creditNotePrefix: "CN",
     startingNo: 1,
+    startingNoB2B: 1,
+    startingNoB2C: 1,
     terms: "",
     customFields: defaultCustomFields(),
     printerType: "regular",
@@ -2254,14 +2266,18 @@ function updateBusinessSettings(settings = {}) {
       ifsc: String(settings.bankDetails?.ifsc ?? current.bankDetails.ifsc ?? "").trim().toUpperCase(),
       upiId: String(settings.bankDetails?.upiId ?? current.bankDetails.upiId ?? "").trim(),
     },
-    invoicePrefix: String(settings.invoicePrefix ?? current.invoicePrefix ?? "INV").trim().toUpperCase() || "INV",
+    invoicePrefix: String(settings.invoicePrefix ?? settings.invoicePrefixB2B ?? current.invoicePrefix ?? "INV").trim().toUpperCase() || "INV",
+    invoicePrefixB2B: String(settings.invoicePrefixB2B ?? settings.invoicePrefix ?? current.invoicePrefixB2B ?? current.invoicePrefix ?? "INV").trim().toUpperCase() || "INV",
+    invoicePrefixB2C: String(settings.invoicePrefixB2C ?? current.invoicePrefixB2C ?? "B2C").trim().toUpperCase() || "B2C",
     estimatePrefix: String(settings.estimatePrefix ?? current.estimatePrefix ?? "QT").trim().toUpperCase() || "QT",
     proformaPrefix: String(settings.proformaPrefix ?? current.proformaPrefix ?? "PI").trim().toUpperCase() || "PI",
     saleOrderPrefix: String(settings.saleOrderPrefix ?? current.saleOrderPrefix ?? "SO").trim().toUpperCase() || "SO",
     challanPrefix: String(settings.challanPrefix ?? current.challanPrefix ?? "DC").trim().toUpperCase() || "DC",
     purchaseOrderPrefix: String(settings.purchaseOrderPrefix ?? current.purchaseOrderPrefix ?? "PO").trim().toUpperCase() || "PO",
     creditNotePrefix: String(settings.creditNotePrefix ?? current.creditNotePrefix ?? "CN").trim().toUpperCase() || "CN",
-    startingNo: Math.max(1, Number(settings.startingNo ?? current.startingNo ?? 1) || 1),
+    startingNo: Math.max(1, Number(settings.startingNo ?? settings.startingNoB2B ?? current.startingNo ?? 1) || 1),
+    startingNoB2B: Math.max(1, Number(settings.startingNoB2B ?? settings.startingNo ?? current.startingNoB2B ?? current.startingNo ?? 1) || 1),
+    startingNoB2C: Math.max(1, Number(settings.startingNoB2C ?? current.startingNoB2C ?? 1) || 1),
     terms: String(settings.terms ?? current.terms ?? "").trim(),
     customFields: normalizeCustomFields(settings.customFields ?? current.customFields),
     printerType: String(settings.printerType ?? current.printerType ?? "regular").trim(),
@@ -3133,7 +3149,7 @@ function createTransactionUnsafe(entry) {
     status: entry.status || "paid",
     notes: entry.notes || "",
     date: entry.date || now,
-    invoiceNo: entry.invoiceNo || nextInvoiceNumber(company.id, entry.type),
+    invoiceNo: entry.invoiceNo || nextInvoiceNumber(company.id, entry.type, entry.date || now, entry.supplyType || (entry.partyGstin ? "b2b" : "b2c")),
     metaJson: normalizeMetaJson({
       ...(entry.meta ?? (typeof entry.metaJson === "string" ? JSON.parse(entry.metaJson || "{}") : entry.metaJson) ?? {}),
       ...(entry.taxRate !== undefined ? { taxRate: Number(entry.taxRate || 0) } : {}),
@@ -3196,7 +3212,7 @@ function createTransactionUnsafe(entry) {
     transaction.igstTotal = invoiceTotals.igstTotal;
     transaction.cessTotal = invoiceTotals.cessTotal;
     if (transaction.invoiceNo) {
-      syncDocumentSequence(company.id, transaction.type, transaction.invoiceNo, transaction.date);
+      syncDocumentSequence(company.id, transaction.type, transaction.invoiceNo, transaction.date, entry.supplyType || (entry.partyGstin ? "b2b" : "b2c"));
     }
   }
 
@@ -3540,7 +3556,8 @@ function updateInvoiceUnsafe(entry) {
 
   validateInvoiceMasterData(company.id, { ...entry, type });
   const transactionId = existing.transactionId || entry.id || makeId();
-  const invoiceNo = entry.invoiceNo || existing.invoiceNo || nextInvoiceNumber(company.id, type);
+  const transactionDate = entry.date || now;
+  const invoiceNo = entry.invoiceNo || existing.invoiceNo || nextInvoiceNumber(company.id, type, transactionDate, entry.supplyType || existing.supplyType);
   if (invoiceNo !== existing.invoiceNo) {
     const dup = one(
       "SELECT id FROM invoices WHERE company_id = ? AND type = ? AND invoice_no = ? AND id != ?",
@@ -3551,7 +3568,6 @@ function updateInvoiceUnsafe(entry) {
       throw new Error(`${docLabel} number "${invoiceNo}" is already in use by another invoice. Please choose a unique number.`);
     }
   }
-  const transactionDate = entry.date || now;
   const taxContext = invoiceTaxContext(company.id, entry);
   const invoiceItems = normalizeInvoiceItems(company.id, type, entry.items || [], taxContext);
   if (type === "sale") validateSaleStock(company.id, invoiceItems, invoiceId);
@@ -3764,6 +3780,9 @@ function updateInvoiceUnsafe(entry) {
     createInitialPayment(company.id, transaction, invoiceTotals.received, entry.paymentMethod || "Cash", now);
   }
   updatePurchaseDefaults(company.id, { ...entry, type }, invoiceItems);
+  if (invoiceNo) {
+    syncDocumentSequence(company.id, type, invoiceNo, transactionDate, entry.supplyType || existing.supplyType);
+  }
   recordAuditLog(
     company.id,
     "UPDATE",
@@ -6599,7 +6618,7 @@ function resolveItemId(companyId, { name, unit = "", salePrice = 0, purchasePric
   return one("SELECT id FROM items WHERE company_id = ? AND name = ?", [companyId, cleanName])?.id || null;
 }
 
-function resolveDocNumberArgs(companyIdOrType, maybeType, docDate = new Date()) {
+function resolveDocNumberArgs(companyIdOrType, maybeType, docDate = new Date(), maybeSeries = null) {
   const KNOWN_DOC_TYPES = new Set([
     "sale", "purchase", "estimate", "proforma", "sale_order", "saleOrder",
     "delivery_challan", "deliveryChallan", "purchase_order", "purchaseOrder",
@@ -6610,15 +6629,22 @@ function resolveDocNumberArgs(companyIdOrType, maybeType, docDate = new Date()) 
   let companyId;
   let type;
   let date = docDate;
+  let series = maybeSeries;
 
   if (typeof companyIdOrType === "string" && KNOWN_DOC_TYPES.has(companyIdOrType.toLowerCase())) {
     type = companyIdOrType.toLowerCase();
     companyId = getCurrentCompany()?.id || 1;
     if (maybeType) date = maybeType;
+    if (docDate && typeof docDate === "string" && (docDate.toLowerCase() === "b2b" || docDate.toLowerCase() === "b2c")) {
+      series = docDate.toLowerCase();
+    }
   } else if (typeof maybeType === "string" && KNOWN_DOC_TYPES.has(maybeType.toLowerCase())) {
     companyId = companyIdOrType || getCurrentCompany()?.id || 1;
     type = maybeType.toLowerCase();
     if (docDate) date = docDate;
+    if (maybeSeries && typeof maybeSeries === "string" && (maybeSeries.toLowerCase() === "b2b" || maybeSeries.toLowerCase() === "b2c")) {
+      series = maybeSeries.toLowerCase();
+    }
   } else if (typeof companyIdOrType === "string" && isNaN(Number(companyIdOrType))) {
     type = companyIdOrType;
     companyId = getCurrentCompany()?.id || 1;
@@ -6627,39 +6653,69 @@ function resolveDocNumberArgs(companyIdOrType, maybeType, docDate = new Date()) 
     companyId = companyIdOrType || getCurrentCompany()?.id || 1;
     type = maybeType || "sale";
     if (docDate) date = docDate;
+    if (maybeSeries && typeof maybeSeries === "string" && (maybeSeries.toLowerCase() === "b2b" || maybeSeries.toLowerCase() === "b2c")) {
+      series = maybeSeries.toLowerCase();
+    }
   }
 
-  return { companyId, type, docDate: date };
+  if (typeof maybeType === "string" && (maybeType.toLowerCase() === "b2b" || maybeType.toLowerCase() === "b2c")) {
+    series = maybeType.toLowerCase();
+    date = docDate instanceof Date ? docDate : new Date();
+  }
+  if (typeof maybeSeries === "string" && (maybeSeries.toLowerCase() === "b2b" || maybeSeries.toLowerCase() === "b2c")) {
+    series = maybeSeries.toLowerCase();
+  }
+
+  return { companyId, type, docDate: date, series: (series || "").toLowerCase() };
 }
 
-function nextInvoiceNumber(companyIdOrType, maybeType, docDate = new Date()) {
-  const args = resolveDocNumberArgs(companyIdOrType, maybeType, docDate);
+function nextInvoiceNumber(companyIdOrType, maybeType, docDate = new Date(), maybeSeries = null) {
+  const args = resolveDocNumberArgs(companyIdOrType, maybeType, docDate, maybeSeries);
   const companyId = args.companyId;
   const type = args.type;
   docDate = args.docDate;
+  const series = args.series;
 
   const settings = getBusinessSettings();
-  const prefix = {
-    estimate: settings.estimatePrefix || "QT",
-    proforma: settings.proformaPrefix || "PI",
-    sale_order: settings.saleOrderPrefix || "SO",
-    saleOrder: settings.saleOrderPrefix || "SO",
-    delivery_challan: settings.challanPrefix || "DC",
-    deliveryChallan: settings.challanPrefix || "DC",
-    purchase_order: settings.purchaseOrderPrefix || "PO",
-    purchaseOrder: settings.purchaseOrderPrefix || "PO",
-    credit_note: settings.creditNotePrefix || "CN",
-    debit_note: "DN",
-    sale: settings.invoicePrefix || "INV",
-    purchase: "PB",
-    expense: "EXP",
-    payment_in: "PIN",
-    payment_out: "POUT",
-  }[type] || (type === "sale" ? settings.invoicePrefix || "INV" : "INV");
-  const startNo = type === "sale" ? Math.max(1, Number(settings.startingNo || 1)) : 1;
+  const isEstimateLike = ["estimate", "proforma", "sale_order", "saleOrder", "delivery_challan", "deliveryChallan", "purchase_order", "purchaseOrder"].includes(type);
+
+  let prefix;
+  let seqDocType;
+  let startNo;
+
+  if (type === "sale") {
+    if (series === "b2c") {
+      prefix = settings.invoicePrefixB2C || "B2C";
+      startNo = Math.max(1, Number(settings.startingNoB2C || 1));
+      seqDocType = "sale_b2c";
+    } else {
+      prefix = settings.invoicePrefixB2B || settings.invoicePrefix || "INV";
+      startNo = Math.max(1, Number(settings.startingNoB2B || settings.startingNo || 1));
+      seqDocType = "sale";
+    }
+  } else {
+    prefix = {
+      estimate: settings.estimatePrefix || "QT",
+      proforma: settings.proformaPrefix || "PI",
+      sale_order: settings.saleOrderPrefix || "SO",
+      saleOrder: settings.saleOrderPrefix || "SO",
+      delivery_challan: settings.challanPrefix || "DC",
+      deliveryChallan: settings.challanPrefix || "DC",
+      purchase_order: settings.purchaseOrderPrefix || "PO",
+      purchaseOrder: settings.purchaseOrderPrefix || "PO",
+      credit_note: settings.creditNotePrefix || "CN",
+      debit_note: "DN",
+      purchase: "PB",
+      expense: "EXP",
+      payment_in: "PIN",
+      payment_out: "POUT",
+    }[type] || "INV";
+    startNo = 1;
+    seqDocType = isEstimateLike ? type : (type === "credit_note" ? "credit_note" : type === "debit_note" ? "debit_note" : type);
+  }
+
   const financialYear = currentFinancialYear(docDate);
   const pattern = `${prefix}-${financialYear}-%`;
-  const isEstimateLike = ["estimate", "proforma", "sale_order", "saleOrder", "delivery_challan", "deliveryChallan", "purchase_order", "purchaseOrder"].includes(type);
   const source = isEstimateLike
     ? ["estimates", "quote_no", type]
     : type === "credit_note"
@@ -6677,11 +6733,11 @@ function nextInvoiceNumber(companyIdOrType, maybeType, docDate = new Date()) {
     `INSERT OR IGNORE INTO document_sequences
       (company_id, document_type, financial_year, prefix, next_number, updated_at)
       VALUES (?, ?, ?, ?, ?, ?)`,
-    [companyId, source[2], financialYear, prefix, initial, new Date().toISOString()],
+    [companyId, seqDocType, financialYear, prefix, initial, new Date().toISOString()],
   );
   const sequence = one(
     "SELECT next_number AS nextNumber FROM document_sequences WHERE company_id = ? AND document_type = ? AND financial_year = ? AND prefix = ?",
-    [companyId, source[2], financialYear, prefix],
+    [companyId, seqDocType, financialYear, prefix],
   );
   let number = Math.max(startNo, Number(sequence?.nextNumber || 0), Number(existing?.maximum || 0) + 1);
   let candidateDocNo = `${prefix}-${financialYear}-${String(number).padStart(4, "0")}`;
@@ -6701,39 +6757,59 @@ function nextInvoiceNumber(companyIdOrType, maybeType, docDate = new Date()) {
 
   run(
     "UPDATE document_sequences SET next_number = ?, updated_at = ? WHERE company_id = ? AND document_type = ? AND financial_year = ? AND prefix = ?",
-    [number + 1, new Date().toISOString(), companyId, source[2], financialYear, prefix],
+    [number + 1, new Date().toISOString(), companyId, seqDocType, financialYear, prefix],
   );
   return candidateDocNo;
 }
 
-function previewNextInvoiceNumber(companyIdOrType, maybeType, docDate = new Date()) {
-  const args = resolveDocNumberArgs(companyIdOrType, maybeType, docDate);
+function previewNextInvoiceNumber(companyIdOrType, maybeType, docDate = new Date(), maybeSeries = null) {
+  const args = resolveDocNumberArgs(companyIdOrType, maybeType, docDate, maybeSeries);
   const companyId = args.companyId;
   const type = args.type;
   docDate = args.docDate;
+  const series = args.series;
 
   const settings = getBusinessSettings();
-  const prefix = {
-    estimate: settings.estimatePrefix || "QT",
-    proforma: settings.proformaPrefix || "PI",
-    sale_order: settings.saleOrderPrefix || "SO",
-    saleOrder: settings.saleOrderPrefix || "SO",
-    delivery_challan: settings.challanPrefix || "DC",
-    deliveryChallan: settings.challanPrefix || "DC",
-    purchase_order: settings.purchaseOrderPrefix || "PO",
-    purchaseOrder: settings.purchaseOrderPrefix || "PO",
-    credit_note: settings.creditNotePrefix || "CN",
-    debit_note: "DN",
-    sale: settings.invoicePrefix || "INV",
-    purchase: "PB",
-    expense: "EXP",
-    payment_in: "PIN",
-    payment_out: "POUT",
-  }[type] || (type === "sale" ? settings.invoicePrefix || "INV" : "INV");
-  const startNo = type === "sale" ? Math.max(1, Number(settings.startingNo || 1)) : 1;
+  const isEstimateLike = ["estimate", "proforma", "sale_order", "saleOrder", "delivery_challan", "deliveryChallan", "purchase_order", "purchaseOrder"].includes(type);
+
+  let prefix;
+  let seqDocType;
+  let startNo;
+
+  if (type === "sale") {
+    if (series === "b2c") {
+      prefix = settings.invoicePrefixB2C || "B2C";
+      startNo = Math.max(1, Number(settings.startingNoB2C || 1));
+      seqDocType = "sale_b2c";
+    } else {
+      prefix = settings.invoicePrefixB2B || settings.invoicePrefix || "INV";
+      startNo = Math.max(1, Number(settings.startingNoB2B || settings.startingNo || 1));
+      seqDocType = "sale";
+    }
+  } else {
+    prefix = {
+      estimate: settings.estimatePrefix || "QT",
+      proforma: settings.proformaPrefix || "PI",
+      sale_order: settings.saleOrderPrefix || "SO",
+      saleOrder: settings.saleOrderPrefix || "SO",
+      delivery_challan: settings.challanPrefix || "DC",
+      deliveryChallan: settings.challanPrefix || "DC",
+      purchase_order: settings.purchaseOrderPrefix || "PO",
+      purchaseOrder: settings.purchaseOrderPrefix || "PO",
+      credit_note: settings.creditNotePrefix || "CN",
+      debit_note: "DN",
+      sale: settings.invoicePrefix || "INV",
+      purchase: "PB",
+      expense: "EXP",
+      payment_in: "PIN",
+      payment_out: "POUT",
+    }[type] || "INV";
+    startNo = 1;
+    seqDocType = isEstimateLike ? type : (type === "credit_note" ? "credit_note" : type === "debit_note" ? "debit_note" : type);
+  }
+
   const financialYear = currentFinancialYear(docDate);
   const pattern = `${prefix}-${financialYear}-%`;
-  const isEstimateLike = ["estimate", "proforma", "sale_order", "saleOrder", "delivery_challan", "deliveryChallan", "purchase_order", "purchaseOrder"].includes(type);
   const source = isEstimateLike
     ? ["estimates", "quote_no", type]
     : type === "credit_note"
@@ -6748,7 +6824,7 @@ function previewNextInvoiceNumber(companyIdOrType, maybeType, docDate = new Date
   );
   const sequence = one(
     "SELECT next_number AS nextNumber FROM document_sequences WHERE company_id = ? AND document_type = ? AND financial_year = ? AND prefix = ?",
-    [companyId, source[2], financialYear, prefix],
+    [companyId, seqDocType, financialYear, prefix],
   );
   let number = Math.max(startNo, Number(sequence?.nextNumber || 0), Number(existing?.maximum || 0) + 1);
   let candidateDocNo = `${prefix}-${financialYear}-${String(number).padStart(4, "0")}`;
@@ -6769,36 +6845,52 @@ function previewNextInvoiceNumber(companyIdOrType, maybeType, docDate = new Date
   return candidateDocNo;
 }
 
-function syncDocumentSequence(companyId, docType, invoiceNo, docDate = new Date()) {
+function syncDocumentSequence(companyId, docType, invoiceNo, docDate = new Date(), maybeSeries = null) {
   if (!invoiceNo || typeof invoiceNo !== "string") return;
   const settings = getBusinessSettings();
-  const prefix = docType === "sale" && settings.invoicePrefix
-    ? settings.invoicePrefix
-    : {
-    estimate: "QT",
-    proforma: "PI",
-    sale_order: "SO",
-    saleOrder: "SO",
-    delivery_challan: "DC",
-    deliveryChallan: "DC",
-    purchase_order: "PO",
-    purchaseOrder: "PO",
-    credit_note: "CN",
-    debit_note: "DN",
-    sale: "INV",
-    purchase: "PB",
-    expense: "EXP",
-    payment_in: "PIN",
-    payment_out: "POUT",
-  }[docType] || "TXN";
   const financialYear = currentFinancialYear(docDate);
+
+  let prefix;
+  let sequenceType;
+
+  if (docType === "sale") {
+    const b2cPrefix = settings.invoicePrefixB2C || "B2C";
+    const b2bPrefix = settings.invoicePrefixB2B || settings.invoicePrefix || "INV";
+    const b2cRegex = new RegExp(`^${b2cPrefix}-${financialYear}-(\\d+)$`, "i");
+    if (b2cRegex.test(invoiceNo.trim()) || maybeSeries === "b2c") {
+      prefix = b2cPrefix;
+      sequenceType = "sale_b2c";
+    } else {
+      prefix = b2bPrefix;
+      sequenceType = "sale";
+    }
+  } else {
+    prefix = {
+      estimate: settings.estimatePrefix || "QT",
+      proforma: settings.proformaPrefix || "PI",
+      sale_order: settings.saleOrderPrefix || "SO",
+      saleOrder: settings.saleOrderPrefix || "SO",
+      delivery_challan: settings.challanPrefix || "DC",
+      deliveryChallan: settings.challanPrefix || "DC",
+      purchase_order: settings.purchaseOrderPrefix || "PO",
+      purchaseOrder: settings.purchaseOrderPrefix || "PO",
+      credit_note: settings.creditNotePrefix || "CN",
+      debit_note: "DN",
+      sale: "INV",
+      purchase: "PB",
+      expense: "EXP",
+      payment_in: "PIN",
+      payment_out: "POUT",
+    }[docType] || "TXN";
+    const isEstimateLike = ["estimate", "proforma", "sale_order", "saleOrder", "delivery_challan", "deliveryChallan", "purchase_order", "purchaseOrder"].includes(docType);
+    sequenceType = isEstimateLike ? docType : (docType === "credit_note" ? "credit_note" : docType === "debit_note" ? "debit_note" : docType);
+  }
+
   const regex = new RegExp(`^${prefix}-${financialYear}-(\\d+)$`, "i");
   const match = invoiceNo.trim().match(regex);
   if (match) {
     const num = parseInt(match[1], 10);
     if (!isNaN(num) && num > 0) {
-      const isEstimateLike = ["estimate", "proforma", "sale_order", "saleOrder", "delivery_challan", "deliveryChallan", "purchase_order", "purchaseOrder"].includes(docType);
-      const sequenceType = isEstimateLike ? docType : docType === "credit_note" ? "credit_note" : docType === "debit_note" ? "debit_note" : docType;
       run(
         `INSERT INTO document_sequences (company_id, document_type, financial_year, prefix, next_number, updated_at)
          VALUES (?, ?, ?, ?, ?, ?)

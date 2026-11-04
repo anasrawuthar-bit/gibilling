@@ -628,6 +628,8 @@ function defaultBusinessSettings() {
       upiId: "",
     },
     invoicePrefix: "INV",
+    invoicePrefixB2B: "INV",
+    invoicePrefixB2C: "B2C",
     estimatePrefix: "QT",
     proformaPrefix: "PI",
     saleOrderPrefix: "SO",
@@ -635,6 +637,8 @@ function defaultBusinessSettings() {
     purchaseOrderPrefix: "PO",
     creditNotePrefix: "CN",
     startingNo: 1,
+    startingNoB2B: 1,
+    startingNoB2C: 1,
     terms: "",
     printerType: "a4",
     thermalWidth: "80mm",
@@ -2328,7 +2332,8 @@ function openTransactionEditor(type, options = {}) {
   const shouldRefreshNo = !activeTransactionEditInvoiceId && (!invoiceInput?.value || isCurrentNoDuplicate || invoiceInput.value.toLowerCase() === "auto");
   if (shouldRefreshNo && window.giDB?.previewNextInvoiceNumber) {
     const invoiceDateVal = elements.featureView.querySelector('[name="invoiceDate"]')?.value;
-    window.giDB.previewNextInvoiceNumber(type, invoiceDateVal).then((dbNext) => {
+    const currentSupply = elements.featureView.querySelector('[name="supplyType"]')?.value || (type === "sale" ? "b2b" : "");
+    window.giDB.previewNextInvoiceNumber(type, invoiceDateVal, currentSupply).then((dbNext) => {
       if (dbNext && elements.featureView) {
         const input = elements.featureView.querySelector('[name="invoiceNo"]');
         if (input && (!input.dataset.userEdited || isCurrentNoDuplicate)) {
@@ -2512,22 +2517,25 @@ function getFinancialYearCode(date = new Date()) {
   return `${String(start).slice(-2)}${String(start + 1).slice(-2)}`;
 }
 
-function getDocumentTypePrefix(type) {
+function getDocumentTypePrefix(type, series = null) {
   const settings = state.businessSettings || {};
   if (type === "sale") {
-    return settings.invoicePrefix || "INV";
+    if (series === "b2c") {
+      return settings.invoicePrefixB2C || "B2C";
+    }
+    return settings.invoicePrefixB2B || settings.invoicePrefix || "INV";
   }
   return {
-    estimate: "QT",
-    proforma: "PI",
-    sale_order: "SO",
-    saleOrder: "SO",
-    delivery_challan: "DC",
-    deliveryChallan: "DC",
-    purchase_order: "PO",
-    purchaseOrder: "PO",
-    credit_note: "CN",
-    saleReturn: "CN",
+    estimate: settings.estimatePrefix || "QT",
+    proforma: settings.proformaPrefix || "PI",
+    sale_order: settings.saleOrderPrefix || "SO",
+    saleOrder: settings.saleOrderPrefix || "SO",
+    delivery_challan: settings.challanPrefix || "DC",
+    deliveryChallan: settings.challanPrefix || "DC",
+    purchase_order: settings.purchaseOrderPrefix || "PO",
+    purchaseOrder: settings.purchaseOrderPrefix || "PO",
+    credit_note: settings.creditNotePrefix || "CN",
+    saleReturn: settings.creditNotePrefix || "CN",
     debit_note: "DN",
     purchaseReturn: "DN",
     sale: "INV",
@@ -2556,9 +2564,18 @@ function findTransactionEditRecord(type, id) {
   return null;
 }
 
-function computeNextDocumentNumber(type, docDate = new Date()) {
-  const prefix = getDocumentTypePrefix(type);
-  const startNo = type === "sale" ? Math.max(1, Number(state.businessSettings?.startingNo || 1)) : 1;
+function computeNextDocumentNumber(type, docDate = new Date(), series = null) {
+  let effectiveSeries = series;
+  if (type === "sale" && !effectiveSeries) {
+    const activeTab = (transactionEditorTabs[type] || []).find((tab) => tab.id === activeTransactionEditorTabId);
+    effectiveSeries = activeTab?.draft?.supplyType || (activeTab?.draft?.partyGstin ? "b2b" : "b2b");
+  }
+  const prefix = getDocumentTypePrefix(type, effectiveSeries);
+  const startNo = type === "sale"
+    ? (effectiveSeries === "b2c"
+        ? Math.max(1, Number(state.businessSettings?.startingNoB2C || 1))
+        : Math.max(1, Number(state.businessSettings?.startingNoB2B || state.businessSettings?.startingNo || 1)))
+    : 1;
   const fy = getFinancialYearCode(docDate);
   const pattern = new RegExp(`^${prefix}-${fy}-(\\d+)$`, "i");
 
@@ -2662,8 +2679,9 @@ function validateInvoiceNumber(inputElement, { showInline = true } = {}) {
   }
 
   if (isDuplicateInvoiceNumber(val, type, activeTransactionEditInvoiceId)) {
-    if (type === "sale" && !activeTransactionEditInvoiceId) {
-      const freshNo = computeNextDocumentNumber(type, inputElement.form?.querySelector('[name="invoiceDate"]')?.value);
+    if (type === "sale" && !activeTransactionEditInvoiceId && !inputElement.dataset.userEdited) {
+      const formSupply = inputElement.form?.querySelector('[name="supplyType"]')?.value;
+      const freshNo = computeNextDocumentNumber(type, inputElement.form?.querySelector('[name="invoiceDate"]')?.value, formSupply);
       if (freshNo && freshNo !== val && !isDuplicateInvoiceNumber(freshNo, type, activeTransactionEditInvoiceId)) {
         inputElement.value = freshNo;
         inputElement.placeholder = freshNo;
@@ -2698,14 +2716,17 @@ function transactionEditorTemplate(type = getTransactionEditorType()) {
   const isDocNoReadOnly = type !== "purchase";
 
   const activeTab = editorTabs.find((tab) => tab.id === activeTransactionEditorTabId);
+  const editRecord = isEditing ? findTransactionEditRecord(type, activeTransactionEditInvoiceId) : null;
+  const currentSupplyType = isEditing
+    ? (editRecord?.supplyType || (editRecord?.partyGstin ? "b2b" : "b2c"))
+    : (activeTab?.draft?.supplyType || (activeTab?.draft?.partyGstin ? "b2b" : "b2b"));
   let initialInvoiceNo = "";
   if (isEditing) {
-    const editRecord = findTransactionEditRecord(type, activeTransactionEditInvoiceId);
     initialInvoiceNo = editRecord?.invoiceNo || editRecord?.quoteNo || editRecord?.creditNo || editRecord?.debitNo || "";
   } else if (activeTab?.draft?.invoiceNo && activeTab.draft.invoiceNo.toLowerCase() !== "auto") {
     initialInvoiceNo = activeTab.draft.invoiceNo;
   } else {
-    initialInvoiceNo = computeNextDocumentNumber(type, today);
+    initialInvoiceNo = computeNextDocumentNumber(type, today, currentSupplyType);
   }
 
   return `
@@ -2778,12 +2799,27 @@ function transactionEditorTemplate(type = getTransactionEditorType()) {
                 </label>
               </div>
 
+              ${isSale ? `
+              <div class="editor-compact-col col-doc-no col-sale-doc-no">
+                <label class="editor-compact-label">
+                  <span class="editor-compact-label-title">Invoice No</span>
+                  <div class="invoice-no-dropdown-group">
+                    <select class="form-input compact-input invoice-series-select" name="supplyType" aria-label="Invoice Series">
+                      <option value="b2b" ${currentSupplyType === "b2b" ? "selected" : ""}>B2B</option>
+                      <option value="b2c" ${currentSupplyType === "b2c" ? "selected" : ""}>B2C</option>
+                    </select>
+                    <input class="form-input compact-input ${isDocNoReadOnly ? "readonly-doc-no" : ""}" name="invoiceNo" value="${escapeHtml(initialInvoiceNo)}" placeholder="${escapeHtml(initialInvoiceNo)}" autocomplete="off" spellcheck="false" ${isDocNoReadOnly ? 'readonly tabindex="-1"' : ""}>
+                  </div>
+                </label>
+              </div>
+              ` : `
               <div class="editor-compact-col col-doc-no">
                 <label class="editor-compact-label">
                   <span>${invoiceLabel}</span>
                   <input class="form-input compact-input ${isDocNoReadOnly ? "readonly-doc-no" : ""}" name="invoiceNo" value="${escapeHtml(initialInvoiceNo)}" placeholder="${escapeHtml(initialInvoiceNo)}" autocomplete="off" spellcheck="false" ${isDocNoReadOnly ? 'readonly tabindex="-1"' : ""}>
                 </label>
               </div>
+              `}
 
               <div class="editor-compact-col col-doc-date">
                 <label class="editor-compact-label">
@@ -2791,7 +2827,7 @@ function transactionEditorTemplate(type = getTransactionEditorType()) {
                   <input class="form-input compact-input" name="invoiceDate" value="${today}">
                 </label>
               </div>
-              <input type="hidden" name="supplyType" value="${escapeHtml(activeTab?.draft?.supplyType || 'b2c')}">
+              ${!isSale ? `<input type="hidden" name="supplyType" value="${escapeHtml(activeTab?.draft?.supplyType || (type === 'purchase' ? 'b2b' : 'b2c'))}">` : ""}
 
               <div class="editor-compact-col col-doc-state">
                 <label class="editor-compact-label">
@@ -3071,7 +3107,8 @@ function populateTransactionEditorDraft(draft) {
     if (draft.invoiceNo && draft.invoiceNo.toLowerCase() !== "auto" && !isDraftDuplicate) {
       invoiceNoInput.value = draft.invoiceNo;
     } else {
-      invoiceNoInput.value = computeNextDocumentNumber(editorType);
+      const draftSeries = draft.supplyType || (draftGstin ? "b2b" : "b2b");
+      invoiceNoInput.value = computeNextDocumentNumber(editorType, draft.invoiceDate || new Date(), draftSeries);
     }
   }
   if (invoiceDateInput && draft.invoiceDate) invoiceDateInput.value = toEditorDateString(draft.invoiceDate);
@@ -3311,10 +3348,20 @@ function bindTransactionEditor() {
   invoiceDateInput?.addEventListener("change", () => {
     syncDueDateFromPaymentTerms();
     if (invoiceNoInput && !invoiceNoInput.dataset.userEdited && !activeTransactionEditInvoiceId) {
-      const newNo = computeNextDocumentNumber(getTransactionEditorType(), invoiceDateInput.value);
+      const editorType = getTransactionEditorType();
+      const currentSupply = elements.featureView.querySelector('[name="supplyType"]')?.value || "b2b";
+      const newNo = computeNextDocumentNumber(editorType, invoiceDateInput.value, currentSupply);
       invoiceNoInput.value = newNo;
       invoiceNoInput.placeholder = newNo;
       validateInvoiceNumber(invoiceNoInput, { showInline: false });
+      if (window.giDB?.previewNextInvoiceNumber) {
+        window.giDB.previewNextInvoiceNumber(editorType, invoiceDateInput.value, currentSupply).then((dbNext) => {
+          if (dbNext && invoiceNoInput && !invoiceNoInput.dataset.userEdited) {
+            invoiceNoInput.value = dbNext;
+            invoiceNoInput.placeholder = dbNext;
+          }
+        }).catch(() => {});
+      }
     }
   });
   elements.featureView.querySelector('[name="state"]')?.addEventListener("change", () => {
@@ -3332,6 +3379,27 @@ function bindTransactionEditor() {
     } else if (supplyType?.value === "b2b") {
       if (gstinInput && party?.gstin) {
         gstinInput.value = party.gstin;
+      }
+    }
+    const editorType = getTransactionEditorType();
+    if (editorType === "sale" && !activeTransactionEditInvoiceId) {
+      const invoiceNoInput = elements.featureView.querySelector('[name="invoiceNo"]');
+      if (invoiceNoInput) {
+        invoiceNoInput.dataset.userEdited = "";
+        const invDateVal = elements.featureView.querySelector('[name="invoiceDate"]')?.value;
+        const newNo = computeNextDocumentNumber("sale", invDateVal, supplyType?.value || "b2b");
+        invoiceNoInput.value = newNo;
+        invoiceNoInput.placeholder = newNo;
+        invoiceNoInput.classList.remove("invalid-field");
+        invoiceNoInput.closest("label")?.querySelectorAll(".field-error").forEach((el) => el.remove());
+        if (window.giDB?.previewNextInvoiceNumber) {
+          window.giDB.previewNextInvoiceNumber("sale", invDateVal, supplyType?.value || "b2b").then((dbNext) => {
+            if (dbNext && invoiceNoInput && !invoiceNoInput.dataset.userEdited) {
+              invoiceNoInput.value = dbNext;
+              invoiceNoInput.placeholder = dbNext;
+            }
+          }).catch(() => {});
+        }
       }
     }
     updateEditorGstinVisibility();
@@ -4301,6 +4369,9 @@ async function handleBusinessSettingsSubmit(event) {
   if (form.has("upiId")) settings.bankDetails.upiId = String(form.get("upiId") || "").trim();
 
   if (form.has("invoicePrefix")) settings.invoicePrefix = String(form.get("invoicePrefix") || "").trim().toUpperCase() || "INV";
+  if (form.has("invoicePrefixB2B")) settings.invoicePrefixB2B = String(form.get("invoicePrefixB2B") || "").trim().toUpperCase() || "INV";
+  if (form.has("invoicePrefixB2C")) settings.invoicePrefixB2C = String(form.get("invoicePrefixB2C") || "").trim().toUpperCase() || "B2C";
+  if (settings.invoicePrefixB2B) settings.invoicePrefix = settings.invoicePrefixB2B;
   if (form.has("estimatePrefix")) settings.estimatePrefix = String(form.get("estimatePrefix") || "").trim().toUpperCase() || "QT";
   if (form.has("proformaPrefix")) settings.proformaPrefix = String(form.get("proformaPrefix") || "").trim().toUpperCase() || "PI";
   if (form.has("saleOrderPrefix")) settings.saleOrderPrefix = String(form.get("saleOrderPrefix") || "").trim().toUpperCase() || "SO";
@@ -4308,6 +4379,9 @@ async function handleBusinessSettingsSubmit(event) {
   if (form.has("purchaseOrderPrefix")) settings.purchaseOrderPrefix = String(form.get("purchaseOrderPrefix") || "").trim().toUpperCase() || "PO";
   if (form.has("creditNotePrefix")) settings.creditNotePrefix = String(form.get("creditNotePrefix") || "").trim().toUpperCase() || "CN";
   if (form.has("startingNo")) settings.startingNo = Number(form.get("startingNo") || 1);
+  if (form.has("startingNoB2B")) settings.startingNoB2B = Math.max(1, Number(form.get("startingNoB2B") || 1));
+  if (form.has("startingNoB2C")) settings.startingNoB2C = Math.max(1, Number(form.get("startingNoB2C") || 1));
+  if (settings.startingNoB2B) settings.startingNo = settings.startingNoB2B;
   if (form.has("terms")) settings.terms = String(form.get("terms") || "").trim();
 
   if (form.has("printerType")) settings.printerType = String(form.get("printerType") || "a4");
@@ -6917,8 +6991,31 @@ function applyEditorPartyIntelligence() {
   syncEditorTaxOptions();
   const isRegistered = Boolean(party.gstin || party.taxType === "gst_registered" || party.taxType === "composition");
   if (partyGstin) partyGstin.value = party.gstin || "";
-  if (supplyType) supplyType.value = isRegistered ? "b2b" : "b2c";
+  const prevSupply = supplyType ? supplyType.value : "";
+  const targetSupply = isRegistered ? "b2b" : "b2c";
+  if (supplyType) supplyType.value = targetSupply;
   updateEditorGstinVisibility();
+
+  const editorType = getTransactionEditorType();
+  if (editorType === "sale" && !activeTransactionEditInvoiceId && supplyType && prevSupply !== targetSupply) {
+    const invoiceNoInput = elements.featureView.querySelector('[name="invoiceNo"]');
+    if (invoiceNoInput && !invoiceNoInput.dataset.userEdited) {
+      const invDateVal = elements.featureView.querySelector('[name="invoiceDate"]')?.value;
+      const nextNo = computeNextDocumentNumber("sale", invDateVal, targetSupply);
+      invoiceNoInput.value = nextNo;
+      invoiceNoInput.placeholder = nextNo;
+      invoiceNoInput.classList.remove("invalid-field");
+      invoiceNoInput.closest("label")?.querySelectorAll(".field-error").forEach((el) => el.remove());
+      if (window.giDB?.previewNextInvoiceNumber) {
+        window.giDB.previewNextInvoiceNumber("sale", invDateVal, targetSupply).then((dbNext) => {
+          if (dbNext && invoiceNoInput && !invoiceNoInput.dataset.userEdited) {
+            invoiceNoInput.value = dbNext;
+            invoiceNoInput.placeholder = dbNext;
+          }
+        }).catch(() => {});
+      }
+    }
+  }
 
   const terms = party.paymentTerms || (Number(party.dueDays || 0) ? `Net ${Number(party.dueDays || 0)}` : "");
   if (paymentTerms && terms) {
@@ -25799,8 +25896,11 @@ function settingsCompanyProfileTemplate() {
 
 function settingsInvoicingTemplate() {
   const settings = state.businessSettings || defaultBusinessSettings();
-  const prefix = settings.invoicePrefix || "INV";
-  const startNo = Number(settings.startingNo || 1);
+  const prefixB2B = settings.invoicePrefixB2B || settings.invoicePrefix || "INV";
+  const prefixB2C = settings.invoicePrefixB2C || "B2C";
+  const startNoB2B = Number(settings.startingNoB2B || settings.startingNo || 1);
+  const startNoB2C = Number(settings.startingNoB2C || 1);
+  const fy = getFinancialYearCode(new Date());
   return `
     <header class="settings-page-header">
       <div>
@@ -25817,23 +25917,39 @@ function settingsInvoicingTemplate() {
       <div class="settings-form-grid">
         <section class="settings-card">
           <div class="settings-card-head">
-            <h3>Sales Invoice Numbering</h3>
-            <span class="badge">Primary Sequence</span>
+            <h3>Sales Invoice Numbering (B2B &amp; B2C)</h3>
+            <span class="badge">Dual Sequences</span>
           </div>
-          <div class="settings-field-group">
-            <label>Invoice Prefix *</label>
-            <input class="form-input" name="invoicePrefix" value="${escapeHtml(prefix)}" placeholder="Invoice Prefix" required>
-            <small class="field-hint">Prefix added before invoice numbers (e.g. ${escapeHtml(prefix)}-001).</small>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+            <div class="settings-field-group">
+              <label>B2B Invoice Prefix *</label>
+              <input class="form-input" name="invoicePrefixB2B" value="${escapeHtml(prefixB2B)}" placeholder="INV" required style="text-transform:uppercase;">
+              <small class="field-hint">For GST registered businesses (e.g. ${escapeHtml(prefixB2B)}-${fy}-0001).</small>
+            </div>
+            <div class="settings-field-group">
+              <label>B2B Starting Number *</label>
+              <input class="form-input" name="startingNoB2B" type="number" min="1" value="${startNoB2B}" required>
+              <small class="field-hint">Initial sequence counter for B2B series.</small>
+            </div>
           </div>
-          <div class="settings-field-group">
-            <label>Starting Invoice Number *</label>
-            <input class="form-input" name="startingNo" type="number" min="1" value="${startNo}" required>
-            <small class="field-hint">The next generated invoice will increment sequentially from here.</small>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:8px;">
+            <div class="settings-field-group">
+              <label>B2C Invoice Prefix *</label>
+              <input class="form-input" name="invoicePrefixB2C" value="${escapeHtml(prefixB2C)}" placeholder="B2C" required style="text-transform:uppercase;">
+              <small class="field-hint">For retail consumers / walk-in sales (e.g. ${escapeHtml(prefixB2C)}-${fy}-0001).</small>
+            </div>
+            <div class="settings-field-group">
+              <label>B2C Starting Number *</label>
+              <input class="form-input" name="startingNoB2C" type="number" min="1" value="${startNoB2C}" required>
+              <small class="field-hint">Initial sequence counter for B2C series.</small>
+            </div>
           </div>
-          <div class="settings-info-banner">
+          <input type="hidden" name="invoicePrefix" value="${escapeHtml(prefixB2B)}">
+          <input type="hidden" name="startingNo" value="${startNoB2B}">
+          <div class="settings-info-banner" style="margin-top:12px;">
             <div class="banner-text">
-              <strong>Next Invoice Preview</strong>
-              <span>Generated format: <code>${escapeHtml(prefix)}-${startNo}</code></span>
+              <strong>Separate Invoicing Sequences</strong>
+              <span>B2B and B2C maintain completely independent numbering sequences. In the Sale Invoice editor, toggle the series dropdown directly on the Invoice Number field.</span>
             </div>
           </div>
         </section>

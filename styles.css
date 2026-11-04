@@ -15762,7 +15762,7 @@ textarea:focus-visible {
 /* Primary Row: All main fields in one tight flex/grid */
 .editor-unified-primary-row {
   display: grid !important;
-  grid-template-columns: minmax(200px, 1.6fr) minmax(130px, 1fr) minmax(115px, 0.9fr) minmax(110px, 0.85fr) minmax(140px, 1.1fr) !important;
+  grid-template-columns: minmax(180px, 1.4fr) minmax(120px, 0.95fr) minmax(170px, 1.35fr) minmax(105px, 0.8fr) minmax(130px, 1fr) !important;
   gap: 6px !important;
   align-items: end !important;
   width: 100% !important;
@@ -15887,6 +15887,44 @@ textarea:focus-visible {
   border-color: #cbd5e1 !important;
   box-shadow: none !important;
   outline: none !important;
+}
+
+/* Sale Invoice Dropdown & Number Group */
+.invoice-no-dropdown-group {
+  display: flex !important;
+  align-items: center !important;
+  gap: 4px !important;
+  width: 100% !important;
+}
+
+.invoice-no-dropdown-group .invoice-series-select {
+  flex: 0 0 62px !important;
+  width: 62px !important;
+  min-width: 62px !important;
+  max-width: 62px !important;
+  height: 27px !important;
+  min-height: 27px !important;
+  max-height: 27px !important;
+  padding: 1px 4px !important;
+  font-weight: 700 !important;
+  font-size: 11px !important;
+  color: #1e40af !important;
+  background-color: #eff6ff !important;
+  border: 1px solid #bfdbfe !important;
+  border-radius: 4px !important;
+  cursor: pointer !important;
+  text-align: center !important;
+}
+
+.invoice-no-dropdown-group .invoice-series-select:focus {
+  border-color: #2563eb !important;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15) !important;
+  outline: none !important;
+}
+
+.invoice-no-dropdown-group .compact-input[name="invoiceNo"] {
+  flex: 1 1 auto !important;
+  min-width: 0 !important;
 }
 
 .transaction-editor .editor-field-hint:empty { display: none; }

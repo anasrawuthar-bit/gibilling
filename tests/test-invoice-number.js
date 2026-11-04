@@ -73,10 +73,44 @@ async function runInvoiceNumberTests() {
     // Since INV-2627-0001 exists, it should be INV-2627-0002!
     assert(initialInvoiceVal.value.includes("0002"), "Should propose INV-2627-0002 because 0001 already exists");
 
-    // Capture screenshot of next invoice number populated
+    // Capture screenshot of next invoice number populated (B2B)
     const img1 = await window.webContents.capturePage();
-    fs.writeFileSync(path.join(screenshotDir, "invoice_number_prepopulated_verified.png"), img1.toPNG());
-    console.log("  Captured invoice_number_prepopulated_verified.png");
+    fs.writeFileSync(path.join(screenshotDir, "clean_b2b_dropdown_selected.png"), img1.toPNG());
+    console.log("  Captured clean_b2b_dropdown_selected.png");
+
+    console.log("Test 1b: Switch to B2C dropdown and verify invoice number updates to B2C sequence...");
+    await window.webContents.executeJavaScript(`
+      (() => {
+        const sel = document.querySelector('.invoice-no-dropdown-group select[name="supplyType"]');
+        sel.value = "b2c";
+        sel.dispatchEvent(new Event("change", { bubbles: true }));
+      })()
+    `);
+    await new Promise((r) => setTimeout(r, 400));
+    const b2cVal = await window.webContents.executeJavaScript(`
+      (() => {
+        const sel = document.querySelector('.invoice-no-dropdown-group select[name="supplyType"]');
+        const input = document.querySelector('[name="invoiceNo"]');
+        return { series: sel?.value, value: input?.value };
+      })()
+    `);
+    console.log("  Rendered B2C invoice number:", b2cVal);
+    assert.strictEqual(b2cVal.series, "b2c");
+    assert(b2cVal.value.startsWith("B2C-"), `B2C number must start with B2C-, got ${b2cVal.value}`);
+
+    const imgB2c = await window.webContents.capturePage();
+    fs.writeFileSync(path.join(screenshotDir, "clean_b2c_dropdown_selected.png"), imgB2c.toPNG());
+    console.log("  Captured clean_b2c_dropdown_selected.png");
+
+    // Switch back to B2B
+    await window.webContents.executeJavaScript(`
+      (() => {
+        const sel = document.querySelector('.invoice-no-dropdown-group select[name="supplyType"]');
+        sel.value = "b2b";
+        sel.dispatchEvent(new Event("change", { bubbles: true }));
+      })()
+    `);
+    await new Promise((r) => setTimeout(r, 400));
 
     console.log("Test 2: Enter a duplicate invoice number and verify real-time inline warning and error class...");
     await window.webContents.executeJavaScript(`
