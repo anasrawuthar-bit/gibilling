@@ -20814,3 +20814,59 @@ body:not([data-entry-type="party"]) .party-modal-top-bar {
   line-height: 1.4;
 }
 
+/* ── Custom Tax Rates Manager ────────────────────────────────────────────── */
+.tax-rates-chips-container {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.tax-rate-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: #f1f5f9;
+  border: 1px solid #cbd5e1;
+  border-radius: 18px;
+  padding: 4px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #1e293b;
+  transition: all 0.15s ease;
+}
+
+.tax-rate-chip:hover {
+  background: #e2e8f0;
+  border-color: #94a3b8;
+}
+
+.tax-rate-chip.is-zero {
+  background: #f8fafc;
+  color: #64748b;
+  border-style: dashed;
+}
+
+.tax-rate-chip-remove {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  color: #64748b;
+  font-size: 14px;
+  line-height: 1;
+  transition: background 0.15s, color 0.15s;
+}
+
+.tax-rate-chip-remove:hover {
+  background: #fee2e2;
+  color: #ef4444;
+}
+
+

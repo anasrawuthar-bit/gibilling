@@ -678,6 +678,8 @@ function defaultBusinessSettings() {
     printTerms: true,
     printSignature: true,
     enableAdditionalFields: true,
+    enableTax: true,
+    customTaxRates: [0, 0.25, 3, 5, 12, 18, 28, 40],
     customFields: defaultCustomFieldDefinitions(),
   };
 }
@@ -2899,6 +2901,7 @@ function transactionEditorTemplate(type = getTransactionEditorType()) {
   const isReturn = type === "saleReturn" || type === "purchaseReturn";
   const isSaleLike = isSale || type === "saleReturn";
   const isEditing = Boolean(activeTransactionEditInvoiceId);
+  const taxEnabled = state.businessSettings?.enableTax !== false;
   const meta = transactionEditorMeta(type);
   const title = isEditing ? meta.editTitle : meta.noun;
   const partyLabel = meta.partyLabel;
@@ -3119,7 +3122,7 @@ function transactionEditorTemplate(type = getTransactionEditorType()) {
                   <th>Unit</th>
                   <th>Price</th>
                   <th>Discount</th>
-                  <th>Tax</th>
+                  ${taxEnabled ? "<th>Tax</th>" : ""}
                   <th>Line Total</th>
                 </tr>
               </thead>
@@ -3130,7 +3133,7 @@ function transactionEditorTemplate(type = getTransactionEditorType()) {
                 <tr>
                   <td colspan="3">Total Qty</td>
                   <td id="editorQtyTotal">0</td>
-                  <td colspan="4">Total</td>
+                  <td colspan="${taxEnabled ? 4 : 3}">Total</td>
                   <td id="editorTableTotal">0</td>
                 </tr>
               </tfoot>
@@ -3184,12 +3187,21 @@ function transactionEditorTemplate(type = getTransactionEditorType()) {
             `}
             <div class="editor-total-line"><span>Subtotal</span><strong id="editorSubtotal">0.00</strong></div>
             <div class="editor-total-line"><span>Discount</span><strong id="editorDiscountTotal">0.00</strong></div>
-            <div class="editor-total-line"><span>Tax</span><strong id="editorTaxTotal">0.00</strong></div>
-            <div class="editor-gst-split">
-              <span>CGST <b id="editorCgstTotal">0.00</b></span>
-              <span>SGST <b id="editorSgstTotal">0.00</b></span>
-              <span>IGST <b id="editorIgstTotal">0.00</b></span>
-            </div>
+            ${taxEnabled ? `
+              <div class="editor-total-line"><span>Tax</span><strong id="editorTaxTotal">0.00</strong></div>
+              <div class="editor-gst-split">
+                <span>CGST <b id="editorCgstTotal">0.00</b></span>
+                <span>SGST <b id="editorSgstTotal">0.00</b></span>
+                <span>IGST <b id="editorIgstTotal">0.00</b></span>
+              </div>
+            ` : `
+              <div class="editor-total-line hidden" style="display:none;"><span>Tax</span><strong id="editorTaxTotal">0.00</strong></div>
+              <div class="editor-gst-split hidden" style="display:none;">
+                <span>CGST <b id="editorCgstTotal">0.00</b></span>
+                <span>SGST <b id="editorSgstTotal">0.00</b></span>
+                <span>IGST <b id="editorIgstTotal">0.00</b></span>
+              </div>
+            `}
             <label class="editor-roundoff-line"><span><input id="roundOffToggle" type="checkbox" checked> Round Off</span><input id="editorRoundOffValue" class="tiny-input" value="0.00" readonly></label>
             <label class="editor-grand-total-line">Grand Total <input id="editorGrandTotal" class="form-input" readonly></label>
             ${isEstimate ? '<div class="editor-quote-note">No stock or ledger posting until converted.</div><input id="editorReceived" class="hidden" type="number" value="0">' : `<label class="editor-paid-line">${paymentLabel} <input id="editorReceived" class="form-input" type="number" min="0" step="0.01" value="0"></label>
@@ -3258,6 +3270,7 @@ function transactionCustomFieldControl(field, value = "") {
 }
 
 function editorRowTemplate(index, item = "", description = "", qty = "", price = "") {
+  const taxEnabled = state.businessSettings?.enableTax !== false;
   return `
     <tr>
       <td class="row-num-cell">
@@ -3270,7 +3283,7 @@ function editorRowTemplate(index, item = "", description = "", qty = "", price =
       <td><select name="unit">${editorUnitOptionsMarkup()}</select></td>
       <td><input name="price" aria-label="Unit price" placeholder="0.00" type="number" min="0" step="0.01" value="${price}"></td>
       <td><input name="discount" type="number" min="0" step="0.01" value="0"></td>
-      <td><select name="tax">${editorTaxOptionsMarkup()}</select></td>
+      ${taxEnabled ? `<td><select name="tax">${editorTaxOptionsMarkup()}</select></td>` : `<td style="display:none;"><select name="tax" style="display:none;"><option value="None" selected>None</option></select></td>`}
       <td class="row-amount">0</td>
     </tr>
   `;
@@ -4882,6 +4895,17 @@ async function handleBusinessSettingsSubmit(event) {
   if (formElement?.querySelector('[name="enableAdditionalFields"]')) {
     settings.enableAdditionalFields = form.get("enableAdditionalFields") === "on";
   }
+  if (formElement?.querySelector('[name="enableTax"]')) {
+    settings.enableTax = form.get("enableTax") === "on";
+  }
+  if (formElement?.querySelector('#customTaxRatesJson')) {
+    try {
+      const parsed = JSON.parse(form.get("customTaxRatesJson") || "[]");
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        settings.customTaxRates = Array.from(new Set(parsed.map(Number).filter((n) => !isNaN(n) && n >= 0 && n <= 100))).sort((a, b) => a - b);
+      }
+    } catch {}
+  }
 
   const status = elements.featureView.querySelector("#businessSettingsStatus");
   try {
@@ -5971,8 +5995,9 @@ function sampleInvoicePreviewData() {
 function computeGstSummaryRows(rows = []) {
   const summaryMap = new Map();
   rows.forEach((row) => {
-    const hsn = row.hsnSac || "Other";
     const rate = Number(row.taxRate || 0);
+    if (!rate || rate <= 0) return; // Do not include None / 0% tax rows in GST tax summary
+    const hsn = row.hsnSac || "Other";
     const key = `${hsn}_${rate}`;
     const qty = Number(row.qty || 0);
     const price = Number(row.price || 0);
@@ -6005,10 +6030,11 @@ function computeGstSummaryRows(rows = []) {
 }
 
 function renderA4Modern(data, bank, upiUri, flags = {}) {
-  const documentTitle = data.documentTitle || (transactionEditorMeta(data.editorType) || {}).documentTitle || "TAX INVOICE";
-  const detailTitle = data.editorType === "estimate" ? "Quote Details" : data.editorType === "saleReturn" ? "Credit Note Details" : data.editorType === "purchaseReturn" ? "Debit Note Details" : "Invoice Details";
+  const taxEnabled = flags.enableTax !== false && data.business?.enableTax !== false;
+  const documentTitle = data.documentTitle || (transactionEditorMeta(data.editorType) || {}).documentTitle || (taxEnabled ? "TAX INVOICE" : "INVOICE");
+  const detailTitle = data.editorType === "estimate" ? "Quote Details" : data.editorType === "saleReturn" ? "Credit Note Details" : data.editorType === "purchaseReturn" ? "Debit Note Details" : (taxEnabled ? "Invoice Details" : "Bill Details");
   const logoSrc = flags.showLogo ? (data.business.logoBase64 || "") : "";
-  const gstRows = flags.showGstSummary ? computeGstSummaryRows(data.rows) : [];
+  const gstRows = (taxEnabled && flags.showGstSummary) ? computeGstSummaryRows(data.rows) : [];
 
   return `
     <div class="invoice-a4-modern">
@@ -6064,7 +6090,7 @@ function renderA4Modern(data, bank, upiUri, flags = {}) {
             <th style="width:85px;">HSN/SAC</th>
             <th style="width:85px;text-align:right;">Qty</th>
             <th style="width:95px;text-align:right;">Rate</th>
-            <th style="width:75px;text-align:right;">GST</th>
+            ${taxEnabled ? `<th style="width:75px;text-align:right;">GST</th>` : ""}
             <th style="width:105px;text-align:right;">Amount</th>
           </tr>
         </thead>
@@ -6079,7 +6105,7 @@ function renderA4Modern(data, bank, upiUri, flags = {}) {
               <td>${escapeHtml(row.hsnSac || "-")}</td>
               <td style="text-align:right;"><b>${formatQuantity(row.qty)}</b> <small>${escapeHtml(row.unit)}</small></td>
               <td style="text-align:right;">${formatCurrency(row.price)}</td>
-              <td style="text-align:right;">${formatPercent(row.taxRate)}</td>
+              ${taxEnabled ? `<td style="text-align:right;">${formatPrintTaxRate(row.taxRate)}</td>` : ""}
               <td style="text-align:right;"><b>${formatCurrency(row.total)}</b></td>
             </tr>
           `).join("")}
@@ -6172,8 +6198,9 @@ function renderA4Modern(data, bank, upiUri, flags = {}) {
 }
 
 function renderA4Classic(data, bank, upiUri, flags = {}) {
-  const documentTitle = data.documentTitle || "TAX INVOICE";
-  const gstRows = flags.showGstSummary ? computeGstSummaryRows(data.rows) : [];
+  const taxEnabled = flags.enableTax !== false && data.business?.enableTax !== false;
+  const documentTitle = data.documentTitle || (taxEnabled ? "TAX INVOICE" : "INVOICE");
+  const gstRows = (taxEnabled && flags.showGstSummary) ? computeGstSummaryRows(data.rows) : [];
   const logoSrc = flags.showLogo ? (data.business.logoBase64 || "") : "";
 
   return `
@@ -6341,7 +6368,8 @@ function renderA4Classic(data, bank, upiUri, flags = {}) {
 }
 
 function renderA4Minimal(data, bank, upiUri, flags = {}) {
-  const documentTitle = data.documentTitle || "TAX INVOICE";
+  const taxEnabled = flags.enableTax !== false && data.business?.enableTax !== false;
+  const documentTitle = data.documentTitle || (taxEnabled ? "TAX INVOICE" : "INVOICE");
   const logoSrc = flags.showLogo ? (data.business.logoBase64 || "") : "";
 
   return `
@@ -6391,7 +6419,7 @@ function renderA4Minimal(data, bank, upiUri, flags = {}) {
             <th style="width:80px;">HSN</th>
             <th style="width:80px;text-align:right;">Qty</th>
             <th style="width:90px;text-align:right;">Price</th>
-            <th style="width:70px;text-align:right;">GST</th>
+            ${taxEnabled ? `<th style="width:70px;text-align:right;">GST</th>` : ""}
             <th style="width:100px;text-align:right;">Total</th>
           </tr>
         </thead>
@@ -6403,7 +6431,7 @@ function renderA4Minimal(data, bank, upiUri, flags = {}) {
               <td>${escapeHtml(row.hsnSac || "-")}</td>
               <td style="text-align:right;">${formatQuantity(row.qty)} ${escapeHtml(row.unit)}</td>
               <td style="text-align:right;">${formatCurrency(row.price)}</td>
-              <td style="text-align:right;">${formatPercent(row.taxRate)}</td>
+              ${taxEnabled ? `<td style="text-align:right;">${formatPrintTaxRate(row.taxRate)}</td>` : ""}
               <td style="text-align:right;"><b>${formatCurrency(row.total)}</b></td>
             </tr>
           `).join("")}
@@ -6423,9 +6451,9 @@ function renderA4Minimal(data, bank, upiUri, flags = {}) {
         <div class="a4-minimal-calc-box">
           <p><span>Subtotal:</span> <span>${formatCurrency(data.subtotal)}</span></p>
           ${data.discount ? `<p><span>Discount:</span> <span>-${formatCurrency(data.discount)}</span></p>` : ""}
-          ${data.cgst ? `<p><span>CGST:</span> <span>${formatCurrency(data.cgst)}</span></p>` : ""}
-          ${data.sgst ? `<p><span>SGST:</span> <span>${formatCurrency(data.sgst)}</span></p>` : ""}
-          ${data.igst ? `<p><span>IGST:</span> <span>${formatCurrency(data.igst)}</span></p>` : ""}
+          ${taxEnabled && data.cgst ? `<p><span>CGST:</span> <span>${formatCurrency(data.cgst)}</span></p>` : ""}
+          ${taxEnabled && data.sgst ? `<p><span>SGST:</span> <span>${formatCurrency(data.sgst)}</span></p>` : ""}
+          ${taxEnabled && data.igst ? `<p><span>IGST:</span> <span>${formatCurrency(data.igst)}</span></p>` : ""}
           <div class="a4-minimal-grand">
             <span>Total:</span>
             <strong>${formatCurrency(data.total)}</strong>
@@ -6448,7 +6476,8 @@ function renderA4Minimal(data, bank, upiUri, flags = {}) {
 }
 
 function renderA4Compact(data, bank, upiUri, flags = {}) {
-  const documentTitle = data.documentTitle || "TAX INVOICE";
+  const taxEnabled = flags.enableTax !== false && data.business?.enableTax !== false;
+  const documentTitle = data.documentTitle || (taxEnabled ? "TAX INVOICE" : "INVOICE");
   const logoSrc = flags.showLogo ? (data.business.logoBase64 || "") : "";
 
   return `
@@ -6458,13 +6487,13 @@ function renderA4Compact(data, bank, upiUri, flags = {}) {
           ${logoSrc ? `<img class="a4-compact-logo" src="${logoSrc}" alt="Logo">` : ""}
           <div>
             <h2>${escapeHtml(data.business.businessName || state.activeCompany || "ZynBill")}</h2>
-            <small>${escapeHtml(data.business.address || "-")} | GSTIN: ${escapeHtml(data.business.gstin || "-")}</small>
+            <small>${escapeHtml(data.business.address || "-")}${taxEnabled && data.business.gstin ? ` | GSTIN: ${escapeHtml(data.business.gstin)}` : ""}</small>
           </div>
         </div>
         <div class="a4-compact-meta">
           <strong>${escapeHtml(documentTitle)}</strong>
           <span>No: ${escapeHtml(data.invoiceNo || "-")} | Date: ${escapeHtml(data.date ? (data.date.includes("T") ? formatDate(data.date) : data.date) : "-")}</span>
-          <small>Buyer: ${escapeHtml(data.party?.name || "Cash Customer")}${data.party?.gstin ? ` (${escapeHtml(data.party.gstin)})` : ""}</small>
+          <small>Buyer: ${escapeHtml(data.party?.name || "Cash Customer")}${taxEnabled && data.party?.gstin ? ` (${escapeHtml(data.party.gstin)})` : ""}</small>
         </div>
       </div>
 
@@ -6476,7 +6505,7 @@ function renderA4Compact(data, bank, upiUri, flags = {}) {
             <th style="width:70px;">HSN</th>
             <th style="width:65px;text-align:right;">Qty</th>
             <th style="width:80px;text-align:right;">Rate</th>
-            <th style="width:55px;text-align:right;">GST</th>
+            ${taxEnabled ? `<th style="width:55px;text-align:right;">GST</th>` : ""}
             <th style="width:90px;text-align:right;">Amount</th>
           </tr>
         </thead>
@@ -6488,7 +6517,7 @@ function renderA4Compact(data, bank, upiUri, flags = {}) {
               <td>${escapeHtml(row.hsnSac || "-")}</td>
               <td style="text-align:right;">${formatQuantity(row.qty)} ${escapeHtml(row.unit)}</td>
               <td style="text-align:right;">${formatCurrency(row.price)}</td>
-              <td style="text-align:right;">${formatPercent(row.taxRate)}</td>
+              ${taxEnabled ? `<td style="text-align:right;">${formatPrintTaxRate(row.taxRate)}</td>` : ""}
               <td style="text-align:right;"><b>${formatCurrency(row.total)}</b></td>
             </tr>
           `).join("")}
@@ -6507,9 +6536,9 @@ function renderA4Compact(data, bank, upiUri, flags = {}) {
           <table class="a4-compact-totals-tbl">
             <tr><td>Subtotal:</td><td style="text-align:right;">${formatCurrency(data.subtotal)}</td></tr>
             ${data.discount ? `<tr><td>Discount:</td><td style="text-align:right;">-${formatCurrency(data.discount)}</td></tr>` : ""}
-            ${data.cgst ? `<tr><td>CGST:</td><td style="text-align:right;">${formatCurrency(data.cgst)}</td></tr>` : ""}
-            ${data.sgst ? `<tr><td>SGST:</td><td style="text-align:right;">${formatCurrency(data.sgst)}</td></tr>` : ""}
-            ${data.igst ? `<tr><td>IGST:</td><td style="text-align:right;">${formatCurrency(data.igst)}</td></tr>` : ""}
+            ${taxEnabled && data.cgst ? `<tr><td>CGST:</td><td style="text-align:right;">${formatCurrency(data.cgst)}</td></tr>` : ""}
+            ${taxEnabled && data.sgst ? `<tr><td>SGST:</td><td style="text-align:right;">${formatCurrency(data.sgst)}</td></tr>` : ""}
+            ${taxEnabled && data.igst ? `<tr><td>IGST:</td><td style="text-align:right;">${formatCurrency(data.igst)}</td></tr>` : ""}
             <tr class="a4-compact-grand-row"><td><b>Grand Total:</b></td><td style="text-align:right;"><b>${formatCurrency(data.total)}</b></td></tr>
           </table>
           ${flags.showSignature ? `<div class="a4-compact-sign-line">Authorized Signatory</div>` : ""}
@@ -6530,7 +6559,7 @@ function renderThermalRetail(data, bank, upiUri, flags = {}) {
         <p class="thermal-store-sub">${escapeHtml(data.business.address || "")}</p>
         ${data.business.gstin ? `<p class="thermal-store-sub">GSTIN: ${escapeHtml(data.business.gstin)}</p>` : ""}
         <div class="thermal-divider-heavy">================================</div>
-        <div class="thermal-doc-title">RETAIL TAX INVOICE</div>
+        <div class="thermal-doc-title">${(data.business?.enableTax !== false) ? "RETAIL TAX INVOICE" : "RETAIL INVOICE"}</div>
         <div class="thermal-bill-meta">
           <div>Bill No: <b>${escapeHtml(data.invoiceNo || "-")}</b></div>
           <div>Date: ${escapeHtml(data.date ? (data.date.includes("T") ? formatDate(data.date) : data.date) : "-")}</div>
@@ -6561,7 +6590,7 @@ function renderThermalRetail(data, bank, upiUri, flags = {}) {
         <div class="thermal-calc-row"><span>Total Items / Qty:</span> <span>${data.rows.length} / ${formatQuantity(totalQty)}</span></div>
         <div class="thermal-calc-row"><span>Subtotal:</span> <span>${formatCurrency(data.subtotal)}</span></div>
         ${data.discount ? `<div class="thermal-calc-row"><span>Discount:</span> <span>-${formatCurrency(data.discount)}</span></div>` : ""}
-        ${taxSum ? `<div class="thermal-calc-row"><span>Taxes (GST):</span> <span>${formatCurrency(taxSum)}</span></div>` : ""}
+        ${taxSum && (data.business?.enableTax !== false) ? `<div class="thermal-calc-row"><span>Taxes (GST):</span> <span>${formatCurrency(taxSum)}</span></div>` : ""}
       </div>
 
       <div class="thermal-divider-heavy">================================</div>
@@ -6664,7 +6693,7 @@ function renderThermalDetailed(data, bank, upiUri, flags = {}) {
         <p>${escapeHtml(data.business.address || "")}</p>
         <p>GSTIN: <b>${escapeHtml(data.business.gstin || "-")}</b></p>
         <div class="thermal-divider-dashed">--------------------------------</div>
-        <div style="font-weight:700;text-align:center;">TAX INVOICE (ROLL)</div>
+        <div style="font-weight:700;text-align:center;">${(data.business?.enableTax !== false) ? "TAX INVOICE (ROLL)" : "RETAIL INVOICE (ROLL)"}</div>
         <div class="thermal-bill-meta">
           <div>Invoice: ${escapeHtml(data.invoiceNo || "-")}</div>
           <div>Date: ${escapeHtml(data.date ? (data.date.includes("T") ? formatDate(data.date) : data.date) : "-")}</div>
@@ -6682,7 +6711,7 @@ function renderThermalDetailed(data, bank, upiUri, flags = {}) {
             </div>
             <div style="display:flex;justify-content:space-between;font-size:10px;color:#475569;">
               <span>HSN: ${escapeHtml(row.hsnSac || "-")} | ${formatQuantity(row.qty)} ${escapeHtml(row.unit)} x ${formatCurrency(row.price)}</span>
-              <span>GST ${row.taxRate}%</span>
+              <span>${(data.business?.enableTax !== false && Number(row.taxRate || 0) > 0) ? `GST ${row.taxRate}%` : ""}</span>
             </div>
           </div>
         `).join("")}
@@ -7730,6 +7759,28 @@ function editorUnitOptionsMarkup(selected = "Pcs") {
   return units.map((unit) => `<option value="${escapeHtml(unit)}" ${unit === selected ? "selected" : ""}>${escapeHtml(unit)}</option>`).join("");
 }
 
+function getAvailableTaxRates() {
+  const custom = state.businessSettings?.customTaxRates;
+  if (Array.isArray(custom) && custom.length > 0) {
+    const numeric = custom.map(Number).filter((n) => !isNaN(n) && n >= 0 && n <= 100);
+    if (!numeric.includes(0)) numeric.unshift(0);
+    return Array.from(new Set(numeric)).sort((a, b) => a - b);
+  }
+  return [0, 0.25, 3, 5, 12, 18, 28, 40];
+}
+
+function getTaxOptionsList(isService = false) {
+  const rates = getAvailableTaxRates();
+  const list = ["None"];
+  for (const r of rates) {
+    if (r === 0) continue;
+    list.push(`GST@${r}%`);
+    list.push(`IGST@${r}%`);
+  }
+  list.push("Exempt");
+  return list;
+}
+
 const STANDARD_GST_TAX_OPTIONS = [
   "None",
   "IGST@0%",
@@ -7768,13 +7819,25 @@ const SERVICE_GST_TAX_OPTIONS = [
 
 function editorTaxOptionsMarkup(selected = "None", isService = false) {
   const normalized = String(selected || "None").trim();
-  const list = isService ? [...SERVICE_GST_TAX_OPTIONS] : [...STANDARD_GST_TAX_OPTIONS];
+  const list = getTaxOptionsList(isService);
   if (normalized && !list.some((opt) => opt.toLowerCase() === normalized.toLowerCase())) {
     list.unshift(normalized);
   }
   return list
     .map((option) => `<option value="${escapeHtml(option)}" ${option.toLowerCase() === normalized.toLowerCase() ? "selected" : ""}>${escapeHtml(option)}</option>`)
     .join("");
+}
+
+function formatPrintTaxRate(rate) {
+  if (rate === null || rate === undefined) return "";
+  const str = String(rate).trim();
+  if (str.toLowerCase() === "none" || str === "0" || str === "0%" || str === "-" || str === "") {
+    return ""; // In print, NEVER print "None" or "0%" - return empty blank string
+  }
+  if (str.toLowerCase() === "exempt") return "";
+  const numeric = parseTaxRate(str);
+  if (!numeric || numeric === 0) return "";
+  return `${numeric}%`;
 }
 
 function taxOptionLabel(rate, isIgst = false) {
@@ -9826,14 +9889,19 @@ function updateItemSummaryPills() {
   const isSaleTaxInc = saleTaxSelect?.value === "with_tax";
   const isPurchaseTaxInc = purchaseTaxSelect?.value === "with_tax";
 
+  const taxEnabled = state.businessSettings?.enableTax !== false;
   saleEl.textContent = `₹${salePrice.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   if (saleNoteEl) {
-    saleNoteEl.textContent = salePrice > 0 ? (isSaleTaxInc ? "Inclusive of tax" : "Exclusive of tax") : (isService ? "Service billing rate" : "Selling price");
+    saleNoteEl.textContent = !taxEnabled
+      ? (isService ? "Service billing rate" : "Selling price")
+      : (salePrice > 0 ? (isSaleTaxInc ? "Inclusive of tax" : "Exclusive of tax") : (isService ? "Service billing rate" : "Selling price"));
   }
 
   purchaseEl.textContent = `₹${purchasePrice.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   if (purchaseNoteEl) {
-    purchaseNoteEl.textContent = purchasePrice > 0 ? (isPurchaseTaxInc ? "Inclusive of tax" : "Exclusive of tax") : "Unit purchase cost";
+    purchaseNoteEl.textContent = !taxEnabled
+      ? "Unit purchase cost"
+      : (purchasePrice > 0 ? (isPurchaseTaxInc ? "Inclusive of tax" : "Exclusive of tax") : "Unit purchase cost");
   }
 
   const profit = salePrice - purchasePrice;
@@ -9870,8 +9938,8 @@ function updateItemTaxRateOptions(isService) {
   const select = document.getElementById("itemTaxRate");
   if (!select) return;
 
-  const currentVal = select.value || "GST@18%";
-  const targetOptions = isService ? SERVICE_GST_TAX_OPTIONS : STANDARD_GST_TAX_OPTIONS;
+  const currentVal = select.value || "None";
+  const targetOptions = getTaxOptionsList(isService);
 
   const existingOptions = Array.from(select.options).map((o) => o.value);
   if (existingOptions.length === targetOptions.length && existingOptions.every((v, i) => v === targetOptions[i])) {
@@ -9883,7 +9951,7 @@ function updateItemTaxRateOptions(isService) {
   if (!hasExact) {
     const num = parseTaxRate(currentVal);
     const hasSameRate = targetOptions.find((opt) => parseTaxRate(opt) === num && (opt.startsWith("GST@") || opt === "None" || opt === "Exempt"));
-    selectedVal = hasSameRate || (isService ? "GST@18%" : "GST@18%");
+    selectedVal = hasSameRate || (targetOptions.includes("GST@18%") ? "GST@18%" : "None");
   }
 
   select.innerHTML = targetOptions
@@ -10008,6 +10076,30 @@ function updateItemEntryFields() {
   if (purchasePill) purchasePill.style.display = isService ? "none" : "";
   if (marginPill) marginPill.style.display = isService ? "none" : "";
   if (summaryStrip) summaryStrip.classList.toggle("service-summary", isService);
+
+  // 6. Tax system master switch enforcement
+  const taxEnabled = state.businessSettings?.enableTax !== false;
+  const pricingCardTitle = document.querySelector(".item-pricing-card .entry-card-title");
+  const pricingCardHint = document.querySelector(".item-pricing-card .entry-card-hint");
+  const saleTaxType = document.getElementById("itemSaleTaxType");
+  const purchaseTaxType = document.getElementById("itemPurchaseTaxType");
+  const taxRateSelect = document.getElementById("itemTaxRate");
+  const taxRateGroup = taxRateSelect?.closest(".party-field-group");
+
+  if (!taxEnabled) {
+    if (pricingCardTitle) pricingCardTitle.textContent = "Pricing & Cost";
+    if (pricingCardHint) pricingCardHint.textContent = "Sales price, purchase cost & profit margin";
+    if (saleTaxType) saleTaxType.style.display = "none";
+    if (purchaseTaxType) purchaseTaxType.style.display = "none";
+    if (taxRateGroup) taxRateGroup.style.display = "none";
+    if (taxRateSelect) taxRateSelect.value = "None";
+  } else {
+    if (pricingCardTitle) pricingCardTitle.textContent = "Pricing & GST Rates";
+    if (pricingCardHint) pricingCardHint.textContent = "Sales price, purchase cost, margin & tax schedule";
+    if (saleTaxType) saleTaxType.style.display = "";
+    if (purchaseTaxType) purchaseTaxType.style.display = isService ? "none" : "";
+    if (taxRateGroup) taxRateGroup.style.display = "";
+  }
 
   updateItemSummaryPills();
 }
@@ -10963,7 +11055,7 @@ function saleReturnTemplate() {
         ${kpiCard("Return Value", formatCurrency(total), "Credit note total for selected view", "neutral")}
         ${kpiCard("Adjusted / Refunded", formatCurrency(adjusted), "Value already adjusted or refunded", "success")}
         ${kpiCard("Open Credit", formatCurrency(openBalance), "Still available to adjust", openBalance > 0 ? "danger" : "success")}
-        ${kpiCard("GST Reversal", formatCurrency(taxTotal), "Output tax reduction", "info")}
+        ${state.businessSettings?.enableTax !== false ? kpiCard("GST Reversal", formatCurrency(taxTotal), "Output tax reduction", "info") : ""}
       </section>
 
       <section class="data-table-card invoice-data-card">
@@ -10989,6 +11081,7 @@ function creditNoteQuickFilterButtons() {
 }
 
 function creditNoteRowsTable(rows) {
+  const taxEnabled = state.businessSettings?.enableTax !== false;
   return `
     <table class="data-table">
       <thead>
@@ -10997,9 +11090,11 @@ function creditNoteRowsTable(rows) {
           <th>Credit Note</th>
           <th>Original Invoice</th>
           <th>Customer</th>
-          <th>GST Type</th>
-          <th>Taxable</th>
-          <th>Tax</th>
+          ${taxEnabled ? `
+            <th>GST Type</th>
+            <th>Taxable</th>
+            <th>Tax</th>
+          ` : ""}
           <th>Total</th>
           <th>Open Credit</th>
           <th>Status</th>
@@ -11013,9 +11108,11 @@ function creditNoteRowsTable(rows) {
             <td><strong class="invoice-no-cell">${escapeHtml(note.creditNo || "-")}</strong><small>${escapeHtml(creditNoteItemSummary(note.id))}</small></td>
             <td><strong>${escapeHtml(note.originalInvoiceNo || "-")}</strong><small>${escapeHtml(note.reason || "Sales return")}</small></td>
             <td><strong>${escapeHtml(note.party || "-")}</strong><small>${escapeHtml(note.phone || "")}</small></td>
-            <td><span class="gst-type-badge ${creditNoteSupplyType(note)}">${creditNoteTaxTypeLabel(note)}</span></td>
-            <td class="amount-cell">${formatCurrency(creditNoteTaxableValue(note))}</td>
-            <td class="amount-cell">${formatCurrency(creditNoteTaxValue(note))}</td>
+            ${taxEnabled ? `
+              <td><span class="gst-type-badge ${creditNoteSupplyType(note)}">${creditNoteTaxTypeLabel(note)}</span></td>
+              <td class="amount-cell">${formatCurrency(creditNoteTaxableValue(note))}</td>
+              <td class="amount-cell">${formatCurrency(creditNoteTaxValue(note))}</td>
+            ` : ""}
             <td class="amount-cell strong">${formatCurrency(creditNoteTotalValue(note))}</td>
             <td class="amount-cell ${Number(note.balance || 0) > 0 ? "danger" : ""}">${formatCurrency(note.balance || 0)}</td>
             <td>${creditNoteStatusBadge(note)}</td>
@@ -11431,7 +11528,7 @@ function estimateTemplate() {
         ${kpiCard(kpi.total,    formatCurrency(totalValue),    `${allRows.length} total record${allRows.length === 1 ? "" : "s"}`, "neutral")}
         ${kpiCard(kpi.accepted, formatCurrency(acceptedValue), "Ready to convert into sale", "success")}
         ${kpiCard(kpi.pending,  String(pendingCount),          "Draft or sent", pendingCount ? "info" : "success")}
-        ${kpiCard(kpi.tax,      formatCurrency(taxValue),      `${convertedCount} converted`, "info")}
+        ${state.businessSettings?.enableTax !== false ? kpiCard(kpi.tax, formatCurrency(taxValue), `${convertedCount} converted`, "info") : kpiCard("Converted", String(convertedCount), "Converted to sale", "info")}
       </section>
 
       <section class="data-table-card invoice-data-card">
@@ -11445,6 +11542,7 @@ function estimateRowsTable(rows, view = "estimate") {
   const isOrder    = view === "saleOrder" || view === "purchaseOrder";
   const isChallan  = view === "deliveryChallan";
   const isProforma = view === "proforma";
+  const taxEnabled = state.businessSettings?.enableTax !== false;
 
   const numberColLabel    = { estimate: "Quote No", proforma: "Proforma No", saleOrder: "Order No", deliveryChallan: "Challan No", purchaseOrder: "PO No" }[view] || "Ref No";
   const partyColLabel     = (view === "purchaseOrder") ? "Supplier" : "Customer";
@@ -11459,9 +11557,11 @@ function estimateRowsTable(rows, view = "estimate") {
           <th>${escapeHtml(numberColLabel)}</th>
           <th>${escapeHtml(partyColLabel)}</th>
           <th>${escapeHtml(dueDateColLabel)}</th>
-          <th>GST Type</th>
-          <th>Taxable</th>
-          <th>Tax</th>
+          ${taxEnabled ? `
+            <th>GST Type</th>
+            <th>Taxable</th>
+            <th>Tax</th>
+          ` : ""}
           <th>Total</th>
           <th>${escapeHtml(statusColLabel)}</th>
           <th>Actions</th>
@@ -11477,9 +11577,11 @@ function estimateRowsTable(rows, view = "estimate") {
             <td><strong class="invoice-no-cell">${escapeHtml(docNum)}</strong><small>${escapeHtml(estimateItemSummary(quote.id))}</small></td>
             <td><strong>${escapeHtml(quote.party || quote.customer || "-")}</strong><small>${escapeHtml(quote.phone || "")}</small></td>
             <td>${formatDate(quote.validUntil || quote.dueDate || quote.deliveryDate)}</td>
-            <td><span class="gst-type-badge ${estimateSupplyType(quote)}">${estimateTaxTypeLabel(quote)}</span></td>
-            <td class="amount-cell">${formatCurrency(estimateTaxableValue(quote))}</td>
-            <td class="amount-cell">${formatCurrency(estimateTaxValue(quote))}</td>
+            ${taxEnabled ? `
+              <td><span class="gst-type-badge ${estimateSupplyType(quote)}">${estimateTaxTypeLabel(quote)}</span></td>
+              <td class="amount-cell">${formatCurrency(estimateTaxableValue(quote))}</td>
+              <td class="amount-cell">${formatCurrency(estimateTaxValue(quote))}</td>
+            ` : ""}
             <td class="amount-cell strong">${formatCurrency(estimateTotalValue(quote))}</td>
             <td>${estimateStatusBadge(quote)}</td>
             <td>${estimateActionMenu(quote, view)}</td>
@@ -15286,6 +15388,88 @@ function bindFeatureActions() {
     });
   });
 
+  const enableTaxToggle = elements.featureView.querySelector("#enableTaxToggle");
+  const taxRatesConfigSection = elements.featureView.querySelector("#taxRatesConfigSection");
+  if (enableTaxToggle && taxRatesConfigSection) {
+    enableTaxToggle.addEventListener("change", () => {
+      taxRatesConfigSection.classList.toggle("hidden", !enableTaxToggle.checked);
+    });
+  }
+
+  const chipsContainer = elements.featureView.querySelector("#taxRatesChipsContainer");
+  const customTaxRatesJson = elements.featureView.querySelector("#customTaxRatesJson");
+  const newTaxRateInput = elements.featureView.querySelector("#newTaxRateInput");
+  const btnAddTaxRate = elements.featureView.querySelector("#btnAddTaxRate");
+  const btnResetTaxRates = elements.featureView.querySelector("#btnResetTaxRates");
+
+  if (chipsContainer && customTaxRatesJson) {
+    const updateChipsUI = () => {
+      let rates = [0, 0.25, 3, 5, 12, 18, 28, 40];
+      try {
+        const parsed = JSON.parse(customTaxRatesJson.value || "[]");
+        if (Array.isArray(parsed)) rates = parsed;
+      } catch {}
+      if (!rates.includes(0)) rates.unshift(0);
+      rates = Array.from(new Set(rates.map(Number).filter((n) => !isNaN(n) && n >= 0 && n <= 100))).sort((a, b) => a - b);
+      customTaxRatesJson.value = JSON.stringify(rates);
+
+      chipsContainer.innerHTML = rates.map((r) => {
+        if (r === 0) {
+          return `<span class="tax-rate-chip is-zero">None (0%)</span>`;
+        }
+        return `
+          <span class="tax-rate-chip">
+            <span>${r}%</span>
+            <button type="button" class="tax-rate-chip-remove" data-remove-tax-rate="${r}" title="Remove ${r}%">×</button>
+          </span>
+        `;
+      }).join("");
+
+      chipsContainer.querySelectorAll("[data-remove-tax-rate]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const rateToRemove = Number(btn.dataset.removeTaxRate);
+          let current = [];
+          try {
+            current = JSON.parse(customTaxRatesJson.value || "[]");
+          } catch {}
+          const next = current.filter((val) => Number(val) !== rateToRemove);
+          customTaxRatesJson.value = JSON.stringify(next);
+          updateChipsUI();
+        });
+      });
+    };
+
+    updateChipsUI();
+
+    btnAddTaxRate?.addEventListener("click", () => {
+      const val = parseFloat(newTaxRateInput?.value || "");
+      if (isNaN(val) || val < 0 || val > 100) {
+        showToast("Please enter a valid tax rate between 0 and 100.");
+        return;
+      }
+      const rounded = Math.round(val * 100) / 100;
+      let current = [];
+      try {
+        current = JSON.parse(customTaxRatesJson.value || "[]");
+      } catch {}
+      if (!current.includes(rounded)) {
+        current.push(rounded);
+        current.sort((a, b) => a - b);
+        customTaxRatesJson.value = JSON.stringify(current);
+        if (newTaxRateInput) newTaxRateInput.value = "";
+        updateChipsUI();
+      } else {
+        showToast(`Tax rate ${rounded}% already exists.`);
+      }
+    });
+
+    btnResetTaxRates?.addEventListener("click", () => {
+      customTaxRatesJson.value = JSON.stringify([0, 0.25, 3, 5, 12, 18, 28, 40]);
+      updateChipsUI();
+      showToast("Reset to standard tax rates.");
+    });
+  }
+
   const removeLogoBtn = elements.featureView.querySelector("#removeLogoBtn");
   removeLogoBtn?.addEventListener("click", () => {
     removeLogoBtn.dataset.removed = "true";
@@ -17778,7 +17962,7 @@ function purchaseReturnTemplate() {
         ${kpiCard("Return Value", formatCurrency(total), "Debit note total for selected view", "neutral")}
         ${kpiCard("Adjusted / Refunded", formatCurrency(adjusted), "Value already adjusted or refunded", "success")}
         ${kpiCard("Open Debit", formatCurrency(openBalance), "Still available to adjust against supplier", openBalance > 0 ? "danger" : "success")}
-        ${kpiCard("GST Reversal", formatCurrency(taxTotal), "Input tax reduction", "info")}
+        ${state.businessSettings?.enableTax !== false ? kpiCard("GST Reversal", formatCurrency(taxTotal), "Input tax reduction", "info") : ""}
       </section>
 
       <section class="data-table-card invoice-data-card">
@@ -17804,6 +17988,7 @@ function debitNoteQuickFilterButtons() {
 }
 
 function debitNoteRowsTable(rows) {
+  const taxEnabled = state.businessSettings?.enableTax !== false;
   return `
     <table class="data-table">
       <thead>
@@ -17812,9 +17997,11 @@ function debitNoteRowsTable(rows) {
           <th>Debit Note</th>
           <th>Original Bill</th>
           <th>Supplier</th>
-          <th>GST Type</th>
-          <th>Taxable</th>
-          <th>Tax</th>
+          ${taxEnabled ? `
+            <th>GST Type</th>
+            <th>Taxable</th>
+            <th>Tax</th>
+          ` : ""}
           <th>Total</th>
           <th>Open Debit</th>
           <th>Status</th>
@@ -17828,9 +18015,11 @@ function debitNoteRowsTable(rows) {
             <td><strong class="invoice-no-cell">${escapeHtml(note.debitNo || "-")}</strong><small>${escapeHtml(debitNoteItemSummary(note.id))}</small></td>
             <td><strong>${escapeHtml(note.originalInvoiceNo || "-")}</strong><small>${escapeHtml(note.reason || "Purchase return")}</small></td>
             <td><strong>${escapeHtml(note.party || "-")}</strong><small>${escapeHtml(note.phone || "")}</small></td>
-            <td><span class="gst-type-badge ${debitNoteSupplyType(note)}">${debitNoteTaxTypeLabel(note)}</span></td>
-            <td class="amount-cell">${formatCurrency(debitNoteTaxableValue(note))}</td>
-            <td class="amount-cell">${formatCurrency(debitNoteTaxValue(note))}</td>
+            ${taxEnabled ? `
+              <td><span class="gst-type-badge ${debitNoteSupplyType(note)}">${debitNoteTaxTypeLabel(note)}</span></td>
+              <td class="amount-cell">${formatCurrency(debitNoteTaxableValue(note))}</td>
+              <td class="amount-cell">${formatCurrency(debitNoteTaxValue(note))}</td>
+            ` : ""}
             <td class="amount-cell strong">${formatCurrency(debitNoteTotalValue(note))}</td>
             <td class="amount-cell ${Number(note.balance || 0) > 0 ? "danger" : ""}">${formatCurrency(note.balance || 0)}</td>
             <td>${debitNoteStatusBadge(note)}</td>
@@ -22498,7 +22687,8 @@ function gstHsnRows(lines) {
 
 
 function reportGroups() {
-  return [
+  const taxEnabled = state.businessSettings?.enableTax !== false;
+  const groups = [
     {
       title: "Sales",
       note: "Sales register, product-wise sales, customer sales and staff performance.",
@@ -22587,6 +22777,10 @@ function reportGroups() {
       ],
     },
   ];
+  if (!taxEnabled) {
+    return groups.filter((g) => g.title !== "GST");
+  }
+  return groups;
 }
 
 function reportsTemplate(activeReport = "overview") {
@@ -22631,6 +22825,14 @@ function reportMenuButton(report, activeReport) {
 }
 
 function reportContent(activeReport) {
+  const taxEnabled = state.businessSettings?.enableTax !== false;
+  const isGst = activeReport === "gstr1" || activeReport === "gstr3b" || activeReport === "hsnSummary" || activeReport === "gstLiability" || activeReport === "taxLiability" || activeReport === "gstDashboard" || activeReport === "gst" || activeReport === "gstr1Export" || activeReport === "salesTaxSummary" || activeReport === "purchaseTaxSummary" || activeReport === "itcRegister" || activeReport === "outputGst" || activeReport === "gstReconciliation" || activeReport === "eInvoice" || activeReport === "eWayBill";
+  if (!taxEnabled && isGst) {
+    return `<div class="report-empty-notice" style="padding: 60px 20px; text-align: center;">
+      <h3 style="font-size:18px; color:#1e293b; margin-bottom:8px;">GST Tax System is Disabled</h3>
+      <p style="color:#64748b; font-size:14px; max-width:500px; margin:0 auto 20px;">You are currently operating in non-tax billing mode. Enable GST Tax System in Settings &gt; Preferences &gt; Inventory &amp; Tax Rules to unlock statutory returns, GSTR-1, and GST reports.</p>
+    </div>`;
+  }
   if (activeReport === "overview") return reportOverview();
   // Sales
   if (activeReport === "sale" || activeReport === "salesRegister") return saleReportDataInner();
@@ -27163,6 +27365,11 @@ function settingsPrintingTemplate() {
 
 function settingsTaxInventoryTemplate() {
   const settings = state.businessSettings || defaultBusinessSettings();
+  const taxEnabled = settings.enableTax !== false;
+  const rates = Array.isArray(settings.customTaxRates) && settings.customTaxRates.length
+    ? settings.customTaxRates
+    : [0, 0.25, 3, 5, 12, 18, 28, 40];
+
   return `
     <header class="settings-page-header">
       <div>
@@ -27177,6 +27384,42 @@ function settingsTaxInventoryTemplate() {
 
     <form class="business-settings-form" id="businessSettingsForm" data-settings-subtab="TAX_INVENTORY">
       <div class="settings-form-grid">
+        <section class="settings-card" style="grid-column: 1 / -1;">
+          <div class="settings-card-head">
+            <h3>Tax System Configuration</h3>
+            <span class="badge">Master Switch</span>
+          </div>
+          <div class="settings-toggle-stack">
+            <label class="settings-toggle-row">
+              <input type="checkbox" id="enableTaxToggle" name="enableTax" ${taxEnabled ? "checked" : ""}>
+              <div class="settings-toggle-info">
+                <strong>Enable GST / Tax System</strong>
+                <span>Turn off to completely disable GST and run a clean non-tax billing business. When disabled, tax columns, percentages, and GST reports are completely hidden from invoices, items, and navigation.</span>
+              </div>
+            </label>
+          </div>
+
+          <div id="taxRatesConfigSection" class="tax-rates-config-section ${taxEnabled ? "" : "hidden"}" style="margin-top: 18px; padding-top: 18px; border-top: 1px solid var(--border-color, #e2e8f0);">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 12px;">
+              <div>
+                <strong style="font-size: 14px; color: var(--text-heading, #1e293b); display: block;">Custom Tax Rates (%)</strong>
+                <span style="font-size: 12px; color: var(--text-muted, #64748b);">Customize the tax percentages available in your billing dropdowns. The 'None' option represents 0% tax.</span>
+              </div>
+              <button type="button" id="btnResetTaxRates" class="secondary-button" style="padding: 4px 10px; font-size: 12px;">Reset to Standard Rates</button>
+            </div>
+
+            <div id="taxRatesChipsContainer" class="tax-rates-chips-container" style="display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px;">
+              <!-- Chips will be rendered here dynamically -->
+            </div>
+
+            <div class="tax-rate-add-bar" style="display: flex; gap: 8px; align-items: center; max-width: 320px;">
+              <input type="number" id="newTaxRateInput" class="form-input" placeholder="e.g. 6 or 7.5" min="0" max="100" step="0.01" style="height: 36px; font-size: 13px;">
+              <button type="button" id="btnAddTaxRate" class="secondary-button" style="white-space: nowrap; height: 36px; padding: 0 14px; font-weight: 600;">+ Add Rate</button>
+            </div>
+            <input type="hidden" id="customTaxRatesJson" name="customTaxRatesJson" value="${escapeHtml(JSON.stringify(rates))}">
+          </div>
+        </section>
+
         <section class="settings-card">
           <div class="settings-card-head">
             <h3>Inventory Protection</h3>

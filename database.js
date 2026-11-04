@@ -2277,6 +2277,8 @@ function defaultBusinessSettings(companyName = "testt") {
     defaultTaxInclusive: false,
     enableHsn: true,
     enableAdditionalFields: true,
+    enableTax: true,
+    customTaxRates: [0, 0.25, 3, 5, 12, 18, 28, 40],
   };
 }
 
@@ -2381,6 +2383,10 @@ function updateBusinessSettings(settings = {}) {
     defaultTaxInclusive: settings.defaultTaxInclusive !== undefined ? Boolean(settings.defaultTaxInclusive) : Boolean(current.defaultTaxInclusive ?? false),
     enableHsn: settings.enableHsn !== undefined ? Boolean(settings.enableHsn) : Boolean(current.enableHsn ?? true),
     enableAdditionalFields: settings.enableAdditionalFields !== undefined ? Boolean(settings.enableAdditionalFields) : Boolean(current.enableAdditionalFields ?? true),
+    enableTax: settings.enableTax !== undefined ? Boolean(settings.enableTax) : Boolean(current.enableTax ?? true),
+    customTaxRates: Array.isArray(settings.customTaxRates)
+      ? Array.from(new Set(settings.customTaxRates.map(Number).filter((n) => !isNaN(n) && n >= 0 && n <= 100))).sort((a, b) => a - b)
+      : (current.customTaxRates || [0, 0.25, 3, 5, 12, 18, 28, 40]),
   };
   Object.entries(next).forEach(([key, value]) => {
     run("INSERT OR REPLACE INTO company_settings (company_id, key, value) VALUES (?, ?, ?)", [company.id, key, JSON.stringify(value)]);
