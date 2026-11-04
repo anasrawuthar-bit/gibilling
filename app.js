@@ -3124,8 +3124,9 @@ function populateTransactionEditorDraft(draft) {
   if (originalInvoiceIdInput && draft.originalInvoiceId) originalInvoiceIdInput.value = draft.originalInvoiceId;
   if (originalInvoiceNoInput && draft.originalInvoiceNo) originalInvoiceNoInput.value = draft.originalInvoiceNo;
   if (descriptionInput && draft.invoiceDescription) {
-    descriptionInput.value = draft.invoiceDescription;
-    elements.featureView.querySelector('[data-editor-extra="description"]')?.classList.add("active");
+    const cleanDesc = sanitizeInvoiceUserNotes(draft.invoiceDescription);
+    descriptionInput.value = cleanDesc;
+    elements.featureView.querySelector('[data-editor-extra="description"]')?.classList.toggle("active", Boolean(cleanDesc));
   }
   if (paymentTypeInput && draft.paymentType) paymentTypeInput.value = draft.paymentType;
   if (paymentMethodInput && draft.paymentMethod) ensureSelectValue(paymentMethodInput, draft.paymentMethod);
@@ -3762,6 +3763,24 @@ function loadTransactionDraft(type) {
 
 function clearTransactionDraft(type = getTransactionEditorType()) {
   localStorage.removeItem(transactionDraftKey(type));
+}
+
+function sanitizeInvoiceUserNotes(notes) {
+  if (!notes || typeof notes !== "string") return "";
+  const parts = notes.split(/\s*\|\s*/);
+  const cleanParts = parts.filter((part) => {
+    const trimmed = part.trim();
+    if (!trimmed) return false;
+    if (/^Attachments:\s*/i.test(trimmed)) return false;
+    const items = trimmed.split(/\s*,\s*/);
+    const isAllItemPatterns = items.length > 0 && items.every((seg) => {
+      const s = seg.trim();
+      return /.+\s+x\s+\d+(\.\d+)?$/i.test(s) || /^\d+\s+items?$/i.test(s);
+    });
+    if (isAllItemPatterns) return false;
+    return true;
+  });
+  return cleanParts.join(" | ").trim();
 }
 
 function handleEditorExtraAction(action) {
@@ -7586,8 +7605,6 @@ async function saveTransactionEditor(event) {
     const received = Number(elements.featureView.querySelector("#editorReceived")?.value || 0);
     const invoiceDescription = String(form.get("invoiceDescription") || "").trim();
     const customFields = collectCustomFieldValues(editorType);
-    const itemSummary = rows.map((row) => `${row.item} x ${row.qty}`).join(", ");
-    const attachmentSummary = editorAttachmentSummary();
     const isOpDoc = isOperationalDoc(editorType);
     const transaction = {
       id: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`,
@@ -7626,7 +7643,7 @@ async function saveTransactionEditor(event) {
         shippingAddress: formElement?.querySelector('[name="useShippingAddress"]')?.checked ? String(form.get("shippingAddress") || "").trim() : "",
       },
       status: isOpDoc ? "draft" : received >= amount ? "paid" : "due",
-      notes: [invoiceDescription, itemSummary, attachmentSummary].filter(Boolean).join(" | "),
+      notes: invoiceDescription,
       date: parseEditorDate(String(form.get("invoiceDate") || "")) || new Date().toISOString(),
     };
 
@@ -10567,7 +10584,7 @@ function creditNoteDraftFromRecord(note, options = {}) {
     state: note.placeOfSupply || "",
     supplyType: note.supplyType || (note.partyGstin ? "b2b" : "b2c"),
     partyGstin: note.partyGstin || "",
-    invoiceDescription: note.notes || "",
+    invoiceDescription: sanitizeInvoiceUserNotes(note.notes || ""),
     customFields: note.meta?.customFields || {},
     items: lines.map((line) => ({
       item: line.item || "",
@@ -11903,7 +11920,7 @@ function estimateDraftFromRecord(quote, options = {}) {
     state: quote.placeOfSupply || "",
     supplyType: quote.supplyType || (quote.partyGstin ? "b2b" : "b2c"),
     partyGstin: quote.partyGstin || "",
-    invoiceDescription: quote.notes || "",
+    invoiceDescription: sanitizeInvoiceUserNotes(quote.notes || ""),
     customFields: quote.meta?.customFields || {},
     items: estimateItemsFor(quote).map((line) => ({
       item: line.item || "",
@@ -12285,7 +12302,7 @@ function invoiceDraftFromRecord(invoice, options = {}) {
     state: invoice.placeOfSupply || "",
     supplyType: invoice.supplyType || (invoice.partyGstin ? "b2b" : "b2c"),
     partyGstin: invoice.partyGstin || "",
-    invoiceDescription: invoice.notes || "",
+    invoiceDescription: sanitizeInvoiceUserNotes(invoice.notes || ""),
     customFields: invoice.meta?.customFields || {},
     items: lines.length ? lines.map((line) => ({
       item: line.item || "",
@@ -17213,7 +17230,7 @@ function debitNoteDraftFromRecord(note, options = {}) {
     state: note.placeOfSupply || "",
     supplyType: note.supplyType || (note.partyGstin ? "b2b" : "b2c"),
     partyGstin: note.partyGstin || "",
-    invoiceDescription: note.notes || "",
+    invoiceDescription: sanitizeInvoiceUserNotes(note.notes || ""),
     customFields: note.meta?.customFields || {},
     items: lines.map((line) => ({
       item: line.item || "",
