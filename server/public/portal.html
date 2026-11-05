@@ -1,0 +1,969 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ZynBill - Customer Portal &amp; Plan Management</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --primary: #0284c7;
+      --primary-hover: #0369a1;
+      --accent: #00c0f3;
+      --success: #10b981;
+      --warning: #f59e0b;
+      --danger: #ef4444;
+      --bg: #f8fafc;
+      --surface: #ffffff;
+      --border: #e2e8f0;
+      --text: #0f172a;
+      --muted: #64748b;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* Header */
+    .portal-header {
+      background: #0f172a;
+      color: #ffffff;
+      padding: 0 32px;
+      height: 64px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid #1e293b;
+    }
+    .brand-section {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .brand-logo {
+      width: 32px;
+      height: 32px;
+      background: var(--accent);
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #fff;
+      font-weight: 800;
+      font-size: 18px;
+    }
+    .brand-title {
+      font-size: 16px;
+      font-weight: 700;
+    }
+    .portal-badge {
+      background: #1e293b;
+      color: #38bdf8;
+      border: 1px solid #334155;
+      font-size: 11px;
+      font-weight: 600;
+      padding: 3px 8px;
+      border-radius: 6px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .user-section {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      font-size: 13px;
+    }
+    .btn-logout {
+      background: #1e293b;
+      border: 1px solid #334155;
+      color: #cbd5e1;
+      padding: 6px 14px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-family: inherit;
+      font-size: 12.5px;
+      font-weight: 600;
+      transition: all 0.15s ease;
+    }
+    .btn-logout:hover { background: #334155; color: #ffffff; }
+
+    /* Login Card */
+    .login-container {
+      max-width: 420px;
+      width: 100%;
+      margin: 80px auto;
+      background: #ffffff;
+      padding: 36px;
+      border-radius: 14px;
+      border: 1px solid var(--border);
+      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.06);
+    }
+    .field-group {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      margin-bottom: 16px;
+    }
+    .field-label { font-size: 12.5px; font-weight: 600; color: #334155; }
+    .text-control {
+      height: 42px;
+      padding: 0 14px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      font-family: inherit;
+      font-size: 13.5px;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+    .text-control:focus { border-color: var(--primary); }
+
+    .btn-primary {
+      background: var(--primary);
+      color: #ffffff;
+      border: none;
+      border-radius: 8px;
+      padding: 10px 18px;
+      font-family: inherit;
+      font-size: 13.5px;
+      font-weight: 600;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      transition: background 0.15s;
+      text-decoration: none;
+    }
+    .btn-primary:hover { background: var(--primary-hover); }
+
+    .btn-secondary {
+      background: #ffffff;
+      color: #334155;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 18px;
+      font-family: inherit;
+      font-size: 13.5px;
+      font-weight: 600;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      transition: all 0.15s;
+      text-decoration: none;
+    }
+    .btn-secondary:hover { background: #f8fafc; border-color: #cbd5e1; }
+
+    .btn-download {
+      background: #0284c7;
+      color: #ffffff;
+      padding: 14px 28px;
+      font-size: 15px;
+      font-weight: 700;
+      border-radius: 10px;
+      border: none;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      text-decoration: none;
+      box-shadow: 0 4px 14px rgba(2, 132, 199, 0.3);
+      transition: transform 0.15s, background 0.15s;
+    }
+    .btn-download:hover {
+      background: #0369a1;
+      transform: translateY(-1px);
+    }
+
+    /* Portal Dashboard */
+    .portal-container {
+      max-width: 1080px;
+      width: 100%;
+      margin: 32px auto;
+      padding: 0 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 24px;
+    }
+
+    /* Welcome Banner */
+    .welcome-card {
+      background: linear-gradient(135deg, #0284c7, #0369a1);
+      color: #ffffff;
+      border-radius: 14px;
+      padding: 28px 32px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      box-shadow: 0 10px 25px rgba(2, 132, 199, 0.2);
+    }
+    .welcome-card h2 { font-size: 22px; font-weight: 800; margin-bottom: 6px; }
+    .welcome-card p { opacity: 0.9; font-size: 13.5px; }
+
+    /* Grid */
+    .cards-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 24px;
+    }
+    @media (max-width: 768px) {
+      .cards-grid { grid-template-columns: 1fr; }
+    }
+
+    .card {
+      background: #ffffff;
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 24px;
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.03);
+    }
+    .card-title {
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--text);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 16px;
+    }
+
+    /* Plan Details Widget */
+    .plan-status-box {
+      background: #f8fafc;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 16px;
+      margin-bottom: 16px;
+    }
+    .plan-name-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+    }
+    .plan-badge {
+      background: #e0f2fe;
+      color: #0369a1;
+      font-size: 12px;
+      font-weight: 700;
+      padding: 4px 10px;
+      border-radius: 6px;
+    }
+    .plan-metric {
+      font-size: 26px;
+      font-weight: 800;
+      color: var(--primary);
+    }
+    .plan-sub {
+      font-size: 12.5px;
+      color: var(--muted);
+      margin-top: 4px;
+    }
+
+    /* Progress bar */
+    .progress-bar-bg {
+      background: #e2e8f0;
+      border-radius: 999px;
+      height: 8px;
+      overflow: hidden;
+      margin: 12px 0 8px;
+    }
+    .progress-bar-fill {
+      background: #10b981;
+      height: 100%;
+      width: 100%;
+      transition: width 0.3s;
+    }
+
+    /* Device list */
+    .device-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 12px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      margin-bottom: 10px;
+      font-size: 13px;
+    }
+
+    /* Modals */
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(15, 23, 42, 0.6);
+      backdrop-filter: blur(4px);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 200;
+      padding: 20px;
+    }
+    .modal-card {
+      background: #ffffff;
+      width: 100%;
+      max-width: 480px;
+      border-radius: 14px;
+      padding: 28px;
+      box-shadow: 0 20px 48px rgba(0, 0, 0, 0.2);
+    }
+    .modal-head { margin-bottom: 20px; }
+    .modal-head h3 { font-size: 18px; color: var(--text); }
+    .modal-head p { font-size: 13px; color: var(--muted); margin-top: 4px; }
+    .modal-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 10px;
+      margin-top: 24px;
+    }
+
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body>
+
+  <!-- Top Header -->
+  <header class="portal-header">
+    <div class="brand-section">
+      <div class="brand-logo">Z</div>
+      <div class="brand-title">ZynBill Customer Portal</div>
+      <span class="portal-badge">Self-Service</span>
+    </div>
+    <div class="user-section" id="portalUserSection" style="display: none;">
+      <span id="headerCompanyName" style="font-weight: 600;"></span>
+      <button class="btn-logout" onclick="handleLogout()">Sign Out</button>
+    </div>
+  </header>
+
+  <!-- Login Card if not logged in -->
+  <div class="login-container" id="loginCard">
+    <div style="text-align: center; margin-bottom: 24px;">
+      <div class="brand-logo" style="margin: 0 auto 12px; width: 44px; height: 44px; font-size: 22px;">Z</div>
+      <h2 style="font-size: 20px; font-weight: 800; color: #0f172a;">Customer Portal Login</h2>
+      <p style="font-size: 13px; color: #64748b; margin-top: 4px;">Access your subscription, desktop installer &amp; security PIN</p>
+    </div>
+
+    <form onsubmit="handleLogin(event)">
+      <div class="field-group">
+        <label class="field-label">Registered Email</label>
+        <input type="email" id="loginEmail" class="text-control" required placeholder="name@yourcompany.com" autocomplete="username">
+      </div>
+      <div class="field-group">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+          <label class="field-label">Password</label>
+          <a href="#" onclick="openForgotPasswordModal(event)" style="font-size: 12px; color: var(--primary); text-decoration: none;">Forgot Password?</a>
+        </div>
+        <input type="password" id="loginPassword" class="text-control" required placeholder="Enter password" autocomplete="current-password">
+      </div>
+      <button type="submit" class="btn-primary" style="width: 100%; height: 44px; font-size: 14px; margin-top: 8px;" id="loginBtn">Sign In to Portal</button>
+    </form>
+    <div id="loginError" style="color: #dc2626; font-size: 12.5px; margin-top: 12px; text-align: center; display: none;"></div>
+
+    <div style="text-align: center; margin-top: 24px; padding-top: 18px; border-top: 1px solid var(--border); font-size: 13px; color: var(--muted);">
+      Don't have an account? <a href="/register" style="color: var(--primary); font-weight: 600; text-decoration: none;">Register on Website</a>
+    </div>
+  </div>
+
+  <!-- Main Dashboard -->
+  <div class="portal-container hidden" id="portalDashboard">
+
+    <!-- Welcome Card -->
+    <div class="welcome-card">
+      <div>
+        <h2 id="welcomeCompany">Welcome to ZynBill</h2>
+        <p>Proprietor: <span id="welcomeOwner">-</span> • Registered Email: <span id="welcomeEmail">-</span></p>
+      </div>
+      <div>
+        <span class="portal-badge" style="background:#ffffff; color:#0369a1; font-size:12px; font-weight:700; padding:6px 14px;" id="welcomeStatus">ACTIVE</span>
+      </div>
+    </div>
+
+    <!-- Download Banner Card -->
+    <div class="card" style="background: linear-gradient(180deg, #ffffff 0%, #f0f9ff 100%); border-color: #bae6fd;">
+      <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:16px;">
+        <div>
+          <div class="card-title" style="color:#0369a1; font-size:18px; margin-bottom:4px;">
+            <span>💻</span> Download ZynBill Desktop Application
+          </div>
+          <p style="font-size:13.5px; color:#334155;">Latest Windows release (v1.1.0) with offline local SQLite storage and cloud auto-sync.</p>
+        </div>
+        <div>
+          <a href="/api/v1/download/app" class="btn-download" id="downloadAppBtn">
+            <svg style="width:18px; height:18px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+            Download for Windows (.exe)
+          </a>
+        </div>
+      </div>
+      <div style="display:flex; gap:18px; margin-top:16px; padding-top:14px; border-top:1px solid #e0f2fe; font-size:12.5px; color:#64748b; flex-wrap:wrap;">
+        <span>✓ Windows 10 &amp; 11 (64-bit)</span>
+        <span>✓ 1-Click Offline Installation</span>
+        <span>✓ First PC One-Time Verification Code Protected</span>
+        <span>✓ 14-Day Offline Grace Period</span>
+      </div>
+    </div>
+
+    <!-- 2-Column Grid -->
+    <div class="cards-grid">
+
+      <!-- Plan & Subscription Status -->
+      <div class="card">
+        <div class="card-title">
+          <span>📜</span> Subscription Plan &amp; Validity
+        </div>
+        
+        <div class="plan-status-box">
+          <div class="plan-name-row">
+            <span style="font-size:15px; font-weight:700; color:#0f172a;" id="displayPlanName">Professional Business</span>
+            <span class="plan-badge" id="displayPlanBadge">Active</span>
+          </div>
+          <div class="plan-metric" id="displayDaysLeft">365</div>
+          <div class="plan-sub">Days remaining on your current subscription</div>
+
+          <div class="progress-bar-bg">
+            <div class="progress-bar-fill" id="planProgressFill" style="width: 100%;"></div>
+          </div>
+          <div style="display:flex; justify-content:space-between; font-size:12px; color:var(--muted); margin-top:4px;">
+            <span>License Valid Until:</span>
+            <strong id="displayValidUntil" style="color:#0f172a;">-</strong>
+          </div>
+        </div>
+
+        <div style="font-size:13px; color:#475569; line-height:1.6; margin-bottom:16px;">
+          Includes: <strong>Multi-PC Synchronization</strong>, <strong>14-Day Offline Grace Period</strong>, and <strong>Automated Daily Backups</strong>.
+        </div>
+
+        <button class="btn-secondary" style="width:100%;" onclick="openPlanModal()">
+          View Plans &amp; Request Upgrade
+        </button>
+      </div>
+
+      <!-- Security PIN & Password Management -->
+      <div class="card">
+        <div class="card-title">
+          <span>🔒</span> Security PIN &amp; Password
+        </div>
+
+        <div style="margin-bottom:18px;">
+          <h4 style="font-size:14px; color:#0f172a; margin-bottom:4px;">4-Digit Application PIN</h4>
+          <p style="font-size:13px; color:var(--muted); margin-bottom:10px;">Used for fast desktop app unlock without typing your full password.</p>
+          <button class="btn-secondary" onclick="openPinResetModal()">
+            Reset / Change Desktop PIN
+          </button>
+        </div>
+
+        <hr style="border:none; border-top:1px solid var(--border); margin:18px 0;" />
+
+        <div>
+          <h4 style="font-size:14px; color:#0f172a; margin-bottom:4px;">Portal Account Password</h4>
+          <p style="font-size:13px; color:var(--muted); margin-bottom:10px;">Used for web portal access and initial desktop PC activation.</p>
+          <button class="btn-secondary" onclick="openChangePasswordModal()">
+            Change Password
+          </button>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Authorized Devices Card -->
+    <div class="card">
+      <div class="card-title" style="justify-content:space-between;">
+        <div style="display:flex; align-items:center; gap:8px;">
+          <span>🖥️</span> Authorized PC Terminals
+        </div>
+        <span style="font-size:12px; font-weight:600; color:var(--muted);" id="deviceCountLabel">0 PCs connected</span>
+      </div>
+      <p style="font-size:13px; color:var(--muted); margin-bottom:16px;">
+        Each PC verifies with a One-Time Verification Code on initial login. Decommission old PCs here if you switch computers.
+      </p>
+
+      <div id="deviceListContainer">
+        <div style="text-align:center; padding:20px; color:var(--muted); font-size:13px;">No authorized PCs yet. Log in on your Windows application to activate this PC.</div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Modal: Forgot Password -->
+  <div class="modal-backdrop hidden" id="forgotPasswordModal">
+    <div class="modal-card">
+      <div class="modal-head">
+        <h3>Reset Your Password</h3>
+        <p>We'll send a 6-digit verification code to your registered email.</p>
+      </div>
+
+      <!-- Step 1: Request Code -->
+      <div id="forgotStep1">
+        <div class="field-group">
+          <label class="field-label">Registered Email</label>
+          <input type="email" id="forgotEmail" class="text-control" required placeholder="name@yourcompany.com">
+        </div>
+        <div id="forgotStep1Error" style="color:#dc2626; font-size:12.5px; margin-bottom:12px; display:none;"></div>
+        <div class="modal-actions">
+          <button type="button" class="btn-secondary" onclick="closeForgotPasswordModal()">Cancel</button>
+          <button type="button" class="btn-primary" onclick="requestPasswordResetOtp()">Send Verification Code</button>
+        </div>
+      </div>
+
+      <!-- Step 2: Verify Code & Set Password -->
+      <div id="forgotStep2" class="hidden">
+        <div class="field-group">
+          <label class="field-label">6-Digit Verification Code</label>
+          <input type="text" id="forgotOtp" class="text-control" maxlength="6" placeholder="123456" style="letter-spacing:4px; font-weight:700;">
+        </div>
+        <div class="field-group">
+          <label class="field-label">New Password</label>
+          <input type="password" id="forgotNewPassword" class="text-control" placeholder="At least 6 characters">
+        </div>
+        <div id="forgotStep2Error" style="color:#dc2626; font-size:12.5px; margin-bottom:12px; display:none;"></div>
+        <div class="modal-actions">
+          <button type="button" class="btn-secondary" onclick="closeForgotPasswordModal()">Cancel</button>
+          <button type="button" class="btn-primary" onclick="submitPasswordReset()">Set New Password</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Change Password (Logged In) -->
+  <div class="modal-backdrop hidden" id="changePasswordModal">
+    <div class="modal-card">
+      <div class="modal-head">
+        <h3>Change Account Password</h3>
+        <p>Update your portal and application login password.</p>
+      </div>
+
+      <div class="field-group">
+        <label class="field-label">Current Password</label>
+        <input type="password" id="changeCurrentPassword" class="text-control">
+      </div>
+      <div class="field-group">
+        <label class="field-label">New Password</label>
+        <input type="password" id="changeNewPassword" class="text-control">
+      </div>
+      <div id="changePasswordError" style="color:#dc2626; font-size:12.5px; margin-bottom:12px; display:none;"></div>
+
+      <div class="modal-actions">
+        <button type="button" class="btn-secondary" onclick="closeChangePasswordModal()">Cancel</button>
+        <button type="button" class="btn-primary" onclick="submitChangePassword()">Update Password</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Reset PIN -->
+  <div class="modal-backdrop hidden" id="pinResetModal">
+    <div class="modal-card">
+      <div class="modal-head">
+        <h3>Reset Desktop Security PIN</h3>
+        <p>Send an authorization code to your email to verify and update your 4-digit PIN.</p>
+      </div>
+
+      <!-- Step 1: Request Code -->
+      <div id="pinStep1">
+        <p style="font-size:13.5px; color:#334155; margin-bottom:16px;">
+          Click below to receive a PIN Reset Verification Code at <strong id="pinTargetEmail">your email</strong>.
+        </p>
+        <div class="modal-actions">
+          <button type="button" class="btn-secondary" onclick="closePinResetModal()">Cancel</button>
+          <button type="button" class="btn-primary" onclick="requestPinResetOtp()">Send Reset Code</button>
+        </div>
+      </div>
+
+      <!-- Step 2: Verify Code & Set PIN -->
+      <div id="pinStep2" class="hidden">
+        <div class="field-group">
+          <label class="field-label">6-Digit Verification Code</label>
+          <input type="text" id="pinOtp" class="text-control" maxlength="6" placeholder="123456" style="letter-spacing:4px; font-weight:700;">
+        </div>
+        <p style="font-size:13px; color:#16a34a; margin-bottom:16px;">
+          ✓ Once verified, your desktop application PIN lock will reset, allowing you to configure a new PIN next time you launch the app.
+        </p>
+        <div id="pinStep2Error" style="color:#dc2626; font-size:12.5px; margin-bottom:12px; display:none;"></div>
+        <div class="modal-actions">
+          <button type="button" class="btn-secondary" onclick="closePinResetModal()">Cancel</button>
+          <button type="button" class="btn-primary" onclick="submitPinResetVerify()">Verify &amp; Reset PIN</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: View Plans -->
+  <div class="modal-backdrop hidden" id="plansModal">
+    <div class="modal-card" style="max-width: 650px;">
+      <div class="modal-head">
+        <h3>Available Subscription Plans</h3>
+        <p>Choose a plan that fits your business needs. Contact our sales team to activate.</p>
+      </div>
+
+      <div id="plansListContainer" style="display:flex; flex-direction:column; gap:12px; max-height:400px; overflow-y:auto;">
+        <!-- Populated dynamically -->
+      </div>
+
+      <div class="modal-actions">
+        <button type="button" class="btn-secondary" onclick="closePlanModal()">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let currentCustomer = null;
+    let customerToken = localStorage.getItem('zynbill_portal_token');
+
+    window.addEventListener('DOMContentLoaded', () => {
+      if (customerToken) {
+        loadProfile();
+      } else {
+        document.getElementById('loginCard').classList.remove('hidden');
+      }
+    });
+
+    async function handleLogin(e) {
+      e.preventDefault();
+      const email = document.getElementById('loginEmail').value.trim();
+      const password = document.getElementById('loginPassword').value.trim();
+      const errEl = document.getElementById('loginError');
+      const btn = document.getElementById('loginBtn');
+
+      errEl.style.display = 'none';
+      btn.disabled = true;
+      btn.textContent = 'Signing In...';
+
+      try {
+        const res = await fetch('/api/v1/portal/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password })
+        });
+        const data = await res.json();
+        if (!res.ok || !data.ok) throw new Error(data.error || 'Login failed.');
+
+        customerToken = data.token;
+        localStorage.setItem('zynbill_portal_token', customerToken);
+        currentCustomer = data.customer;
+        renderDashboard(data.customer);
+      } catch (err) {
+        errEl.textContent = err.message;
+        errEl.style.display = 'block';
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Sign In to Portal';
+      }
+    }
+
+    async function loadProfile() {
+      try {
+        const res = await fetch('/api/v1/portal/profile', {
+          headers: { 'Authorization': 'Bearer ' + customerToken }
+        });
+        const data = await res.json();
+        if (!res.ok || !data.ok) {
+          handleLogout();
+          return;
+        }
+        currentCustomer = data.customer;
+        renderDashboard(data.customer, data.devices);
+      } catch (_) {
+        handleLogout();
+      }
+    }
+
+    function renderDashboard(customer, devices = []) {
+      document.getElementById('loginCard').classList.add('hidden');
+      document.getElementById('portalDashboard').classList.remove('hidden');
+      document.getElementById('portalUserSection').style.display = 'flex';
+
+      document.getElementById('headerCompanyName').textContent = customer.companyName || customer.email;
+      document.getElementById('welcomeCompany').textContent = customer.companyName || 'Business Workspace';
+      document.getElementById('welcomeOwner').textContent = customer.ownerName || '-';
+      document.getElementById('welcomeEmail').textContent = customer.email;
+      document.getElementById('welcomeStatus').textContent = (customer.status || 'ACTIVE').toUpperCase();
+
+      document.getElementById('displayPlanName').textContent = customer.plan ? (customer.plan + ' Plan') : 'Professional Business';
+      document.getElementById('displayDaysLeft').textContent = customer.daysRemaining !== undefined ? customer.daysRemaining : 365;
+
+      if (customer.validUntil) {
+        const formatted = new Date(customer.validUntil).toLocaleDateString([], { year: 'numeric', month: 'short', day: 'numeric' });
+        document.getElementById('displayValidUntil').textContent = formatted;
+      } else {
+        document.getElementById('displayValidUntil').textContent = '1 Year Included';
+      }
+
+      // Render Devices
+      renderDevices(devices);
+    }
+
+    function renderDevices(devices) {
+      const container = document.getElementById('deviceListContainer');
+      const countEl = document.getElementById('deviceCountLabel');
+      countEl.textContent = `${devices.length} PC${devices.length === 1 ? '' : 's'} connected`;
+
+      if (!devices || devices.length === 0) {
+        container.innerHTML = '<div style="text-align:center; padding:20px; color:var(--muted); font-size:13px;">No authorized PCs yet. Log in on your Windows application to activate this PC.</div>';
+        return;
+      }
+
+      container.innerHTML = devices.map(d => `
+        <div class="device-item">
+          <div>
+            <div style="font-weight:700; color:#0f172a;">💻 ${escapeHtml(d.machine_name || 'Windows Desktop')}</div>
+            <div style="font-size:12px; color:var(--muted); margin-top:2px;">
+              Activated: ${new Date(d.created_at).toLocaleDateString()} • Last Active: ${new Date(d.last_active_at).toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' })}
+            </div>
+          </div>
+          <button class="btn-secondary" style="color:#dc2626; padding:6px 12px; font-size:12px;" onclick="revokeDevice('${d.token}')">
+            Revoke Access
+          </button>
+        </div>
+      `).join('');
+    }
+
+    async function revokeDevice(token) {
+      if (!confirm('Are you sure you want to revoke this PC? It will require entering a new One-Time Verification Code on next launch.')) return;
+      try {
+        const res = await fetch('/api/v1/portal/revoke-device', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer ' + customerToken
+          },
+          body: JSON.stringify({ token })
+        });
+        const data = await res.json();
+        if (data.ok) {
+          loadProfile();
+        } else {
+          alert(data.error || 'Could not revoke device.');
+        }
+      } catch (err) {
+        alert(err.message);
+      }
+    }
+
+    function handleLogout() {
+      customerToken = null;
+      currentCustomer = null;
+      localStorage.removeItem('zynbill_portal_token');
+      document.getElementById('portalDashboard').classList.add('hidden');
+      document.getElementById('portalUserSection').style.display = 'none';
+      document.getElementById('loginCard').classList.remove('hidden');
+    }
+
+    // ── Forgot Password ──────────────────────────────────────
+    function openForgotPasswordModal(e) {
+      if (e) e.preventDefault();
+      document.getElementById('forgotStep1').classList.remove('hidden');
+      document.getElementById('forgotStep2').classList.add('hidden');
+      document.getElementById('forgotEmail').value = document.getElementById('loginEmail').value || '';
+      document.getElementById('forgotStep1Error').style.display = 'none';
+      document.getElementById('forgotStep2Error').style.display = 'none';
+      document.getElementById('forgotPasswordModal').classList.remove('hidden');
+    }
+
+    function closeForgotPasswordModal() {
+      document.getElementById('forgotPasswordModal').classList.add('hidden');
+    }
+
+    async function requestPasswordResetOtp() {
+      const email = document.getElementById('forgotEmail').value.trim();
+      const errEl = document.getElementById('forgotStep1Error');
+      errEl.style.display = 'none';
+
+      if (!email) {
+        errEl.textContent = 'Please enter your registered email address.';
+        errEl.style.display = 'block';
+        return;
+      }
+
+      try {
+        const res = await fetch('/api/v1/portal/forgot-password', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email })
+        });
+        const data = await res.json();
+        if (!res.ok || !data.ok) throw new Error(data.error || 'Failed to send reset code.');
+
+        document.getElementById('forgotStep1').classList.add('hidden');
+        document.getElementById('forgotStep2').classList.remove('hidden');
+        if (data.devOtp) {
+          document.getElementById('forgotOtp').value = data.devOtp;
+        }
+      } catch (err) {
+        errEl.textContent = err.message;
+        errEl.style.display = 'block';
+      }
+    }
+
+    async function submitPasswordReset() {
+      const email = document.getElementById('forgotEmail').value.trim();
+      const otp = document.getElementById('forgotOtp').value.trim();
+      const newPassword = document.getElementById('forgotNewPassword').value.trim();
+      const errEl = document.getElementById('forgotStep2Error');
+      errEl.style.display = 'none';
+
+      if (!otp || !newPassword) {
+        errEl.textContent = 'Please enter verification code and new password.';
+        errEl.style.display = 'block';
+        return;
+      }
+
+      try {
+        const res = await fetch('/api/v1/portal/reset-password', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, otp, newPassword })
+        });
+        const data = await res.json();
+        if (!res.ok || !data.ok) throw new Error(data.error || 'Failed to reset password.');
+
+        alert('Password reset successfully! Please sign in with your new password.');
+        closeForgotPasswordModal();
+      } catch (err) {
+        errEl.textContent = err.message;
+        errEl.style.display = 'block';
+      }
+    }
+
+    // ── Change Password Modal ────────────────────────────────
+    function openChangePasswordModal() {
+      document.getElementById('changeCurrentPassword').value = '';
+      document.getElementById('changeNewPassword').value = '';
+      document.getElementById('changePasswordError').style.display = 'none';
+      document.getElementById('changePasswordModal').classList.remove('hidden');
+    }
+    function closeChangePasswordModal() {
+      document.getElementById('changePasswordModal').classList.add('hidden');
+    }
+    async function submitChangePassword() {
+      const currentPassword = document.getElementById('changeCurrentPassword').value;
+      const newPassword = document.getElementById('changeNewPassword').value;
+      const errEl = document.getElementById('changePasswordError');
+      errEl.style.display = 'none';
+
+      try {
+        const res = await fetch('/api/v1/portal/change-password', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer ' + customerToken
+          },
+          body: JSON.stringify({ currentPassword, newPassword })
+        });
+        const data = await res.json();
+        if (!res.ok || !data.ok) throw new Error(data.error || 'Failed to update password.');
+
+        alert('Password updated successfully!');
+        closeChangePasswordModal();
+      } catch (err) {
+        errEl.textContent = err.message;
+        errEl.style.display = 'block';
+      }
+    }
+
+    // ── PIN Reset Modal ──────────────────────────────────────
+    function openPinResetModal() {
+      document.getElementById('pinTargetEmail').textContent = currentCustomer ? currentCustomer.email : 'your email';
+      document.getElementById('pinStep1').classList.remove('hidden');
+      document.getElementById('pinStep2').classList.add('hidden');
+      document.getElementById('pinResetModal').classList.remove('hidden');
+    }
+    function closePinResetModal() {
+      document.getElementById('pinResetModal').classList.add('hidden');
+    }
+    async function requestPinResetOtp() {
+      try {
+        const res = await fetch('/api/v1/auth/pin-reset-request', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: currentCustomer.email })
+        });
+        const data = await res.json();
+        if (!res.ok || !data.ok) throw new Error(data.error || 'Failed to send PIN reset code.');
+
+        document.getElementById('pinStep1').classList.add('hidden');
+        document.getElementById('pinStep2').classList.remove('hidden');
+        if (data.devOtp) {
+          document.getElementById('pinOtp').value = data.devOtp;
+        }
+      } catch (err) {
+        alert(err.message);
+      }
+    }
+    async function submitPinResetVerify() {
+      const code = document.getElementById('pinOtp').value.trim();
+      const errEl = document.getElementById('pinStep2Error');
+      errEl.style.display = 'none';
+
+      try {
+        const res = await fetch('/api/v1/auth/pin-reset-verify', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: currentCustomer.email, code })
+        });
+        const data = await res.json();
+        if (!res.ok || !data.ok) throw new Error(data.error || 'Incorrect code.');
+
+        alert('Security PIN verified and reset! When you open your ZynBill desktop app, you will be prompted to set a new 4-digit PIN.');
+        closePinResetModal();
+      } catch (err) {
+        errEl.textContent = err.message;
+        errEl.style.display = 'block';
+      }
+    }
+
+    // ── Plans Modal ──────────────────────────────────────────
+    async function openPlanModal() {
+      document.getElementById('plansModal').classList.remove('hidden');
+      const container = document.getElementById('plansListContainer');
+      container.innerHTML = '<div style="text-align:center; padding:20px; color:var(--muted);">Loading plans...</div>';
+
+      try {
+        const res = await fetch('/api/v1/portal/plans');
+        const data = await res.json();
+        if (!data.ok || !data.plans) throw new Error('Could not load plans.');
+
+        container.innerHTML = data.plans.map(p => {
+          let feats = [];
+          try { feats = JSON.parse(p.features || '[]'); } catch (_) {}
+          const isCurrent = currentCustomer && currentCustomer.plan === p.code;
+
+          return `
+            <div style="border:1px solid ${isCurrent ? 'var(--primary)' : 'var(--border)'}; background:${isCurrent ? '#f0f9ff' : '#ffffff'}; border-radius:10px; padding:16px;">
+              <div style="display:flex; justify-content:space-between; align-items:center;">
+                <div>
+                  <h4 style="font-size:16px; color:#0f172a; margin-bottom:2px;">${escapeHtml(p.name)}</h4>
+                  <div style="font-size:12px; color:var(--muted);">${escapeHtml(p.description || '')}</div>
+                </div>
+                <div style="text-align:right;">
+                  <div style="font-size:20px; font-weight:800; color:var(--primary);">₹${Number(p.price).toLocaleString()}</div>
+                  <div style="font-size:11px; color:var(--muted); text-transform:uppercase;">/${escapeHtml(p.billing_cycle)}</div>
+                </div>
+              </div>
+              <div style="display:flex; gap:12px; margin-top:12px; flex-wrap:wrap; font-size:12px; color:#334155;">
+                <span>⏱️ ${p.duration_days} Days Validity</span>
+                <span>💻 Up to ${p.max_devices} PC${p.max_devices > 1 ? 's' : ''}</span>
+              </div>
+              ${isCurrent ? '<div style="margin-top:10px; font-size:12px; font-weight:700; color:#0284c7;">✓ Currently Active Plan</div>' : ''}
+            </div>
+          `;
+        }).join('');
+      } catch (err) {
+        container.innerHTML = `<div style="color:#dc2626; padding:20px;">${err.message}</div>`;
+      }
+    }
+    function closePlanModal() {
+      document.getElementById('plansModal').classList.add('hidden');
+    }
+
+    function escapeHtml(str) {
+      return String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+  </script>
+</body>
+</html>

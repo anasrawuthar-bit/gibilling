@@ -1,7 +1,7 @@
 /**
  * ZynBill Multi-Tenant Cloud Ecosystem & Customer Management Server
  * Port: 4000 (configurable via PORT env var)
- * Zero external dependencies: uses Node 24 native http, crypto & sqlite!
+ * Zero external dependencies: uses Node native http, crypto & sqlite!
  */
 
 const http = require('node:http');
@@ -10,7 +10,7 @@ const path = require('node:path');
 const url = require('node:url');
 const crypto = require('node:crypto');
 
-const { masterDb, hashPassword, verifyPassword, getTenantDb } = require('./db');
+const { masterDb, hashPassword, verifyPassword, getTenantDb, getSetting, setSetting } = require('./db');
 const smtp = require('./smtp');
 
 const PORT = parseInt(process.env.PORT || '4000', 10);
@@ -18,6 +18,7 @@ const PUBLIC_DIR = path.join(__dirname, 'public');
 
 // ── In-Memory Token Sessions ──────────────────────────────────────────
 const adminSessions = new Map();
+const customerSessions = new Map();
 
 function generateToken(prefix = 'tok_') {
   return prefix + crypto.randomBytes(24).toString('hex');
@@ -95,17 +96,49 @@ const server = http.createServer(async (req, res) => {
     if (pathname === '/admin') {
       return sendHtml(res, path.join(PUBLIC_DIR, 'admin.html'));
     }
+    if (pathname === '/portal' || pathname === '/user' || pathname === '/login') {
+      return sendHtml(res, path.join(PUBLIC_DIR, 'portal.html'));
+    }
+  }
+
+  // ── Application Installer Download ─────────────────────────────────
+  if (req.method === 'GET' && (pathname === '/api/v1/download/app' || pathname === '/download')) {
+    const candidates = [
+      path.join(__dirname, '..', 'dist', 'ZynBill Setup 1.1.0.exe'),
+      path.join(__dirname, '..', 'dist', 'GI Billing Setup 1.1.0.exe'),
+      path.join(__dirname, '..', 'dist', 'win-unpacked', 'ZynBill.exe')
+    ];
+
+    const exePath = candidates.find(p => fs.existsSync(p));
+    if (exePath) {
+      const filename = path.basename(exePath);
+      const stat = fs.statSync(exePath);
+      res.writeHead(200, {
+        'Content-Type': 'application/octet-stream',
+        'Content-Length': stat.size,
+        'Content-Disposition': `attachment; filename="${filename}"`,
+        'Access-Control-Allow-Origin': '*'
+      });
+      return fs.createReadStream(exePath).pipe(res);
+    } else {
+      return sendJson(res, 404, {
+        ok: false,
+        error: 'Windows setup installer not found. Please build the distribution package.'
+      });
+    }
   }
 
   // ── Health Check ──────────────────────────────────────────────────
   if (req.method === 'GET' && pathname === '/api/v1/system/health') {
     const customerCount = masterDb.prepare('SELECT COUNT(*) as count FROM customers').get().count;
+    const planCount = masterDb.prepare('SELECT COUNT(*) as count FROM plans').get().count;
     return sendJson(res, 200, {
       ok: true,
       service: 'ZynBill Cloud Ecosystem',
       version: '1.1.0',
       status: 'operational',
       registeredCustomers: customerCount,
+      activePlans: planCount,
       timestamp: new Date().toISOString()
     });
   }
@@ -128,7 +161,7 @@ const server = http.createServer(async (req, res) => {
       if (existing.status === 'pending_approval') {
         return sendJson(res, 400, { ok: false, error: 'An account with this email is already registered and awaiting Super Admin review.' });
       } else if (existing.status === 'active') {
-        return sendJson(res, 400, { ok: false, error: 'An active account already exists with this email. Please log in on the Windows app.' });
+        return sendJson(res, 400, { ok: false, error: 'An active account already exists with this email. Please log in on the Windows app or User Portal.' });
       }
     }
 
@@ -173,7 +206,6 @@ const server = http.createServer(async (req, res) => {
       message: 'Verification OTP sent to your registered email.',
       email: cleanEmail,
       customerId,
-      // In dev/simulated environments, expose code for easy manual or automated test entry
       devOtp: process.env.NODE_ENV === 'production' ? undefined : otp
     });
   }
@@ -242,8 +274,8 @@ const server = http.createServer(async (req, res) => {
     return sendJson(res, 200, { ok: true, customer });
   }
 
-  // 4. Desktop Online Activation & Login
-  if (req.method === 'POST' && pathname === '/api/v1/auth/desktop-activate') {
+  // 4. Desktop Step 1: Initiate Login & Send One-Time Device Code for First PC Login
+  if (req.method === 'POST' && pathname === '/api/v1/auth/desktop-initiate-login') {
     const body = await parseJsonBody(req);
     const { email, password, machineName } = body;
 
@@ -252,9 +284,156 @@ const server = http.createServer(async (req, res) => {
     }
 
     const cleanEmail = String(email).trim().toLowerCase();
-    const customer = masterDb.prepare(`
-      SELECT * FROM customers WHERE email = ?
+    const customer = masterDb.prepare('SELECT * FROM customers WHERE email = ?').get(cleanEmail);
+
+    if (!customer) {
+      return sendJson(res, 401, { ok: false, error: 'Account not found. Please register on the web portal first.' });
+    }
+
+    const isValidPassword = verifyPassword(password, customer.password_hash, customer.password_salt);
+    if (!isValidPassword) {
+      return sendJson(res, 401, { ok: false, error: 'Invalid password. Please check your credentials.' });
+    }
+
+    // Check account status
+    if (customer.status === 'pending_approval' || customer.status === 'pending_verification') {
+      return sendJson(res, 403, {
+        ok: false,
+        status: customer.status,
+        error: 'Your account is pending Super Admin review. You will receive an approval email shortly.'
+      });
+    }
+
+    if (customer.status === 'rejected') {
+      return sendJson(res, 403, {
+        ok: false,
+        status: 'rejected',
+        error: `Your account request was rejected. Reason: ${customer.rejection_reason || 'Criteria not met.'}`
+      });
+    }
+
+    if (customer.status === 'suspended') {
+      return sendJson(res, 403, {
+        ok: false,
+        status: 'suspended',
+        error: 'This account has been suspended by the Super Admin. Please contact support.'
+      });
+    }
+
+    // Check expiration date
+    const now = Date.now();
+    const expiry = customer.valid_until ? new Date(customer.valid_until).getTime() : now + 365 * 86400000;
+    const graceMs = 14 * 24 * 60 * 60 * 1000;
+
+    if (now > expiry + graceMs) {
+      return sendJson(res, 403, {
+        ok: false,
+        status: 'expired',
+        error: 'Your subscription license and 14-day offline grace period have expired. Please renew your plan.'
+      });
+    }
+
+    // Generate 6-digit Device Verification OTP
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const otpId = 'otp_' + crypto.randomBytes(8).toString('hex');
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+
+    masterDb.prepare('DELETE FROM otps WHERE email = ? AND purpose = ?').run(cleanEmail, 'device_activation');
+    masterDb.prepare(`
+      INSERT INTO otps (id, email, code, purpose, expires_at, verified, created_at)
+      VALUES (?, ?, ?, ?, ?, 0, ?)
+    `).run(otpId, cleanEmail, otp, 'device_activation', expiresAt, new Date().toISOString());
+
+    // Send One-Time Verification Code email via SMTP
+    await smtp.sendDeviceVerificationOtp(cleanEmail, otp, customer.company_name, machineName || 'Windows PC');
+
+    return sendJson(res, 200, {
+      ok: true,
+      requiresVerification: true,
+      email: cleanEmail,
+      message: 'One-Time Device Verification Code sent to your registered email.',
+      devOtp: process.env.NODE_ENV === 'production' ? undefined : otp
+    });
+  }
+
+  // 5. Desktop Step 2: Verify Device Verification Code & Activate PC
+  if (req.method === 'POST' && pathname === '/api/v1/auth/desktop-verify-device') {
+    const body = await parseJsonBody(req);
+    const { email, code, machineName } = body;
+
+    if (!email || !code) {
+      return sendJson(res, 400, { ok: false, error: 'Email and verification code are required.' });
+    }
+
+    const cleanEmail = String(email).trim().toLowerCase();
+    const cleanCode = String(code).trim();
+
+    const otpRecord = masterDb.prepare(`
+      SELECT * FROM otps
+      WHERE email = ? AND purpose = 'device_activation' AND verified = 0
+      ORDER BY created_at DESC LIMIT 1
     `).get(cleanEmail);
+
+    if (!otpRecord) {
+      return sendJson(res, 400, { ok: false, error: 'No pending verification code found. Please request a new code.' });
+    }
+
+    if (new Date(otpRecord.expires_at).getTime() < Date.now()) {
+      return sendJson(res, 400, { ok: false, error: 'The verification code has expired. Please try logging in again.' });
+    }
+
+    if (otpRecord.code !== cleanCode) {
+      return sendJson(res, 400, { ok: false, error: 'Incorrect verification code. Please check your email and try again.' });
+    }
+
+    masterDb.prepare('UPDATE otps SET verified = 1 WHERE id = ?').run(otpRecord.id);
+
+    const customer = masterDb.prepare('SELECT * FROM customers WHERE email = ?').get(cleanEmail);
+    if (!customer) return sendJson(res, 404, { ok: false, error: 'Customer not found.' });
+
+    // Issue Device Token
+    const token = generateToken('zyndev_');
+    const nowIso = new Date().toISOString();
+
+    masterDb.prepare(`
+      INSERT INTO device_tokens (token, customer_id, machine_name, created_at, last_active_at)
+      VALUES (?, ?, ?, ?, ?)
+    `).run(token, customer.id, machineName || 'Windows Desktop', nowIso, nowIso);
+
+    // Initialize tenant database
+    getTenantDb(customer.id);
+
+    const now = Date.now();
+    const expiry = customer.valid_until ? new Date(customer.valid_until).getTime() : now + 365 * 86400000;
+
+    return sendJson(res, 200, {
+      ok: true,
+      token,
+      customer: {
+        id: customer.id,
+        companyName: customer.company_name,
+        ownerName: customer.owner_name,
+        email: customer.email,
+        plan: customer.plan,
+        status: customer.status,
+        validUntil: customer.valid_until,
+        gracePeriodDays: 14,
+        inGracePeriod: now > expiry
+      }
+    });
+  }
+
+  // 6. Direct Desktop Online Activation (Supports code verification or direct bypass)
+  if (req.method === 'POST' && pathname === '/api/v1/auth/desktop-activate') {
+    const body = await parseJsonBody(req);
+    const { email, password, machineName, code } = body;
+
+    if (!email || !password) {
+      return sendJson(res, 400, { ok: false, error: 'Email and password are required.' });
+    }
+
+    const cleanEmail = String(email).trim().toLowerCase();
+    const customer = masterDb.prepare('SELECT * FROM customers WHERE email = ?').get(cleanEmail);
 
     if (!customer) {
       return sendJson(res, 401, { ok: false, error: 'Account not found. Please register on the web portal first.' });
@@ -265,7 +444,6 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 401, { ok: false, error: 'Invalid password. Please verify your credentials.' });
     }
 
-    // Check Approval Status
     if (customer.status === 'pending_approval' || customer.status === 'pending_verification') {
       return sendJson(res, 403, {
         ok: false,
@@ -290,7 +468,6 @@ const server = http.createServer(async (req, res) => {
       });
     }
 
-    // Check validity date & grace period
     const now = Date.now();
     const expiry = customer.valid_until ? new Date(customer.valid_until).getTime() : now + 365 * 86400000;
     const graceMs = 14 * 24 * 60 * 60 * 1000;
@@ -301,6 +478,18 @@ const server = http.createServer(async (req, res) => {
         status: 'expired',
         error: 'Your subscription license and 14-day offline grace period have expired. Please renew your plan.'
       });
+    }
+
+    // If code is provided, verify it
+    if (code) {
+      const cleanCode = String(code).trim();
+      const otpRecord = masterDb.prepare(`
+        SELECT * FROM otps WHERE email = ? AND purpose = 'device_activation' AND verified = 0 ORDER BY created_at DESC LIMIT 1
+      `).get(cleanEmail);
+      if (!otpRecord || otpRecord.code !== cleanCode) {
+        return sendJson(res, 400, { ok: false, error: 'Invalid or expired verification code.' });
+      }
+      masterDb.prepare('UPDATE otps SET verified = 1 WHERE id = ?').run(otpRecord.id);
     }
 
     // Generate Device Token
@@ -332,7 +521,7 @@ const server = http.createServer(async (req, res) => {
     });
   }
 
-  // 5. Desktop Validate License
+  // 7. Desktop Validate License & Sync Plan Status
   if (req.method === 'GET' && pathname === '/api/v1/auth/validate-license') {
     const token = getBearerToken(req);
     if (!token) return sendJson(res, 401, { ok: false, error: 'Missing authorization token.' });
@@ -341,13 +530,14 @@ const server = http.createServer(async (req, res) => {
     if (!device) return sendJson(res, 401, { ok: false, error: 'Invalid or revoked device token.' });
 
     const customer = masterDb.prepare(`
-      SELECT id, company_name, email, plan, status, valid_until FROM customers WHERE id = ?
+      SELECT id, company_name, owner_name, email, plan, status, valid_until FROM customers WHERE id = ?
     `).get(device.customer_id);
 
     if (!customer) return sendJson(res, 404, { ok: false, error: 'Customer record not found.' });
 
     const now = Date.now();
     const expiry = customer.valid_until ? new Date(customer.valid_until).getTime() : now + 365 * 86400000;
+    const daysRemaining = Math.max(0, Math.ceil((expiry - now) / (24 * 60 * 60 * 1000)));
 
     return sendJson(res, 200, {
       ok: true,
@@ -355,14 +545,77 @@ const server = http.createServer(async (req, res) => {
         activated: true,
         companyId: customer.id,
         companyName: customer.company_name,
+        ownerName: customer.owner_name,
         email: customer.email,
         plan: customer.plan,
         validUntil: customer.valid_until,
         status: customer.status,
+        daysRemaining,
         gracePeriodDays: 14,
         isOverdue: now > expiry,
         inGracePeriod: now > expiry && now <= (expiry + 14 * 86400000)
       }
+    });
+  }
+
+  // 8. In-App PIN Forget / Reset: Request Code
+  if (req.method === 'POST' && pathname === '/api/v1/auth/pin-reset-request') {
+    const body = await parseJsonBody(req);
+    const cleanEmail = String(body.email || '').trim().toLowerCase();
+
+    if (!cleanEmail) {
+      return sendJson(res, 400, { ok: false, error: 'Email address is required.' });
+    }
+
+    const customer = masterDb.prepare('SELECT * FROM customers WHERE email = ?').get(cleanEmail);
+    if (!customer) {
+      return sendJson(res, 404, { ok: false, error: 'Customer account not found.' });
+    }
+
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const otpId = 'otp_' + crypto.randomBytes(8).toString('hex');
+    const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+
+    masterDb.prepare('DELETE FROM otps WHERE email = ? AND purpose = ?').run(cleanEmail, 'pin_reset');
+    masterDb.prepare(`
+      INSERT INTO otps (id, email, code, purpose, expires_at, verified, created_at)
+      VALUES (?, ?, ?, ?, ?, 0, ?)
+    `).run(otpId, cleanEmail, otp, 'pin_reset', expiresAt, new Date().toISOString());
+
+    await smtp.sendPinResetOtp(cleanEmail, otp, customer.company_name);
+
+    return sendJson(res, 200, {
+      ok: true,
+      message: 'PIN Reset Verification Code sent to registered email.',
+      devOtp: process.env.NODE_ENV === 'production' ? undefined : otp
+    });
+  }
+
+  // 9. In-App PIN Forget / Reset: Verify & Set New PIN
+  if (req.method === 'POST' && pathname === '/api/v1/auth/pin-reset-verify') {
+    const body = await parseJsonBody(req);
+    const { email, code } = body;
+
+    if (!email || !code) {
+      return sendJson(res, 400, { ok: false, error: 'Email and verification code are required.' });
+    }
+
+    const cleanEmail = String(email).trim().toLowerCase();
+    const cleanCode = String(code).trim();
+
+    const otpRecord = masterDb.prepare(`
+      SELECT * FROM otps WHERE email = ? AND purpose = 'pin_reset' AND verified = 0 ORDER BY created_at DESC LIMIT 1
+    `).get(cleanEmail);
+
+    if (!otpRecord || otpRecord.code !== cleanCode) {
+      return sendJson(res, 400, { ok: false, error: 'Invalid or expired verification code.' });
+    }
+
+    masterDb.prepare('UPDATE otps SET verified = 1 WHERE id = ?').run(otpRecord.id);
+
+    return sendJson(res, 200, {
+      ok: true,
+      message: 'PIN reset verified successfully. You may now configure a new 4-digit PIN.'
     });
   }
 
@@ -417,7 +670,6 @@ const server = http.createServer(async (req, res) => {
 
     const customers = masterDb.prepare(sql).all(...params);
 
-    // Compute Summary Stats
     const stats = {
       total: masterDb.prepare('SELECT COUNT(*) as c FROM customers').get().c,
       pending: masterDb.prepare("SELECT COUNT(*) as c FROM customers WHERE status = 'pending_approval'").get().c,
@@ -495,7 +747,6 @@ const server = http.createServer(async (req, res) => {
       WHERE id = ?
     `).run(reason, now, customerId);
 
-    // Send Rejection Email
     await smtp.sendRejectionEmail(customer.email, customer.company_name, reason);
 
     return sendJson(res, 200, { ok: true, message: 'Account registration rejected.', customerId });
@@ -535,6 +786,324 @@ const server = http.createServer(async (req, res) => {
     return sendJson(res, 200, { ok: true, message: 'Subscription updated successfully.', customerId });
   }
 
+  // ── Plan Management Endpoints (Super Admin) ─────────────────────────
+
+  // 1. Get All Plans
+  if (req.method === 'GET' && pathname === '/api/v1/admin/plans') {
+    if (!verifyAdmin(req, res)) return;
+
+    const plans = masterDb.prepare(`
+      SELECT p.*, (SELECT COUNT(*) FROM customers c WHERE c.plan = p.code AND c.status = 'active') as active_subscribers
+      FROM plans p
+      ORDER BY p.price ASC
+    `).all();
+
+    return sendJson(res, 200, { ok: true, plans });
+  }
+
+  // 2. Create Plan
+  if (req.method === 'POST' && pathname === '/api/v1/admin/plans') {
+    if (!verifyAdmin(req, res)) return;
+    const body = await parseJsonBody(req);
+    const { name, code, description, price, billing_cycle, duration_days, max_devices, features } = body;
+
+    if (!name || !code) {
+      return sendJson(res, 400, { ok: false, error: 'Plan name and unique plan code are required.' });
+    }
+
+    const planId = 'plan_' + crypto.randomBytes(6).toString('hex');
+    const now = new Date().toISOString();
+
+    try {
+      masterDb.prepare(`
+        INSERT INTO plans (id, name, code, description, price, billing_cycle, duration_days, max_devices, features, is_active, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+      `).run(
+        planId,
+        name,
+        code,
+        description || '',
+        parseFloat(price || 0),
+        billing_cycle || 'yearly',
+        parseInt(duration_days || 365, 10),
+        parseInt(max_devices || 2, 10),
+        typeof features === 'string' ? features : JSON.stringify(features || []),
+        now,
+        now
+      );
+
+      return sendJson(res, 201, { ok: true, message: 'Plan created successfully.', planId });
+    } catch (err) {
+      return sendJson(res, 400, { ok: false, error: 'Could not create plan: ' + err.message });
+    }
+  }
+
+  // 3. Update Plan
+  const planUpdateMatch = pathname.match(/^\/api\/v1\/admin\/plans\/([^\/]+)$/);
+  if (req.method === 'PUT' && planUpdateMatch) {
+    if (!verifyAdmin(req, res)) return;
+    const planId = planUpdateMatch[1];
+    const body = await parseJsonBody(req);
+    const { name, description, price, billing_cycle, duration_days, max_devices, features, is_active } = body;
+
+    const now = new Date().toISOString();
+    masterDb.prepare(`
+      UPDATE plans SET
+        name = COALESCE(?, name),
+        description = COALESCE(?, description),
+        price = COALESCE(?, price),
+        billing_cycle = COALESCE(?, billing_cycle),
+        duration_days = COALESCE(?, duration_days),
+        max_devices = COALESCE(?, max_devices),
+        features = COALESCE(?, features),
+        is_active = COALESCE(?, is_active),
+        updated_at = ?
+      WHERE id = ?
+    `).run(
+      name,
+      description,
+      price !== undefined ? parseFloat(price) : null,
+      billing_cycle,
+      duration_days !== undefined ? parseInt(duration_days, 10) : null,
+      max_devices !== undefined ? parseInt(max_devices, 10) : null,
+      typeof features === 'string' ? features : (features ? JSON.stringify(features) : null),
+      is_active !== undefined ? (is_active ? 1 : 0) : null,
+      now,
+      planId
+    );
+
+    return sendJson(res, 200, { ok: true, message: 'Plan updated successfully.' });
+  }
+
+  // 4. Delete / Deactivate Plan
+  if (req.method === 'DELETE' && planUpdateMatch) {
+    if (!verifyAdmin(req, res)) return;
+    const planId = planUpdateMatch[1];
+
+    masterDb.prepare('DELETE FROM plans WHERE id = ?').run(planId);
+    return sendJson(res, 200, { ok: true, message: 'Plan removed.' });
+  }
+
+  // ── SMTP Configuration Endpoints (Super Admin) ─────────────────────
+
+  // 1. Get SMTP Configuration
+  if (req.method === 'GET' && pathname === '/api/v1/admin/smtp') {
+    if (!verifyAdmin(req, res)) return;
+    return sendJson(res, 200, { ok: true, config: smtp.getSmtpConfig() });
+  }
+
+  // 2. Save SMTP Configuration
+  if (req.method === 'POST' && pathname === '/api/v1/admin/smtp') {
+    if (!verifyAdmin(req, res)) return;
+    const body = await parseJsonBody(req);
+    const updated = smtp.saveSmtpConfig(body);
+    return sendJson(res, 200, { ok: true, message: 'SMTP settings updated successfully.', config: updated });
+  }
+
+  // 3. Test SMTP Connection
+  if (req.method === 'POST' && pathname === '/api/v1/admin/smtp/test') {
+    const admin = verifyAdmin(req, res);
+    if (!admin) return;
+    const body = await parseJsonBody(req);
+    const targetEmail = body.testEmail || admin.email;
+    const testResult = await smtp.testSmtpConnection(targetEmail);
+    return sendJson(res, testResult.ok ? 200 : 400, testResult);
+  }
+
+  // ── Customer Web Portal Endpoints ─────────────────────────────────
+
+  // 1. Customer Login
+  if (req.method === 'POST' && pathname === '/api/v1/portal/login') {
+    const body = await parseJsonBody(req);
+    const { email, password } = body;
+
+    if (!email || !password) {
+      return sendJson(res, 400, { ok: false, error: 'Email and password are required.' });
+    }
+
+    const cleanEmail = String(email).trim().toLowerCase();
+    const customer = masterDb.prepare('SELECT * FROM customers WHERE email = ?').get(cleanEmail);
+
+    if (!customer || !verifyPassword(password, customer.password_hash, customer.password_salt)) {
+      return sendJson(res, 401, { ok: false, error: 'Invalid email or password.' });
+    }
+
+    const sessionToken = generateToken('usr_');
+    customerSessions.set(sessionToken, { id: customer.id, email: customer.email });
+
+    const now = Date.now();
+    const expiry = customer.valid_until ? new Date(customer.valid_until).getTime() : now + 365 * 86400000;
+    const daysRemaining = Math.max(0, Math.ceil((expiry - now) / (24 * 60 * 60 * 1000)));
+
+    return sendJson(res, 200, {
+      ok: true,
+      token: sessionToken,
+      customer: {
+        id: customer.id,
+        companyName: customer.company_name,
+        ownerName: customer.owner_name,
+        email: customer.email,
+        phone: customer.phone,
+        state: customer.state,
+        gstin: customer.gstin,
+        status: customer.status,
+        plan: customer.plan,
+        validUntil: customer.valid_until,
+        daysRemaining,
+        gracePeriodDays: 14
+      }
+    });
+  }
+
+  function verifyCustomer(req, res) {
+    const token = getBearerToken(req);
+    if (!token || !customerSessions.has(token)) {
+      sendJson(res, 401, { ok: false, error: 'Customer session expired. Please log in.' });
+      return null;
+    }
+    return customerSessions.get(token);
+  }
+
+  // 2. Customer Profile & Devices
+  if (req.method === 'GET' && pathname === '/api/v1/portal/profile') {
+    const session = verifyCustomer(req, res);
+    if (!session) return;
+
+    const customer = masterDb.prepare('SELECT * FROM customers WHERE id = ?').get(session.id);
+    if (!customer) return sendJson(res, 404, { ok: false, error: 'Customer not found.' });
+
+    const devices = masterDb.prepare(`
+      SELECT token, machine_name, created_at, last_active_at FROM device_tokens WHERE customer_id = ? ORDER BY last_active_at DESC
+    `).all(session.id);
+
+    const now = Date.now();
+    const expiry = customer.valid_until ? new Date(customer.valid_until).getTime() : now + 365 * 86400000;
+    const daysRemaining = Math.max(0, Math.ceil((expiry - now) / (24 * 60 * 60 * 1000)));
+
+    return sendJson(res, 200, {
+      ok: true,
+      customer: {
+        id: customer.id,
+        companyName: customer.company_name,
+        ownerName: customer.owner_name,
+        email: customer.email,
+        phone: customer.phone,
+        state: customer.state,
+        gstin: customer.gstin,
+        status: customer.status,
+        plan: customer.plan,
+        validUntil: customer.valid_until,
+        daysRemaining,
+        gracePeriodDays: 14
+      },
+      devices
+    });
+  }
+
+  // 3. Customer Forgot Password Request
+  if (req.method === 'POST' && pathname === '/api/v1/portal/forgot-password') {
+    const body = await parseJsonBody(req);
+    const cleanEmail = String(body.email || '').trim().toLowerCase();
+
+    if (!cleanEmail) {
+      return sendJson(res, 400, { ok: false, error: 'Registered email address is required.' });
+    }
+
+    const customer = masterDb.prepare('SELECT * FROM customers WHERE email = ?').get(cleanEmail);
+    if (!customer) {
+      return sendJson(res, 404, { ok: false, error: 'No account registered with this email address.' });
+    }
+
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const otpId = 'otp_' + crypto.randomBytes(8).toString('hex');
+    const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+
+    masterDb.prepare('DELETE FROM otps WHERE email = ? AND purpose = ?').run(cleanEmail, 'password_reset');
+    masterDb.prepare(`
+      INSERT INTO otps (id, email, code, purpose, expires_at, verified, created_at)
+      VALUES (?, ?, ?, ?, ?, 0, ?)
+    `).run(otpId, cleanEmail, otp, 'password_reset', expiresAt, new Date().toISOString());
+
+    await smtp.sendPasswordResetOtp(cleanEmail, otp, customer.company_name);
+
+    return sendJson(res, 200, {
+      ok: true,
+      message: 'Password reset code sent to your registered email.',
+      devOtp: process.env.NODE_ENV === 'production' ? undefined : otp
+    });
+  }
+
+  // 4. Customer Reset Password with OTP
+  if (req.method === 'POST' && pathname === '/api/v1/portal/reset-password') {
+    const body = await parseJsonBody(req);
+    const { email, otp, newPassword } = body;
+
+    if (!email || !otp || !newPassword) {
+      return sendJson(res, 400, { ok: false, error: 'Email, verification code, and new password are required.' });
+    }
+
+    const cleanEmail = String(email).trim().toLowerCase();
+    const cleanOtp = String(otp).trim();
+
+    const otpRecord = masterDb.prepare(`
+      SELECT * FROM otps WHERE email = ? AND purpose = 'password_reset' AND verified = 0 ORDER BY created_at DESC LIMIT 1
+    `).get(cleanEmail);
+
+    if (!otpRecord || otpRecord.code !== cleanOtp) {
+      return sendJson(res, 400, { ok: false, error: 'Invalid or expired verification code.' });
+    }
+
+    if (new Date(otpRecord.expires_at).getTime() < Date.now()) {
+      return sendJson(res, 400, { ok: false, error: 'Verification code has expired. Please request a new one.' });
+    }
+
+    masterDb.prepare('UPDATE otps SET verified = 1 WHERE id = ?').run(otpRecord.id);
+
+    const { hash, salt } = hashPassword(newPassword);
+    masterDb.prepare(`
+      UPDATE customers SET password_hash = ?, password_salt = ?, updated_at = ? WHERE email = ?
+    `).run(hash, salt, new Date().toISOString(), cleanEmail);
+
+    return sendJson(res, 200, { ok: true, message: 'Password reset successfully. You can now log in.' });
+  }
+
+  // 5. Customer Change Password (Logged in)
+  if (req.method === 'POST' && pathname === '/api/v1/portal/change-password') {
+    const session = verifyCustomer(req, res);
+    if (!session) return;
+    const body = await parseJsonBody(req);
+    const { currentPassword, newPassword } = body;
+
+    const customer = masterDb.prepare('SELECT * FROM customers WHERE id = ?').get(session.id);
+    if (!customer || !verifyPassword(currentPassword, customer.password_hash, customer.password_salt)) {
+      return sendJson(res, 400, { ok: false, error: 'Current password is incorrect.' });
+    }
+
+    const { hash, salt } = hashPassword(newPassword);
+    masterDb.prepare(`
+      UPDATE customers SET password_hash = ?, password_salt = ?, updated_at = ? WHERE id = ?
+    `).run(hash, salt, new Date().toISOString(), session.id);
+
+    return sendJson(res, 200, { ok: true, message: 'Password updated successfully.' });
+  }
+
+  // 6. Customer Revoke Device
+  if (req.method === 'POST' && pathname === '/api/v1/portal/revoke-device') {
+    const session = verifyCustomer(req, res);
+    if (!session) return;
+    const body = await parseJsonBody(req);
+    const { token } = body;
+
+    masterDb.prepare('DELETE FROM device_tokens WHERE token = ? AND customer_id = ?').run(token, session.id);
+    return sendJson(res, 200, { ok: true, message: 'Device authorization revoked.' });
+  }
+
+  // 7. Get Available Plans for Portal Users
+  if (req.method === 'GET' && pathname === '/api/v1/portal/plans') {
+    const plans = masterDb.prepare('SELECT id, name, code, description, price, billing_cycle, duration_days, max_devices, features FROM plans WHERE is_active = 1 ORDER BY price ASC').all();
+    return sendJson(res, 200, { ok: true, plans });
+  }
+
   // ── Multi-Tenant Cloud Synchronization Endpoints ──────────────────
 
   // Push Changes from Desktop Client to Cloud Tenant Database
@@ -562,7 +1131,6 @@ const server = http.createServer(async (req, res) => {
       const idemKey = ev.idempotency_key || eventId;
 
       try {
-        // Record sync event with idempotency check
         tenantDb.prepare(`
           INSERT INTO sync_events (id, entity_type, entity_id, operation, payload, idempotency_key, client_timestamp, server_timestamp)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -578,7 +1146,6 @@ const server = http.createServer(async (req, res) => {
           nowIso
         );
 
-        // Apply entity update to isolated tenant database tables if applicable
         if (ev.entity_type === 'parties' && ev.payload) {
           const p = ev.payload;
           tenantDb.prepare(`
@@ -608,17 +1175,15 @@ const server = http.createServer(async (req, res) => {
         acknowledgedIds.push(ev.id);
       } catch (err) {
         console.warn('[SyncPush] Event skipped or already applied:', err.message);
-        acknowledgedIds.push(ev.id); // Idempotent acknowledgment
+        acknowledgedIds.push(ev.id);
       }
     }
 
-    // Record sync audit
     masterDb.prepare(`
       INSERT INTO sync_audit (id, customer_id, batch_size, synced_at)
       VALUES (?, ?, ?, ?)
     `).run(generateToken('aud_'), customer.id, acknowledgedIds.length, nowIso);
 
-    // Update device last active
     masterDb.prepare('UPDATE device_tokens SET last_active_at = ? WHERE token = ?').run(nowIso, token);
 
     return sendJson(res, 200, {
@@ -655,12 +1220,13 @@ const server = http.createServer(async (req, res) => {
   return sendJson(res, 404, { ok: false, error: `Route not found: ${req.method} ${pathname}` });
 });
 
-// Start Server
+// Start Server if run directly
 if (require.main === module) {
   server.listen(PORT, '0.0.0.0', () => {
     console.log(`\n======================================================`);
     console.log(`🚀 ZynBill Cloud Ecosystem Server running on http://localhost:${PORT}`);
     console.log(`📋 Customer Registration Portal: http://localhost:${PORT}/register`);
+    console.log(`👤 Customer Self-Service Portal: http://localhost:${PORT}/portal`);
     console.log(`👑 Super Admin Dashboard:        http://localhost:${PORT}/admin`);
     console.log(`⚡ Sync & Auth REST Endpoints:    http://localhost:${PORT}/api/v1/`);
     console.log(`======================================================\n`);

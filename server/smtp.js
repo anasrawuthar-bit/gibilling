@@ -2,31 +2,83 @@
  * ZynBill Cloud SMTP Mail Service
  * Sends:
  * 1. 6-Digit Email OTP verification for new registrations
- * 2. Super Admin Account Approval & Activation notifications
- * 3. Account Rejection notifications
+ * 2. One-Time Verification Code for First PC Login (Device Binding)
+ * 3. Password Reset OTP
+ * 4. PIN Reset OTP
+ * 5. Super Admin Account Approval & Activation notifications
+ * 6. Account Rejection notifications
  * 
- * Supports standard SMTP (TLS / STARTTLS / Plain) with zero external dependencies.
- * In development / offline mode, it cleanly logs emails and stores them for instant test retrieval.
+ * Supports dynamic Super Admin SMTP settings stored in master.sqlite,
+ * with standard SMTP (TLS / STARTTLS / Plain) and zero external dependencies.
  */
 
 const net = require('node:net');
 const tls = require('node:tls');
 
-const SMTP_CONFIG = {
-  host: process.env.SMTP_HOST || '',
-  port: parseInt(process.env.SMTP_PORT || '587', 10),
-  secure: process.env.SMTP_SECURE === 'true',
-  user: process.env.SMTP_USER || '',
-  pass: process.env.SMTP_PASS || '',
-  from: process.env.SMTP_FROM || '"ZynBill Cloud" <noreply@zynbill.com>'
-};
-
 // In-memory record of dispatched emails for test suites & dev inspection
 const dispatchedEmails = [];
 
 /**
- * Sends a raw SMTP email using Node.js sockets if configured.
- * Otherwise simulates and records the dispatch.
+ * Returns active SMTP configuration from master database system_settings
+ * with environment variables fallback.
+ */
+function getActiveSmtpConfig() {
+  let getSetting = () => '';
+  try {
+    const db = require('./db');
+    getSetting = db.getSetting;
+  } catch (_) {}
+
+  return {
+    host: getSetting('smtp_host', process.env.SMTP_HOST || ''),
+    port: parseInt(getSetting('smtp_port', process.env.SMTP_PORT || '587'), 10),
+    secure: getSetting('smtp_secure', process.env.SMTP_SECURE || 'false') === 'true',
+    user: getSetting('smtp_user', process.env.SMTP_USER || ''),
+    pass: getSetting('smtp_pass', process.env.SMTP_PASS || ''),
+    from: getSetting('smtp_from', process.env.SMTP_FROM || '"ZynBill Cloud" <noreply@zynbill.com>')
+  };
+}
+
+/**
+ * Super Admin API representation (password masked)
+ */
+function getSmtpConfig() {
+  const c = getActiveSmtpConfig();
+  return {
+    host: c.host,
+    port: c.port,
+    secure: c.secure,
+    user: c.user,
+    passMasked: c.pass ? '••••••••' : '',
+    hasPass: Boolean(c.pass),
+    from: c.from,
+    isConfigured: Boolean(c.host && c.user && c.pass)
+  };
+}
+
+/**
+ * Saves SMTP configuration to system_settings
+ */
+function saveSmtpConfig({ host, port, secure, user, pass, from }) {
+  let setSetting = () => {};
+  try {
+    const db = require('./db');
+    setSetting = db.setSetting;
+  } catch (_) {}
+
+  if (host !== undefined) setSetting('smtp_host', host.trim());
+  if (port !== undefined) setSetting('smtp_port', String(port).trim());
+  if (secure !== undefined) setSetting('smtp_secure', String(secure));
+  if (user !== undefined) setSetting('smtp_user', user.trim());
+  if (pass !== undefined && pass !== '' && pass !== '••••••••') setSetting('smtp_pass', pass);
+  if (from !== undefined) setSetting('smtp_from', from.trim());
+
+  return getSmtpConfig();
+}
+
+/**
+ * Sends an email using either live socket SMTP if configured,
+ * or records and simulates in development/offline mode.
  */
 async function sendMail({ to, subject, html, text }) {
   const mailRecord = {
@@ -38,15 +90,17 @@ async function sendMail({ to, subject, html, text }) {
   };
   dispatchedEmails.push(mailRecord);
 
+  const config = getActiveSmtpConfig();
+
   // If live SMTP credentials are configured, send via network socket
-  if (SMTP_CONFIG.host && SMTP_CONFIG.user && SMTP_CONFIG.pass) {
+  if (config.host && config.user && config.pass) {
     try {
-      await deliverViaSocket(mailRecord);
+      await deliverViaSocket(mailRecord, config);
       console.log(`[SMTP] Live email successfully delivered to ${to} (${subject})`);
       return { ok: true, delivered: true };
     } catch (err) {
       console.error(`[SMTP] Live delivery failed to ${to}:`, err.message);
-      // Fallback to recorded email
+      return { ok: false, error: err.message, fallbackRecorded: true };
     }
   }
 
@@ -63,9 +117,9 @@ async function sendMail({ to, subject, html, text }) {
 /**
  * Socket-level SMTP delivery (RFC 5321)
  */
-function deliverViaSocket(mail) {
+function deliverViaSocket(mail, config) {
   return new Promise((resolve, reject) => {
-    const isSecure = SMTP_CONFIG.secure || SMTP_CONFIG.port === 465;
+    const isSecure = config.secure || config.port === 465;
     let socket;
 
     const onConnected = () => {
@@ -89,13 +143,13 @@ function deliverViaSocket(mail) {
             socket.write('AUTH LOGIN\r\n');
           } else if (state === 'AUTH' && code === 334) {
             state = 'USER';
-            socket.write(Buffer.from(SMTP_CONFIG.user).toString('base64') + '\r\n');
+            socket.write(Buffer.from(config.user).toString('base64') + '\r\n');
           } else if (state === 'USER' && code === 334) {
             state = 'PASS';
-            socket.write(Buffer.from(SMTP_CONFIG.pass).toString('base64') + '\r\n');
+            socket.write(Buffer.from(config.pass).toString('base64') + '\r\n');
           } else if (state === 'PASS' && code === 235) {
             state = 'MAIL_FROM';
-            socket.write(`MAIL FROM:<${SMTP_CONFIG.user}>\r\n`);
+            socket.write(`MAIL FROM:<${config.user}>\r\n`);
           } else if (state === 'MAIL_FROM' && code === 250) {
             state = 'RCPT_TO';
             socket.write(`RCPT TO:<${mail.to}>\r\n`);
@@ -105,7 +159,7 @@ function deliverViaSocket(mail) {
           } else if (state === 'DATA' && code === 354) {
             state = 'SEND_BODY';
             const raw = [
-              `From: ${SMTP_CONFIG.from}`,
+              `From: ${config.from}`,
               `To: ${mail.to}`,
               `Subject: ${mail.subject}`,
               `MIME-Version: 1.0`,
@@ -129,9 +183,9 @@ function deliverViaSocket(mail) {
     };
 
     if (isSecure) {
-      socket = tls.connect(SMTP_CONFIG.port, SMTP_CONFIG.host, { rejectUnauthorized: false }, onConnected);
+      socket = tls.connect(config.port, config.host, { rejectUnauthorized: false }, onConnected);
     } else {
-      socket = net.createConnection(SMTP_CONFIG.port, SMTP_CONFIG.host, onConnected);
+      socket = net.createConnection(config.port, config.host, onConnected);
     }
 
     socket.on('error', reject);
@@ -143,13 +197,44 @@ function deliverViaSocket(mail) {
 }
 
 /**
- * 1. Send 6-Digit Email OTP
+ * Super Admin Test SMTP Connection
+ */
+async function testSmtpConnection(targetEmail) {
+  const config = getActiveSmtpConfig();
+  if (!config.host || !config.user || !config.pass) {
+    return { ok: false, error: 'SMTP settings incomplete. Please provide Host, Port, Username and Password.' };
+  }
+  try {
+    const subject = `ZynBill SMTP Configuration Test - ${new Date().toLocaleTimeString()}`;
+    const text = `This is a test email from ZynBill Cloud Server.\n\nHost: ${config.host}\nPort: ${config.port}\nSecure: ${config.secure}\nFrom: ${config.from}\nTimestamp: ${new Date().toISOString()}`;
+    const html = `
+      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 500px; padding: 24px; border: 1px solid #e2e8f0; border-radius: 10px; background: #ffffff;">
+        <h2 style="color: #0284c7; margin-top: 0;">✓ SMTP Test Successful</h2>
+        <p style="color: #334155; font-size: 14px;">Your SMTP email configuration is connected and working correctly on the ZynBill Cloud Server.</p>
+        <table style="width: 100%; border-collapse: collapse; font-size: 13px; margin: 16px 0; background: #f8fafc; border-radius: 6px; padding: 10px;">
+          <tr><td style="padding: 6px 10px; color: #64748b;">Host:</td><td style="padding: 6px 10px;"><strong>${escapeHtml(config.host)}:${config.port}</strong></td></tr>
+          <tr><td style="padding: 6px 10px; color: #64748b;">SSL/TLS:</td><td style="padding: 6px 10px;"><strong>${config.secure ? 'Enabled' : 'Disabled (STARTTLS)'}</strong></td></tr>
+          <tr><td style="padding: 6px 10px; color: #64748b;">Sender:</td><td style="padding: 6px 10px;"><strong>${escapeHtml(config.from)}</strong></td></tr>
+          <tr><td style="padding: 6px 10px; color: #64748b;">Recipient:</td><td style="padding: 6px 10px;"><strong>${escapeHtml(targetEmail)}</strong></td></tr>
+        </table>
+        <p style="font-size: 12px; color: #94a3b8; margin-top: 14px;">ZynBill Cloud Multi-Tenant System</p>
+      </div>
+    `;
+    const res = await sendMail({ to: targetEmail, subject, text, html });
+    return { ok: true, message: `Test email sent successfully to ${targetEmail}`, result: res };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+}
+
+/**
+ * 1. Send 6-Digit Email OTP for Registration
  */
 async function sendOtpEmail(email, otp, companyName = 'Customer') {
   const subject = `Your ZynBill Verification Code: ${otp}`;
-  const text = `Hello ${companyName},\n\nYour 6-digit verification code is: ${otp}\n\nThis code is valid for 10 minutes. Please enter it to complete your registration.\n\nThank you,\nZynBill Team`;
+  const text = `Hello ${companyName},\n\nYour 6-digit registration verification code is: ${otp}\n\nThis code is valid for 10 minutes. Please enter it to complete your registration.\n\nThank you,\nZynBill Team`;
   const html = `
-    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 540px; margin: 0 auto; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 32px; color: #1e293b;">
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 540px; margin: 0 auto; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 32px; color: #1e293b;">
       <div style="text-align: center; margin-bottom: 24px;">
         <h1 style="color: #00c0f3; font-size: 26px; margin: 0; font-weight: 800;">ZynBill</h1>
         <p style="color: #64748b; font-size: 14px; margin: 4px 0 0;">Cloud Ecosystem &amp; Customer Portal</p>
@@ -165,7 +250,7 @@ async function sendOtpEmail(email, otp, companyName = 'Customer') {
         <p style="font-size: 12px; color: #64748b; margin-top: 8px;">Valid for 10 minutes. Do not share this code.</p>
       </div>
 
-      <p style="font-size: 13px; line-height: 1.5; color: #64748b;">Once verified, your account request will be submitted to the Super Admin for instant activation and subscription plan assignment.</p>
+      <p style="font-size: 13px; line-height: 1.5; color: #64748b;">Once verified, your account request will be submitted to the Super Admin for activation and plan assignment.</p>
       <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 24px 0;" />
       <p style="font-size: 11.5px; color: #94a3b8; text-align: center; margin: 0;">&copy; ${new Date().getFullYear()} ZynBill Technologies. All rights reserved.</p>
     </div>
@@ -175,14 +260,98 @@ async function sendOtpEmail(email, otp, companyName = 'Customer') {
 }
 
 /**
- * 2. Send Super Admin Account Approval Email
+ * 2. Send One-Time Verification Code for First PC Login (Device Binding)
+ */
+async function sendDeviceVerificationOtp(email, otp, companyName = 'Customer', machineName = 'Windows PC') {
+  const subject = `[ZynBill] Authorization Code for PC Login: ${otp}`;
+  const text = `Hello ${companyName},\n\nA login request was initiated for your ZynBill desktop application on "${machineName}".\n\nYour One-Time Device Authorization Code is: ${otp}\n\nEnter this code on your computer to activate this PC.\n\nIf you did not initiate this, please contact support.\n\nThank you,\nZynBill Security Team`;
+  const html = `
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 540px; margin: 0 auto; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 32px; color: #1e293b;">
+      <div style="text-align: center; margin-bottom: 24px;">
+        <h1 style="color: #00c0f3; font-size: 26px; margin: 0; font-weight: 800;">ZynBill</h1>
+        <p style="color: #64748b; font-size: 14px; margin: 4px 0 0;">Device Authorization &amp; Security</p>
+      </div>
+      <div style="background: #eff6ff; border-left: 4px solid #0284c7; padding: 12px 16px; border-radius: 6px; margin-bottom: 20px;">
+        <h3 style="margin: 0; color: #0369a1; font-size: 15px;">💻 New PC Login Verification</h3>
+        <p style="margin: 4px 0 0; color: #0284c7; font-size: 13px;">Authorizing terminal: <strong>${escapeHtml(machineName)}</strong></p>
+      </div>
+      <p style="font-size: 14px; color: #334155;">Hello <strong>${escapeHtml(companyName)}</strong>,</p>
+      <p style="font-size: 14px; color: #334155;">Please enter the following one-time verification code on your Windows application to complete PC activation:</p>
+      
+      <div style="text-align: center; margin: 24px 0;">
+        <div style="display: inline-block; background: #f0fdf4; border: 2px dashed #0284c7; border-radius: 10px; padding: 14px 28px; font-size: 32px; font-weight: 800; letter-spacing: 6px; color: #0369a1;">
+          ${otp}
+        </div>
+        <p style="font-size: 12px; color: #64748b; margin-top: 8px;">Valid for 10 minutes. For your security, do not share this code.</p>
+      </div>
+
+      <p style="font-size: 13px; line-height: 1.5; color: #64748b;">Once verified, your PC is activated for fast offline &amp; online billing, and you can configure your 4-digit PIN.</p>
+      <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 24px 0;" />
+      <p style="font-size: 11.5px; color: #94a3b8; text-align: center; margin: 0;">&copy; ${new Date().getFullYear()} ZynBill Technologies.</p>
+    </div>
+  `;
+
+  return sendMail({ to: email, subject, text, html });
+}
+
+/**
+ * 3. Send Password Reset OTP
+ */
+async function sendPasswordResetOtp(email, otp, companyName = 'Customer') {
+  const subject = `[ZynBill] Password Reset Verification Code: ${otp}`;
+  const text = `Hello ${companyName},\n\nA password reset was requested for your ZynBill account.\n\nYour 6-digit password reset code is: ${otp}\n\nValid for 15 minutes.\n\nThank you,\nZynBill Support`;
+  const html = `
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 540px; margin: 0 auto; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 32px; color: #1e293b;">
+      <h2 style="color: #0f172a; margin-top: 0;">Reset Your Password</h2>
+      <p style="font-size: 14px; color: #334155;">Hello <strong>${escapeHtml(companyName)}</strong>,</p>
+      <p style="font-size: 14px; color: #334155;">We received a request to reset your ZynBill customer portal password. Use the verification code below:</p>
+      
+      <div style="text-align: center; margin: 24px 0;">
+        <div style="display: inline-block; background: #fef2f2; border: 2px dashed #ef4444; border-radius: 10px; padding: 14px 28px; font-size: 32px; font-weight: 800; letter-spacing: 6px; color: #dc2626;">
+          ${otp}
+        </div>
+        <p style="font-size: 12px; color: #64748b; margin-top: 8px;">Valid for 15 minutes.</p>
+      </div>
+      <p style="font-size: 13px; color: #64748b;">If you did not request a password reset, you can safely ignore this email.</p>
+    </div>
+  `;
+
+  return sendMail({ to: email, subject, text, html });
+}
+
+/**
+ * 4. Send Security PIN Reset OTP
+ */
+async function sendPinResetOtp(email, otp, companyName = 'Customer') {
+  const subject = `[ZynBill] Security PIN Reset Code: ${otp}`;
+  const text = `Hello ${companyName},\n\nYou requested to reset your 4-digit Security PIN on ZynBill.\n\nYour PIN Reset Code is: ${otp}\n\nValid for 15 minutes.\n\nThank you,\nZynBill Support`;
+  const html = `
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 540px; margin: 0 auto; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 32px; color: #1e293b;">
+      <h2 style="color: #0f172a; margin-top: 0;">Reset Security PIN</h2>
+      <p style="font-size: 14px; color: #334155;">Hello <strong>${escapeHtml(companyName)}</strong>,</p>
+      <p style="font-size: 14px; color: #334155;">Use the authorization code below to reset your desktop 4-digit security PIN:</p>
+      
+      <div style="text-align: center; margin: 24px 0;">
+        <div style="display: inline-block; background: #f0fdf4; border: 2px dashed #16a34a; border-radius: 10px; padding: 14px 28px; font-size: 32px; font-weight: 800; letter-spacing: 6px; color: #16a34a;">
+          ${otp}
+        </div>
+        <p style="font-size: 12px; color: #64748b; margin-top: 8px;">Valid for 15 minutes.</p>
+      </div>
+    </div>
+  `;
+
+  return sendMail({ to: email, subject, text, html });
+}
+
+/**
+ * 5. Send Super Admin Account Approval Email
  */
 async function sendApprovalEmail(email, companyName, plan, validUntil) {
   const expiryFormatted = new Date(validUntil).toLocaleDateString([], { year: 'numeric', month: 'long', day: 'numeric' });
   const subject = `Welcome to ZynBill! Your Account has been Approved`;
   const text = `Congratulations ${companyName}!\n\nYour ZynBill Cloud account has been approved by our Super Admin.\nPlan: ${plan}\nValid Until: ${expiryFormatted}\n\nYou can now open the ZynBill Desktop application, enter your email and password to activate your installation.\n\nThank you,\nZynBill Team`;
   const html = `
-    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 540px; margin: 0 auto; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 32px; color: #1e293b;">
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 540px; margin: 0 auto; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 32px; color: #1e293b;">
       <div style="text-align: center; margin-bottom: 24px;">
         <h1 style="color: #00c0f3; font-size: 26px; margin: 0; font-weight: 800;">ZynBill</h1>
         <p style="color: #64748b; font-size: 14px; margin: 4px 0 0;">Account Activation Notice</p>
@@ -213,6 +382,7 @@ async function sendApprovalEmail(email, companyName, plan, validUntil) {
       <ol style="font-size: 13.5px; color: #334155; line-height: 1.7; padding-left: 20px; margin: 0 0 20px;">
         <li>Launch the <strong>ZynBill Desktop Application</strong> on your Windows PC.</li>
         <li>Log in using your registered email and password.</li>
+        <li>Enter the One-Time Device Verification Code sent to your email.</li>
         <li>Set up your convenient 4-digit security PIN for instant quick logins.</li>
       </ol>
 
@@ -225,13 +395,13 @@ async function sendApprovalEmail(email, companyName, plan, validUntil) {
 }
 
 /**
- * 3. Send Rejection Email
+ * 6. Send Rejection Email
  */
 async function sendRejectionEmail(email, companyName, reason = 'Registration requirements not met') {
   const subject = `Update on your ZynBill Registration`;
   const text = `Hello ${companyName},\n\nWe reviewed your ZynBill registration request. Unfortunately, it could not be approved at this time.\nReason: ${reason}\n\nPlease contact support@zynbill.com for assistance.\n\nZynBill Team`;
   const html = `
-    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 540px; margin: 0 auto; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 32px; color: #1e293b;">
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 540px; margin: 0 auto; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 32px; color: #1e293b;">
       <h2 style="color: #dc2626; margin-top: 0;">Registration Status Update</h2>
       <p style="font-size: 14px; color: #334155;">Hello <strong>${escapeHtml(companyName)}</strong>,</p>
       <p style="font-size: 14px; color: #334155;">Thank you for your interest in ZynBill. Unfortunately, your registration could not be approved at this time.</p>
@@ -255,9 +425,16 @@ function escapeHtml(str) {
 }
 
 module.exports = {
-  SMTP_CONFIG,
   dispatchedEmails,
+  getActiveSmtpConfig,
+  getSmtpConfig,
+  saveSmtpConfig,
+  testSmtpConnection,
+  sendMail,
   sendOtpEmail,
+  sendDeviceVerificationOtp,
+  sendPasswordResetOtp,
+  sendPinResetOtp,
   sendApprovalEmail,
   sendRejectionEmail
 };

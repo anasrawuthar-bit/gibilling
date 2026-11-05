@@ -2,10 +2,11 @@
  * ZynBill Cloud Integration, Security PIN & Offline Sync Engine
  * Handles:
  * 1. Online / Offline Status Indicator & Sync Outbox Counter
- * 2. Subscription Validation & 14-Day Offline Grace Period
- * 3. 4-Digit Quick PIN Security (Setup, Unlock & Verification)
- * 4. First-Time Online Cloud Activation & Device Binding
- * 5. Automatic Local Database Backups & Recovery
+ * 2. Subscription Validation, Active Plan Status & 14-Day Offline Grace Period
+ * 3. 4-Digit Quick PIN Security (Setup, Unlock & In-App OTP Reset)
+ * 4. First-Time Online Cloud Activation with One-Time Device Verification Code
+ * 5. Dedicated Subscription & License Details Modal
+ * 6. Automatic Local Database Backups & Recovery
  */
 
 const CLOUD_STORAGE_KEYS = {
@@ -34,31 +35,32 @@ class CloudLicenseManager {
       if (data) return JSON.parse(data);
     } catch (_) {}
 
-    // Default license structure for offline resilience
     return {
       activated: localStorage.getItem(CLOUD_STORAGE_KEYS.ACTIVATED) === "true",
       companyId: "default",
-      companyName: "My Business",
+      companyName: "Business Workspace",
       email: "owner@company.com",
       plan: "Professional",
       validUntil: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(),
       lastOnlineCheck: new Date().toISOString(),
       gracePeriodDays: 14,
-      status: "active"
+      status: "active",
+      token: "zyndev_offline"
     };
   }
 
   static saveLicense(license) {
     if (!license) return;
-    localStorage.setItem(CLOUD_STORAGE_KEYS.LICENSE, JSON.stringify(license));
+    const existing = this.getLicense();
+    const merged = { ...existing, ...license };
+    localStorage.setItem(CLOUD_STORAGE_KEYS.LICENSE, JSON.stringify(merged));
     localStorage.setItem(CLOUD_STORAGE_KEYS.ACTIVATED, "true");
   }
 
   static isActivated() {
     const val = localStorage.getItem(CLOUD_STORAGE_KEYS.ACTIVATED);
     if (val === null) {
-      // Auto-activate existing local workspace so existing billing is never blocked
-      return true;
+      return true; // Resilience for existing local workspaces
     }
     return val === "true";
   }
@@ -80,7 +82,8 @@ class CloudLicenseManager {
     const overdueMs = now - expiry;
 
     if (overdueMs <= 0) {
-      return { isOverdue: false, inGracePeriod: false, daysRemaining: 14 };
+      const daysRemaining = Math.ceil((expiry - now) / (24 * 60 * 60 * 1000));
+      return { isOverdue: false, inGracePeriod: false, daysRemaining };
     }
 
     const graceMs = (license.gracePeriodDays || 14) * 24 * 60 * 60 * 1000;
@@ -91,6 +94,34 @@ class CloudLicenseManager {
     }
 
     return { isOverdue: true, inGracePeriod: false, daysRemaining: 0 };
+  }
+
+  /**
+   * Syncs latest subscription and plan status from cloud backend
+   */
+  static async syncLicenseWithServer() {
+    const license = this.getLicense();
+    const sUrl = this.getServerUrl();
+    if (!navigator.onLine || !license.token) return license;
+
+    try {
+      const res = await fetch(`${sUrl}/api/v1/auth/validate-license`, {
+        headers: { 'Authorization': 'Bearer ' + license.token }
+      });
+      const data = await res.json();
+      if (res.ok && data.ok && data.license) {
+        this.saveLicense({
+          plan: data.license.plan,
+          validUntil: data.license.validUntil,
+          companyName: data.license.companyName,
+          email: data.license.email,
+          status: data.license.status,
+          lastOnlineCheck: new Date().toISOString()
+        });
+        return this.getLicense();
+      }
+    } catch (_) {}
+    return license;
   }
 }
 
@@ -128,12 +159,14 @@ class PinSecurityManager {
 
   static disablePin() {
     localStorage.setItem(CLOUD_STORAGE_KEYS.PIN_ENABLED, "false");
+    localStorage.removeItem(CLOUD_STORAGE_KEYS.PIN_HASH);
+    localStorage.removeItem(CLOUD_STORAGE_KEYS.PIN_SALT);
   }
 }
 
 // ── 3. Desktop Cloud Sync & Status Widget ──────────────────────────────
 class CloudSyncWidget {
-  static currentStatus = "online"; // 'online' | 'syncing' | 'offline' | 'error'
+  static currentStatus = "online";
   static pendingCount = 0;
   static isSyncing = false;
 
@@ -142,8 +175,8 @@ class CloudSyncWidget {
     this.bindNetworkListeners();
     await this.refreshStatus();
 
-    // Periodic check every 20 seconds
-    setInterval(() => this.refreshStatus(), 20000);
+    // Check plan & sync status every 30 seconds
+    setInterval(() => this.refreshStatus(), 30000);
   }
 
   static bindDomElements() {
@@ -152,6 +185,8 @@ class CloudSyncWidget {
     const closeBtn = document.getElementById("syncPopoverCloseBtn");
     const syncNowBtn = document.getElementById("syncNowBtn");
     const backupBtn = document.getElementById("syncBackupNowBtn");
+    const planPill = document.getElementById("sidebarPlanPill");
+    const planDetailsBtn = document.getElementById("syncPlanDetailsBtn");
 
     badge?.addEventListener("click", (e) => {
       e.stopPropagation();
@@ -169,6 +204,15 @@ class CloudSyncWidget {
 
     syncNowBtn?.addEventListener("click", () => this.triggerSyncNow());
     backupBtn?.addEventListener("click", () => this.triggerBackupNow());
+
+    planPill?.addEventListener("click", () => {
+      SubscriptionModalController.open();
+    });
+
+    planDetailsBtn?.addEventListener("click", () => {
+      popover?.classList.add("hidden");
+      SubscriptionModalController.open();
+    });
   }
 
   static bindNetworkListeners() {
@@ -213,10 +257,11 @@ class CloudSyncWidget {
       }
     } else if (status === "error") {
       label.textContent = "Sync Error";
-      badge.title = "Cloud synchronization encountered an error";
+      badge.title = "Cloud synchronization error";
     }
 
     this.updatePopoverDetails();
+    this.updatePlanPill();
   }
 
   static async refreshStatus() {
@@ -245,6 +290,32 @@ class CloudSyncWidget {
     }
   }
 
+  static updatePlanPill() {
+    const pill = document.getElementById("sidebarPlanPill");
+    const nameEl = document.getElementById("sidebarPlanName");
+    const daysEl = document.getElementById("sidebarPlanDays");
+    if (!pill || !nameEl || !daysEl) return;
+
+    const license = CloudLicenseManager.getLicense();
+    const grace = CloudLicenseManager.checkGracePeriod();
+
+    const planShort = (license.plan || "Pro").replace(/\s+Plan$/i, "");
+    nameEl.textContent = planShort;
+
+    if (grace.isOverdue) {
+      if (grace.inGracePeriod) {
+        daysEl.textContent = `${grace.daysRemaining}d grace`;
+        pill.className = "plan-status-pill warning";
+      } else {
+        daysEl.textContent = "Expired";
+        pill.className = "plan-status-pill danger";
+      }
+    } else {
+      daysEl.textContent = `${grace.daysRemaining}d`;
+      pill.className = "plan-status-pill";
+    }
+  }
+
   static updatePopoverDetails() {
     const popStatus = document.getElementById("syncPopoverStatus");
     const popPending = document.getElementById("syncPopoverPendingCount");
@@ -252,10 +323,23 @@ class CloudSyncWidget {
     const popGrace = document.getElementById("syncGraceWarning");
     const popGraceText = document.getElementById("syncGraceDaysText");
     const popTenant = document.getElementById("syncPopoverTenant");
+    const popPlanName = document.getElementById("syncPopoverPlanName");
+    const popPlanValidity = document.getElementById("syncPopoverPlanValidity");
 
     const license = CloudLicenseManager.getLicense();
-    if (popTenant) {
-      popTenant.textContent = license.companyName || "ZynBill Cloud Ecosystem";
+    const grace = CloudLicenseManager.checkGracePeriod();
+
+    if (popTenant) popTenant.textContent = license.companyName || "ZynBill Cloud Ecosystem";
+    if (popPlanName) popPlanName.textContent = (license.plan || "Professional") + " Plan";
+
+    if (popPlanValidity) {
+      if (grace.isOverdue) {
+        popPlanValidity.textContent = grace.inGracePeriod
+          ? `${grace.daysRemaining} days remaining in grace period`
+          : "License expired. Please renew.";
+      } else {
+        popPlanValidity.textContent = `${grace.daysRemaining} days remaining`;
+      }
     }
 
     if (popStatus) {
@@ -276,12 +360,10 @@ class CloudSyncWidget {
         : "Recently";
     }
 
-    // Grace period evaluation
-    const grace = CloudLicenseManager.checkGracePeriod();
     if (grace.isOverdue && grace.inGracePeriod && popGrace) {
       popGrace.classList.remove("hidden");
       if (popGraceText) {
-        popGraceText.textContent = `${grace.daysRemaining} days remaining in offline grace period. Reconnect to renew license.`;
+        popGraceText.textContent = `${grace.daysRemaining} days remaining in offline grace period. Reconnect online to refresh plan.`;
       }
     } else {
       popGrace?.classList.add("hidden");
@@ -297,9 +379,10 @@ class CloudSyncWidget {
       if (window.giDB?.syncNow) {
         await window.giDB.syncNow();
       } else {
-        await new Promise(r => setTimeout(r, 600)); // simulated sync for standalone
+        await new Promise(r => setTimeout(r, 600));
       }
       localStorage.setItem(CLOUD_STORAGE_KEYS.LAST_SYNC, new Date().toISOString());
+      await CloudLicenseManager.syncLicenseWithServer();
       this.setStatus("online", 0);
       if (typeof showToast === "function") showToast("Cloud synchronization completed.", "success");
     } catch (err) {
@@ -327,7 +410,206 @@ class CloudSyncWidget {
   }
 }
 
-// ── 4. PIN Setup & PIN Lock Controllers ────────────────────────────────
+// ── 4. Subscription & Plan Modal Controller ────────────────────────────
+class SubscriptionModalController {
+  static init() {
+    const modal = document.getElementById("subscriptionModal");
+    const closeBtn = document.getElementById("subscriptionModalCloseBtn");
+    const refreshBtn = document.getElementById("subModalRefreshBtn");
+    const portalBtn = document.getElementById("subModalPortalBtn");
+
+    closeBtn?.addEventListener("click", () => modal?.classList.add("hidden"));
+
+    refreshBtn?.addEventListener("click", async () => {
+      refreshBtn.disabled = true;
+      refreshBtn.textContent = "Checking Server...";
+      try {
+        await CloudLicenseManager.syncLicenseWithServer();
+        this.renderDetails();
+        CloudSyncWidget.updatePlanPill();
+        CloudSyncWidget.updatePopoverDetails();
+        if (typeof showToast === "function") showToast("Subscription status updated from cloud.", "success");
+      } catch (err) {
+        if (typeof showToast === "function") showToast("Failed to refresh: " + err.message, "error");
+      } finally {
+        refreshBtn.disabled = false;
+        refreshBtn.textContent = "Refresh License Online";
+      }
+    });
+
+    portalBtn?.addEventListener("click", () => {
+      const sUrl = CloudLicenseManager.getServerUrl();
+      const pUrl = `${sUrl}/portal`;
+      if (window.giApp?.openExternal) window.giApp.openExternal(pUrl);
+      else window.open(pUrl, "_blank");
+    });
+  }
+
+  static open() {
+    this.renderDetails();
+    document.getElementById("subscriptionModal")?.classList.remove("hidden");
+  }
+
+  static renderDetails() {
+    const license = CloudLicenseManager.getLicense();
+    const grace = CloudLicenseManager.checkGracePeriod();
+
+    const planNameEl = document.getElementById("subModalPlanName");
+    const badgeEl = document.getElementById("subModalPlanBadge");
+    const daysEl = document.getElementById("subModalDaysLeft");
+    const barEl = document.getElementById("subModalProgressBar");
+    const validUntilEl = document.getElementById("subModalValidUntil");
+    const companyEl = document.getElementById("subModalCompanyName");
+    const emailEl = document.getElementById("subModalEmail");
+    const tokenEl = document.getElementById("subModalToken");
+
+    if (planNameEl) planNameEl.textContent = (license.plan || "Professional") + " Plan";
+
+    if (badgeEl) {
+      if (grace.isOverdue) {
+        badgeEl.textContent = grace.inGracePeriod ? "GRACE PERIOD" : "EXPIRED";
+        badgeEl.style.background = grace.inGracePeriod ? "#fef3c7" : "#fee2e2";
+        badgeEl.style.color = grace.inGracePeriod ? "#b45309" : "#b91c1c";
+      } else {
+        badgeEl.textContent = (license.status || "ACTIVE").toUpperCase();
+        badgeEl.style.background = "#ecfdf5";
+        badgeEl.style.color = "#047857";
+      }
+    }
+
+    if (daysEl) daysEl.textContent = String(grace.daysRemaining);
+
+    if (barEl) {
+      const pct = Math.min(100, Math.max(0, Math.round((grace.daysRemaining / 365) * 100)));
+      barEl.style.width = `${pct}%`;
+      barEl.style.background = grace.isOverdue ? "#f59e0b" : "#10b981";
+    }
+
+    if (validUntilEl) {
+      if (license.validUntil) {
+        validUntilEl.textContent = new Date(license.validUntil).toLocaleDateString([], { year: 'numeric', month: 'long', day: 'numeric' });
+      } else {
+        validUntilEl.textContent = "1 Year Included";
+      }
+    }
+
+    if (companyEl) companyEl.textContent = license.companyName || "Business Workspace";
+    if (emailEl) emailEl.textContent = license.email || "owner@company.com";
+    if (tokenEl) tokenEl.textContent = license.token || "zyndev_••••••••";
+  }
+}
+
+// ── 5. In-App PIN Reset Controller ─────────────────────────────────────
+class PinResetInAppController {
+  static init() {
+    const cancel1 = document.getElementById("pinResetCancelBtn");
+    const sendBtn = document.getElementById("pinResetSendOtpBtn");
+    const cancel2 = document.getElementById("pinResetStep2CancelBtn");
+    const verifyBtn = document.getElementById("pinResetVerifyCodeBtn");
+
+    cancel1?.addEventListener("click", () => this.close());
+    cancel2?.addEventListener("click", () => this.close());
+
+    sendBtn?.addEventListener("click", () => this.handleSendOtp());
+    verifyBtn?.addEventListener("click", () => this.handleVerifyCode());
+  }
+
+  static open() {
+    const license = CloudLicenseManager.getLicense();
+    const emailEl = document.getElementById("pinResetEmailDisplay");
+    if (emailEl) emailEl.textContent = license.email || "your registered email";
+
+    document.getElementById("pinResetStep1")?.classList.remove("hidden");
+    document.getElementById("pinResetStep2")?.classList.add("hidden");
+    document.getElementById("pinResetErrorText")?.classList.add("hidden");
+    document.getElementById("pinResetInAppModal")?.classList.remove("hidden");
+  }
+
+  static close() {
+    document.getElementById("pinResetInAppModal")?.classList.add("hidden");
+  }
+
+  static async handleSendOtp() {
+    const license = CloudLicenseManager.getLicense();
+    const sUrl = CloudLicenseManager.getServerUrl();
+    const sendBtn = document.getElementById("pinResetSendOtpBtn");
+
+    sendBtn.disabled = true;
+    sendBtn.textContent = "Sending Code...";
+
+    try {
+      const res = await fetch(`${sUrl}/api/v1/auth/pin-reset-request`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: license.email })
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) throw new Error(data.error || "Failed to dispatch reset code.");
+
+      document.getElementById("pinResetStep1")?.classList.add("hidden");
+      document.getElementById("pinResetStep2")?.classList.remove("hidden");
+
+      if (data.devOtp) {
+        const inp = document.getElementById("pinResetCodeInput");
+        if (inp) inp.value = data.devOtp;
+      }
+      if (typeof showToast === "function") showToast("Verification code dispatched to your email.", "success");
+    } catch (err) {
+      alert(err.message || "Could not send PIN reset email. Connect to internet.");
+    } finally {
+      sendBtn.disabled = false;
+      sendBtn.textContent = "Send Reset Code";
+    }
+  }
+
+  static async handleVerifyCode() {
+    const license = CloudLicenseManager.getLicense();
+    const sUrl = CloudLicenseManager.getServerUrl();
+    const code = document.getElementById("pinResetCodeInput")?.value?.trim();
+    const errEl = document.getElementById("pinResetErrorText");
+    const verifyBtn = document.getElementById("pinResetVerifyCodeBtn");
+
+    errEl?.classList.add("hidden");
+
+    if (!code || code.length < 6) {
+      if (errEl) {
+        errEl.textContent = "Please enter the 6-digit code.";
+        errEl.classList.remove("hidden");
+      }
+      return;
+    }
+
+    verifyBtn.disabled = true;
+    verifyBtn.textContent = "Verifying...";
+
+    try {
+      const res = await fetch(`${sUrl}/api/v1/auth/pin-reset-verify`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: license.email, code })
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) throw new Error(data.error || "Incorrect verification code.");
+
+      // Success: Clear old PIN and prompt for new PIN
+      PinSecurityManager.disablePin();
+      this.close();
+      PinUiController.hideLockScreen();
+      if (typeof showToast === "function") showToast("PIN verification approved. Please configure your new PIN.", "success");
+      PinUiController.showSetupModal();
+    } catch (err) {
+      if (errEl) {
+        errEl.textContent = err.message || "Verification failed.";
+        errEl.classList.remove("hidden");
+      }
+    } finally {
+      verifyBtn.disabled = false;
+      verifyBtn.textContent = "Verify Code";
+    }
+  }
+}
+
+// ── 6. PIN Setup & Lock Screen Controllers ─────────────────────────────
 class PinUiController {
   static currentInput = "";
   static isSetupMode = false;
@@ -344,8 +626,7 @@ class PinUiController {
     });
 
     document.getElementById("pinForgotBtn")?.addEventListener("click", () => {
-      document.getElementById("pinLockModal")?.classList.add("hidden");
-      ActivationUiController.showActivationModal(true);
+      PinResetInAppController.open();
     });
 
     // Keyboard support for PIN entry
@@ -463,7 +744,6 @@ class PinUiController {
 
     if (this.currentInput.length === 4) {
       if (!this.setupFirstPin) {
-        // Step 1: First entry completed, ask to confirm
         this.setupFirstPin = this.currentInput;
         this.currentInput = "";
         const title = document.getElementById("pinSetupTitle");
@@ -472,7 +752,6 @@ class PinUiController {
         if (subtitle) subtitle.textContent = "Re-enter the same 4-digit PIN to confirm";
         setTimeout(() => this.updateDots("pinSetupDotsRow", 0), 150);
       } else {
-        // Step 2: Confirm entry
         if (this.currentInput === this.setupFirstPin) {
           await PinSecurityManager.setPin(this.setupFirstPin);
           document.getElementById("pinSetupModal")?.classList.add("hidden");
@@ -495,14 +774,20 @@ class PinUiController {
   }
 }
 
-// ── 5. Cloud Activation UI Controller ──────────────────────────────────
+// ── 7. Cloud Activation UI Controller with First PC Verification Code ──
 class ActivationUiController {
+  static pendingEmail = "";
+
   static init() {
     const form = document.getElementById("cloudActivationForm");
     const demoBtn = document.getElementById("activationOfflineDemoBtn");
     const advToggle = document.getElementById("activationAdvToggle");
     const serverField = document.getElementById("activationServerField");
     const regLink = document.getElementById("activationRegisterLink");
+
+    const verifyOtpBtn = document.getElementById("activationVerifyOtpBtn");
+    const backBtn = document.getElementById("activationBackBtn");
+    const resendLink = document.getElementById("activationResendOtpLink");
 
     advToggle?.addEventListener("click", () => {
       serverField?.classList.toggle("hidden");
@@ -520,6 +805,7 @@ class ActivationUiController {
       else window.open(regUrl, "_blank");
     });
 
+    // Step 1: Submit credentials to receive First PC Login One-Time Verification Code
     form?.addEventListener("submit", async (e) => {
       e.preventDefault();
       const email = document.getElementById("activationEmail")?.value?.trim();
@@ -530,39 +816,40 @@ class ActivationUiController {
 
       errorEl?.classList.add("hidden");
       submitBtn.disabled = true;
-      submitBtn.textContent = "Validating Account...";
+      submitBtn.textContent = "Authorizing PC...";
 
       try {
         CloudLicenseManager.setServerUrl(serverUrl);
-        const res = await fetch(`${serverUrl.replace(/\/$/, "")}/api/v1/auth/desktop-activate`, {
+        this.pendingEmail = email;
+
+        // Call initiate login to request 6-digit Device Verification OTP
+        const res = await fetch(`${serverUrl.replace(/\/$/, "")}/api/v1/auth/desktop-initiate-login`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email, password, machineName: "Desktop" })
+          body: JSON.stringify({ email, password, machineName: "Windows Desktop" })
         });
 
         const data = await res.json();
-        if (!res.ok || !data.success) {
-          throw new Error(data.message || "Activation failed. Please check credentials.");
+        if (!res.ok || !data.ok) {
+          throw new Error(data.error || "Login failed. Check credentials or account approval status.");
         }
 
-        CloudLicenseManager.saveLicense({
-          activated: true,
-          token: data.token,
-          companyId: data.companyId || "default",
-          companyName: data.companyName || email,
-          email: email,
-          plan: data.plan || "Professional",
-          validUntil: data.validUntil || new Date(Date.now() + 365*24*60*60*1000).toISOString(),
-          lastOnlineCheck: new Date().toISOString(),
-          gracePeriodDays: 14,
-          status: "active"
-        });
+        if (data.requiresVerification) {
+          // Switch to Step 2: One-Time Verification Code screen
+          form.classList.add("hidden");
+          const otpStep = document.getElementById("activationOtpStep");
+          otpStep?.classList.remove("hidden");
 
-        document.getElementById("cloudActivationModal")?.classList.add("hidden");
-        if (typeof showToast === "function") showToast("ZynBill Activated Successfully!", "success");
+          const targetEmailEl = document.getElementById("activationTargetEmail");
+          if (targetEmailEl) targetEmailEl.textContent = email;
 
-        // Prompt user to set up PIN
-        PinUiController.showSetupModal();
+          if (data.devOtp) {
+            const codeInput = document.getElementById("activationOtpCode");
+            if (codeInput) codeInput.value = data.devOtp;
+          }
+
+          if (typeof showToast === "function") showToast("One-time authorization code sent to your email.", "info");
+        }
       } catch (err) {
         if (errorEl) {
           errorEl.textContent = err.message || "Network error. Connect to internet or try offline mode.";
@@ -570,8 +857,98 @@ class ActivationUiController {
         }
       } finally {
         submitBtn.disabled = false;
-        submitBtn.textContent = "Activate & Unlock";
+        submitBtn.textContent = "Authorize PC & Activate";
       }
+    });
+
+    // Step 2: Submit Verification Code to authorize PC
+    verifyOtpBtn?.addEventListener("click", async () => {
+      const code = document.getElementById("activationOtpCode")?.value?.trim();
+      const errorEl = document.getElementById("activationOtpErrorMsg");
+      const serverUrl = CloudLicenseManager.getServerUrl();
+
+      errorEl?.classList.add("hidden");
+
+      if (!code || code.length < 6) {
+        if (errorEl) {
+          errorEl.textContent = "Please enter the 6-digit verification code.";
+          errorEl.classList.remove("hidden");
+        }
+        return;
+      }
+
+      verifyOtpBtn.disabled = true;
+      verifyOtpBtn.textContent = "Verifying PC...";
+
+      try {
+        const res = await fetch(`${serverUrl}/api/v1/auth/desktop-verify-device`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email: this.pendingEmail, code, machineName: "Windows Desktop" })
+        });
+
+        const data = await res.json();
+        if (!res.ok || !data.ok) {
+          throw new Error(data.error || "Invalid or expired verification code.");
+        }
+
+        CloudLicenseManager.saveLicense({
+          activated: true,
+          token: data.token,
+          companyId: data.customer?.id || "default",
+          companyName: data.customer?.companyName || this.pendingEmail,
+          ownerName: data.customer?.ownerName,
+          email: this.pendingEmail,
+          plan: data.customer?.plan || "Professional",
+          validUntil: data.customer?.validUntil || new Date(Date.now() + 365*24*60*60*1000).toISOString(),
+          lastOnlineCheck: new Date().toISOString(),
+          gracePeriodDays: 14,
+          status: "active"
+        });
+
+        document.getElementById("cloudActivationModal")?.classList.add("hidden");
+        if (typeof showToast === "function") showToast("PC Authorized & ZynBill Activated Successfully!", "success");
+
+        CloudSyncWidget.updatePlanPill();
+        CloudSyncWidget.updatePopoverDetails();
+
+        // Prompt user to configure their 4-digit PIN
+        PinUiController.showSetupModal();
+      } catch (err) {
+        if (errorEl) {
+          errorEl.textContent = err.message || "Failed to verify code.";
+          errorEl.classList.remove("hidden");
+        }
+      } finally {
+        verifyOtpBtn.disabled = false;
+        verifyOtpBtn.textContent = "Verify & Unlock PC";
+      }
+    });
+
+    backBtn?.addEventListener("click", () => {
+      document.getElementById("activationOtpStep")?.classList.add("hidden");
+      document.getElementById("cloudActivationForm")?.classList.remove("hidden");
+    });
+
+    resendLink?.addEventListener("click", async (e) => {
+      e.preventDefault();
+      const password = document.getElementById("activationPassword")?.value?.trim();
+      const serverUrl = CloudLicenseManager.getServerUrl();
+      if (!this.pendingEmail || !password) return;
+
+      try {
+        const res = await fetch(`${serverUrl}/api/v1/auth/desktop-initiate-login`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email: this.pendingEmail, password, machineName: "Windows Desktop" })
+        });
+        const data = await res.json();
+        if (data.ok && data.devOtp) {
+          const codeInput = document.getElementById("activationOtpCode");
+          if (codeInput) codeInput.value = data.devOtp;
+        }
+        if (typeof showToast === "function") showToast("Fresh verification code sent to your email.", "success");
+      } catch (_) {}
     });
   }
 
@@ -585,11 +962,15 @@ class ActivationUiController {
       validUntil: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
       lastOnlineCheck: new Date().toISOString(),
       gracePeriodDays: 14,
-      status: "active"
+      status: "active",
+      token: "zyndev_demo"
     });
 
     document.getElementById("cloudActivationModal")?.classList.add("hidden");
     if (typeof showToast === "function") showToast("Offline mode enabled. Welcome to ZynBill!", "success");
+
+    CloudSyncWidget.updatePlanPill();
+    CloudSyncWidget.updatePopoverDetails();
     PinUiController.showSetupModal();
   }
 
@@ -600,17 +981,17 @@ class ActivationUiController {
   }
 }
 
-// ── 6. Global Bootstrap Initialization ─────────────────────────────────
+// ── 8. Global Bootstrap Initialization ─────────────────────────────────
 window.addEventListener("DOMContentLoaded", async () => {
   ActivationUiController.init();
   PinUiController.init();
+  PinResetInAppController.init();
+  SubscriptionModalController.init();
   await CloudSyncWidget.init();
 
-  // If not activated, require activation
   if (!CloudLicenseManager.isActivated()) {
     ActivationUiController.showActivationModal();
   } else if (PinSecurityManager.isPinEnabled()) {
-    // If PIN is enabled, require PIN unlock on app open
     PinUiController.showLockScreen();
   }
 });
@@ -621,3 +1002,5 @@ window.PinSecurityManager = PinSecurityManager;
 window.CloudSyncWidget = CloudSyncWidget;
 window.PinUiController = PinUiController;
 window.ActivationUiController = ActivationUiController;
+window.SubscriptionModalController = SubscriptionModalController;
+window.PinResetInAppController = PinResetInAppController;

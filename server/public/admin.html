@@ -99,87 +99,91 @@
 
     /* Main Container */
     .admin-container {
-      flex: 1;
-      max-width: 1360px;
+      max-width: 1280px;
       width: 100%;
-      margin: 0 auto;
-      padding: 28px 24px;
+      margin: 24px auto;
+      padding: 0 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
     }
 
-    /* KPI Cards */
+    /* Top Nav Tabs */
+    .admin-nav-tabs {
+      display: flex;
+      gap: 8px;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 8px;
+    }
+    .main-tab-btn {
+      padding: 10px 18px;
+      border-radius: 8px;
+      border: none;
+      background: transparent;
+      color: var(--muted);
+      font-family: inherit;
+      font-size: 13.5px;
+      font-weight: 600;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      transition: all 0.15s ease;
+    }
+    .main-tab-btn:hover { background: #e2e8f0; color: var(--text); }
+    .main-tab-btn.active {
+      background: #0284c7;
+      color: #ffffff;
+    }
+
+    /* Top KPI Summary */
     .kpi-grid {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
       gap: 16px;
-      margin-bottom: 24px;
     }
     .kpi-card {
-      background: var(--surface);
+      background: #ffffff;
       border: 1px solid var(--border);
       border-radius: 12px;
       padding: 20px;
       box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
     }
-    .kpi-label {
-      font-size: 12px;
-      font-weight: 600;
-      color: var(--muted);
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
-    }
-    .kpi-value {
-      font-size: 28px;
-      font-weight: 800;
-      color: var(--text);
-      margin-top: 6px;
-    }
-    .kpi-sub {
-      font-size: 12px;
-      color: var(--muted);
-      margin-top: 4px;
-    }
+    .kpi-label { font-size: 12.5px; font-weight: 600; color: var(--muted); }
+    .kpi-value { font-size: 28px; font-weight: 800; color: var(--text); margin-top: 6px; }
+    .kpi-sub { font-size: 12px; color: var(--muted); margin-top: 4px; }
 
-    /* Content Card */
+    /* Card Box */
     .table-card {
-      background: var(--surface);
+      background: #ffffff;
       border: 1px solid var(--border);
-      border-radius: 14px;
-      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.02);
+      border-radius: 12px;
       overflow: hidden;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
     }
     .table-toolbar {
       padding: 16px 20px;
-      border-bottom: 1px solid var(--border);
       display: flex;
-      align-items: center;
       justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid var(--border);
+      gap: 16px;
       flex-wrap: wrap;
-      gap: 12px;
     }
-    .filter-tabs {
-      display: flex;
-      gap: 6px;
-      background: #f1f5f9;
-      padding: 4px;
-      border-radius: 8px;
-    }
+    .filter-tabs { display: flex; gap: 6px; }
     .filter-btn {
+      background: #f1f5f9;
+      border: 1px solid transparent;
       padding: 6px 14px;
       border-radius: 6px;
-      border: none;
-      background: transparent;
       font-family: inherit;
-      font-size: 13px;
+      font-size: 12.5px;
       font-weight: 600;
       color: var(--muted);
       cursor: pointer;
-      transition: all 0.15s ease;
     }
-    .filter-btn.active {
-      background: #ffffff;
-      color: var(--text);
-      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
-    }
+    .filter-btn.active { background: #0284c7; color: #ffffff; }
+
     .search-input {
       height: 38px;
       padding: 0 14px;
@@ -188,13 +192,9 @@
       font-family: inherit;
       font-size: 13px;
       outline: none;
-      width: 260px;
-    }
-    .search-input:focus {
-      border-color: var(--primary);
+      width: 280px;
     }
 
-    /* Table */
     table {
       width: 100%;
       border-collapse: collapse;
@@ -260,6 +260,8 @@
     .btn-reject:hover { background: #fef2f2; }
     .btn-secondary { background: #ffffff; border-color: var(--border); color: #334155; }
     .btn-secondary:hover { background: #f8fafc; }
+    .btn-primary { background: #0284c7; color: #ffffff; border: none; }
+    .btn-primary:hover { background: #0369a1; }
 
     /* Modals */
     .modal-backdrop {
@@ -281,9 +283,7 @@
       padding: 28px;
       box-shadow: 0 20px 48px rgba(0, 0, 0, 0.2);
     }
-    .modal-head {
-      margin-bottom: 20px;
-    }
+    .modal-head { margin-bottom: 20px; }
     .modal-head h3 { font-size: 18px; color: var(--text); }
     .modal-head p { font-size: 13px; color: var(--muted); margin-top: 4px; }
     .field-group {
@@ -362,61 +362,170 @@
 
   <!-- Main Console -->
   <div class="admin-container hidden" id="adminDashboard">
-    <!-- Top KPI Summary -->
-    <div class="kpi-grid">
-      <div class="kpi-card">
-        <div class="kpi-label">Total Registered</div>
-        <div class="kpi-value" id="kpiTotal">0</div>
-        <div class="kpi-sub">Customers registered across all tenants</div>
+
+    <!-- Top Navigation Tabs -->
+    <div class="admin-nav-tabs">
+      <button class="main-tab-btn active" id="tabBtnCustomers" onclick="switchMainTab('customers')">
+        👥 Customer Management
+      </button>
+      <button class="main-tab-btn" id="tabBtnPlans" onclick="switchMainTab('plans')">
+        📦 Subscription Plans
+      </button>
+      <button class="main-tab-btn" id="tabBtnSmtp" onclick="switchMainTab('smtp')">
+        ⚙️ SMTP Mail Settings
+      </button>
+    </div>
+
+    <!-- ── TAB 1: CUSTOMERS ────────────────────────────────────── -->
+    <div id="viewCustomers">
+      <!-- Top KPI Summary -->
+      <div class="kpi-grid">
+        <div class="kpi-card">
+          <div class="kpi-label">Total Registered</div>
+          <div class="kpi-value" id="kpiTotal">0</div>
+          <div class="kpi-sub">Customers registered across all tenants</div>
+        </div>
+        <div class="kpi-card" style="border-left: 4px solid var(--warning);">
+          <div class="kpi-label">Pending Approval</div>
+          <div class="kpi-value" id="kpiPending" style="color: #b45309;">0</div>
+          <div class="kpi-sub">Awaiting your review &amp; plan assignment</div>
+        </div>
+        <div class="kpi-card" style="border-left: 4px solid var(--success);">
+          <div class="kpi-label">Active Subscriptions</div>
+          <div class="kpi-value" id="kpiActive" style="color: #047857;">0</div>
+          <div class="kpi-sub">Authorized for Windows desktop app access</div>
+        </div>
+        <div class="kpi-card" style="border-left: 4px solid var(--danger);">
+          <div class="kpi-label">Suspended / Rejected</div>
+          <div class="kpi-value" id="kpiOther">0</div>
+          <div class="kpi-sub">Disabled from cloud synchronization</div>
+        </div>
       </div>
-      <div class="kpi-card" style="border-left: 4px solid var(--warning);">
-        <div class="kpi-label">Pending Approval</div>
-        <div class="kpi-value" id="kpiPending" style="color: #b45309;">0</div>
-        <div class="kpi-sub">Awaiting your review &amp; plan assignment</div>
-      </div>
-      <div class="kpi-card" style="border-left: 4px solid var(--success);">
-        <div class="kpi-label">Active Subscriptions</div>
-        <div class="kpi-value" id="kpiActive" style="color: #047857;">0</div>
-        <div class="kpi-sub">Authorized for Windows desktop app access</div>
-      </div>
-      <div class="kpi-card">
-        <div class="kpi-label">Suspended / Rejected</div>
-        <div class="kpi-value" id="kpiOther">0</div>
-        <div class="kpi-sub">Disabled from synchronization</div>
+
+      <!-- Table Card -->
+      <div class="table-card" style="margin-top: 20px;">
+        <div class="table-toolbar">
+          <div class="filter-tabs">
+            <button class="filter-btn active" data-filter="all" onclick="setFilter('all')">All Customers</button>
+            <button class="filter-btn" data-filter="pending_approval" onclick="setFilter('pending_approval')">Pending Review <span id="pendingCountBadge" style="background:#fef3c7;color:#b45309;padding:1px 6px;border-radius:10px;font-size:11px;">0</span></button>
+            <button class="filter-btn" data-filter="active" onclick="setFilter('active')">Active</button>
+            <button class="filter-btn" data-filter="suspended" onclick="setFilter('suspended')">Suspended</button>
+            <button class="filter-btn" data-filter="rejected" onclick="setFilter('rejected')">Rejected</button>
+          </div>
+          <div>
+            <input type="text" class="search-input" id="searchInput" placeholder="Search company, email, phone..." oninput="handleSearch()">
+          </div>
+        </div>
+
+        <table>
+          <thead>
+            <tr>
+              <th>Company / Proprietor</th>
+              <th>Contact Details</th>
+              <th>Location / GSTIN</th>
+              <th>Plan &amp; Validity</th>
+              <th>Status</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="customerTableBody">
+            <tr><td colspan="6" style="text-align: center; padding: 36px; color: var(--muted);">Loading customer directory...</td></tr>
+          </tbody>
+        </table>
       </div>
     </div>
 
-    <!-- Table Card -->
-    <div class="table-card">
-      <div class="table-toolbar">
-        <div class="filter-tabs">
-          <button class="filter-btn active" data-filter="all" onclick="setFilter('all')">All Customers</button>
-          <button class="filter-btn" data-filter="pending_approval" onclick="setFilter('pending_approval')">Pending Review <span id="pendingCountBadge" style="background:#fef3c7;color:#b45309;padding:1px 6px;border-radius:10px;font-size:11px;">0</span></button>
-          <button class="filter-btn" data-filter="active" onclick="setFilter('active')">Active</button>
-          <button class="filter-btn" data-filter="suspended" onclick="setFilter('suspended')">Suspended</button>
-          <button class="filter-btn" data-filter="rejected" onclick="setFilter('rejected')">Rejected</button>
+    <!-- ── TAB 2: PLANS MANAGEMENT ──────────────────────────────── -->
+    <div id="viewPlans" class="hidden">
+      <div class="table-card">
+        <div class="table-toolbar">
+          <div>
+            <h3 style="font-size: 16px; font-weight: 700; color: #0f172a;">Subscription Plans &amp; Pricing</h3>
+            <p style="font-size: 12.5px; color: var(--muted); margin-top: 2px;">Manage plans offered during approval and in the customer portal</p>
+          </div>
+          <button class="btn-action btn-approve" onclick="openAddPlanModal()">+ Add New Plan</button>
         </div>
+
+        <table>
+          <thead>
+            <tr>
+              <th>Plan Name &amp; Code</th>
+              <th>Price &amp; Cycle</th>
+              <th>Duration</th>
+              <th>Authorized PCs</th>
+              <th>Subscribers</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="plansTableBody">
+            <tr><td colspan="6" style="text-align: center; padding: 36px; color: var(--muted);">Loading subscription plans...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ── TAB 3: SMTP MAIL SETTINGS ───────────────────────────── -->
+    <div id="viewSmtp" class="hidden">
+      <div class="table-card" style="padding: 28px; max-width: 780px;">
+        <div style="margin-bottom: 20px;">
+          <h3 style="font-size: 18px; font-weight: 700; color: #0f172a;">SMTP Mail Server Configuration</h3>
+          <p style="font-size: 13px; color: var(--muted); margin-top: 4px;">
+            Configure the email server used for sending registration OTPs, PC authorization codes, password resets, and account approval notices.
+          </p>
+        </div>
+
+        <form id="smtpConfigForm" onsubmit="handleSaveSmtp(event)">
+          <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 16px;">
+            <div class="field-group">
+              <label class="field-label">SMTP Host (Server)</label>
+              <input type="text" id="smtpHost" class="text-control" placeholder="smtp.gmail.com or mail.zynbill.com" required>
+            </div>
+            <div class="field-group">
+              <label class="field-label">Port</label>
+              <input type="number" id="smtpPort" class="text-control" value="587" required>
+            </div>
+          </div>
+
+          <div class="field-group">
+            <label class="field-label">SMTP Username / Email</label>
+            <input type="text" id="smtpUser" class="text-control" placeholder="notifications@yourdomain.com" required>
+          </div>
+
+          <div class="field-group">
+            <label class="field-label">SMTP Password / App Password</label>
+            <input type="password" id="smtpPass" class="text-control" placeholder="••••••••">
+            <span style="font-size: 11.5px; color: var(--muted);">For Gmail, use a 16-character Google App Password.</span>
+          </div>
+
+          <div class="field-group">
+            <label class="field-label">Sender Name &amp; Email (From)</label>
+            <input type="text" id="smtpFrom" class="text-control" value='"ZynBill Cloud" &lt;noreply@zynbill.com&gt;'>
+          </div>
+
+          <div style="margin: 16px 0; display: flex; align-items: center; gap: 8px;">
+            <input type="checkbox" id="smtpSecure">
+            <label for="smtpSecure" style="font-size: 13px; color: #334155; font-weight: 500;">Use SSL/TLS (Checked for port 465, uncheck for port 587 STARTTLS)</label>
+          </div>
+
+          <div style="display: flex; gap: 12px; margin-top: 24px;">
+            <button type="submit" class="btn-action btn-approve" style="padding: 10px 20px; font-size: 13px;" id="btnSaveSmtp">Save SMTP Settings</button>
+          </div>
+        </form>
+
+        <hr style="border: none; border-top: 1px solid var(--border); margin: 28px 0;" />
+
         <div>
-          <input type="text" class="search-input" id="searchInput" placeholder="Search company, email, phone..." oninput="handleSearch()">
+          <h4 style="font-size: 14.5px; color: #0f172a; margin-bottom: 6px;">Test SMTP Connection</h4>
+          <p style="font-size: 12.5px; color: var(--muted); margin-bottom: 12px;">Send an immediate test message to verify socket handshake and authentication.</p>
+          <div style="display: flex; gap: 10px; max-width: 480px;">
+            <input type="email" id="smtpTestRecipient" class="text-control" placeholder="Recipient email address" style="flex: 1;">
+            <button type="button" class="btn-action btn-secondary" style="padding: 0 16px;" onclick="handleTestSmtp()">Send Test Email</button>
+          </div>
+          <div id="smtpTestResult" style="margin-top: 12px; font-size: 13px; display: none;"></div>
         </div>
       </div>
-
-      <table>
-        <thead>
-          <tr>
-            <th>Company / Proprietor</th>
-            <th>Contact Details</th>
-            <th>Location / GSTIN</th>
-            <th>Plan &amp; Validity</th>
-            <th>Status</th>
-            <th>Actions</th>
-          </tr>
-        </thead>
-        <tbody id="customerTableBody">
-          <tr><td colspan="6" style="text-align: center; padding: 36px; color: var(--muted);">Loading customer directory...</td></tr>
-        </tbody>
-      </table>
     </div>
+
   </div>
 
   <!-- Review & Approve Modal -->
@@ -435,8 +544,8 @@
       <div class="field-group">
         <label class="field-label">Subscription Plan</label>
         <select class="select-control" id="modalPlanSelect">
-          <option value="Professional" selected>Professional Plan (Most Popular)</option>
-          <option value="Starter">Starter Plan</option>
+          <option value="Professional" selected>Professional Business</option>
+          <option value="Starter">Starter Free Trial</option>
           <option value="Enterprise">Enterprise Multi-Store</option>
         </select>
       </div>
@@ -451,10 +560,6 @@
         </select>
       </div>
 
-      <div style="background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; padding: 12px; font-size: 12px; color: #1e40af; line-height: 1.5;">
-        🛡️ <strong>Safeguard:</strong> Approved customers automatically receive a 14-day offline grace period. When approved, an activation email will be automatically sent via SMTP.
-      </div>
-
       <div class="modal-actions">
         <button type="button" class="btn-action btn-secondary" onclick="closeApproveModal()">Cancel</button>
         <button type="button" class="btn-action btn-approve" id="btnConfirmApprove" onclick="executeApprove()">Approve &amp; Activate Account</button>
@@ -462,22 +567,86 @@
     </div>
   </div>
 
+  <!-- Add/Edit Plan Modal -->
+  <div class="modal-backdrop hidden" id="planModal">
+    <div class="modal-card">
+      <div class="modal-head">
+        <h3 id="planModalTitle">Create Subscription Plan</h3>
+        <p>Configure plan code, pricing, validity duration, and PC limits.</p>
+      </div>
+
+      <div class="field-group">
+        <label class="field-label">Plan Name</label>
+        <input type="text" id="planName" class="text-control" placeholder="e.g. Standard Business" required>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+        <div class="field-group">
+          <label class="field-label">Plan Code (Unique)</label>
+          <input type="text" id="planCode" class="text-control" placeholder="e.g. Standard" required>
+        </div>
+        <div class="field-group">
+          <label class="field-label">Price (₹)</label>
+          <input type="number" id="planPrice" class="text-control" value="2999" required>
+        </div>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+        <div class="field-group">
+          <label class="field-label">Duration (Days)</label>
+          <input type="number" id="planDays" class="text-control" value="365" required>
+        </div>
+        <div class="field-group">
+          <label class="field-label">Max Authorized PCs</label>
+          <input type="number" id="planDevices" class="text-control" value="2" required>
+        </div>
+      </div>
+
+      <div class="field-group">
+        <label class="field-label">Description</label>
+        <input type="text" id="planDesc" class="text-control" placeholder="Short description of plan features">
+      </div>
+
+      <div class="modal-actions">
+        <button type="button" class="btn-action btn-secondary" onclick="closePlanModal()">Cancel</button>
+        <button type="button" class="btn-action btn-approve" id="btnSavePlan" onclick="savePlan()">Save Plan</button>
+      </div>
+    </div>
+  </div>
+
   <script>
     let adminToken = localStorage.getItem('zynbill_admin_token');
-    let currentCustomers = [];
-    let activeFilter = 'all';
+    let allCustomers = [];
+    let currentFilter = 'all';
     let selectedCustomerId = null;
+    let allPlans = [];
 
     window.addEventListener('DOMContentLoaded', () => {
       if (adminToken) {
         showDashboard();
+      } else {
+        document.getElementById('loginCard').classList.remove('hidden');
       }
     });
 
+    function switchMainTab(tab) {
+      document.getElementById('tabBtnCustomers').classList.toggle('active', tab === 'customers');
+      document.getElementById('tabBtnPlans').classList.toggle('active', tab === 'plans');
+      document.getElementById('tabBtnSmtp').classList.toggle('active', tab === 'smtp');
+
+      document.getElementById('viewCustomers').classList.toggle('hidden', tab !== 'customers');
+      document.getElementById('viewPlans').classList.toggle('hidden', tab !== 'plans');
+      document.getElementById('viewSmtp').classList.toggle('hidden', tab !== 'smtp');
+
+      if (tab === 'plans') loadPlans();
+      if (tab === 'smtp') loadSmtp();
+    }
+
     async function handleLogin(e) {
       e.preventDefault();
-      const email = document.getElementById('adminEmail').value.trim();
+      const email = document.getElementById('adminEmail').value;
       const password = document.getElementById('adminPassword').value;
+      const errEl = document.getElementById('loginError');
 
       try {
         const res = await fetch('/api/v1/admin/login', {
@@ -486,18 +655,26 @@
           body: JSON.stringify({ email, password })
         });
         const data = await res.json();
-        if (!data.ok) {
-          document.getElementById('loginError').textContent = data.error || 'Login failed';
-          document.getElementById('loginError').style.display = 'block';
-          return;
+        if (data.ok) {
+          adminToken = data.token;
+          localStorage.setItem('zynbill_admin_token', adminToken);
+          showDashboard();
+        } else {
+          errEl.textContent = data.error || 'Login failed';
+          errEl.style.display = 'block';
         }
-
-        adminToken = data.token;
-        localStorage.setItem('zynbill_admin_token', adminToken);
-        showDashboard();
       } catch (err) {
-        alert('Could not connect to server.');
+        errEl.textContent = 'Server connection failed';
+        errEl.style.display = 'block';
       }
+    }
+
+    function handleLogout() {
+      adminToken = null;
+      localStorage.removeItem('zynbill_admin_token');
+      document.getElementById('adminDashboard').classList.add('hidden');
+      document.getElementById('adminUserSection').style.display = 'none';
+      document.getElementById('loginCard').classList.remove('hidden');
     }
 
     function showDashboard() {
@@ -505,12 +682,7 @@
       document.getElementById('adminDashboard').classList.remove('hidden');
       document.getElementById('adminUserSection').style.display = 'flex';
       loadCustomers();
-    }
-
-    function handleLogout() {
-      localStorage.removeItem('zynbill_admin_token');
-      adminToken = null;
-      location.reload();
+      loadPlans();
     }
 
     async function loadCustomers() {
@@ -518,85 +690,59 @@
         const res = await fetch('/api/v1/admin/customers', {
           headers: { 'Authorization': 'Bearer ' + adminToken }
         });
-        if (res.status === 401) {
+        const data = await res.json();
+        if (!data.ok) {
           handleLogout();
           return;
         }
-        const data = await res.json();
-        if (data.ok) {
-          currentCustomers = data.customers || [];
-          updateKpis(data.stats);
-          renderTable();
-        }
+
+        document.getElementById('kpiTotal').textContent = data.stats.total;
+        document.getElementById('kpiPending').textContent = data.stats.pending;
+        document.getElementById('kpiActive').textContent = data.stats.active;
+        document.getElementById('kpiOther').textContent = data.stats.suspended + data.stats.rejected;
+        document.getElementById('pendingCountBadge').textContent = data.stats.pending;
+
+        allCustomers = data.customers || [];
+        renderCustomerTable();
       } catch (err) {
-        console.error('Error loading customers:', err);
+        console.error('Failed to load customers:', err);
       }
     }
 
-    function updateKpis(stats) {
-      if (!stats) return;
-      document.getElementById('kpiTotal').textContent = stats.total || 0;
-      document.getElementById('kpiPending').textContent = stats.pending || 0;
-      document.getElementById('kpiActive').textContent = stats.active || 0;
-      document.getElementById('kpiOther').textContent = (stats.suspended || 0) + (stats.rejected || 0);
-      document.getElementById('pendingCountBadge').textContent = stats.pending || 0;
-    }
-
-    function setFilter(filter) {
-      activeFilter = filter;
-      document.querySelectorAll('.filter-btn').forEach(btn => {
-        btn.classList.toggle('active', btn.dataset.filter === filter);
-      });
-      renderTable();
-    }
-
-    function handleSearch() {
-      renderTable();
-    }
-
-    function renderTable() {
-      const search = (document.getElementById('searchInput').value || '').toLowerCase();
+    function renderCustomerTable() {
       const tbody = document.getElementById('customerTableBody');
-
-      const filtered = currentCustomers.filter(c => {
-        if (activeFilter !== 'all' && c.status !== activeFilter) return false;
-        if (search) {
-          const match = (c.company_name || '').toLowerCase().includes(search) ||
-                        (c.owner_name || '').toLowerCase().includes(search) ||
-                        (c.email || '').toLowerCase().includes(search) ||
-                        (c.phone || '').toLowerCase().includes(search);
-          if (!match) return false;
-        }
-        return true;
+      const filtered = allCustomers.filter(c => {
+        if (currentFilter === 'all') return true;
+        return c.status === currentFilter;
       });
 
       if (filtered.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="6" style="text-align: center; padding: 40px; color: var(--muted);">No customer records found matching this filter.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="6" style="text-align: center; padding: 36px; color: var(--muted);">No customers found in this category.</td></tr>`;
         return;
       }
 
       tbody.innerHTML = filtered.map(c => {
-        const validStr = c.valid_until ? new Date(c.valid_until).toLocaleDateString([], { year: 'numeric', month: 'short', day: 'numeric' }) : '—';
         let badgeClass = 'badge-pending';
         let badgeLabel = 'Pending Review';
-
         if (c.status === 'active') { badgeClass = 'badge-active'; badgeLabel = 'Active'; }
         else if (c.status === 'suspended') { badgeClass = 'badge-suspended'; badgeLabel = 'Suspended'; }
         else if (c.status === 'rejected') { badgeClass = 'badge-rejected'; badgeLabel = 'Rejected'; }
 
+        const validStr = c.valid_until ? new Date(c.valid_until).toLocaleDateString([], { year: 'numeric', month: 'short', day: 'numeric' }) : 'Not set';
+
         return `
           <tr>
             <td>
-              <strong style="color: #0f172a; font-size: 14px;">${escapeHtml(c.company_name)}</strong>
+              <div style="font-weight: 700; color: #0f172a;">${escapeHtml(c.company_name)}</div>
               <div style="color: var(--muted); font-size: 12px; margin-top: 2px;">Prop: ${escapeHtml(c.owner_name)}</div>
             </td>
             <td>
-              <div style="font-weight: 500;">${escapeHtml(c.email)}</div>
-              <div style="color: var(--muted); font-size: 12px; margin-top: 2px;">${escapeHtml(c.phone || '—')}</div>
+              <div>${escapeHtml(c.email)}</div>
+              <div style="color: var(--muted); font-size: 12px; margin-top: 2px;">${escapeHtml(c.phone || 'No phone')}</div>
             </td>
             <td>
               <div>${escapeHtml(c.state || 'Kerala')}</div>
-              <div style="color: var(--muted); font-size: 11.5px; margin-top: 2px;">${escapeHtml(c.gstin || 'Unregistered')}</div>
+              <div style="color: var(--muted); font-size: 11.5px; font-family: monospace;">${escapeHtml(c.gstin || 'Unregistered')}</div>
             </td>
             <td>
               <span class="plan-badge">${escapeHtml(c.plan || 'Professional')}</span>
@@ -612,7 +758,7 @@
                   <button class="btn-action btn-reject" onclick="handleReject('${c.id}')">Reject</button>
                 ` : c.status === 'active' ? `
                   <button class="btn-action btn-secondary" onclick="toggleStatus('${c.id}', 'suspended')">Suspend</button>
-                  <button class="btn-action btn-secondary" onclick="openApproveModal('${c.id}', '${escapeHtml(c.company_name)}', '${escapeHtml(c.email)}')">Extend</button>
+                  <button class="btn-action btn-secondary" onclick="openApproveModal('${c.id}', '${escapeHtml(c.company_name)}', '${escapeHtml(c.email)}')">Renew</button>
                 ` : c.status === 'suspended' ? `
                   <button class="btn-action btn-approve" onclick="toggleStatus('${c.id}', 'active')">Activate</button>
                 ` : `
@@ -625,10 +771,85 @@
       }).join('');
     }
 
+    function setFilter(filter) {
+      currentFilter = filter;
+      document.querySelectorAll('.filter-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.getAttribute('data-filter') === filter);
+      });
+      renderCustomerTable();
+    }
+
+    function handleSearch() {
+      const q = document.getElementById('searchInput').value.toLowerCase();
+      const filtered = allCustomers.filter(c => 
+        c.company_name?.toLowerCase().includes(q) ||
+        c.owner_name?.toLowerCase().includes(q) ||
+        c.email?.toLowerCase().includes(q) ||
+        c.phone?.includes(q)
+      );
+      renderCustomTable(filtered);
+    }
+
+    function renderCustomTable(customers) {
+      const tbody = document.getElementById('customerTableBody');
+      if (customers.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="6" style="text-align: center; padding: 36px; color: var(--muted);">No matching customers found.</td></tr>`;
+        return;
+      }
+      tbody.innerHTML = customers.map(c => {
+        let badgeClass = 'badge-pending';
+        let badgeLabel = 'Pending Review';
+        if (c.status === 'active') { badgeClass = 'badge-active'; badgeLabel = 'Active'; }
+        else if (c.status === 'suspended') { badgeClass = 'badge-suspended'; badgeLabel = 'Suspended'; }
+        else if (c.status === 'rejected') { badgeClass = 'badge-rejected'; badgeLabel = 'Rejected'; }
+        const validStr = c.valid_until ? new Date(c.valid_until).toLocaleDateString([], { year: 'numeric', month: 'short', day: 'numeric' }) : 'Not set';
+
+        return `
+          <tr>
+            <td>
+              <div style="font-weight: 700; color: #0f172a;">${escapeHtml(c.company_name)}</div>
+              <div style="color: var(--muted); font-size: 12px; margin-top: 2px;">Prop: ${escapeHtml(c.owner_name)}</div>
+            </td>
+            <td>
+              <div>${escapeHtml(c.email)}</div>
+              <div style="color: var(--muted); font-size: 12px; margin-top: 2px;">${escapeHtml(c.phone || 'No phone')}</div>
+            </td>
+            <td>
+              <div>${escapeHtml(c.state || 'Kerala')}</div>
+              <div style="color: var(--muted); font-size: 11.5px; font-family: monospace;">${escapeHtml(c.gstin || 'Unregistered')}</div>
+            </td>
+            <td>
+              <span class="plan-badge">${escapeHtml(c.plan || 'Professional')}</span>
+              <div style="color: var(--muted); font-size: 11.5px; margin-top: 4px;">Expires: ${validStr}</div>
+            </td>
+            <td><span class="status-badge ${badgeClass}">${badgeLabel}</span></td>
+            <td>
+              <div style="display: flex; gap: 6px;">
+                ${c.status === 'pending_approval' || c.status === 'pending_verification' ? `
+                  <button class="btn-action btn-approve" onclick="openApproveModal('${c.id}', '${escapeHtml(c.company_name)}', '${escapeHtml(c.email)}')">Review &amp; Approve</button>
+                ` : `
+                  <button class="btn-action btn-secondary" onclick="openApproveModal('${c.id}', '${escapeHtml(c.company_name)}', '${escapeHtml(c.email)}')">Manage</button>
+                `}
+              </div>
+            </td>
+          </tr>
+        `;
+      }).join('');
+    }
+
     function openApproveModal(id, company, email) {
       selectedCustomerId = id;
       document.getElementById('modalCompanyName').textContent = company;
       document.getElementById('modalCustomerEmail').textContent = email;
+      
+      // Populate plans select
+      const select = document.getElementById('modalPlanSelect');
+      if (allPlans.length > 0) {
+        select.innerHTML = allPlans.map(p => `
+          <option value="${escapeHtml(p.code)}">${escapeHtml(p.name)} (₹${p.price})</option>
+        `).join('');
+      }
+
       document.getElementById('approveModal').classList.remove('hidden');
     }
 
@@ -710,9 +931,208 @@
         const data = await res.json();
         if (data.ok) {
           await loadCustomers();
+        } else {
+          alert(data.error || 'Status update failed');
         }
       } catch (err) {
         alert('Network error');
+      }
+    }
+
+    // ── PLANS MANAGEMENT ──────────────────────────────────────
+    async function loadPlans() {
+      try {
+        const res = await fetch('/api/v1/admin/plans', {
+          headers: { 'Authorization': 'Bearer ' + adminToken }
+        });
+        const data = await res.json();
+        if (data.ok) {
+          allPlans = data.plans || [];
+          renderPlansTable();
+        }
+      } catch (err) {
+        console.error('Failed to load plans:', err);
+      }
+    }
+
+    function renderPlansTable() {
+      const tbody = document.getElementById('plansTableBody');
+      if (allPlans.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="6" style="text-align: center; padding: 36px; color: var(--muted);">No plans found.</td></tr>`;
+        return;
+      }
+
+      tbody.innerHTML = allPlans.map(p => `
+        <tr>
+          <td>
+            <div style="font-weight: 700; color: #0f172a;">${escapeHtml(p.name)}</div>
+            <div style="color: var(--muted); font-size: 12px; margin-top: 2px;">Code: <strong style="font-family: monospace;">${escapeHtml(p.code)}</strong></div>
+          </td>
+          <td>
+            <div style="font-weight: 700; color: #0284c7;">₹${Number(p.price).toLocaleString()}</div>
+            <div style="color: var(--muted); font-size: 11.5px; text-transform: uppercase;">/${escapeHtml(p.billing_cycle)}</div>
+          </td>
+          <td>${p.duration_days} Days</td>
+          <td>${p.max_devices} PC${p.max_devices > 1 ? 's' : ''}</td>
+          <td>
+            <span class="plan-badge">${p.active_subscribers || 0} active</span>
+          </td>
+          <td>
+            <button class="btn-action btn-reject" onclick="deletePlan('${p.id}')">Delete</button>
+          </td>
+        </tr>
+      `).join('');
+    }
+
+    function openAddPlanModal() {
+      document.getElementById('planName').value = '';
+      document.getElementById('planCode').value = '';
+      document.getElementById('planPrice').value = '2999';
+      document.getElementById('planDays').value = '365';
+      document.getElementById('planDevices').value = '2';
+      document.getElementById('planDesc').value = '';
+      document.getElementById('planModal').classList.remove('hidden');
+    }
+
+    function closePlanModal() {
+      document.getElementById('planModal').classList.add('hidden');
+    }
+
+    async function savePlan() {
+      const name = document.getElementById('planName').value.trim();
+      const code = document.getElementById('planCode').value.trim();
+      const price = parseFloat(document.getElementById('planPrice').value || 0);
+      const duration_days = parseInt(document.getElementById('planDays').value || 365, 10);
+      const max_devices = parseInt(document.getElementById('planDevices').value || 2, 10);
+      const description = document.getElementById('planDesc').value.trim();
+
+      if (!name || !code) {
+        alert('Plan Name and Plan Code are required.');
+        return;
+      }
+
+      try {
+        const res = await fetch('/api/v1/admin/plans', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer ' + adminToken
+          },
+          body: JSON.stringify({ name, code, price, duration_days, max_devices, description, billing_cycle: 'yearly' })
+        });
+        const data = await res.json();
+        if (data.ok) {
+          closePlanModal();
+          loadPlans();
+        } else {
+          alert(data.error || 'Failed to save plan');
+        }
+      } catch (err) {
+        alert(err.message);
+      }
+    }
+
+    async function deletePlan(id) {
+      if (!confirm('Are you sure you want to delete this subscription plan?')) return;
+      try {
+        const res = await fetch(`/api/v1/admin/plans/${id}`, {
+          method: 'DELETE',
+          headers: { 'Authorization': 'Bearer ' + adminToken }
+        });
+        const data = await res.json();
+        if (data.ok) loadPlans();
+        else alert(data.error || 'Failed to delete plan');
+      } catch (err) {
+        alert(err.message);
+      }
+    }
+
+    // ── SMTP MANAGEMENT ───────────────────────────────────────
+    async function loadSmtp() {
+      try {
+        const res = await fetch('/api/v1/admin/smtp', {
+          headers: { 'Authorization': 'Bearer ' + adminToken }
+        });
+        const data = await res.json();
+        if (data.ok && data.config) {
+          const c = data.config;
+          document.getElementById('smtpHost').value = c.host || '';
+          document.getElementById('smtpPort').value = c.port || 587;
+          document.getElementById('smtpUser').value = c.user || '';
+          document.getElementById('smtpPass').value = c.passMasked || '';
+          document.getElementById('smtpFrom').value = c.from || '"ZynBill Cloud" <noreply@zynbill.com>';
+          document.getElementById('smtpSecure').checked = Boolean(c.secure);
+        }
+      } catch (err) {
+        console.error('Failed to load SMTP:', err);
+      }
+    }
+
+    async function handleSaveSmtp(e) {
+      e.preventDefault();
+      const host = document.getElementById('smtpHost').value.trim();
+      const port = document.getElementById('smtpPort').value.trim();
+      const user = document.getElementById('smtpUser').value.trim();
+      const pass = document.getElementById('smtpPass').value;
+      const from = document.getElementById('smtpFrom').value.trim();
+      const secure = document.getElementById('smtpSecure').checked;
+
+      const btn = document.getElementById('btnSaveSmtp');
+      btn.disabled = true;
+      btn.textContent = 'Saving...';
+
+      try {
+        const res = await fetch('/api/v1/admin/smtp', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer ' + adminToken
+          },
+          body: JSON.stringify({ host, port, user, pass, from, secure })
+        });
+        const data = await res.json();
+        if (data.ok) {
+          alert('SMTP settings saved successfully!');
+        } else {
+          alert(data.error || 'Could not save SMTP settings.');
+        }
+      } catch (err) {
+        alert(err.message);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Save SMTP Settings';
+      }
+    }
+
+    async function handleTestSmtp() {
+      const testEmail = document.getElementById('smtpTestRecipient').value.trim();
+      const resEl = document.getElementById('smtpTestResult');
+      resEl.style.display = 'block';
+
+      if (!testEmail) {
+        resEl.innerHTML = '<span style="color:#dc2626;">Please enter a recipient email to test.</span>';
+        return;
+      }
+
+      resEl.innerHTML = '<span style="color:#0284c7;">Connecting to SMTP server and transmitting test email...</span>';
+
+      try {
+        const res = await fetch('/api/v1/admin/smtp/test', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer ' + adminToken
+          },
+          body: JSON.stringify({ testEmail })
+        });
+        const data = await res.json();
+        if (data.ok) {
+          resEl.innerHTML = `<span style="color:#16a34a; font-weight:700;">✓ Success: ${escapeHtml(data.message)}</span>`;
+        } else {
+          resEl.innerHTML = `<span style="color:#dc2626; font-weight:600;">✗ Test Failed: ${escapeHtml(data.error)}</span>`;
+        }
+      } catch (err) {
+        resEl.innerHTML = `<span style="color:#dc2626;">Network error: ${escapeHtml(err.message)}</span>`;
       }
     }
 
