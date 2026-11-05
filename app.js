@@ -10925,7 +10925,7 @@ function datePresetRange(preset) {
     const qStart = Math.floor(m / 3) * 3;
     return { from: fmt(new Date(y, qStart, 1)), to: fmt(new Date(y, qStart + 3, 0)) };
   }
-  if (preset === "thisYear") {
+  if (preset === "thisYear" || preset === "thisFinancialYear") {
     // Indian financial year: Apr–Mar
     const fyStart = m >= 3 ? y : y - 1;
     return { from: fmt(new Date(fyStart, 3, 1)), to: fmt(new Date(fyStart + 1, 2, 31)) };
@@ -22157,12 +22157,6 @@ function partyDetail(party, activeTab) {
           <p>${partyMeta || "No contact details"}</p>
         </div>
         <div class="party-detail-header-actions">
-          <button class="secondary-button compact-button" type="button" data-action="download-party-statement" data-party-id="${party.id}" title="Download complete statement as PDF">
-            <svg class="gi-icon" style="width:14px;height:14px;margin-right:4px;"><use href="#gi-download"></use></svg> Download Statement
-          </button>
-          <button class="primary-button compact-button wa-btn" type="button" data-action="share-party-statement-whatsapp" data-party-id="${party.id}" title="Send statement to ${escapeHtml(party.name)} via WhatsApp">
-            <svg class="gi-icon" style="width:14px;height:14px;margin-right:4px;"><use href="#gi-whatsapp"></use></svg> WhatsApp Share
-          </button>
           <button class="secondary-button compact-button" type="button" data-action="view-party-statement-report" data-party-id="${party.id}" title="Open full Statement Report in Reports Center">
             <svg class="gi-icon" style="width:14px;height:14px;margin-right:4px;"><use href="#gi-file-text"></use></svg> Statement Report
           </button>
@@ -22450,14 +22444,7 @@ function partyLedgerTable(party) {
           <span>Showing ledger: <strong>${(range.from || range.to) ? `${formatDate(range.from)} &ndash; ${formatDate(range.to)}` : "All Time"}</strong> (${countInPeriod} record${countInPeriod === 1 ? "" : "s"})</span>
           <span>Period Movement: <strong class="${(periodDebit - periodCredit) >= 0 ? "receivable-text" : "payable-text"}">${formatCurrency(Math.abs(periodDebit - periodCredit))}</strong></span>
         </div>
-        <div style="display:flex;gap:6px;align-items:center;">
-          <button class="secondary-button compact-button" type="button" data-action="download-party-statement" data-party-id="${party.id}" title="Download complete statement as PDF">
-            <svg class="gi-icon" style="width:13px;height:13px;margin-right:3px;"><use href="#gi-download"></use></svg> Download PDF
-          </button>
-          <button class="secondary-button compact-button wa-btn" type="button" data-action="share-party-statement-whatsapp" data-party-id="${party.id}" title="Share statement on WhatsApp">
-            <svg class="gi-icon" style="width:13px;height:13px;margin-right:3px;"><use href="#gi-whatsapp"></use></svg> WhatsApp
-          </button>
-        </div>
+        
       </div>
       <table>
         <thead>
@@ -25154,8 +25141,15 @@ function calculatePartyStatementData(party, options = {}) {
   const targetParty = typeof party === "object" ? party : (state.parties || []).find((p) => String(p.id) === String(party) || p.name === party);
   if (!targetParty) return null;
 
-  const from = options.from || "";
-  const to = options.to || "";
+    let from = options.from || "";
+  let to = options.to || "";
+  if (!from && !to && options.preset && options.preset !== "all") {
+    const r = typeof datePresetRange === "function" ? datePresetRange(options.preset === "thisFinancialYear" ? "thisYear" : options.preset) : null;
+    if (r) {
+      from = r.from || "";
+      to = r.to || "";
+    }
+  }
 
   let openingBalance = Number(targetParty.openingBalance || 0);
   if (targetParty.openingBalanceType === "payable") {
@@ -30461,15 +30455,30 @@ function whatsappConnectTemplate() {
                   <span style="color:#94a3b8;">📄</span> <span>No Recent Bills</span>
                 </button>
               `}
-              <button type="button" class="wa-quick-pill" data-wa-quick="statement-pdf" id="waStmtPillBtn" title="Choose Period &amp; Draft Statement PDF">
-                <span style="color:#ef4444;">📊</span> <strong>Party Statement (PDF)</strong> ▾
-              </button>
+              <div class="wa-period-dropdown-wrap" style="position:relative;display:inline-flex;">
+                <button type="button" class="wa-quick-pill" data-wa-quick="statement-pdf" id="waStmtPillBtn" title="Choose Period &amp; Draft Statement PDF">
+                  <span style="color:#ef4444;">📊</span> <strong>Party Statement (PDF)</strong> ▾
+                </button>
+                <div class="wa-statement-period-menu hidden" id="waStatementPeriodMenu">
+                  <div class="wa-period-menu-header">Select Statement Period</div>
+                  <button type="button" class="wa-period-item" data-period="thisMonth">
+                    <span class="period-dot"></span> <strong>This Month</strong> (Current)
+                  </button>
+                  <button type="button" class="wa-period-item" data-period="lastMonth">
+                    <span class="period-dot"></span> <strong>Last Month</strong>
+                  </button>
+                  <button type="button" class="wa-period-item" data-period="thisFinancialYear">
+                    <span class="period-dot"></span> <strong>Current Financial Year</strong>
+                  </button>
+                  <button type="button" class="wa-period-item" data-period="all">
+                    <span class="period-dot"></span> <strong>All Time</strong> (Full Ledger)
+                  </button>
+                </div>
+              </div>
               <button type="button" class="wa-quick-pill accent" data-wa-quick="reminder" title="Draft Pending Payment Reminder">
                 <span>🔔 Payment Reminder</span>
               </button>
-              <button type="button" class="wa-quick-pill" data-wa-quick="smart" title="Smart quick templates">
-                <span>✨ Smart Templates ▾</span>
-              </button>
+              
             </div>
 
             <div class="wa-draft-attachment-bar ${whatsappConnectState.draftAttachment ? '' : 'hidden'}" id="waDraftAttachmentBar">
@@ -30818,24 +30827,6 @@ function bindWhatsAppConnectActions() {
     autoExpandWaInput(input);
     input.focus();
     showToast("Payment reminder drafted into message box.");
-  });
-
-  // 11. Smart Messaging Templates Quick Pill
-  view.querySelector("[data-wa-quick='smart']")?.addEventListener("click", () => {
-    if (!input || !activeParty) return;
-    const business = state.businessSettings || defaultBusinessSettings();
-    const businessName = business.businessName || state.activeCompany || "Our Business";
-    const bal = Number(activeParty?.balance ?? activeParty?.receivable ?? 0);
-    const templates = [
-      `Dear *${activeParty.name}*, thank you for your recent payment of ${formatCurrency(bal)}. It was a pleasure doing business with you! - *${businessName}*`,
-      `Hello *${activeParty.name}*, greetings from *${businessName}*! Hope you are doing well. Please let us know if you need any goods or assistance.`,
-      `Dear *${activeParty.name}*, your order has been dispatched and is on its way. Thank you for choosing *${businessName}*!`
-    ];
-    const chosen = templates[Math.floor(Math.random() * templates.length)];
-    input.value = chosen;
-    autoExpandWaInput(input);
-    input.focus();
-    showToast("Smart message template inserted.");
   });
 
   // 12. Attach Popover Menu & Actions (+)

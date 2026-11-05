@@ -22297,3 +22297,15 @@ button.secondary-button.wa-btn:hover {
   transform: translateX(3px);
   color: #16a34a;
 }
+
+.wa-period-dropdown-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.wa-period-dropdown-wrap .wa-statement-period-menu {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  z-index: 1000;
+}

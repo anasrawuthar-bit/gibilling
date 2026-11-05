@@ -95,14 +95,14 @@ assert.ok(appJs.includes("function promptPartyPhoneForWhatsApp"), "promptPartyPh
 console.log("  ✓ Core statement & WhatsApp functions exist in app.js");
 
 // Test 2: Check UI buttons in partyDetail
-assert.ok(appJs.includes('data-action="download-party-statement"'), "Download Statement button should be rendered in partyDetail");
-assert.ok(appJs.includes('data-action="share-party-statement-whatsapp"'), "WhatsApp Share button should be rendered in partyDetail");
+assert.ok(!appJs.includes('data-action="download-party-statement"'), "Download Statement button should be removed from partyDetail");
+assert.ok(!appJs.includes('data-action="share-party-statement-whatsapp"'), "WhatsApp Share button should be removed from partyDetail");
 assert.ok(appJs.includes('data-action="view-party-statement-report"'), "Statement Report button should be rendered in partyDetail");
-console.log("  ✓ UI action buttons present in partyDetail header");
+console.log("  ✓ Verified header has Statement Report, with download and WhatsApp share removed");
 
 // Test 3: Check UI buttons in partyLedgerTable
-assert.ok(appJs.includes('data-action="download-party-statement"') && appJs.includes('data-action="share-party-statement-whatsapp"'), "Ledger table banner should contain download & WhatsApp actions");
-console.log("  ✓ UI action buttons present in partyLedgerTable banner");
+assert.ok(!appJs.includes('data-action="download-party-statement"') && !appJs.includes('data-action="share-party-statement-whatsapp"'), "Ledger table banner should not contain redundant download & WhatsApp actions");
+console.log("  ✓ Verified ledger table banner is clean without redundant action buttons");
 
 // Test 4: Check UI button in reportPageShell
 assert.ok(appJs.includes('data-report-tool="share-whatsapp"'), "partyStatement report should have WhatsApp Share button");
