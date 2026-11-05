@@ -7793,6 +7793,69 @@ function saveJournalVoucher(payload) {
   return getState();
 }
 
+
+function createDailyAutomatedBackup(userDataPath, explicitDbPath = null) {
+  const targetDb = explicitDbPath || dbPath || (userDataPath ? path.join(userDataPath, "zynbill.sqlite") : null);
+  if (!targetDb || !fs.existsSync(targetDb) || !userDataPath) return null;
+  const backupDir = path.join(userDataPath, "daily-backups");
+  if (!fs.existsSync(backupDir)) fs.mkdirSync(backupDir, { recursive: true });
+
+  const today = new Date().toISOString().slice(0, 10);
+  const backupPath = path.join(backupDir, `zynbill-backup-${today}.db`);
+
+  try {
+    if (!fs.existsSync(backupPath)) {
+      fs.copyFileSync(targetDb, backupPath);
+    }
+  } catch (err) {
+    console.warn("Failed to create daily backup:", err);
+    return null;
+  }
+
+  // Rolling retention: keep 30 days
+  try {
+    const files = fs.readdirSync(backupDir).filter((f) => f.startsWith("zynbill-backup-") && f.endsWith(".db"));
+    const cutoffDate = new Date();
+    cutoffDate.setDate(cutoffDate.getDate() - 30);
+    const cutoffStr = cutoffDate.toISOString().slice(0, 10);
+    for (const f of files) {
+      const match = f.match(/zynbill-backup-(\d{4}-\d{2}-\d{2})\.db/);
+      if (match && match[1] < cutoffStr) {
+        fs.unlinkSync(path.join(backupDir, f));
+      }
+    }
+  } catch (err) {
+    console.warn("Failed to prune rolling backups:", err);
+  }
+
+  return { backupPath, date: today };
+}
+
+function getBackupHistory(userDataPath) {
+  if (!userDataPath) return [];
+  const backupDir = path.join(userDataPath, "daily-backups");
+  if (!fs.existsSync(backupDir)) return [];
+  try {
+    const files = fs.readdirSync(backupDir)
+      .filter((f) => f.startsWith("zynbill-backup-") && f.endsWith(".db"))
+      .map((f) => {
+        const fullPath = path.join(backupDir, f);
+        const stats = fs.statSync(fullPath);
+        return {
+          filename: f,
+          fileName: f,
+          path: fullPath,
+          sizeBytes: stats.size,
+          createdAt: stats.birthtime || stats.mtime,
+        };
+      })
+      .sort((a, b) => b.filename.localeCompare(a.filename));
+    return files;
+  } catch (_) {
+    return [];
+  }
+}
+
 module.exports = {
   initDatabase,
   getDatabasePath,
@@ -7871,4 +7934,6 @@ module.exports = {
   getAuditTrail,
   saveJournalVoucher,
   getCurrentCompany,
+  createDailyAutomatedBackup,
+  getBackupHistory,
 };

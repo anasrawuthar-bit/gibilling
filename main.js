@@ -419,6 +419,8 @@ function registerDatabaseHandlers() {
   ipcMain.handle("db:save-journal-voucher", (_event, payload) => database.saveJournalVoucher(payload));
   ipcMain.handle("sync:get-status", () => syncService.getStatus());
   ipcMain.handle("sync:run", () => syncService.syncNow());
+  ipcMain.handle("db:get-daily-backups", () => database.getBackupHistory?.(app.getPath("userData")) || []);
+  ipcMain.handle("db:create-daily-backup", () => database.createDailyAutomatedBackup?.(app.getPath("userData")) || null);
   ipcMain.handle("app:export-pdf", async (_event, { htmlContent, defaultFilename = "invoice.pdf" }) => {
     const fs = require("fs");
     if (typeof htmlContent !== 'string' || !htmlContent.trim() || Buffer.byteLength(htmlContent, 'utf8') > 10 * 1024 * 1024) throw new Error('Invalid or oversized PDF document.');
@@ -689,6 +691,7 @@ if (singleInstanceLock) {
 
   app.whenReady().then(async () => {
     await database.initDatabase(app.getPath("userData"));
+  database.createDailyAutomatedBackup?.(app.getPath("userData"));
     registerDatabaseHandlers();
     createMenu();
     createTray();

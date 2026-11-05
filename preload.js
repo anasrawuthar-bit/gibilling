@@ -56,6 +56,8 @@ contextBridge.exposeInMainWorld("giDB", {
   saveJournalVoucher: (payload) => ipcRenderer.invoke("db:save-journal-voucher", payload),
   getSyncStatus: () => ipcRenderer.invoke("sync:get-status"),
   syncNow: () => ipcRenderer.invoke("sync:run"),
+  getDailyBackups: () => ipcRenderer.invoke("db:get-daily-backups"),
+  createDailyBackup: () => ipcRenderer.invoke("db:create-daily-backup"),
   createSnapshot: () => ipcRenderer.invoke("db:create-snapshot"),
   listSnapshots: () => ipcRenderer.invoke("db:list-snapshots"),
   restoreSnapshot: (snapshotPath) => ipcRenderer.invoke("db:restore-snapshot", snapshotPath),

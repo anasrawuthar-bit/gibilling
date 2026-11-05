@@ -6,4 +6,5 @@ migration-backups/
 *.db
 *.log
 *.err
+server/data/
 scratch/

@@ -59,6 +59,8 @@
       <symbol id="gi-external-link" viewBox="0 0 24 24"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" x2="21" y1="14" y2="3"></line></symbol>
       <symbol id="gi-qr" viewBox="0 0 24 24"><rect width="5" height="5" x="3" y="3" rx="1"></rect><rect width="5" height="5" x="16" y="3" rx="1"></rect><rect width="5" height="5" x="3" y="16" rx="1"></rect><path d="M21 16h-3a2 2 0 0 0-2 2v3m0-7v.01M12 7v3m-5 4v.01M12 12v.01M16 12h1M12 16v5M16 16v.01M21 21v.01"></path></symbol>
       <symbol id="gi-gst" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path><path d="m9 12 2 2 4-4"></path></symbol>
+      <symbol id="gi-lock" viewBox="0 0 24 24"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></symbol>
+      <symbol id="gi-shield" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></symbol>
     </svg>
 
     <!-- Top Progress Line for Navigation & Async Actions -->
@@ -149,10 +151,57 @@
     <div class="app-shell hidden" id="appShell">
       <aside class="sidebar">
         <div class="sidebar-brand-header">
-          <div class="sidebar-brand-logo-wrap">
-            <img src="assets/zynbill-logo.png" alt="ZynBill" class="sidebar-brand-logo">
+          <div style="display:flex;align-items:center;gap:9px;min-width:0;">
+            <div class="sidebar-brand-logo-wrap">
+              <img src="assets/zynbill-logo.png" alt="ZynBill" class="sidebar-brand-logo">
+            </div>
+            <span class="sidebar-brand-name">ZynBill</span>
           </div>
-          <span class="sidebar-brand-name">ZynBill</span>
+          <button type="button" class="cloud-sync-status-badge online" id="cloudSyncStatusBadge" title="ZynBill Cloud: Online &amp; Synced">
+            <span class="sync-dot"></span>
+            <span class="sync-label" id="syncStatusLabel">Online</span>
+            <span class="sync-pending-badge hidden" id="syncPendingBadge">0</span>
+          </button>
+        </div>
+        <div class="cloud-sync-popover hidden" id="cloudSyncPopover">
+          <div class="sync-popover-header">
+            <div>
+              <strong id="syncPopoverStatusTitle">Cloud Connected</strong>
+              <small id="syncPopoverTenant">ZynBill Cloud Ecosystem</small>
+            </div>
+            <button type="button" class="sync-popover-close" id="syncPopoverCloseBtn">&times;</button>
+          </div>
+          <div class="sync-popover-body">
+            <div class="sync-metric-row">
+              <span>Cloud Status:</span>
+              <strong class="sync-status-online" id="syncPopoverStatus">Online</strong>
+            </div>
+            <div class="sync-metric-row">
+              <span>Pending Sync Queue:</span>
+              <strong id="syncPopoverPendingCount">0 changes queued</strong>
+            </div>
+            <div class="sync-metric-row">
+              <span>Last Synced:</span>
+              <span id="syncPopoverLastSynced">Just now</span>
+            </div>
+            <div class="sync-metric-row">
+              <span>Automated Daily Backup:</span>
+              <span id="syncPopoverBackupStatus">Today (Active)</span>
+            </div>
+            <div class="sync-grace-warning hidden" id="syncGraceWarning">
+              <span class="grace-icon">⚠️</span>
+              <div>
+                <strong>Offline Grace Period Active</strong>
+                <p id="syncGraceDaysText">14 days remaining to reconnect online and refresh license.</p>
+              </div>
+            </div>
+          </div>
+          <div class="sync-popover-footer">
+            <button type="button" class="secondary-button compact-button" id="syncBackupNowBtn">Backup Local DB</button>
+            <button type="button" class="primary-button compact-button" id="syncNowBtn">
+              <svg class="gi-icon sync-spin-icon" style="width:13px;height:13px;margin-right:4px;"><use href="#gi-refresh"></use></svg> Sync Now
+            </button>
+          </div>
         </div>
         <div class="quick-search-wrap">
           <input class="quick-search" id="searchInput" type="search" placeholder="Open Anything (Ctrl+F)" aria-label="Open Anything" autocomplete="off">
@@ -1136,6 +1185,120 @@
     </div>
     <div class="collapsed-tooltip hidden" id="collapsedTooltip" role="tooltip"></div>
 
+    
+    <!-- Cloud Login & Activation Modal -->
+    <div id="cloudActivationModal" class="activation-modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="activationModalTitle">
+      <div class="activation-card">
+        <header class="activation-header">
+          <div class="activation-logo-wrap">
+            <img src="assets/zynbill-logo.png" alt="ZynBill" class="activation-logo">
+          </div>
+          <h2 id="activationModalTitle">Activate ZynBill Desktop</h2>
+          <p>Sign in with your registered company account to activate this installation.</p>
+        </header>
+        <form id="cloudActivationForm" class="activation-form">
+          <label class="activation-field">
+            <span>Registered Email Address</span>
+            <input type="email" id="activationEmail" required placeholder="name@yourcompany.com" autocomplete="username">
+          </label>
+          <label class="activation-field">
+            <span>Password</span>
+            <input type="password" id="activationPassword" required placeholder="Enter your password" autocomplete="current-password">
+          </label>
+          <div class="activation-advanced-toggle" id="activationAdvToggle" role="button" tabindex="0">
+            <span>Server Options ▾</span>
+          </div>
+          <label class="activation-field hidden" id="activationServerField">
+            <span>Cloud API Endpoint</span>
+            <input type="url" id="activationServerUrl" value="http://localhost:4000" placeholder="https://api.zynbill.com">
+          </label>
+          <div class="activation-error-msg hidden" id="activationErrorMsg"></div>
+          <div class="activation-actions">
+            <button type="submit" class="primary-button" id="activationSubmitBtn">Activate &amp; Unlock</button>
+            <button type="button" class="secondary-button" id="activationOfflineDemoBtn">Offline Trial Mode</button>
+          </div>
+          <div class="activation-footer-text">
+            <span>Don't have an account? <a href="#" id="activationRegisterLink">Register on web portal</a></span>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- 4-Digit PIN Lock Screen -->
+    <div id="pinLockModal" class="pin-modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="pinLockTitle">
+      <div class="pin-card">
+        <div class="pin-brand-row">
+          <img src="assets/zynbill-logo.png" alt="ZynBill" class="pin-brand-logo">
+          <span class="pin-brand-title">ZynBill</span>
+        </div>
+        <h3 id="pinLockTitle">Enter Security PIN</h3>
+        <p id="pinLockSubtitle">Enter your 4-digit PIN to access this workspace</p>
+        
+        <div class="pin-dots-row" id="pinDotsRow">
+          <span class="pin-dot"></span>
+          <span class="pin-dot"></span>
+          <span class="pin-dot"></span>
+          <span class="pin-dot"></span>
+        </div>
+        <div class="pin-error-text hidden" id="pinErrorText">Incorrect PIN. Please try again.</div>
+
+        <div class="pin-keypad" id="pinKeypad">
+          <button type="button" class="pin-key" data-key="1">1</button>
+          <button type="button" class="pin-key" data-key="2">2</button>
+          <button type="button" class="pin-key" data-key="3">3</button>
+          <button type="button" class="pin-key" data-key="4">4</button>
+          <button type="button" class="pin-key" data-key="5">5</button>
+          <button type="button" class="pin-key" data-key="6">6</button>
+          <button type="button" class="pin-key" data-key="7">7</button>
+          <button type="button" class="pin-key" data-key="8">8</button>
+          <button type="button" class="pin-key" data-key="9">9</button>
+          <button type="button" class="pin-key action-key" data-key="clear">Clear</button>
+          <button type="button" class="pin-key" data-key="0">0</button>
+          <button type="button" class="pin-key action-key" data-key="back">&#9003;</button>
+        </div>
+
+        <div class="pin-footer-actions">
+          <button type="button" class="text-link" id="pinForgotBtn">Forgot PIN / Re-login?</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 4-Digit PIN Setup Modal -->
+    <div id="pinSetupModal" class="pin-modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="pinSetupTitle">
+      <div class="pin-card">
+        <h3 id="pinSetupTitle">Configure Security PIN</h3>
+        <p id="pinSetupSubtitle">Set a 4-digit PIN for quick, secure application login</p>
+        
+        <div class="pin-dots-row" id="pinSetupDotsRow">
+          <span class="pin-dot"></span>
+          <span class="pin-dot"></span>
+          <span class="pin-dot"></span>
+          <span class="pin-dot"></span>
+        </div>
+        <div class="pin-error-text hidden" id="pinSetupErrorText"></div>
+
+        <div class="pin-keypad" id="pinSetupKeypad">
+          <button type="button" class="pin-key" data-key="1">1</button>
+          <button type="button" class="pin-key" data-key="2">2</button>
+          <button type="button" class="pin-key" data-key="3">3</button>
+          <button type="button" class="pin-key" data-key="4">4</button>
+          <button type="button" class="pin-key" data-key="5">5</button>
+          <button type="button" class="pin-key" data-key="6">6</button>
+          <button type="button" class="pin-key" data-key="7">7</button>
+          <button type="button" class="pin-key" data-key="8">8</button>
+          <button type="button" class="pin-key" data-key="9">9</button>
+          <button type="button" class="pin-key action-key" data-key="clear">Clear</button>
+          <button type="button" class="pin-key" data-key="0">0</button>
+          <button type="button" class="pin-key action-key" data-key="back">&#9003;</button>
+        </div>
+
+        <div class="pin-footer-actions">
+          <button type="button" class="secondary-button" id="pinSetupSkipBtn">Skip for Now</button>
+        </div>
+      </div>
+    </div>
+
+    <script src="cloud-desktop-client.js"></script>
     <script src="app.js"></script>
   </body>
 </html>

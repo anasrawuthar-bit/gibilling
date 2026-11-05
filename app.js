@@ -15581,6 +15581,43 @@ function bindFeatureActions() {
   elements.featureView.querySelector('[data-action="goto-cash-bank"]')?.addEventListener("click", () => {
     showView("cash");
   });
+  // Security & Cloud License Settings Actions
+  elements.featureView.querySelector("#btnSettingsEnablePin")?.addEventListener("click", () => {
+    if (typeof PinUiController !== "undefined") PinUiController.showSetupModal();
+  });
+  elements.featureView.querySelector("#btnSettingsChangePin")?.addEventListener("click", () => {
+    if (typeof PinUiController !== "undefined") PinUiController.showSetupModal();
+  });
+  elements.featureView.querySelector("#btnSettingsDisablePin")?.addEventListener("click", () => {
+    if (typeof PinSecurityManager !== "undefined") {
+      PinSecurityManager.disablePin();
+      if (typeof showToast === "function") showToast("PIN security disabled.");
+      elements.featureView.innerHTML = settingsTemplate("SECURITY");
+      bindFeatureActions();
+    }
+  });
+  elements.featureView.querySelector("#btnSettingsReactivate")?.addEventListener("click", () => {
+    if (typeof ActivationUiController !== "undefined") ActivationUiController.showActivationModal(true);
+  });
+  elements.featureView.querySelector("#btnSettingsRefreshLicense")?.addEventListener("click", async () => {
+    if (typeof CloudSyncWidget !== "undefined") {
+      await CloudSyncWidget.refreshStatus();
+      if (typeof showToast === "function") showToast("License status up to date.", "success");
+      elements.featureView.innerHTML = settingsTemplate("SECURITY");
+      bindFeatureActions();
+    }
+  });
+  elements.featureView.querySelector("#btnSettingsSyncNow")?.addEventListener("click", async () => {
+    if (typeof CloudSyncWidget !== "undefined") {
+      await CloudSyncWidget.triggerSyncNow();
+    }
+  });
+  elements.featureView.querySelector("#btnSettingsBackupNow")?.addEventListener("click", async () => {
+    if (typeof CloudSyncWidget !== "undefined") {
+      await CloudSyncWidget.triggerBackupNow();
+    }
+  });
+
   const checkUpdatesBtn = elements.featureView.querySelector("#btnCheckForUpdates");
   if (checkUpdatesBtn) {
     checkUpdatesBtn.addEventListener("click", async () => {
@@ -28157,6 +28194,7 @@ const SETTINGS_TABS = [
   { id: "TAX", label: "Tax", note: "GST slabs, CGST/SGST & Cess", icon: "calculator" },
   { id: "INVENTORY", label: "Inventory Rules", note: "Negative stock, MRP & HSN", icon: "box" },
   { id: "CUSTOM_FIELDS", label: "Custom Fields", note: "Extra transaction fields", icon: "tools" },
+  { id: "SECURITY", label: "Security & Cloud License", note: "PIN lock, Sync & Grace period", icon: "lock" },
   { id: "ABOUT", label: "About & Version", note: "System info & build", icon: "help" },
 ];
 
@@ -28173,6 +28211,7 @@ function settingsTemplate(active = "COMPANY") {
     if (active === "TAX") return settingsTaxTemplate();
     if (active === "INVENTORY") return settingsInventoryTemplate();
     if (active === "CUSTOM_FIELDS") return customFieldsSettingsTemplate();
+    if (active === "SECURITY") return settingsSecurityTemplate();
     if (active === "ABOUT") return settingsAboutTemplate();
     return settingsCompanyProfileTemplate();
   };
@@ -31144,6 +31183,144 @@ function customFieldRowTemplate(field) {
 
 function businessSettingsForm() {
   return settingsCompanyProfileTemplate();
+}
+
+function settingsSecurityTemplate() {
+  const license = (typeof CloudLicenseManager !== "undefined") ? CloudLicenseManager.getLicense() : {
+    companyName: "Default Company",
+    email: "owner@company.com",
+    plan: "Professional",
+    validUntil: new Date(Date.now() + 365 * 86400000).toISOString(),
+    status: "active"
+  };
+  const isPinOn = (typeof PinSecurityManager !== "undefined") && PinSecurityManager.isPinEnabled();
+  const grace = (typeof CloudLicenseManager !== "undefined") ? CloudLicenseManager.checkGracePeriod() : { isOverdue: false, inGracePeriod: false, daysRemaining: 14 };
+
+  const validDateFormatted = license.validUntil ? new Date(license.validUntil).toLocaleDateString([], { year: 'numeric', month: 'short', day: 'numeric' }) : "Active";
+  const graceBadge = grace.isOverdue && grace.inGracePeriod
+    ? '<span class="badge" style="background:#fef3c7;color:#92400e;font-weight:600;">Grace Period: ' + grace.daysRemaining + ' days left</span>'
+    : '<span class="badge" style="background:#ecfdf5;color:#047857;font-weight:600;">Subscription Active</span>';
+
+  return `
+    <header class="settings-page-header">
+      <div>
+        <h2>Security, Cloud License &amp; Sync</h2>
+        <p>Manage application quick PIN access, multi-tenant cloud subscription, and automated SQLite local backups.</p>
+      </div>
+    </header>
+
+    <div class="settings-form-grid">
+      <!-- 1. Quick PIN Security -->
+      <section class="settings-card" style="grid-column: 1 / -1;">
+        <div class="settings-card-head">
+          <div style="display:flex;align-items:center;gap:12px;">
+            <div style="width:38px;height:38px;border-radius:10px;background:#f0fdf4;border:1px solid #bbf7d0;display:flex;align-items:center;justify-content:center;color:#16a34a;font-size:18px;">
+              <svg class="gi-icon" aria-hidden="true" style="width:20px;height:20px;"><use href="#gi-lock"></use></svg>
+            </div>
+            <div>
+              <h3 style="margin:0;font-size:15px;color:#0f172a;">Application PIN Security</h3>
+              <p style="margin:2px 0 0;font-size:12.5px;color:#64748b;">Protect business billing and customer data with a secure 4-digit PIN upon app launch.</p>
+            </div>
+          </div>
+          <span class="badge" style="${isPinOn ? 'background:#ecfdf5;color:#047857;' : 'background:#f1f5f9;color:#64748b;'}font-weight:700;">
+            ${isPinOn ? '✓ PIN Enabled' : 'PIN Disabled'}
+          </span>
+        </div>
+
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:14px;padding:16px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;margin-top:14px;">
+          <div>
+            <div style="font-weight:600;font-size:13.5px;color:#0f172a;">
+              ${isPinOn ? 'Application requires PIN on startup' : 'Anyone opening ZynBill has immediate access'}
+            </div>
+            <div style="font-size:12px;color:#64748b;margin-top:2px;">
+              ${isPinOn ? 'SHA-256 salted cryptographically secure PIN authentication.' : 'Configure a 4-digit PIN for instant lock-screen privacy.'}
+            </div>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;">
+            ${isPinOn ? `
+              <button type="button" class="secondary-button" id="btnSettingsChangePin">Change PIN</button>
+              <button type="button" class="link-button danger-link" id="btnSettingsDisablePin" style="padding:6px 12px;">Disable PIN</button>
+            ` : `
+              <button type="button" class="primary-button" id="btnSettingsEnablePin">Enable 4-Digit PIN</button>
+            `}
+          </div>
+        </div>
+      </section>
+
+      <!-- 2. Multi-Tenant Cloud Ecosystem & Subscription -->
+      <section class="settings-card" style="grid-column: 1 / -1;">
+        <div class="settings-card-head">
+          <div style="display:flex;align-items:center;gap:12px;">
+            <div style="width:38px;height:38px;border-radius:10px;background:#eff6ff;border:1px solid #bfdbfe;display:flex;align-items:center;justify-content:center;color:#2563eb;font-size:18px;">
+              <svg class="gi-icon" aria-hidden="true" style="width:20px;height:20px;"><use href="#gi-shield"></use></svg>
+            </div>
+            <div>
+              <h3 style="margin:0;font-size:15px;color:#0f172a;">Cloud License &amp; Account</h3>
+              <p style="margin:2px 0 0;font-size:12.5px;color:#64748b;">Centralized customer management, plan entitlement, and cloud tenant isolation.</p>
+            </div>
+          </div>
+          ${graceBadge}
+        </div>
+
+        <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(200px, 1fr));gap:14px;margin-top:16px;">
+          <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:12px;">
+            <div style="font-size:11px;font-weight:600;color:#64748b;text-transform:uppercase;">Tenant Business</div>
+            <div style="font-size:15px;font-weight:700;color:#0f172a;margin-top:4px;">${escapeHtml(license.companyName || state.activeCompany || "Business")}</div>
+            <div style="font-size:11.5px;color:#64748b;margin-top:2px;">${escapeHtml(license.email || "customer@domain.com")}</div>
+          </div>
+          <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:12px;">
+            <div style="font-size:11px;font-weight:600;color:#64748b;text-transform:uppercase;">Subscription Plan</div>
+            <div style="font-size:15px;font-weight:700;color:#0284c7;margin-top:4px;">${escapeHtml(license.plan || "Professional")} Plan</div>
+            <div style="font-size:11.5px;color:#10b981;margin-top:2px;">Full Feature Access</div>
+          </div>
+          <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:12px;">
+            <div style="font-size:11px;font-weight:600;color:#64748b;text-transform:uppercase;">License Expiry</div>
+            <div style="font-size:15px;font-weight:700;color:#0f172a;margin-top:4px;">${validDateFormatted}</div>
+            <div style="font-size:11.5px;color:#64748b;margin-top:2px;">14-Day Offline Grace Period</div>
+          </div>
+        </div>
+
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-top:16px;padding-top:14px;border-top:1px solid #f1f5f9;">
+          <div style="font-size:12px;color:#64748b;">
+            💡 Internet is only required for initial activation and subscription renewal. All normal billing remains 100% offline.
+          </div>
+          <div style="display:flex;gap:8px;">
+            <button type="button" class="secondary-button" id="btnSettingsReactivate">Switch / Re-activate Account</button>
+            <button type="button" class="primary-button" id="btnSettingsRefreshLicense">Sync License</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- 3. Local SQLite Database & Rolling Backups -->
+      <section class="settings-card" style="grid-column: 1 / -1;">
+        <div class="settings-card-head">
+          <div style="display:flex;align-items:center;gap:12px;">
+            <div style="width:38px;height:38px;border-radius:10px;background:#fef2f2;border:1px solid #fecaca;display:flex;align-items:center;justify-content:center;color:#dc2626;font-size:18px;">
+              <svg class="gi-icon" aria-hidden="true" style="width:20px;height:20px;"><use href="#gi-database"></use></svg>
+            </div>
+            <div>
+              <h3 style="margin:0;font-size:15px;color:#0f172a;">Local SQLite &amp; Disaster Recovery</h3>
+              <p style="margin:2px 0 0;font-size:12.5px;color:#64748b;">Primary database is SQLite on this machine. Automatic rolling daily backups with 30-day retention.</p>
+            </div>
+          </div>
+          <span class="badge" style="background:#ecfdf5;color:#047857;font-weight:700;">SQLite Primary</span>
+        </div>
+
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;padding:16px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;margin-top:14px;">
+          <div>
+            <div style="font-weight:600;font-size:13.5px;color:#0f172a;">Automated Daily Backups Active</div>
+            <div style="font-size:12px;color:#64748b;margin-top:2px;">
+              Saved safely to your computer's local user-data directory. Prevents any data loss.
+            </div>
+          </div>
+          <div style="display:flex;gap:8px;">
+            <button type="button" class="secondary-button" id="btnSettingsSyncNow">Sync to Cloud</button>
+            <button type="button" class="primary-button" id="btnSettingsBackupNow">Backup SQLite DB Now</button>
+          </div>
+        </div>
+      </section>
+    </div>
+  `;
 }
 
 function settingsAboutTemplate() {

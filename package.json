@@ -5,6 +5,7 @@
   "productName": "ZynBill",
   "main": "main.js",
   "scripts": {
+    "server": "node server/server.js",
     "start": "electron .",
     "test": "node tests/sale-foundation.test.js && node tests/invoice-readiness.test.js && node tests/phase0-migrations.test.js && node tests/phase1-data-integrity.test.js && node tests/database-diagnostic.test.js && node tests/sync-foundation.test.js && node tests/sync-service.test.js && node tests/database-recovery-and-restore.test.js && node tests/accounting-and-party-integrity.test.js && node tests/real-world-business-lifecycle.test.js && node tests/debit-note-and-fy.test.js && node tests/phase1-production-accounting.test.js && node tests/phase1-runtime-integrity-audit.js && node tests/phase2-business-workflows.test.js && node tests/daily-operations-readiness.test.js",
     "test:daily-readiness": "node tests/daily-operations-readiness.test.js",

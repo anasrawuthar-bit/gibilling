@@ -22362,3 +22362,427 @@ button.secondary-button.wa-btn:hover {
   color: #ffffff;
   border-color: #0284c7;
 }
+
+/* ==========================================================================
+   CLOUD SYNC STATUS BADGE & POPOVER
+   ========================================================================== */
+.cloud-sync-status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+  color: #475569;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  user-select: none;
+  margin-left: auto;
+}
+
+.cloud-sync-status-badge:hover {
+  background: #f1f5f9;
+  border-color: #cbd5e1;
+}
+
+.cloud-sync-status-badge.online {
+  background: #f0fdf4;
+  border-color: #bbf7d0;
+  color: #15803d;
+}
+
+.cloud-sync-status-badge.online .sync-dot {
+  background: #22c55e;
+  box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.2);
+}
+
+.cloud-sync-status-badge.syncing {
+  background: #eff6ff;
+  border-color: #bfdbfe;
+  color: #1d4ed8;
+}
+
+.cloud-sync-status-badge.syncing .sync-dot {
+  background: #3b82f6;
+  animation: syncPulse 1s infinite alternate;
+}
+
+.cloud-sync-status-badge.offline {
+  background: #fefce8;
+  border-color: #fef08a;
+  color: #a16207;
+}
+
+.cloud-sync-status-badge.offline .sync-dot {
+  background: #eab308;
+}
+
+.cloud-sync-status-badge.error {
+  background: #fef2f2;
+  border-color: #fecaca;
+  color: #b91c1c;
+}
+
+.cloud-sync-status-badge.error .sync-dot {
+  background: #ef4444;
+}
+
+.sync-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.sync-pending-badge {
+  background: #e0f2fe;
+  color: #0369a1;
+  font-size: 10px;
+  padding: 0 5px;
+  border-radius: 999px;
+  line-height: 1.4;
+}
+
+@keyframes syncPulse {
+  0% { transform: scale(0.9); opacity: 0.6; }
+  100% { transform: scale(1.2); opacity: 1; }
+}
+
+@keyframes syncRotate {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.sync-spin-icon {
+  animation: syncRotate 1s linear infinite;
+}
+
+/* Cloud Sync Popover */
+.cloud-sync-popover {
+  position: absolute;
+  top: 52px;
+  left: 12px;
+  width: 280px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  box-shadow: 0 16px 36px rgba(15, 23, 42, 0.16);
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  animation: waPopoverSlideUp 0.15s ease-out;
+}
+
+.sync-popover-header {
+  padding: 12px 14px;
+  border-bottom: 1px solid #f1f5f9;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.sync-popover-header strong {
+  display: block;
+  font-size: 13px;
+  color: #0f172a;
+}
+
+.sync-popover-header small {
+  color: #64748b;
+  font-size: 11px;
+}
+
+.sync-popover-close {
+  background: none;
+  border: none;
+  font-size: 18px;
+  color: #94a3b8;
+  cursor: pointer;
+  line-height: 1;
+}
+
+.sync-popover-close:hover {
+  color: #0f172a;
+}
+
+.sync-popover-body {
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.sync-metric-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  color: #475569;
+}
+
+.sync-metric-row strong {
+  color: #0f172a;
+}
+
+.sync-status-online { color: #16a34a !important; }
+.sync-status-offline { color: #d97706 !important; }
+.sync-status-syncing { color: #2563eb !important; }
+
+.sync-grace-warning {
+  margin-top: 4px;
+  padding: 8px 10px;
+  background: #fffbeb;
+  border: 1px solid #fef3c7;
+  border-radius: 8px;
+  display: flex;
+  gap: 8px;
+  font-size: 11px;
+  color: #92400e;
+}
+
+.sync-grace-warning p {
+  margin: 2px 0 0;
+  line-height: 1.3;
+}
+
+.sync-popover-footer {
+  padding: 10px 14px;
+  background: #f8fafc;
+  border-top: 1px solid #f1f5f9;
+  border-radius: 0 0 12px 12px;
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+/* ==========================================================================
+   CLOUD ACTIVATION MODAL & PIN LOCK MODAL
+   ========================================================================== */
+.activation-modal-backdrop,
+.pin-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.65);
+  backdrop-filter: blur(8px);
+  z-index: 99999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  animation: fadeIn 0.2s ease-out;
+}
+
+.activation-card,
+.pin-card {
+  background: #ffffff;
+  border-radius: 20px;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+  width: 100%;
+  max-width: 420px;
+  padding: 32px 28px;
+  display: flex;
+  flex-direction: column;
+  text-align: center;
+  animation: popIn 0.2s ease-out;
+}
+
+.activation-header h2 {
+  font-size: 20px;
+  font-weight: 800;
+  color: #0f172a;
+  margin: 12px 0 4px;
+}
+
+.activation-header p {
+  font-size: 13px;
+  color: #64748b;
+  margin: 0 0 20px;
+  line-height: 1.4;
+}
+
+.activation-logo-wrap,
+.pin-brand-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.activation-logo,
+.pin-brand-logo {
+  width: 42px;
+  height: 42px;
+  object-fit: contain;
+}
+
+.activation-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  text-align: left;
+}
+
+.activation-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.activation-field span {
+  font-size: 12px;
+  font-weight: 600;
+  color: #475569;
+}
+
+.activation-field input {
+  padding: 10px 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  font-size: 13px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.activation-field input:focus {
+  border-color: #0284c7;
+  box-shadow: 0 0 0 3px rgba(2, 132, 199, 0.15);
+}
+
+.activation-advanced-toggle {
+  font-size: 11.5px;
+  color: #64748b;
+  cursor: pointer;
+  text-align: right;
+  user-select: none;
+}
+
+.activation-advanced-toggle:hover {
+  color: #0284c7;
+}
+
+.activation-error-msg {
+  padding: 8px 12px;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #dc2626;
+  border-radius: 8px;
+  font-size: 12px;
+  text-align: center;
+}
+
+.activation-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.activation-footer-text {
+  font-size: 12px;
+  color: #64748b;
+  text-align: center;
+  margin-top: 10px;
+}
+
+.activation-footer-text a {
+  color: #0284c7;
+  text-decoration: none;
+  font-weight: 600;
+}
+
+/* PIN Lock Styles */
+.pin-brand-title {
+  font-size: 18px;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.pin-card h3 {
+  font-size: 19px;
+  font-weight: 700;
+  color: #0f172a;
+  margin: 12px 0 4px;
+}
+
+.pin-card p {
+  font-size: 12.5px;
+  color: #64748b;
+  margin: 0 0 20px;
+}
+
+.pin-dots-row {
+  display: flex;
+  justify-content: center;
+  gap: 14px;
+  margin-bottom: 20px;
+}
+
+.pin-dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid #cbd5e1;
+  background: #ffffff;
+  transition: all 0.15s ease;
+}
+
+.pin-dot.filled {
+  background: #0284c7;
+  border-color: #0284c7;
+  transform: scale(1.15);
+}
+
+.pin-error-text {
+  color: #dc2626;
+  font-size: 12px;
+  font-weight: 600;
+  margin-bottom: 12px;
+}
+
+.pin-keypad {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  max-width: 260px;
+  margin: 0 auto 16px;
+}
+
+.pin-key {
+  height: 54px;
+  border-radius: 12px;
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+  font-size: 20px;
+  font-weight: 700;
+  color: #0f172a;
+  cursor: pointer;
+  transition: all 0.12s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  user-select: none;
+}
+
+.pin-key:hover {
+  background: #e2e8f0;
+  transform: scale(1.05);
+}
+
+.pin-key:active {
+  transform: scale(0.95);
+  background: #cbd5e1;
+}
+
+.pin-key.action-key {
+  font-size: 13px;
+  color: #64748b;
+}
+
+.pin-footer-actions {
+  display: flex;
+  justify-content: center;
+  margin-top: 8px;
+}

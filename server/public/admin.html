@@ -1,0 +1,724 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ZynBill - Super Admin Customer Management</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --primary: #0284c7;
+      --primary-hover: #0369a1;
+      --accent: #00c0f3;
+      --success: #10b981;
+      --warning: #f59e0b;
+      --danger: #ef4444;
+      --bg: #f8fafc;
+      --surface: #ffffff;
+      --border: #e2e8f0;
+      --text: #0f172a;
+      --muted: #64748b;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* Header */
+    .admin-header {
+      background: #0f172a;
+      color: #ffffff;
+      padding: 0 32px;
+      height: 64px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid #1e293b;
+    }
+    .brand-section {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .brand-logo {
+      width: 32px;
+      height: 32px;
+      background: var(--accent);
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #fff;
+      font-weight: 800;
+      font-size: 18px;
+    }
+    .brand-title {
+      font-size: 16px;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+    }
+    .admin-badge {
+      background: #334155;
+      color: #94a3b8;
+      font-size: 11px;
+      font-weight: 600;
+      padding: 3px 8px;
+      border-radius: 6px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .user-section {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      font-size: 13px;
+    }
+    .btn-logout {
+      background: #1e293b;
+      border: 1px solid #334155;
+      color: #cbd5e1;
+      padding: 6px 14px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-family: inherit;
+      font-size: 12.5px;
+      font-weight: 600;
+      transition: all 0.15s ease;
+    }
+    .btn-logout:hover {
+      background: #334155;
+      color: #ffffff;
+    }
+
+    /* Main Container */
+    .admin-container {
+      flex: 1;
+      max-width: 1360px;
+      width: 100%;
+      margin: 0 auto;
+      padding: 28px 24px;
+    }
+
+    /* KPI Cards */
+    .kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+    .kpi-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
+    }
+    .kpi-label {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .kpi-value {
+      font-size: 28px;
+      font-weight: 800;
+      color: var(--text);
+      margin-top: 6px;
+    }
+    .kpi-sub {
+      font-size: 12px;
+      color: var(--muted);
+      margin-top: 4px;
+    }
+
+    /* Content Card */
+    .table-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.02);
+      overflow: hidden;
+    }
+    .table-toolbar {
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+    .filter-tabs {
+      display: flex;
+      gap: 6px;
+      background: #f1f5f9;
+      padding: 4px;
+      border-radius: 8px;
+    }
+    .filter-btn {
+      padding: 6px 14px;
+      border-radius: 6px;
+      border: none;
+      background: transparent;
+      font-family: inherit;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--muted);
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .filter-btn.active {
+      background: #ffffff;
+      color: var(--text);
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+    }
+    .search-input {
+      height: 38px;
+      padding: 0 14px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      font-family: inherit;
+      font-size: 13px;
+      outline: none;
+      width: 260px;
+    }
+    .search-input:focus {
+      border-color: var(--primary);
+    }
+
+    /* Table */
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      text-align: left;
+    }
+    th {
+      background: #f8fafc;
+      padding: 12px 18px;
+      font-size: 11.5px;
+      font-weight: 700;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      border-bottom: 1px solid var(--border);
+    }
+    td {
+      padding: 14px 18px;
+      font-size: 13px;
+      border-bottom: 1px solid var(--border);
+      vertical-align: middle;
+    }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: #fafafa; }
+
+    /* Badges */
+    .status-badge {
+      display: inline-block;
+      padding: 4px 10px;
+      border-radius: 9999px;
+      font-size: 11.5px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .badge-pending { background: #fef3c7; color: #b45309; }
+    .badge-active { background: #ecfdf5; color: #047857; }
+    .badge-suspended { background: #fee2e2; color: #b91c1c; }
+    .badge-rejected { background: #f1f5f9; color: #64748b; }
+
+    .plan-badge {
+      background: #e0f2fe;
+      color: #0369a1;
+      padding: 3px 8px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    /* Buttons */
+    .btn-action {
+      padding: 6px 12px;
+      border-radius: 6px;
+      border: 1px solid transparent;
+      font-family: inherit;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .btn-approve { background: #10b981; color: #ffffff; }
+    .btn-approve:hover { background: #059669; }
+    .btn-reject { background: #ffffff; border-color: #fca5a5; color: #dc2626; }
+    .btn-reject:hover { background: #fef2f2; }
+    .btn-secondary { background: #ffffff; border-color: var(--border); color: #334155; }
+    .btn-secondary:hover { background: #f8fafc; }
+
+    /* Modals */
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(15, 23, 42, 0.6);
+      backdrop-filter: blur(4px);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 200;
+      padding: 20px;
+    }
+    .modal-card {
+      background: #ffffff;
+      width: 100%;
+      max-width: 520px;
+      border-radius: 14px;
+      padding: 28px;
+      box-shadow: 0 20px 48px rgba(0, 0, 0, 0.2);
+    }
+    .modal-head {
+      margin-bottom: 20px;
+    }
+    .modal-head h3 { font-size: 18px; color: var(--text); }
+    .modal-head p { font-size: 13px; color: var(--muted); margin-top: 4px; }
+    .field-group {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      margin-bottom: 16px;
+    }
+    .field-label { font-size: 12.5px; font-weight: 600; color: #334155; }
+    .select-control, .text-control {
+      height: 42px;
+      padding: 0 12px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      font-family: inherit;
+      font-size: 13.5px;
+      outline: none;
+    }
+    .modal-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 10px;
+      margin-top: 24px;
+    }
+    .hidden { display: none !important; }
+
+    /* Login Form overlay */
+    .login-container {
+      max-width: 400px;
+      width: 100%;
+      margin: 100px auto;
+      background: #ffffff;
+      padding: 36px;
+      border-radius: 14px;
+      border: 1px solid var(--border);
+      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.06);
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Top Header -->
+  <header class="admin-header">
+    <div class="brand-section">
+      <div class="brand-logo">Z</div>
+      <div class="brand-title">ZynBill Super Admin Panel</div>
+      <span class="admin-badge">Multi-Tenant Cloud Control</span>
+    </div>
+    <div class="user-section" id="adminUserSection" style="display: none;">
+      <span id="adminNameDisplay">Super Admin</span>
+      <button class="btn-logout" onclick="handleLogout()">Sign Out</button>
+    </div>
+  </header>
+
+  <!-- Login Card if not logged in -->
+  <div class="login-container" id="loginCard">
+    <div style="text-align: center; margin-bottom: 24px;">
+      <div class="brand-logo" style="margin: 0 auto 12px; width: 44px; height: 44px; font-size: 22px;">Z</div>
+      <h2 style="font-size: 20px; font-weight: 800; color: #0f172a;">Super Admin Login</h2>
+      <p style="font-size: 13px; color: #64748b; margin-top: 4px;">Sign in to review and manage customer tenants</p>
+    </div>
+
+    <form onsubmit="handleLogin(event)">
+      <div class="field-group">
+        <label class="field-label">Admin Email</label>
+        <input type="email" id="adminEmail" class="text-control" value="admin@zynbill.com" required>
+      </div>
+      <div class="field-group">
+        <label class="field-label">Password</label>
+        <input type="password" id="adminPassword" class="text-control" value="admin123" required>
+      </div>
+      <button type="submit" class="btn-action btn-approve" style="width: 100%; height: 44px; font-size: 14px; margin-top: 8px;">Sign In to Console</button>
+    </form>
+    <div id="loginError" style="color: #dc2626; font-size: 12.5px; margin-top: 12px; text-align: center; display: none;"></div>
+  </div>
+
+  <!-- Main Console -->
+  <div class="admin-container hidden" id="adminDashboard">
+    <!-- Top KPI Summary -->
+    <div class="kpi-grid">
+      <div class="kpi-card">
+        <div class="kpi-label">Total Registered</div>
+        <div class="kpi-value" id="kpiTotal">0</div>
+        <div class="kpi-sub">Customers registered across all tenants</div>
+      </div>
+      <div class="kpi-card" style="border-left: 4px solid var(--warning);">
+        <div class="kpi-label">Pending Approval</div>
+        <div class="kpi-value" id="kpiPending" style="color: #b45309;">0</div>
+        <div class="kpi-sub">Awaiting your review &amp; plan assignment</div>
+      </div>
+      <div class="kpi-card" style="border-left: 4px solid var(--success);">
+        <div class="kpi-label">Active Subscriptions</div>
+        <div class="kpi-value" id="kpiActive" style="color: #047857;">0</div>
+        <div class="kpi-sub">Authorized for Windows desktop app access</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Suspended / Rejected</div>
+        <div class="kpi-value" id="kpiOther">0</div>
+        <div class="kpi-sub">Disabled from synchronization</div>
+      </div>
+    </div>
+
+    <!-- Table Card -->
+    <div class="table-card">
+      <div class="table-toolbar">
+        <div class="filter-tabs">
+          <button class="filter-btn active" data-filter="all" onclick="setFilter('all')">All Customers</button>
+          <button class="filter-btn" data-filter="pending_approval" onclick="setFilter('pending_approval')">Pending Review <span id="pendingCountBadge" style="background:#fef3c7;color:#b45309;padding:1px 6px;border-radius:10px;font-size:11px;">0</span></button>
+          <button class="filter-btn" data-filter="active" onclick="setFilter('active')">Active</button>
+          <button class="filter-btn" data-filter="suspended" onclick="setFilter('suspended')">Suspended</button>
+          <button class="filter-btn" data-filter="rejected" onclick="setFilter('rejected')">Rejected</button>
+        </div>
+        <div>
+          <input type="text" class="search-input" id="searchInput" placeholder="Search company, email, phone..." oninput="handleSearch()">
+        </div>
+      </div>
+
+      <table>
+        <thead>
+          <tr>
+            <th>Company / Proprietor</th>
+            <th>Contact Details</th>
+            <th>Location / GSTIN</th>
+            <th>Plan &amp; Validity</th>
+            <th>Status</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="customerTableBody">
+          <tr><td colspan="6" style="text-align: center; padding: 36px; color: var(--muted);">Loading customer directory...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Review & Approve Modal -->
+  <div class="modal-backdrop hidden" id="approveModal">
+    <div class="modal-card">
+      <div class="modal-head">
+        <h3 id="approveCustomerTitle">Review &amp; Approve Customer</h3>
+        <p>Assign subscription plan, account validity, and provision tenant database.</p>
+      </div>
+
+      <div style="background: #f8fafc; border: 1px solid var(--border); border-radius: 8px; padding: 12px 16px; margin-bottom: 18px; font-size: 13px;">
+        <div><strong>Company:</strong> <span id="modalCompanyName"></span></div>
+        <div style="margin-top: 4px;"><strong>Email:</strong> <span id="modalCustomerEmail"></span></div>
+      </div>
+
+      <div class="field-group">
+        <label class="field-label">Subscription Plan</label>
+        <select class="select-control" id="modalPlanSelect">
+          <option value="Professional" selected>Professional Plan (Most Popular)</option>
+          <option value="Starter">Starter Plan</option>
+          <option value="Enterprise">Enterprise Multi-Store</option>
+        </select>
+      </div>
+
+      <div class="field-group">
+        <label class="field-label">Validity Period</label>
+        <select class="select-control" id="modalDurationSelect">
+          <option value="365" selected>1 Year (365 Days)</option>
+          <option value="180">6 Months (180 Days)</option>
+          <option value="90">3 Months (90 Days)</option>
+          <option value="30">1 Month Trial (30 Days)</option>
+        </select>
+      </div>
+
+      <div style="background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; padding: 12px; font-size: 12px; color: #1e40af; line-height: 1.5;">
+        🛡️ <strong>Safeguard:</strong> Approved customers automatically receive a 14-day offline grace period. When approved, an activation email will be automatically sent via SMTP.
+      </div>
+
+      <div class="modal-actions">
+        <button type="button" class="btn-action btn-secondary" onclick="closeApproveModal()">Cancel</button>
+        <button type="button" class="btn-action btn-approve" id="btnConfirmApprove" onclick="executeApprove()">Approve &amp; Activate Account</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let adminToken = localStorage.getItem('zynbill_admin_token');
+    let currentCustomers = [];
+    let activeFilter = 'all';
+    let selectedCustomerId = null;
+
+    window.addEventListener('DOMContentLoaded', () => {
+      if (adminToken) {
+        showDashboard();
+      }
+    });
+
+    async function handleLogin(e) {
+      e.preventDefault();
+      const email = document.getElementById('adminEmail').value.trim();
+      const password = document.getElementById('adminPassword').value;
+
+      try {
+        const res = await fetch('/api/v1/admin/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password })
+        });
+        const data = await res.json();
+        if (!data.ok) {
+          document.getElementById('loginError').textContent = data.error || 'Login failed';
+          document.getElementById('loginError').style.display = 'block';
+          return;
+        }
+
+        adminToken = data.token;
+        localStorage.setItem('zynbill_admin_token', adminToken);
+        showDashboard();
+      } catch (err) {
+        alert('Could not connect to server.');
+      }
+    }
+
+    function showDashboard() {
+      document.getElementById('loginCard').classList.add('hidden');
+      document.getElementById('adminDashboard').classList.remove('hidden');
+      document.getElementById('adminUserSection').style.display = 'flex';
+      loadCustomers();
+    }
+
+    function handleLogout() {
+      localStorage.removeItem('zynbill_admin_token');
+      adminToken = null;
+      location.reload();
+    }
+
+    async function loadCustomers() {
+      try {
+        const res = await fetch('/api/v1/admin/customers', {
+          headers: { 'Authorization': 'Bearer ' + adminToken }
+        });
+        if (res.status === 401) {
+          handleLogout();
+          return;
+        }
+        const data = await res.json();
+        if (data.ok) {
+          currentCustomers = data.customers || [];
+          updateKpis(data.stats);
+          renderTable();
+        }
+      } catch (err) {
+        console.error('Error loading customers:', err);
+      }
+    }
+
+    function updateKpis(stats) {
+      if (!stats) return;
+      document.getElementById('kpiTotal').textContent = stats.total || 0;
+      document.getElementById('kpiPending').textContent = stats.pending || 0;
+      document.getElementById('kpiActive').textContent = stats.active || 0;
+      document.getElementById('kpiOther').textContent = (stats.suspended || 0) + (stats.rejected || 0);
+      document.getElementById('pendingCountBadge').textContent = stats.pending || 0;
+    }
+
+    function setFilter(filter) {
+      activeFilter = filter;
+      document.querySelectorAll('.filter-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.filter === filter);
+      });
+      renderTable();
+    }
+
+    function handleSearch() {
+      renderTable();
+    }
+
+    function renderTable() {
+      const search = (document.getElementById('searchInput').value || '').toLowerCase();
+      const tbody = document.getElementById('customerTableBody');
+
+      const filtered = currentCustomers.filter(c => {
+        if (activeFilter !== 'all' && c.status !== activeFilter) return false;
+        if (search) {
+          const match = (c.company_name || '').toLowerCase().includes(search) ||
+                        (c.owner_name || '').toLowerCase().includes(search) ||
+                        (c.email || '').toLowerCase().includes(search) ||
+                        (c.phone || '').toLowerCase().includes(search);
+          if (!match) return false;
+        }
+        return true;
+      });
+
+      if (filtered.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="6" style="text-align: center; padding: 40px; color: var(--muted);">No customer records found matching this filter.</td></tr>`;
+        return;
+      }
+
+      tbody.innerHTML = filtered.map(c => {
+        const validStr = c.valid_until ? new Date(c.valid_until).toLocaleDateString([], { year: 'numeric', month: 'short', day: 'numeric' }) : '—';
+        let badgeClass = 'badge-pending';
+        let badgeLabel = 'Pending Review';
+
+        if (c.status === 'active') { badgeClass = 'badge-active'; badgeLabel = 'Active'; }
+        else if (c.status === 'suspended') { badgeClass = 'badge-suspended'; badgeLabel = 'Suspended'; }
+        else if (c.status === 'rejected') { badgeClass = 'badge-rejected'; badgeLabel = 'Rejected'; }
+
+        return `
+          <tr>
+            <td>
+              <strong style="color: #0f172a; font-size: 14px;">${escapeHtml(c.company_name)}</strong>
+              <div style="color: var(--muted); font-size: 12px; margin-top: 2px;">Prop: ${escapeHtml(c.owner_name)}</div>
+            </td>
+            <td>
+              <div style="font-weight: 500;">${escapeHtml(c.email)}</div>
+              <div style="color: var(--muted); font-size: 12px; margin-top: 2px;">${escapeHtml(c.phone || '—')}</div>
+            </td>
+            <td>
+              <div>${escapeHtml(c.state || 'Kerala')}</div>
+              <div style="color: var(--muted); font-size: 11.5px; margin-top: 2px;">${escapeHtml(c.gstin || 'Unregistered')}</div>
+            </td>
+            <td>
+              <span class="plan-badge">${escapeHtml(c.plan || 'Professional')}</span>
+              <div style="color: var(--muted); font-size: 11.5px; margin-top: 4px;">Expires: ${validStr}</div>
+            </td>
+            <td>
+              <span class="status-badge ${badgeClass}">${badgeLabel}</span>
+            </td>
+            <td>
+              <div style="display: flex; gap: 6px;">
+                ${c.status === 'pending_approval' || c.status === 'pending_verification' ? `
+                  <button class="btn-action btn-approve" onclick="openApproveModal('${c.id}', '${escapeHtml(c.company_name)}', '${escapeHtml(c.email)}')">Review &amp; Approve</button>
+                  <button class="btn-action btn-reject" onclick="handleReject('${c.id}')">Reject</button>
+                ` : c.status === 'active' ? `
+                  <button class="btn-action btn-secondary" onclick="toggleStatus('${c.id}', 'suspended')">Suspend</button>
+                  <button class="btn-action btn-secondary" onclick="openApproveModal('${c.id}', '${escapeHtml(c.company_name)}', '${escapeHtml(c.email)}')">Extend</button>
+                ` : c.status === 'suspended' ? `
+                  <button class="btn-action btn-approve" onclick="toggleStatus('${c.id}', 'active')">Activate</button>
+                ` : `
+                  <button class="btn-action btn-secondary" onclick="openApproveModal('${c.id}', '${escapeHtml(c.company_name)}', '${escapeHtml(c.email)}')">Re-Review</button>
+                `}
+              </div>
+            </td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    function openApproveModal(id, company, email) {
+      selectedCustomerId = id;
+      document.getElementById('modalCompanyName').textContent = company;
+      document.getElementById('modalCustomerEmail').textContent = email;
+      document.getElementById('approveModal').classList.remove('hidden');
+    }
+
+    function closeApproveModal() {
+      document.getElementById('approveModal').classList.add('hidden');
+      selectedCustomerId = null;
+    }
+
+    async function executeApprove() {
+      if (!selectedCustomerId) return;
+      const plan = document.getElementById('modalPlanSelect').value;
+      const durationDays = document.getElementById('modalDurationSelect').value;
+
+      const btn = document.getElementById('btnConfirmApprove');
+      btn.disabled = true;
+      btn.textContent = 'Approving & Provisioning Tenant...';
+
+      try {
+        const res = await fetch(`/api/v1/admin/customers/${selectedCustomerId}/approve`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer ' + adminToken
+          },
+          body: JSON.stringify({ plan, durationDays })
+        });
+        const data = await res.json();
+        if (data.ok) {
+          closeApproveModal();
+          await loadCustomers();
+          alert('Account approved, tenant provisioned, and activation email dispatched via SMTP!');
+        } else {
+          alert(data.error || 'Approval failed');
+        }
+      } catch (err) {
+        alert('Network error during approval');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Approve & Activate Account';
+      }
+    }
+
+    async function handleReject(id) {
+      const reason = prompt('Enter rejection reason for this customer:');
+      if (reason === null) return;
+
+      try {
+        const res = await fetch(`/api/v1/admin/customers/${id}/reject`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer ' + adminToken
+          },
+          body: JSON.stringify({ reason: reason || 'Requirements not met' })
+        });
+        const data = await res.json();
+        if (data.ok) {
+          await loadCustomers();
+        } else {
+          alert(data.error || 'Rejection failed');
+        }
+      } catch (err) {
+        alert('Network error');
+      }
+    }
+
+    async function toggleStatus(id, newStatus) {
+      if (!confirm(`Are you sure you want to set customer status to ${newStatus}?`)) return;
+
+      try {
+        const res = await fetch(`/api/v1/admin/customers/${id}/status`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer ' + adminToken
+          },
+          body: JSON.stringify({ status: newStatus })
+        });
+        const data = await res.json();
+        if (data.ok) {
+          await loadCustomers();
+        }
+      } catch (err) {
+        alert('Network error');
+      }
+    }
+
+    function escapeHtml(str) {
+      return String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+  </script>
+</body>
+</html>
