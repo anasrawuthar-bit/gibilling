@@ -240,23 +240,23 @@ let posKeyboardShortcutsBound = false;
 // ── Vyapar-Style Filter State ────────────────────────────────────────────────
 const transactionTopFilters = {
   sale: { preset: "thisMonth", dateFrom: "", dateTo: "", party: "" },
-  purchase: { preset: "all", dateFrom: "", dateTo: "", party: "" },
-  estimate: { preset: "all", dateFrom: "", dateTo: "", party: "" },
-  proforma: { preset: "all", dateFrom: "", dateTo: "", party: "" },
-  saleOrder: { preset: "all", dateFrom: "", dateTo: "", party: "" },
-  deliveryChallan: { preset: "all", dateFrom: "", dateTo: "", party: "" },
-  purchaseOrder: { preset: "all", dateFrom: "", dateTo: "", party: "" },
-  saleReturn: { preset: "all", dateFrom: "", dateTo: "", party: "" },
-  purchaseReturn: { preset: "all", dateFrom: "", dateTo: "", party: "" },
-  paymentIn: { preset: "all", dateFrom: "", dateTo: "", party: "" },
-  paymentOut: { preset: "all", dateFrom: "", dateTo: "", party: "" },
-  expenses: { preset: "all", dateFrom: "", dateTo: "", party: "" },
+  purchase: { preset: "thisMonth", dateFrom: "", dateTo: "", party: "" },
+  estimate: { preset: "thisMonth", dateFrom: "", dateTo: "", party: "" },
+  proforma: { preset: "thisMonth", dateFrom: "", dateTo: "", party: "" },
+  saleOrder: { preset: "thisMonth", dateFrom: "", dateTo: "", party: "" },
+  deliveryChallan: { preset: "thisMonth", dateFrom: "", dateTo: "", party: "" },
+  purchaseOrder: { preset: "thisMonth", dateFrom: "", dateTo: "", party: "" },
+  saleReturn: { preset: "thisMonth", dateFrom: "", dateTo: "", party: "" },
+  purchaseReturn: { preset: "thisMonth", dateFrom: "", dateTo: "", party: "" },
+  paymentIn: { preset: "thisMonth", dateFrom: "", dateTo: "", party: "" },
+  paymentOut: { preset: "thisMonth", dateFrom: "", dateTo: "", party: "" },
+  expenses: { preset: "thisMonth", dateFrom: "", dateTo: "", party: "" },
 };
 
 function getTransactionTopFilter(type) {
   if (!transactionTopFilters[type]) {
     transactionTopFilters[type] = {
-      preset: type === "sale" ? "thisMonth" : "all",
+      preset: "thisMonth",
       dateFrom: "",
       dateTo: "",
       party: "",
@@ -8497,7 +8497,7 @@ async function saveTransactionEditor(event) {
       transactionTopFilters.sale = { preset: "thisMonth", dateFrom: "", dateTo: "", party: "" };
       saleTopFilter = transactionTopFilters.sale;
     } else if (editorType === "purchase") {
-      transactionTopFilters.purchase = { preset: "all", dateFrom: "", dateTo: "", party: "" };
+      transactionTopFilters.purchase = { preset: "thisMonth", dateFrom: "", dateTo: "", party: "" };
       purchaseTopFilter = transactionTopFilters.purchase;
     }
 
@@ -10803,9 +10803,9 @@ function invoiceWorkspaceTemplate(type) {
   const isSale = type === "sale";
   const query = isSale ? saleInvoiceSearchQuery : purchaseInvoiceSearchQuery;
   const topFilter = getTransactionTopFilter(type);
+  topFilter.party = ""; // In sales and purchase workspaces, party filter dropdown is omitted
   if (isSale) {
     saleTopFilter = topFilter;
-    topFilter.party = ""; // On Sale Invoices page, party filter dropdown is omitted
   } else {
     purchaseTopFilter = topFilter;
   }
@@ -10845,17 +10845,17 @@ function invoiceWorkspaceTemplate(type) {
   const actionLabel = isSale ? "+ Add Sale" : "+ Add Purchase";
   const paidLabel = isSale ? "Received" : "Paid";
   const balanceLabel = isSale ? "Receivable" : "Payable";
-  const defaultPreset = isSale ? "thisMonth" : "all";
-  const hasFilters = query || topFilter.preset !== defaultPreset || (isSale ? false : Boolean(topFilter.party)) || activeColFilterCount > 0;
+  const defaultPreset = "thisMonth";
+  const hasFilters = query || topFilter.preset !== defaultPreset || activeColFilterCount > 0;
   const emptyTitle = hasFilters
     ? `No matching ${isSale ? "sale invoices" : "purchase bills"}`
     : (allRows.length > 0 && rows.length === 0 && topFilter.preset === "thisMonth"
-        ? "No sale invoices this month"
+        ? `No ${isSale ? "sale invoices" : "purchase bills"} this month`
         : `No ${isSale ? "sale invoices" : "purchase bills"} yet`);
   const emptyCopy = hasFilters
-    ? `Try adjusting the ${isSale ? "date range or search query" : "date range, party, or column filters"}.`
+    ? `Try adjusting the date range, search query, or column filters.`
     : (allRows.length > 0 && rows.length === 0 && topFilter.preset === "thisMonth"
-        ? "There are no invoices dated this month. Switch the date filter to 'All Dates' or create a new sale."
+        ? `There are no ${isSale ? "invoices" : "bills"} dated this month. Switch the date filter to 'All Dates' or create a new ${isSale ? "sale" : "purchase"}.`
         : `Create your first ${isSale ? "sale invoice" : "purchase bill"} to start tracking totals, balances, and ledger impact.`);
 
   return `
@@ -10869,7 +10869,7 @@ function invoiceWorkspaceTemplate(type) {
         </div>
       </header>
 
-      ${topFilterBarHTML(type, topFilter, query, { showParty: !isSale })}
+      ${topFilterBarHTML(type, topFilter, query, { showParty: false })}
 
       <section class="kpi-grid invoice-kpis">
         ${kpiCard(`Total ${isSale ? "Sales" : "Purchases"}`, formatCurrency(total), rows.length === 1 ? `1 ${isSale ? "invoice" : "bill"}` : `${rows.length} ${isSale ? "invoices" : "bills"}`, "neutral")}
@@ -10986,9 +10986,9 @@ function topFilterDateControlsHTML(type, topFilter, options = {}) {
     thisYear: "This Year",
     custom: "Custom",
   };
-  const presetLabel = presetLabels[preset] || options.allLabel || (type === "sale" ? "This Month" : "All Dates");
+  const presetLabel = presetLabels[preset] || options.allLabel || "This Month";
   const showRange = preset === "custom" || Boolean(range.from || range.to);
-  const defaultPreset = type === "sale" ? "thisMonth" : "all";
+  const defaultPreset = "thisMonth";
   const isFiltered = preset !== defaultPreset || (options.showParty && Boolean(party));
 
   const parties = options.showParty ? [...new Set((state.parties || []).map((p) => p.name).filter(Boolean))].sort() : [];
@@ -11037,7 +11037,7 @@ function topFilterDateControlsHTML(type, topFilter, options = {}) {
 }
 
 function topFilterBarHTML(type, topFilter, query = "", options = {}) {
-  const showParty = options.showParty !== undefined ? options.showParty : (type !== "sale");
+  const showParty = options.showParty !== undefined ? options.showParty : false;
   return `
     <div class="top-filter-bar" data-top-filter-type="${type}">
       <div class="top-filter-search-box">
@@ -11234,13 +11234,14 @@ function saleReturnTemplate() {
   const allRows = (state.creditNotes || []).sort((a, b) => new Date(b.date || b.createdAt || 0) - new Date(a.date || a.createdAt || 0));
   const searchedRows = creditNoteSearchQuery ? allRows.filter((note) => creditNoteMatchesSearch(note, creditNoteSearchQuery)) : allRows;
   const topFilter = getTransactionTopFilter("saleReturn");
+  topFilter.party = "";
   const topFiltered = applyTopFilter(searchedRows, topFilter);
   const rows = topFiltered.filter((note) => creditNoteQuickFilterMatches(note, creditNoteQuickFilter));
   const total = rows.reduce((sum, note) => sum + creditNoteTotalValue(note), 0);
   const adjusted = rows.reduce((sum, note) => sum + Number(note.adjusted || 0), 0);
   const openBalance = rows.reduce((sum, note) => sum + Number(note.balance || 0), 0);
   const taxTotal = rows.reduce((sum, note) => sum + creditNoteTaxValue(note), 0);
-  const isFiltered = Boolean(creditNoteSearchQuery || creditNoteQuickFilter !== "all" || topFilter.preset !== "all" || topFilter.party);
+  const isFiltered = Boolean(creditNoteSearchQuery || creditNoteQuickFilter !== "all" || topFilter.preset !== "thisMonth");
   const emptyTitle = isFiltered ? "No matching credit notes" : "No sales returns yet";
   const emptyCopy = isFiltered
     ? "Try adjusting the date range, party, or search query."
@@ -11270,7 +11271,7 @@ function saleReturnTemplate() {
           ${creditNoteSearchQuery ? `<button class="top-filter-search-clear" data-credit-note-search-clear type="button" title="Clear search">×</button>` : ""}
         </div>
         <div class="top-filter-controls">
-          ${topFilterDateControlsHTML("saleReturn", topFilter, { showParty: true })}
+          ${topFilterDateControlsHTML("saleReturn", topFilter, { showParty: false })}
           <div class="invoice-quick-filters" role="group" aria-label="Credit note filters">
             ${creditNoteQuickFilterButtons()}
           </div>
@@ -11696,6 +11697,7 @@ function estimateTemplate() {
     .sort((a, b) => new Date(b.date || b.createdAt || 0) - new Date(a.date || a.createdAt || 0));
   const searchedRows = estimateSearchQuery ? allRows.filter((quote) => estimateMatchesSearch(quote, estimateSearchQuery)) : allRows;
   const topFilter = getTransactionTopFilter(view);
+  topFilter.party = "";
   const topFiltered = applyTopFilter(searchedRows, topFilter);
   const rows = topFiltered.filter((quote) => estimateQuickFilterMatches(quote, estimateQuickFilter));
 
@@ -11706,7 +11708,7 @@ function estimateTemplate() {
   const taxValue      = rows.reduce((sum, q) => sum + estimateTaxValue(q), 0);
 
   const kpi    = kpiLabels[view] || kpiLabels.estimate;
-  const isFiltered = Boolean(estimateSearchQuery || estimateQuickFilter !== "all" || topFilter.preset !== "all" || topFilter.party);
+  const isFiltered = Boolean(estimateSearchQuery || estimateQuickFilter !== "all" || topFilter.preset !== "thisMonth");
   const emptyMsg = isFiltered
     ? { title: `No matching ${meta.noun.toLowerCase()}s`, copy: `Try adjusting the date range, party, or search filters.` }
     : (emptyMsgMap[view] || emptyMsgMap.estimate);
@@ -11743,7 +11745,7 @@ function estimateTemplate() {
           ${estimateSearchQuery ? `<button class="top-filter-search-clear" data-estimate-search-clear type="button" title="Clear search">×</button>` : ""}
         </div>
         <div class="top-filter-controls">
-          ${topFilterDateControlsHTML(view, topFilter, { showParty: true })}
+          ${topFilterDateControlsHTML(view, topFilter, { showParty: false })}
           <div class="invoice-quick-filters" role="group" aria-label="${escapeHtml(meta.noun)} filters">
             ${estimateQuickFilterButtons()}
           </div>
@@ -15172,7 +15174,7 @@ function bindFeatureActions() {
   elements.featureView.querySelectorAll("[data-top-filter-clear]").forEach((btn) => {
     btn.addEventListener("click", () => {
       const type = btn.dataset.topFilterClear;
-      const defaultPreset = type === "sale" ? "thisMonth" : "all";
+      const defaultPreset = "thisMonth";
       transactionTopFilters[type] = { preset: defaultPreset, dateFrom: "", dateTo: "", party: "" };
       if (type === "purchase") {
         purchaseInvoiceSearchQuery = "";
@@ -18631,13 +18633,14 @@ function purchaseReturnTemplate() {
   const allRows = (state.debitNotes || []).sort((a, b) => new Date(b.date || b.createdAt || 0) - new Date(a.date || a.createdAt || 0));
   const searchedRows = debitNoteSearchQuery ? allRows.filter((note) => debitNoteMatchesSearch(note, debitNoteSearchQuery)) : allRows;
   const topFilter = getTransactionTopFilter("purchaseReturn");
+  topFilter.party = "";
   const topFiltered = applyTopFilter(searchedRows, topFilter);
   const rows = topFiltered.filter((note) => debitNoteQuickFilterMatches(note, debitNoteQuickFilter));
   const total = rows.reduce((sum, note) => sum + debitNoteTotalValue(note), 0);
   const adjusted = rows.reduce((sum, note) => sum + Number(note.adjusted || 0), 0);
   const openBalance = rows.reduce((sum, note) => sum + Number(note.balance || 0), 0);
   const taxTotal = rows.reduce((sum, note) => sum + debitNoteTaxValue(note), 0);
-  const isFiltered = Boolean(debitNoteSearchQuery || debitNoteQuickFilter !== "all" || topFilter.preset !== "all" || topFilter.party);
+  const isFiltered = Boolean(debitNoteSearchQuery || debitNoteQuickFilter !== "all" || topFilter.preset !== "thisMonth");
   const emptyTitle = isFiltered ? "No matching debit notes" : "No purchase returns yet";
   const emptyCopy = isFiltered
     ? "Try adjusting the date range, party, or search query."
@@ -18667,7 +18670,7 @@ function purchaseReturnTemplate() {
           ${debitNoteSearchQuery ? `<button class="top-filter-search-clear" data-debit-note-search-clear type="button" title="Clear search">×</button>` : ""}
         </div>
         <div class="top-filter-controls">
-          ${topFilterDateControlsHTML("purchaseReturn", topFilter, { showParty: true })}
+          ${topFilterDateControlsHTML("purchaseReturn", topFilter, { showParty: false })}
           <div class="invoice-quick-filters" role="group" aria-label="Debit note filters">
             ${debitNoteQuickFilterButtons()}
           </div>
@@ -19197,6 +19200,7 @@ function expenseTemplate() {
     .filter((row) => expenseMatchesSearch(row, expenseSearchQuery))
     .filter((row) => expenseQuickFilterMatches(row, expenseQuickFilter));
   const topFilter = getTransactionTopFilter("expenses");
+  topFilter.party = "";
   const filteredRows = applyTopFilter(searchedRows, topFilter);
   const thisMonthRows = filteredRows.filter(isCurrentMonthRecord);
   const total = filteredRows.reduce((sum, row) => sum + expenseTotal(row), 0);
@@ -19204,7 +19208,7 @@ function expenseTemplate() {
   const payable = filteredRows.reduce((sum, row) => sum + expenseBalance(row), 0);
   const inputTax = filteredRows.reduce((sum, row) => sum + expenseTax(row), 0);
   const categories = new Set(allRows.map(expenseCategory).filter(Boolean)).size;
-  const isFiltered = Boolean(expenseSearchQuery || expenseQuickFilter !== "all" || topFilter.preset !== "all" || topFilter.party);
+  const isFiltered = Boolean(expenseSearchQuery || expenseQuickFilter !== "all" || topFilter.preset !== "thisMonth");
   const emptyTitle = isFiltered ? "No matching expenses" : "No expenses yet";
   const emptyCopy = isFiltered
     ? "Try adjusting the date range, category, vendor, or search query."
@@ -19234,7 +19238,7 @@ function expenseTemplate() {
           ${expenseSearchQuery ? `<button class="top-filter-search-clear" data-expense-search-clear type="button" title="Clear search">×</button>` : ""}
         </div>
         <div class="top-filter-controls">
-          ${topFilterDateControlsHTML("expenses", topFilter, { showParty: true })}
+          ${topFilterDateControlsHTML("expenses", topFilter, { showParty: false })}
           <div class="invoice-quick-filters" role="group" aria-label="Expense filters">
             ${expenseQuickFilterButtons()}
           </div>
@@ -20136,6 +20140,7 @@ function paymentOutTemplate() {
     ? allPayments.filter((p) => [p.party, p.invoiceNo, p.referenceNo, p.method, p.notes].filter(Boolean).join(" ").toLowerCase().includes(searchQ))
     : allPayments;
   const topFilter = getTransactionTopFilter("paymentOut");
+  topFilter.party = "";
   const visible = applyTopFilter(searched, topFilter);
   const now = new Date();
   const thisMonthPayments = visible.filter((p) => {
@@ -20144,7 +20149,7 @@ function paymentOutTemplate() {
   });
   const thisMonthTotal = thisMonthPayments.reduce((sum, p) => sum + Number(p.amount || 0), 0);
   const totalPaid = visible.reduce((s, p) => s + Number(p.amount || 0), 0);
-  const isFiltered = Boolean(paymentOutSearchQuery || topFilter.preset !== "all" || topFilter.party);
+  const isFiltered = Boolean(paymentOutSearchQuery || topFilter.preset !== "thisMonth");
   const emptyTitle = isFiltered ? "No matching payments made" : "No payments made yet";
   const emptyCopy = isFiltered
     ? "Try adjusting the date range, supplier, or search query."
@@ -20174,7 +20179,7 @@ function paymentOutTemplate() {
           ${paymentOutSearchQuery ? `<button class="top-filter-search-clear" data-payment-out-search-clear type="button" title="Clear search">×</button>` : ""}
         </div>
         <div class="top-filter-controls">
-          ${topFilterDateControlsHTML("paymentOut", topFilter, { showParty: true })}
+          ${topFilterDateControlsHTML("paymentOut", topFilter, { showParty: false })}
         </div>
       </div>
 
@@ -31515,6 +31520,7 @@ function paymentInTemplate() {
       })
     : payments;
   const topFilter = getTransactionTopFilter("paymentIn");
+  topFilter.party = "";
   const visible = applyTopFilter(searched, topFilter);
   const now = new Date();
   const thisMonthPayments = visible.filter((p) => {
@@ -31523,7 +31529,7 @@ function paymentInTemplate() {
   });
   const thisMonthTotal = thisMonthPayments.reduce((sum, p) => sum + Number(p.amount || 0), 0);
   const totalReceived = visible.reduce((s, p) => s + Number(p.amount || 0), 0);
-  const isFiltered = Boolean(paymentInSearchQuery || topFilter.preset !== "all" || topFilter.party);
+  const isFiltered = Boolean(paymentInSearchQuery || topFilter.preset !== "thisMonth");
   const emptyTitle = isFiltered ? "No matching payments received" : "No payments received yet";
   const emptyCopy = isFiltered
     ? "Try adjusting the date range, customer, or search query."
@@ -31553,7 +31559,7 @@ function paymentInTemplate() {
           ${paymentInSearchQuery ? `<button class="top-filter-search-clear" data-payment-in-search-clear type="button" title="Clear search">×</button>` : ""}
         </div>
         <div class="top-filter-controls">
-          ${topFilterDateControlsHTML("paymentIn", topFilter, { showParty: true })}
+          ${topFilterDateControlsHTML("paymentIn", topFilter, { showParty: false })}
         </div>
       </div>
 
