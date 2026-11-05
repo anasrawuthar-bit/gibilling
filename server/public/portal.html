@@ -694,8 +694,68 @@
         document.getElementById('displayValidUntil').textContent = '1 Year Included';
       }
 
+      // Load Business Reports
+      loadPortalReports();
+
       // Render Devices
       renderDevices(devices);
+    }
+
+    
+    async function loadPortalReports() {
+      try {
+        const res = await fetch('/api/v1/portal/reports', {
+          headers: { 'Authorization': 'Bearer ' + customerToken }
+        });
+        const data = await res.json();
+        if (!data.ok || !data.reports) return;
+        const r = data.reports;
+
+        const fmt = (n) => '₹' + Number(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 });
+        document.getElementById('rptTotalSales').textContent = fmt(r.totalSales);
+        document.getElementById('rptSalesCount').textContent = `${r.salesCount || 0} Invoice${r.salesCount === 1 ? '' : 's'}`;
+        document.getElementById('rptTotalPurchases').textContent = fmt(r.totalPurchases);
+        document.getElementById('rptPurchasesCount').textContent = `${r.purchaseCount || 0} Purchase Bill${r.purchaseCount === 1 ? '' : 's'}`;
+        document.getElementById('rptTotalReceivables').textContent = fmt(r.totalReceivables);
+        document.getElementById('rptDueParties').textContent = `${r.partiesWithDue || 0} Customer${r.partiesWithDue === 1 ? '' : 's'} with balance`;
+        document.getElementById('rptCatalogCount').textContent = `${r.itemsCount || 0} Items`;
+        document.getElementById('rptPartiesCount').textContent = `${r.partiesCount || 0} Contacts`;
+
+        const wrap = document.getElementById('rptTransactionsWrap');
+        if (!r.recentTransactions || r.recentTransactions.length === 0) {
+          wrap.innerHTML = '<div style="text-align:center; padding:24px; background:#f8fafc; border-radius:8px; color:#64748b; font-size:13px;">No transactions synced to cloud yet. As you bill in the ZynBill desktop app, your invoices and ledgers will appear here automatically.</div>';
+          return;
+        }
+
+        wrap.innerHTML = `
+          <table style="width:100%; border-collapse:collapse; font-size:13px; text-align:left;">
+            <thead>
+              <tr style="border-bottom:1px solid #e2e8f0; color:#64748b; font-size:11.5px; text-transform:uppercase;">
+                <th style="padding:8px 10px;">Date</th>
+                <th style="padding:8px 10px;">Type</th>
+                <th style="padding:8px 10px;">Invoice #</th>
+                <th style="padding:8px 10px;">Party Name</th>
+                <th style="padding:8px 10px; text-align:right;">Total Amount</th>
+                <th style="padding:8px 10px; text-align:center;">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${r.recentTransactions.map(t => `
+                <tr style="border-bottom:1px solid #f1f5f9;">
+                  <td style="padding:10px;">${escapeHtml(t.transaction_date ? new Date(t.transaction_date).toLocaleDateString() : '-')}</td>
+                  <td style="padding:10px;"><span class="portal-badge" style="background:#eff6ff; color:#1d4ed8; font-size:11px;">${escapeHtml((t.type || 'sale').toUpperCase())}</span></td>
+                  <td style="padding:10px; font-weight:600; font-family:monospace;">${escapeHtml(t.invoice_no || t.id.slice(0, 8))}</td>
+                  <td style="padding:10px; font-weight:600; color:#0f172a;">${escapeHtml(t.party_name || 'Cash Customer')}</td>
+                  <td style="padding:10px; text-align:right; font-weight:700;">${fmt(t.total_amount)}</td>
+                  <td style="padding:10px; text-align:center;"><span class="portal-badge" style="background:#ecfdf5; color:#047857; font-size:11px;">${escapeHtml(t.status || 'Completed')}</span></td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        `;
+      } catch (err) {
+        console.error('Failed to load portal reports:', err);
+      }
     }
 
     function renderDevices(devices) {

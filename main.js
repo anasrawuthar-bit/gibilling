@@ -181,6 +181,107 @@ function formatSnapshotSize(bytes) {
   return (bytes / (1024 * 1024)).toFixed(2) + " MB";
 }
 
+
+// ── ZynBill Auto-Backup & Rolling Retention (Default: C:\ZynBill\Backups, Max 5 files) ──
+function getZynBackupDir() {
+  const preferred = process.platform === "win32" ? "C:\\ZynBill\\Backups" : path.join(app.getPath("userData"), "backups");
+  try {
+    if (!fs.existsSync(preferred)) {
+      fs.mkdirSync(preferred, { recursive: true });
+    }
+    const testFile = path.join(preferred, ".write_test");
+    fs.writeFileSync(testFile, "ok");
+    fs.unlinkSync(testFile);
+    return preferred;
+  } catch (e) {
+    const fallback = path.join(app.getPath("userData"), "backups");
+    if (!fs.existsSync(fallback)) {
+      fs.mkdirSync(fallback, { recursive: true });
+    }
+    return fallback;
+  }
+}
+
+function pruneZynBackups(backupDir, maxKeep = 5) {
+  try {
+    if (!fs.existsSync(backupDir)) return;
+    const files = fs.readdirSync(backupDir)
+      .filter((f) => f.endsWith(".zyn") || f.endsWith(".sqlite") || f.endsWith(".db"))
+      .map((f) => {
+        try {
+          const fp = path.join(backupDir, f);
+          const st = fs.statSync(fp);
+          return { filename: f, fullPath: fp, mtimeMs: st.mtimeMs };
+        } catch (_) {
+          return null;
+        }
+      })
+      .filter(Boolean)
+      .sort((a, b) => b.mtimeMs - a.mtimeMs);
+
+    if (files.length > maxKeep) {
+      const toDelete = files.slice(maxKeep);
+      for (const item of toDelete) {
+        try {
+          fs.unlinkSync(item.fullPath);
+          console.log(`[AutoBackup] Pruned oldest backup beyond ${maxKeep} limit: ${item.filename}`);
+        } catch (err) {
+          console.warn(`[AutoBackup] Prune error for ${item.filename}:`, err.message);
+        }
+      }
+    }
+  } catch (err) {
+    console.warn("[AutoBackup] Directory scan error:", err.message);
+  }
+}
+
+async function performAutoBackup(maxKeep = 5, reason = "exit") {
+  const backupDir = getZynBackupDir();
+  const now = new Date();
+  const pad = (n) => String(n).padStart(2, "0");
+  const stamp = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}_${pad(now.getHours())}-${pad(now.getMinutes())}-${pad(now.getSeconds())}`;
+  const filename = `ZynBill-Backup-${stamp}.zyn`;
+  const targetPath = path.join(backupDir, filename);
+
+  await database.backupTo(targetPath);
+  console.log(`[AutoBackup] Saved ${reason} backup to: ${targetPath}`);
+
+  pruneZynBackups(backupDir, maxKeep);
+
+  const stats = fs.statSync(targetPath);
+  return {
+    success: true,
+    path: targetPath,
+    filename,
+    folder: backupDir,
+    sizeBytes: stats.size,
+    formattedSize: formatSnapshotSize(stats.size),
+    createdAt: now.toISOString(),
+  };
+}
+
+let isAutoBackupRunning = false;
+async function triggerExitBackupIfEnabled() {
+  if (isAutoBackupRunning) return;
+  try {
+    const configPath = path.join(app.getPath("userData"), "backup_config.json");
+    let autoBackup = true;
+    if (fs.existsSync(configPath)) {
+      try {
+        const cfg = JSON.parse(fs.readFileSync(configPath, "utf8"));
+        if (typeof cfg.autoBackupOnExit === "boolean") autoBackup = cfg.autoBackupOnExit;
+      } catch (_) {}
+    }
+    if (autoBackup) {
+      isAutoBackupRunning = true;
+      console.log("[Exit] Triggering automated local backup on application exit (C:\\ZynBill\\Backups)...");
+      await performAutoBackup(5, "exit");
+    }
+  } catch (err) {
+    console.warn("[Exit] Auto-backup failed:", err.message);
+  }
+}
+
 function registerDatabaseHandlers() {
   ipcMain.handle("app:get-version", () => app.getVersion());
   ipcMain.handle("db:get-state", () => database.getState());
@@ -189,6 +290,47 @@ function registerDatabaseHandlers() {
     path: database.getDatabasePath(),
     version: app.getVersion(),
   }));
+  
+  ipcMain.handle("backup:get-settings", () => {
+    const configPath = path.join(app.getPath("userData"), "backup_config.json");
+    let autoBackupOnExit = true;
+    if (fs.existsSync(configPath)) {
+      try {
+        const cfg = JSON.parse(fs.readFileSync(configPath, "utf8"));
+        if (typeof cfg.autoBackupOnExit === "boolean") autoBackupOnExit = cfg.autoBackupOnExit;
+      } catch (_) {}
+    }
+    return {
+      autoBackupOnExit,
+      folder: getZynBackupDir(),
+      maxCopies: 5,
+    };
+  });
+
+  ipcMain.handle("backup:set-settings", (_event, settings = {}) => {
+    const configPath = path.join(app.getPath("userData"), "backup_config.json");
+    let current = { autoBackupOnExit: true };
+    if (fs.existsSync(configPath)) {
+      try {
+        current = JSON.parse(fs.readFileSync(configPath, "utf8"));
+      } catch (_) {}
+    }
+    const updated = { ...current, ...settings };
+    fs.writeFileSync(configPath, JSON.stringify(updated, null, 2), "utf8");
+    return updated;
+  });
+
+  ipcMain.handle("backup:open-folder", async () => {
+    const dir = getZynBackupDir();
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    await shell.openPath(dir);
+    return { success: true, folder: dir };
+  });
+
+  ipcMain.handle("backup:run-now", async () => {
+    return await performAutoBackup(5, "manual");
+  });
+
   ipcMain.handle("db:create-backup", async () => {
     const stamp = new Date().toISOString().slice(0, 10);
     const activeCompany = database.getCurrentCompany ? database.getCurrentCompany() : null;

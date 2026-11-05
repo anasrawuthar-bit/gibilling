@@ -90,7 +90,10 @@ const server = http.createServer(async (req, res) => {
 
   // ── Static Web Pages ──────────────────────────────────────────────
   if (req.method === 'GET') {
-    if (pathname === '' || pathname === '/' || pathname === '/register') {
+    if (pathname === '' || pathname === '/' || pathname === '/home') {
+      return sendHtml(res, path.join(PUBLIC_DIR, 'landing.html'));
+    }
+    if (pathname === '/register' || pathname === '/signup') {
       return sendHtml(res, path.join(PUBLIC_DIR, 'register.html'));
     }
     if (pathname === '/admin') {
@@ -1102,6 +1105,63 @@ const server = http.createServer(async (req, res) => {
   if (req.method === 'GET' && pathname === '/api/v1/portal/plans') {
     const plans = masterDb.prepare('SELECT id, name, code, description, price, billing_cycle, duration_days, max_devices, features FROM plans WHERE is_active = 1 ORDER BY price ASC').all();
     return sendJson(res, 200, { ok: true, plans });
+  }
+
+
+  // 8. Customer Business Reports & Synced Analytics
+  if (req.method === 'GET' && pathname === '/api/v1/portal/reports') {
+    const session = verifyCustomer(req, res);
+    if (!session) return;
+
+    try {
+      const tenantDb = getTenantDb(session.id);
+
+      const salesRow = tenantDb.prepare(`
+        SELECT COALESCE(SUM(total_amount), 0) AS totalSales, COUNT(*) AS salesCount
+        FROM transactions
+        WHERE LOWER(type) IN ('sale', 'sales_invoice', 'tax_invoice', 'cash_sale')
+      `).get() || { totalSales: 0, salesCount: 0 };
+
+      const purchaseRow = tenantDb.prepare(`
+        SELECT COALESCE(SUM(total_amount), 0) AS totalPurchases, COUNT(*) AS purchaseCount
+        FROM transactions
+        WHERE LOWER(type) IN ('purchase', 'purchase_bill')
+      `).get() || { totalPurchases: 0, purchaseCount: 0 };
+
+      const receivableRow = tenantDb.prepare(`
+        SELECT COALESCE(SUM(balance), 0) AS totalReceivables, COUNT(*) AS partiesWithDue
+        FROM parties
+        WHERE balance > 0
+      `).get() || { totalReceivables: 0, partiesWithDue: 0 };
+
+      const itemsCount = tenantDb.prepare(`SELECT COUNT(*) AS c FROM items`).get()?.c || 0;
+      const partiesCount = tenantDb.prepare(`SELECT COUNT(*) AS c FROM parties`).get()?.c || 0;
+
+      const recentTransactions = tenantDb.prepare(`
+        SELECT id, invoice_no, type, party_name, total_amount, tax_amount, status, transaction_date
+        FROM transactions
+        ORDER BY transaction_date DESC, rowid DESC
+        LIMIT 10
+      `).all() || [];
+
+      return sendJson(res, 200, {
+        ok: true,
+        reports: {
+          totalSales: Number(salesRow.totalSales) || 0,
+          salesCount: Number(salesRow.salesCount) || 0,
+          totalPurchases: Number(purchaseRow.totalPurchases) || 0,
+          purchaseCount: Number(purchaseRow.purchaseCount) || 0,
+          totalReceivables: Number(receivableRow.totalReceivables) || 0,
+          partiesWithDue: Number(receivableRow.partiesWithDue) || 0,
+          itemsCount: Number(itemsCount) || 0,
+          partiesCount: Number(partiesCount) || 0,
+          recentTransactions
+        }
+      });
+    } catch (err) {
+      console.error('[Portal Reports] Error fetching reports for tenant:', session.id, err);
+      return sendJson(res, 500, { ok: false, error: 'Failed to generate cloud business reports.' });
+    }
   }
 
   // ── Multi-Tenant Cloud Synchronization Endpoints ──────────────────

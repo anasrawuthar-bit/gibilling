@@ -10,6 +10,7 @@
   </head>
   <body>
     <svg class="gi-icon-sprite" aria-hidden="true">
+      <symbol id="gi-folder" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></symbol>
       <symbol id="gi-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-4-4"></path></symbol>
       <symbol id="gi-refresh" viewBox="0 0 24 24"><path d="M20 6v5h-5"></path><path d="M4 18v-5h5"></path><path d="M18.5 9A7 7 0 0 0 6 6.5L4 9m16 6-2 2.5A7 7 0 0 1 5.5 15"></path></symbol>
       <symbol id="gi-more" viewBox="0 0 24 24"><circle cx="12" cy="5" r="1.5"></circle><circle cx="12" cy="12" r="1.5"></circle><circle cx="12" cy="19" r="1.5"></circle></symbol>
@@ -158,10 +159,6 @@
             <span class="sidebar-brand-name">ZynBill</span>
           </div>
           <div style="display:flex;align-items:center;gap:6px;margin-left:auto;">
-            <button type="button" class="plan-status-pill" id="sidebarPlanPill" title="Subscription Plan & Validity">
-              <span class="plan-pill-star">★</span>
-              <span id="sidebarPlanName">Pro</span> • <span id="sidebarPlanDays">365d</span>
-            </button>
             <button type="button" class="cloud-sync-status-badge online" id="cloudSyncStatusBadge" title="ZynBill Cloud: Online &amp; Synced">
               <span class="sync-dot"></span>
               <span class="sync-label" id="syncStatusLabel">Online</span>
@@ -316,7 +313,14 @@
           </button>
 
         </nav>
-        <button class="company-switch" type="button" title="Company Profile & Settings" aria-label="Company Profile & Settings">
+        <div class="sidebar-bottom-block">
+          <div class="sidebar-plan-row">
+            <button type="button" class="plan-status-pill" id="sidebarPlanPill" title="Subscription Plan &amp; Validity — Click to view details">
+              <span class="plan-pill-star">★</span>
+              <span id="sidebarPlanName">Pro</span> • <span id="sidebarPlanDays">365d</span>
+            </button>
+          </div>
+          <button class="company-switch" type="button" title="Company Profile &amp; Settings" aria-label="Company Profile &amp; Settings">
           <span class="avatar"></span>
           <div class="nav-company-details">
             <span class="nav-company-name" id="activeCompanyName">Testt</span>
@@ -327,6 +331,7 @@
           </div>
           <svg class="gi-icon"><use href="#gi-chevron-right"></use></svg>
         </button>
+        </div>
       </aside>
 
       <main class="workspace">

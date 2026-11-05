@@ -21879,32 +21879,49 @@ function syncTemplate() {
 
       <p class="sync-status-line" id="backupStatus"></p>
 
-      <!-- Section 2: Automated Local Snapshots & Auto-Backup -->
+      <!-- Section 2: Local Auto-Backup on Exit (Max 5 Copies) -->
       <section class="sync-card">
         <div class="sync-card-head sync-card-head--split">
-          <div>
-            <h2 class="sync-card-title">Local Snapshots &amp; Auto-Backup</h2>
-            <p class="sync-card-sub">Point-in-time recovery copies stored on this computer for rollback and safety.</p>
+          <div style="display:flex;align-items:center;gap:12px;">
+            <div style="width:38px;height:38px;border-radius:10px;background:#eff6ff;display:flex;align-items:center;justify-content:center;color:#2563eb;font-size:20px;">
+              📁
+            </div>
+            <div>
+              <h2 class="sync-card-title">Local Auto-Backup on Exit</h2>
+              <p class="sync-card-sub">Automatic backups saved locally to C:\ZynBill\Backups with rolling 5-file retention.</p>
+            </div>
           </div>
           <div class="sync-head-controls">
-            <label class="sync-toggle-label" title="Automatically save snapshot on application exit">
+            <label class="sync-toggle-label" title="Automatically save backup when closing application">
               <input type="checkbox" id="autoBackupExitToggle" class="sync-toggle-input" ${autoBackupEnabled ? "checked" : ""}>
               <span class="sync-toggle-track">
                 <span class="sync-toggle-thumb"></span>
               </span>
-              <span class="sync-toggle-text" id="autoBackupToggleText">Auto-Backup on Exit (${autoBackupEnabled ? "On" : "Off"})</span>
+              <span class="sync-toggle-text" id="autoBackupToggleText">Auto-Backup on Exit (${autoBackupEnabled ? "Enabled" : "Disabled"})</span>
             </label>
 
-            <button class="secondary-button compact-button" data-action="refresh-snapshots" type="button" title="Refresh snapshot list">
-              ↺ Refresh
+            <button class="secondary-button compact-button" data-action="open-backup-folder" type="button" title="Open Backup Folder in File Explorer" style="display:inline-flex;align-items:center;gap:6px;">
+              <span>📁</span>
+              <span>Open Folder</span>
             </button>
-            <button class="primary-button square compact-button" data-action="create-snapshot" type="button">
-              + Create Snapshot
+            <button class="primary-button square compact-button" data-action="run-backup-now" type="button" style="display:inline-flex;align-items:center;gap:6px;">
+              <svg class="gi-icon" style="width:14px;height:14px;"><use href="#gi-arrow-down"></use></svg>
+              <span>+ Backup Now</span>
             </button>
           </div>
         </div>
-        <div class="sync-card-body" id="snapshotListContainer">
-          <div class="sync-loading">Loading snapshots…</div>
+        <div class="sync-card-body" style="padding:16px 20px;background:#f8fafc;border-radius:8px;margin-top:12px;border:1px solid #e2e8f0;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;">
+          <div style="display:flex;align-items:center;gap:12px;">
+            <div style="font-size:22px;">💾</div>
+            <div>
+              <div style="font-weight:600;font-size:13px;color:#1e293b;">Default Backup Location: <code id="backupFolderPathText" style="background:#e2e8f0;padding:2px 8px;border-radius:4px;font-family:monospace;font-size:12px;color:#0f172a;">C:\ZynBill\Backups</code></div>
+              <div style="font-size:12px;color:#64748b;margin-top:3px;">Rolling storage limit: <strong>Maximum 5 backup copies</strong> kept. Older files are deleted automatically when new backups are created.</div>
+            </div>
+          </div>
+          <button class="secondary-button compact-button" data-action="open-backup-folder" type="button" style="display:inline-flex;align-items:center;gap:6px;">
+            <span>📁</span>
+            <span>Open in File Explorer</span>
+          </button>
         </div>
       </section>
 
@@ -21912,159 +21929,59 @@ function syncTemplate() {
   `;
 }
 
-async function handleCreateSnapshot() {
-  const btn = elements.featureView?.querySelector("[data-action='create-snapshot']");
-  const origText = btn ? btn.innerHTML : "";
-  if (btn) {
-    btn.disabled = true;
-    btn.innerHTML = `<svg class="gi-icon spin" style="width:16px;height:16px;"><use href="#gi-refresh"></use></svg> Choose Location...`;
-  }
+async function handleRunBackupNow() {
+  const btn = elements.featureView?.querySelector("[data-action='run-backup-now']");
+  if (btn) btn.disabled = true;
   try {
-    if (!window.giDB?.createSnapshot) {
-      showToast("Snapshot creation is only available in the desktop application.");
-      return;
+    if (window.giDB?.runBackupNow) {
+      const res = await window.giDB.runBackupNow();
+      localStorage.setItem("gi_last_backup_ts", new Date().toISOString());
+      showToast(`Backup saved: ${res.filename} in ${res.folder}`);
+      const lastEl = document.getElementById("syncLastBackup");
+      if (lastEl) lastEl.textContent = "Just now";
+    } else {
+      showToast("Backup is available in desktop application.");
     }
-    const result = await window.giDB.createSnapshot();
-    if (result?.canceled) {
-      showToast("Backup snapshot cancelled.");
-      return;
-    }
-    localStorage.setItem("gi_last_backup_ts", new Date().toISOString());
-    showToast(`Snapshot saved: ${result.filename} (${result.formattedSize})`);
-    await loadSnapshotList();
   } catch (err) {
-    showToast(`Snapshot failed: ${err.message || "Unknown error"}`);
+    showToast(`Backup failed: ${err.message || err}`);
   } finally {
-    if (btn) {
-      btn.disabled = false;
-      btn.innerHTML = origText;
-    }
+    if (btn) btn.disabled = false;
   }
 }
 
-async function loadSnapshotList() {
-  const container = elements.featureView?.querySelector("#snapshotListContainer");
-  const kpiCount = elements.featureView?.querySelector("#syncKpiSnapshotCount");
-  if (!container) return;
-
-  if (!window.giDB?.listSnapshots) {
-    container.innerHTML = `<div style="padding:24px;text-align:center;color:#64748b;">Snapshot manager is available in the desktop application.</div>`;
-    if (kpiCount) kpiCount.textContent = "Desktop only";
-    return;
-  }
-
+async function handleOpenBackupFolder() {
   try {
-    const list = await window.giDB.listSnapshots();
-    if (kpiCount) kpiCount.textContent = String(list ? list.length : 0);
-    if (!list || list.length === 0) {
-      container.innerHTML = `
-        <div class="sync-empty-snapshots">
-          <div class="sync-empty-icon"><svg class="gi-icon" style="width:34px;height:34px;color:#94a3b8;"><use href="#gi-database"></use></svg></div>
-          <strong>No snapshots recorded yet</strong>
-          <p>Create your first snapshot or enable Auto-Backup on Exit to build automated restore points.</p>
-          <button class="primary-button square" data-action="create-snapshot" type="button">+ Create First Snapshot</button>
-        </div>
-      `;
-      container.querySelector("[data-action='create-snapshot']")?.addEventListener("click", handleCreateSnapshot);
-      return;
+    if (window.giDB?.openBackupFolder) {
+      await window.giDB.openBackupFolder();
+      showToast("Opened backup folder in File Explorer.");
+    } else {
+      showToast("Opening folder is supported in the desktop app.");
     }
-
-    container.innerHTML = `
-      <div class="sync-snapshot-table-wrap">
-        <table class="data-table sync-snapshot-table">
-          <thead>
-            <tr>
-              <th>Snapshot File</th>
-              <th>Created</th>
-              <th>Size</th>
-              <th>Type</th>
-              <th class="num">Action</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${list.map((snap) => `
-              <tr>
-                <td>
-                  <div class="sync-snap-file">
-                    <span class="sync-snap-icon"><svg class="gi-icon" style="width:16px;height:16px;color:#2563eb;"><use href="#gi-database"></use></svg></span>
-                    <div>
-                      <strong>${escapeHtml(snap.filename)}</strong>
-                      <small>${escapeHtml(snap.path || "")}</small>
-                    </div>
-                  </div>
-                </td>
-                <td>${escapeHtml(new Date(snap.createdAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" }))}</td>
-                <td><span class="status-badge">${escapeHtml(snap.formattedSize || "—")}</span></td>
-                <td><span class="status-badge ${snap.isAuto ? "status-badge--info" : "status-badge--success"}">${snap.isAuto ? "Auto" : "Manual"}</span></td>
-                <td class="num">
-                  <button class="secondary-button compact-button" type="button"
-                    data-restore-snapshot="${escapeHtml(snap.path)}"
-                    data-restore-filename="${escapeHtml(snap.filename)}">
-                    ↺ Restore
-                  </button>
-                </td>
-              </tr>
-            `).join("")}
-          </tbody>
-        </table>
-      </div>
-    `;
-
-    container.querySelectorAll("[data-restore-snapshot]").forEach((btn) => {
-      btn.addEventListener("click", async () => {
-        const path = btn.dataset.restoreSnapshot;
-        const fname = btn.dataset.restoreFilename;
-        if (!confirm(`Restore database to snapshot:\n"${fname}"?\n\nCAUTION: Current active data will be replaced by this snapshot point. A safety backup will also be saved first.`)) {
-          return;
-        }
-        btn.disabled = true;
-        btn.textContent = "Restoring...";
-        showGlobalLoader("Restoring Database...", "Restoring snapshot and verifying data integrity...");
-        await new Promise((r) => requestAnimationFrame(() => setTimeout(r, 40)));
-        try {
-          const res = await window.giDB.restoreSnapshot(path);
-          if (res?.state) {
-            state = normalizeState(res.state);
-            render();
-            showToast("Database restored successfully from snapshot.");
-          } else {
-            showToast("Snapshot restored successfully.");
-          }
-        } catch (err) {
-          showToast(`Restore failed: ${err.message || "Unknown error"}`);
-          btn.disabled = false;
-          btn.textContent = "↺ Restore";
-        } finally {
-          hideGlobalLoader();
-        }
-      });
-    });
   } catch (err) {
-    container.innerHTML = `<div style="padding:16px;color:#ef4444;font-size:13px;">Failed to load snapshots: ${escapeHtml(err.message)}</div>`;
+    showToast(`Failed to open folder: ${err.message || err}`);
   }
 }
 
 function bindSyncEvents() {
-  loadSnapshotList();
+  elements.featureView?.querySelectorAll("[data-action='open-backup-folder']").forEach((btn) => {
+    btn.addEventListener("click", handleOpenBackupFolder);
+  });
+
+  elements.featureView?.querySelector("[data-action='run-backup-now']")?.addEventListener("click", handleRunBackupNow);
 
   const autoToggle = elements.featureView?.querySelector("#autoBackupExitToggle");
   if (autoToggle) {
-    autoToggle.addEventListener("change", (e) => {
+    autoToggle.addEventListener("change", async (e) => {
       const enabled = e.target.checked;
       localStorage.setItem("gi_auto_backup_on_exit", enabled ? "true" : "false");
-      const kpi  = elements.featureView?.querySelector("#syncKpiAutoBackup");
+      if (window.giDB?.setBackupSettings) {
+        try { await window.giDB.setBackupSettings({ autoBackupOnExit: enabled }); } catch (_) {}
+      }
       const text = elements.featureView?.querySelector("#autoBackupToggleText");
-      if (kpi)  kpi.textContent  = enabled ? "On" : "Off";
-      if (text) text.textContent = enabled ? "Enabled" : "Disabled";
+      if (text) text.textContent = `Auto-Backup on Exit (${enabled ? "Enabled" : "Disabled"})`;
       showToast(`Auto-backup on exit ${enabled ? "enabled" : "disabled"}.`);
     });
   }
-
-  elements.featureView?.querySelector("[data-action='create-snapshot']")?.addEventListener("click", handleCreateSnapshot);
-  elements.featureView?.querySelector("[data-action='refresh-snapshots']")?.addEventListener("click", () => {
-    loadSnapshotList();
-    showToast("Refreshed snapshot list.");
-  });
 }
 
 function partiesTemplate(selectedPartyId = null, activeTab = "transactions", query = partySearchQuery) {
@@ -28211,6 +28128,7 @@ function importTemplate(title = "Import Items") {
 
 const SETTINGS_TABS = [
   { id: "COMPANY", label: "Company Profile", note: "Identity, tax & logo", icon: "building" },
+  { id: "PLAN", label: "Plan & License", note: "Subscription validity & limits", icon: "shield" },
   { id: "INVOICING", label: "Invoicing & Sequences", note: "Prefix, numbers & terms", icon: "receipt" },
   { id: "PRINTING", label: "Print & Thermal POS", note: "A4, 80mm/58mm & QR", icon: "printer" },
   { id: "TAX", label: "Tax", note: "GST slabs, CGST/SGST & Cess", icon: "calculator" },
@@ -28233,6 +28151,7 @@ function settingsTemplate(active = "COMPANY") {
     if (active === "TAX") return settingsTaxTemplate();
     if (active === "INVENTORY") return settingsInventoryTemplate();
     if (active === "CUSTOM_FIELDS") return customFieldsSettingsTemplate();
+    if (active === "PLAN") return settingsPlanDetailsTemplate();
     if (active === "SECURITY") return settingsSecurityTemplate();
     if (active === "ABOUT") return settingsAboutTemplate();
     return settingsCompanyProfileTemplate();
@@ -28262,6 +28181,100 @@ function settingsTemplate(active = "COMPANY") {
   `;
 }
 
+
+function settingsPlanDetailsTemplate() {
+  const license = typeof CloudLicenseManager !== "undefined" ? CloudLicenseManager.getLicense() : { plan: "Professional Business", customerEmail: "customer@example.com", expiresAt: "2027-11-05" };
+  const grace = typeof CloudLicenseManager !== "undefined" ? CloudLicenseManager.checkGracePeriod() : { daysRemaining: 365, isOverdue: false, inGracePeriod: false };
+  const expiryDate = license.expiresAt ? new Date(license.expiresAt).toLocaleDateString("en-IN", { dateStyle: "long" }) : "Active / Yearly";
+
+  return `
+    <header class="settings-page-header">
+      <div>
+        <h2>Subscription Plan &amp; Cloud License</h2>
+        <p>Your active subscription tier, cloud synchronization status, device limits, and renewal validity.</p>
+      </div>
+      <div class="settings-header-actions">
+        <button class="primary-button" type="button" onclick="window.open('http://localhost:4000/portal', '_blank')">Manage in Web Portal ↗</button>
+      </div>
+    </header>
+
+    <div class="settings-form-grid">
+      <!-- Active Plan Overview Card -->
+      <section class="settings-card" style="grid-column: 1 / -1; background: linear-gradient(135deg, #f0fdf4 0%, #e0f2fe 100%); border: 1px solid #bbf7d0;">
+        <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 16px;">
+          <div>
+            <div style="display:flex;align-items:center;gap:12px;">
+              <span style="font-size:28px;">⭐</span>
+              <div>
+                <span class="status-badge status-badge--success" style="font-size:12px;font-weight:700;">ACTIVE SUBSCRIPTION</span>
+                <h3 style="font-size:22px;margin:4px 0 2px;color:#0f172a;font-weight:800;">${escapeHtml(license.plan || "Professional Business")}</h3>
+                <p style="color:#475569;margin:0;font-size:13px;">Registered to: <strong>${escapeHtml(license.customerEmail || "Connected Customer")}</strong></p>
+              </div>
+            </div>
+          </div>
+          <div style="text-align: right; background: rgba(255,255,255,0.75); padding: 12px 18px; border-radius: 12px; border: 1px solid rgba(0,0,0,0.06);">
+            <div style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: #64748b; font-weight: 700;">Valid Until</div>
+            <div style="font-size: 18px; font-weight: 800; color: #166534; margin: 2px 0;">${escapeHtml(expiryDate)}</div>
+            <div style="font-size: 12px; font-weight: 600; color: ${grace.isOverdue ? '#dc2626' : '#15803d'};">
+              ${grace.isOverdue ? (grace.inGracePeriod ? `${grace.daysRemaining} days remaining in offline grace` : 'Expired') : `${grace.daysRemaining} days remaining`}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Features Included -->
+      <section class="settings-card">
+        <div class="settings-card-head">
+          <h3>Included Business Features</h3>
+          <span class="badge">Entitlements</span>
+        </div>
+        <ul style="list-style:none;padding:0;margin:12px 0 0;display:grid;gap:10px;">
+          <li style="display:flex;align-items:center;gap:10px;font-size:13px;color:#334155;">
+            <span style="color:#16a34a;font-weight:bold;font-size:14px;">✓</span> Unlimited GST &amp; Non-GST Invoicing
+          </li>
+          <li style="display:flex;align-items:center;gap:10px;font-size:13px;color:#334155;">
+            <span style="color:#16a34a;font-weight:bold;font-size:14px;">✓</span> WhatsApp Connect (Instant PDF delivery)
+          </li>
+          <li style="display:flex;align-items:center;gap:10px;font-size:13px;color:#334155;">
+            <span style="color:#16a34a;font-weight:bold;font-size:14px;">✓</span> Multi-Device Real-Time Cloud Synchronization
+          </li>
+          <li style="display:flex;align-items:center;gap:10px;font-size:13px;color:#334155;">
+            <span style="color:#16a34a;font-weight:bold;font-size:14px;">✓</span> 14-Day Offline Billing Grace Period
+          </li>
+          <li style="display:flex;align-items:center;gap:10px;font-size:13px;color:#334155;">
+            <span style="color:#16a34a;font-weight:bold;font-size:14px;">✓</span> Automated Rolling Local Backups (Max 5 Files in C:\ZynBill\Backups)
+          </li>
+        </ul>
+      </section>
+
+      <!-- Cloud Sync & Device Security -->
+      <section class="settings-card">
+        <div class="settings-card-head">
+          <h3>Cloud Sync &amp; Device Details</h3>
+          <span class="badge">Security</span>
+        </div>
+        <div class="settings-field-group">
+          <label>Tenant Cloud Database</label>
+          <div style="font-family:monospace;font-size:13px;background:#f1f5f9;padding:8px 12px;border-radius:6px;color:#334155;">
+            ${escapeHtml(license.tenantId || "tenant_default")} (Isolated Encrypted Storage)
+          </div>
+        </div>
+        <div class="settings-field-group">
+          <label>Offline Grace Protection</label>
+          <div style="font-size:12.5px;color:#475569;line-height:1.5;">
+            You can bill seamlessly even when internet is completely down. Invoices queue safely and synchronize once reconnected.
+          </div>
+        </div>
+        <div style="margin-top:14px;">
+          <button class="secondary-button" type="button" onclick="if (typeof SubscriptionModalController !== 'undefined') SubscriptionModalController.open();" style="width:100%;justify-content:center;">
+            View Detailed Cloud License Modal
+          </button>
+        </div>
+      </section>
+    </div>
+  `;
+}
+
 function settingsCompanyProfileTemplate() {
   const settings = state.businessSettings || defaultBusinessSettings();
   const logoSrc = settings.logoBase64 || "";
@@ -28278,6 +28291,21 @@ function settingsCompanyProfileTemplate() {
       </div>
     </header>
 
+        <div style="background:linear-gradient(135deg, #f0fdf4 0%, #ecfdf5 100%); border:1px solid #bbf7d0; border-radius:12px; padding:16px 20px; margin-bottom:20px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:14px;">
+      <div style="display:flex; align-items:center; gap:12px;">
+        <div style="width:40px; height:40px; border-radius:10px; background:#dcfce7; display:flex; align-items:center; justify-content:center; color:#16a34a; font-size:20px;">⭐</div>
+        <div>
+          <div style="display:flex; align-items:center; gap:8px;">
+            <h4 style="margin:0; font-size:15px; font-weight:700; color:#0f172a;">Active Plan: <span id="companyProfilePlanName">Professional Business</span></h4>
+            <span class="status-badge status-badge--success" style="font-size:11px;">Active</span>
+          </div>
+          <p style="margin:3px 0 0; font-size:12.5px; color:#475569;">Includes WhatsApp Connect, Multi-device Sync, 14-Day Offline Grace, and Rolling Auto-Backups.</p>
+        </div>
+      </div>
+      <div style="display:flex; align-items:center; gap:10px;">
+        <button class="secondary-button compact-button" type="button" onclick="navigateView('appSettings', 'PLAN')">View Plan Details →</button>
+      </div>
+    </div>
     <form class="business-settings-form" id="businessSettingsForm" data-settings-subtab="COMPANY">
       <div class="settings-form-grid">
         <section class="settings-card">
