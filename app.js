@@ -786,7 +786,7 @@ function defaultBusinessSettings() {
     businessName: "testt",
     gstin: "",
     pan: "",
-    state: "Karnataka",
+    state: "Kerala",
     address: "",
     bankDetails: {
       bankName: "",
@@ -2121,7 +2121,7 @@ function openCompanyModal(mode = "create", companyId = null) {
     form.upiId.value = settings.bankDetails?.upiId || "";
   } else {
     if (elements.companyModalTitle) elements.companyModalTitle.textContent = "Create Business Profile";
-    if (form.state) form.state.value = "Karnataka";
+    if (form.state) form.state.value = "Kerala";
   }
 
   elements.companyModal.classList.remove("hidden");
@@ -2148,7 +2148,7 @@ async function handleCompanyFormSubmit(event) {
     legalName: String(formData.get("legalName") || "").trim(),
     gstin: String(formData.get("gstin") || "").trim().toUpperCase(),
     pan: String(formData.get("pan") || (String(formData.get("gstin") || "").trim().length >= 12 ? String(formData.get("gstin") || "").trim().slice(2, 12) : "")).trim().toUpperCase(),
-    state: String(formData.get("state") || getStateByGstin(formData.get("gstin")) || "Karnataka").trim(),
+    state: String(formData.get("state") || getStateByGstin(formData.get("gstin")) || "Kerala").trim(),
     phone: String(formData.get("phone") || "").trim(),
     email: String(formData.get("email") || "").trim(),
     address: String(formData.get("address") || "").trim(),
@@ -4010,6 +4010,7 @@ function bindTransactionEditor() {
   if (toggleAdditionalBtn && additionalGrid) {
     toggleAdditionalBtn.addEventListener("click", () => {
       const isHidden = additionalGrid.classList.toggle("hidden");
+      additionalGrid.style.display = isHidden ? "none" : "";
       const toggleText = toggleAdditionalBtn.querySelector(".toggle-text");
       if (toggleText) toggleText.textContent = isHidden ? "Show" : "Hide";
       toggleAdditionalBtn.classList.toggle("collapsed", isHidden);
@@ -6117,7 +6118,7 @@ function sampleInvoicePreviewData() {
       phone: "+91 98765 43210",
       billingAddress: "Plot No. 42, Tech Park, Industrial Area, Bangalore - 560066",
       gstin: "29AABCU9603R1ZM",
-      state: "Karnataka",
+      state: "Kerala",
     },
     invoiceNo: "INV-2026-001",
     date: formatDate(new Date().toISOString()),
@@ -12297,8 +12298,8 @@ function posCartTotals() {
 }
 
 function posTaxSplitMode() {
-  const businessState = posStateKey(state.businessSettings?.state || "Karnataka");
-  const partyState = posStateKey(posSelectedParty()?.state || state.businessSettings?.state || "Karnataka");
+  const businessState = posStateKey(state.businessSettings?.state || "Kerala");
+  const partyState = posStateKey(posSelectedParty()?.state || state.businessSettings?.state || "Kerala");
   return businessState && partyState && businessState !== partyState ? "igst" : "local";
 }
 
@@ -12704,7 +12705,7 @@ function posPreviewData() {
     invoiceNo: "Auto",
     date: new Date().toLocaleDateString("en-GB"),
     address: party.billingAddress || "",
-    placeOfSupply: state.businessSettings?.state || "Karnataka",
+    placeOfSupply: state.businessSettings?.state || "Kerala",
     description: "POS counter sale",
     attachments: [],
     subtotal: totals.subtotal,
@@ -12758,10 +12759,10 @@ async function savePosSale({ print = false } = {}) {
     paymentTerms: received >= totals.total ? "Due on receipt" : party?.paymentTerms || "Net 7",
     paymentMethod,
     supplyType: party?.gstin ? "b2b" : "b2c",
-    placeOfSupply: party?.state || state.businessSettings?.state || "Karnataka",
+    placeOfSupply: party?.state || state.businessSettings?.state || "Kerala",
     partyGstin: party?.gstin || "",
     partyTaxType: party?.taxType || "unregistered",
-    firmState: state.businessSettings?.state || "Karnataka",
+    firmState: state.businessSettings?.state || "Kerala",
     dueDate: new Date().toISOString(),
     items: posCart.map((line) => ({
       item: line.item,
@@ -19444,7 +19445,7 @@ function expenseModalTemplate(record = null) {
   const taxableValue = record ? expenseTaxable(record) : 0;
   const taxRate = Number(meta.taxRate || 0);
   const paidAmount = record ? expensePaid(record) : 0;
-  const placeOfSupply = meta.placeOfSupply || state.businessSettings?.state || "Karnataka";
+  const placeOfSupply = meta.placeOfSupply || state.businessSettings?.state || "Kerala";
   const paymentMethod = expensePaymentMethod(record || { paymentType: "Cash", meta: { paymentMethod: "Cash" } });
   const isGstExpense = Boolean(taxRate > 0 || meta.partyGstin);
   const existingReceiptName = meta.receiptName || "";
@@ -19834,8 +19835,8 @@ function calculateExpenseTotals(taxableValue, taxRate, placeOfSupply) {
   const taxable = Math.max(0, Number(taxableValue || 0));
   const rate = Math.max(0, parseTaxRate(taxRate || 0));
   const taxTotal = taxable * rate / 100;
-  const firmState = String(state.businessSettings?.state || "Karnataka").trim().toLowerCase();
-  const supplyState = String(placeOfSupply || state.businessSettings?.state || "Karnataka").trim().toLowerCase();
+  const firmState = String(state.businessSettings?.state || "Kerala").trim().toLowerCase();
+  const supplyState = String(placeOfSupply || state.businessSettings?.state || "Kerala").trim().toLowerCase();
   const isInterstate = Boolean(supplyState && firmState && supplyState !== firmState);
   return {
     taxableValue: taxable,
@@ -19870,8 +19871,8 @@ function recalculateExpenseForm() {
         <article class="summary-chip"><span>Balance Due</span><strong class="${balance > 0 ? "text-danger" : ""}">${formatCurrency(balance)}</strong></article>
       `;
     } else {
-      const firmState = String(state.businessSettings?.state || "Karnataka").trim().toLowerCase();
-      const supplyState = String(form.elements.placeOfSupply?.value || state.businessSettings?.state || "Karnataka").trim().toLowerCase();
+      const firmState = String(state.businessSettings?.state || "Kerala").trim().toLowerCase();
+      const supplyState = String(form.elements.placeOfSupply?.value || state.businessSettings?.state || "Kerala").trim().toLowerCase();
       const isInterstate = Boolean(supplyState && firmState && supplyState !== firmState);
       summary.innerHTML = `
         <article class="summary-chip"><span>Taxable Value</span><strong>${formatCurrency(totals.taxableValue)}</strong></article>
@@ -24047,7 +24048,7 @@ function gstDashboardReport() {
   const settings = state.businessSettings || defaultBusinessSettings();
   const gstin = settings.gstin || "";
   const companyName = settings.businessName || state.activeCompany || "My Business";
-  const stateName = settings.state || "Karnataka";
+  const stateName = settings.state || "Kerala";
   const pan = settings.pan || (gstin ? gstin.slice(2, 12) : "");
 
   const outputTotals = reportTaxTotals("sale");
@@ -27974,7 +27975,7 @@ function settingsCompanyProfileTemplate() {
           </div>
           <div class="settings-field-group">
             <label>State *</label>
-            <select class="form-input" name="state" required>${indianStateOptions(settings.state || "Karnataka")}</select>
+            <select class="form-input" name="state" required>${indianStateOptions(settings.state || "Kerala")}</select>
             <small class="field-hint">Used for automatic CGST/SGST vs IGST calculation.</small>
           </div>
         </section>

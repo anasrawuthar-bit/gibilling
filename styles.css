@@ -16704,6 +16704,12 @@ textarea:focus-visible {
   color: #334155 !important;
 }
 
+.editor-unified-more-details .editor-custom-fields-grid.hidden,
+.editor-custom-fields-grid.hidden,
+#editorAdditionalFieldsGrid.hidden {
+  display: none !important;
+}
+
 .editor-unified-more-details .editor-custom-fields-grid {
   display: grid !important;
   grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)) !important;

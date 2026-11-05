@@ -8,6 +8,7 @@ const database = require("../database");
 async function createFixture(prefix = "gi-billing-test-") {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
   await database.initDatabase(root);
+  database.updateBusinessSettings({ state: "Karnataka" });
   return {
     root,
     databasePath: database.getDatabasePath(),

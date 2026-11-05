@@ -173,6 +173,13 @@ async function initDatabase(userDataPath, options = {}) {
       if (tableExists(db, "company_settings")) {
         run(`UPDATE company_settings SET value = '"B2B"' WHERE key = 'invoicePrefixB2B' AND (value = '"INV"' OR value = 'INV')`);
         run(`UPDATE company_settings SET value = '"B2B"' WHERE key = 'invoicePrefix' AND (value = '"INV"' OR value = 'INV')`);
+        run(`UPDATE company_settings SET value = '"Kerala"' WHERE key = 'state' AND (value = '"Karnataka"' OR value = 'Karnataka')`);
+      }
+      if (tableExists(db, "app_settings")) {
+        run(`UPDATE app_settings SET value = '"Kerala"' WHERE key = 'state' AND (value = '"Karnataka"' OR value = 'Karnataka')`);
+      }
+      if (tableExists(db, "companies")) {
+        run(`UPDATE companies SET state = 'Kerala' WHERE state = 'Karnataka' AND (gstin IS NULL OR gstin = '' OR gstin NOT LIKE '29%')`);
       }
     } catch {}
     ensureLocalSyncIdentity();
@@ -2001,7 +2008,7 @@ function createCompany(payload = {}) {
       legalName: String(payload.legalName || "").trim(),
       gstin: String(payload.gstin || "").trim().toUpperCase(),
       pan: String(payload.pan || "").trim().toUpperCase(),
-      state: String(payload.state || "Karnataka").trim(),
+      state: String(payload.state || "Kerala").trim(),
       address: String(payload.address || "").trim(),
       city: String(payload.city || "").trim(),
       pincode: String(payload.pincode || "").trim(),
@@ -2051,7 +2058,7 @@ function updateCompanyProfile(arg1 = {}, arg2 = null) {
     legalName: String(payload.legalName ?? current.legalName ?? "").trim(),
     gstin: String(payload.gstin ?? current.gstin ?? "").trim().toUpperCase(),
     pan: String(payload.pan ?? current.pan ?? "").trim().toUpperCase(),
-    state: String(payload.state ?? current.state ?? "Karnataka").trim(),
+    state: String(payload.state ?? current.state ?? "Kerala").trim(),
     address: String(payload.address ?? current.address ?? "").trim(),
     city: String(payload.city ?? current.city ?? "").trim(),
     pincode: String(payload.pincode ?? current.pincode ?? "").trim(),
@@ -2237,7 +2244,7 @@ function defaultBusinessSettings(companyName = "testt") {
     legalName: "",
     gstin: "",
     pan: "",
-    state: "Karnataka",
+    state: "Kerala",
     address: "",
     city: "",
     pincode: "",
@@ -2376,7 +2383,7 @@ function updateBusinessSettings(settings = {}) {
     legalName: String(settings.legalName ?? current.legalName ?? "").trim(),
     gstin: String(settings.gstin ?? current.gstin ?? "").trim().toUpperCase(),
     pan: String(settings.pan ?? current.pan ?? "").trim().toUpperCase(),
-    state: String(settings.state ?? current.state ?? "Karnataka").trim(),
+    state: String(settings.state ?? current.state ?? "Kerala").trim(),
     address: String(settings.address ?? current.address ?? "").trim(),
     city: String(settings.city ?? current.city ?? "").trim(),
     pincode: String(settings.pincode ?? current.pincode ?? "").trim(),
