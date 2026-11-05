@@ -29588,13 +29588,13 @@ function openWhatsAppUsageTermsModal(onAccept = null) {
   });
 }
 
-function openWhatsAppPairingVerificationModal({ onConfirmLink, onUseDesktop } = {}) {
+function openWhatsAppPairingVerificationModal({ onConfirmLink } = {}) {
   document.getElementById("waPairingVerifyModalBackdrop")?.remove();
   const backdrop = document.createElement("div");
   backdrop.id = "waPairingVerifyModalBackdrop";
   backdrop.className = "whatsapp-modal-backdrop";
   backdrop.innerHTML = `
-    <div class="whatsapp-modal" role="dialog" aria-modal="true" style="max-width:520px;border-radius:16px;overflow:hidden;box-shadow:0 20px 40px rgba(0,0,0,0.2);">
+    <div class="whatsapp-modal" role="dialog" aria-modal="true" style="max-width:500px;border-radius:16px;overflow:hidden;box-shadow:0 20px 40px rgba(0,0,0,0.2);">
       <header class="whatsapp-modal-header" style="background:#075e54;color:#ffffff;padding:16px 20px;">
         <div style="display:flex;align-items:center;gap:10px;">
           <svg class="gi-icon" style="width:22px;height:22px;fill:currentColor;"><use href="#gi-whatsapp"></use></svg>
@@ -29607,7 +29607,7 @@ function openWhatsAppPairingVerificationModal({ onConfirmLink, onUseDesktop } = 
       </header>
 
       <div style="padding:22px;font-size:13px;line-height:1.6;color:#334155;">
-        <div style="display:flex;gap:14px;align-items:flex-start;margin-bottom:16px;">
+        <div style="display:flex;gap:14px;align-items:flex-start;margin-bottom:14px;">
           <div style="width:40px;height:40px;border-radius:50%;background:#dcfce7;color:#15803d;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
             <svg viewBox="0 0 24 24" style="width:22px;height:22px;fill:currentColor;"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
           </div>
@@ -29618,22 +29618,13 @@ function openWhatsAppPairingVerificationModal({ onConfirmLink, onUseDesktop } = 
             </p>
           </div>
         </div>
-
-        <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:12px 14px;font-size:12px;color:#475569;margin-bottom:8px;">
-          <strong>Tip:</strong> If QR code pairing is not working or not supported, click <strong>"Use WhatsApp Desktop (No QR)"</strong> below to send messages directly via your computer's installed WhatsApp!
-        </div>
       </div>
 
-      <footer style="display:flex;align-items:center;justify-content:space-between;padding:14px 20px;background:#f8fafc;border-top:1px solid #e2e8f0;gap:8px;flex-wrap:wrap;">
-        <button type="button" class="secondary-button" id="waVerifyDesktopBtn" style="padding:8px 14px;font-size:12px;color:#0369a1;border-color:#bae6fd;background:#f0f9ff;font-weight:600;">
-          Use WhatsApp Desktop (No QR)
+      <footer style="display:flex;align-items:center;justify-content:flex-end;padding:14px 20px;background:#f8fafc;border-top:1px solid #e2e8f0;gap:10px;">
+        <button type="button" class="secondary-button" data-close-verify style="padding:8px 16px;font-size:12.5px;">Cancel</button>
+        <button type="button" class="primary-button" id="waConfirmPairingBtn" style="background:#25D366;border-color:#25D366;font-size:12.5px;font-weight:700;padding:8px 18px;">
+          Confirm Link Complete
         </button>
-        <div style="display:flex;gap:8px;">
-          <button type="button" class="secondary-button" data-close-verify style="padding:8px 14px;font-size:12px;">Cancel</button>
-          <button type="button" class="primary-button" id="waConfirmPairingBtn" style="background:#25D366;border-color:#25D366;font-size:12.5px;font-weight:700;padding:8px 16px;">
-            Confirm Link Complete
-          </button>
-        </div>
       </footer>
     </div>
   `;
@@ -29645,11 +29636,6 @@ function openWhatsAppPairingVerificationModal({ onConfirmLink, onUseDesktop } = 
   backdrop.querySelector("#waConfirmPairingBtn")?.addEventListener("click", () => {
     close();
     if (typeof onConfirmLink === "function") onConfirmLink();
-  });
-
-  backdrop.querySelector("#waVerifyDesktopBtn")?.addEventListener("click", () => {
-    close();
-    if (typeof onUseDesktop === "function") onUseDesktop();
   });
 }
 
@@ -29833,8 +29819,8 @@ function whatsappConnectTemplate() {
 
   if (!isConnected) {
     return `
-      <section class="whatsapp-connect-view not-connected" style="min-height:calc(100vh - 54px);overflow-y:auto;background:#f8fafc;">
-        <header class="wa-connect-topbar" style="position:sticky;top:0;z-index:10;background:#ffffff;">
+      <section class="whatsapp-connect-view">
+        <header class="wa-connect-topbar">
           <div class="wa-connect-brand">
             <svg class="gi-icon" style="width:24px;height:24px;color:#25D366;fill:currentColor;"><use href="#gi-whatsapp"></use></svg>
             <h1>WhatsApp Connect</h1>
@@ -29846,9 +29832,9 @@ function whatsappConnectTemplate() {
           </div>
         </header>
 
-        <div style="max-width:1060px;width:100%;margin:0 auto;padding:20px 24px 48px;display:flex;flex-direction:column;gap:24px;box-sizing:border-box;">
-          <div class="wa-pairing-grid" style="min-height:auto;margin:0 auto;width:100%;">
-            <div class="wa-security-card" style="padding:28px 24px;">
+        <div class="wa-pairing-stage">
+          <div class="wa-pairing-grid">
+            <div class="wa-security-card">
               <div class="wa-security-mockup">
                 <div class="wa-security-mockup-blur">
                   <div class="wa-mock-chat-bubble"></div>
@@ -29872,7 +29858,7 @@ function whatsappConnectTemplate() {
               </div>
             </div>
 
-            <div class="wa-qr-card-view" style="padding:28px 24px;">
+            <div class="wa-qr-card-view">
               <h2>Scan this QR code</h2>
               <div class="wa-qr-display-box" id="waPairingQrContainer">
                 <div style="font-size:12px;color:#64748b;">Loading pairing status...</div>
@@ -29900,73 +29886,6 @@ function whatsappConnectTemplate() {
                 <button type="button" class="primary-button" data-wa-action="connect" style="background:#25D366;border-color:#25D366;padding:10px 24px;font-size:13.5px;font-weight:700;display:inline-flex;align-items:center;justify-content:center;gap:8px;border-radius:8px;">
                   <svg class="gi-icon" style="width:16px;height:16px;fill:currentColor;"><use href="#gi-whatsapp"></use></svg> Link Device &amp; Start Messaging
                 </button>
-              </div>
-            </div>
-          </div>
-
-          <!-- Direct WhatsApp Desktop Quick Send (No QR Required Fallback) -->
-          <div class="wa-direct-desktop-panel" id="waDirectDesktopPanel">
-            <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px;flex-wrap:wrap;gap:12px;">
-              <div>
-                <div style="display:flex;align-items:center;gap:8px;">
-                  <svg class="gi-icon" style="width:22px;height:22px;color:#25D366;fill:currentColor;"><use href="#gi-whatsapp"></use></svg>
-                  <h2 style="margin:0;font-size:16px;font-weight:700;color:#0f172a;">Send via System WhatsApp Desktop (No QR Required)</h2>
-                  <span style="background:#dcfce7;color:#15803d;font-size:11px;font-weight:700;padding:2px 8px;border-radius:12px;">Instant Fallback</span>
-                </div>
-                <p style="margin:4px 0 0;font-size:12.5px;color:#64748b;">
-                  If WhatsApp QR code scan is not working, you can directly send messages, bills, and reminders through the WhatsApp application installed on your computer.
-                </p>
-              </div>
-            </div>
-
-            <div style="display:grid;grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));gap:18px;">
-              <!-- Recipient & Phone Selector -->
-              <div>
-                <div style="margin-bottom:12px;">
-                  <label style="font-size:12px;font-weight:600;color:#334155;display:block;margin-bottom:6px;">Select Customer / Party</label>
-                  <select id="waDirectPartySelect" class="form-input" style="width:100%;font-size:13px;padding:8px 12px;height:38px;">
-                    ${allParties.map((p) => `<option value="${escapeHtml(String(p.id))}" data-phone="${escapeHtml(p.phone || '')}" ${String(p.id) === String(activeParty.id) ? 'selected' : ''}>${escapeHtml(p.name || 'Customer')}${p.phone ? ` (${escapeHtml(p.phone)})` : ''}${Number(p.balance || 0) > 0 ? ` &bull; Due: ${formatCurrency(p.balance)}` : ''}</option>`).join('')}
-                  </select>
-                </div>
-
-                <div style="margin-bottom:14px;">
-                  <label style="font-size:12px;font-weight:600;color:#334155;display:block;margin-bottom:6px;">Recipient Mobile / WhatsApp Number *</label>
-                  <div style="display:flex;align-items:center;border:1px solid #cbd5e1;border-radius:8px;overflow:hidden;background:#ffffff;height:38px;">
-                    <span style="background:#f1f5f9;color:#475569;font-weight:600;font-size:13px;padding:0 12px;border-right:1px solid #cbd5e1;line-height:38px;">+91</span>
-                    <input type="tel" id="waDirectDesktopPhone" value="${escapeHtml(String(activeParty.phone || '').replace(/\D/g, ''))}" placeholder="10-digit mobile number" style="border:none;box-shadow:none;padding:0 12px;font-size:13.5px;font-weight:600;width:100%;outline:none;height:100%;line-height:38px;box-sizing:border-box;" />
-                  </div>
-                </div>
-
-                <!-- Quick Message Preset Chips -->
-                <div>
-                  <label style="font-size:12px;font-weight:600;color:#334155;display:block;margin-bottom:8px;">Choose Message Type / Preset:</label>
-                  <div style="display:flex;flex-wrap:wrap;gap:8px;">
-                    <button type="button" class="wa-preset-btn active" data-preset="reminder">🔔 Payment Reminder</button>
-                    <button type="button" class="wa-preset-btn" data-preset="invoice">🧾 Latest Bill</button>
-                    <button type="button" class="wa-preset-btn" data-preset="statement">📊 Party Statement</button>
-                    <button type="button" class="wa-preset-btn" data-preset="custom">💬 Custom Message</button>
-                  </div>
-                </div>
-              </div>
-
-              <!-- Live Message Preview & Actions -->
-              <div>
-                <label style="font-size:12px;font-weight:600;color:#334155;display:block;margin-bottom:6px;">Message Preview (Editable)</label>
-                <textarea id="waDirectDesktopMsg" class="wa-direct-msg-textarea" rows="7" placeholder="Review or type WhatsApp message...">${escapeHtml(formatDirectPaymentReminder(activeParty))}</textarea>
-
-                <div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;flex-wrap:wrap;gap:8px;">
-                  <button type="button" class="outline-mini-button" id="waDirectCopyBtn" style="padding:7px 12px;font-size:12px;display:inline-flex;align-items:center;gap:4px;">
-                    <svg viewBox="0 0 24 24" style="width:13px;height:13px;fill:currentColor;"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg> Copy Message
-                  </button>
-                  <div style="display:flex;gap:8px;">
-                    <button type="button" class="secondary-button" id="waDirectWebBtn" style="padding:8px 14px;font-size:12.5px;" title="Open in WhatsApp Web in browser">
-                      WhatsApp Web
-                    </button>
-                    <button type="button" class="primary-button" id="waDirectSendDesktopBtn" style="background:#25D366;border-color:#25D366;padding:8px 18px;font-size:13px;font-weight:700;display:inline-flex;align-items:center;gap:6px;" title="Send instantly using Windows WhatsApp Desktop app">
-                      <svg class="gi-icon" style="width:15px;height:15px;fill:currentColor;"><use href="#gi-whatsapp"></use></svg> Send via WhatsApp Desktop
-                    </button>
-                  </div>
-                </div>
               </div>
             </div>
           </div>
@@ -30238,90 +30157,6 @@ function bindWhatsAppConnectActions() {
         });
       }
     });
-
-    // Direct WhatsApp Desktop Quick Send (Fallback Panel) Actions
-    const directPartySelect = view.querySelector("#waDirectPartySelect");
-    const directPhoneInput = view.querySelector("#waDirectDesktopPhone");
-    const directMsgInput = view.querySelector("#waDirectDesktopMsg");
-    let activePreset = "reminder";
-
-    const updateDirectMessage = () => {
-      const partyId = directPartySelect?.value;
-      const allPartiesList = [...(whatsappConnectState.directParties || []), ...(state.parties || [])];
-      const selParty = allPartiesList.find((p) => String(p.id) === String(partyId)) || getWhatsAppActiveParty();
-      if (directPhoneInput && selParty?.phone) {
-        directPhoneInput.value = String(selParty.phone).replace(/\D/g, "");
-      }
-      if (!directMsgInput) return;
-      if (activePreset === "reminder") {
-        directMsgInput.value = formatDirectPaymentReminder(selParty);
-      } else if (activePreset === "invoice") {
-        directMsgInput.value = formatDirectInvoiceMessage(selParty);
-      } else if (activePreset === "statement") {
-        directMsgInput.value = formatDirectStatementMessage(selParty);
-      } else {
-        directMsgInput.value = formatDirectCustomMessage(selParty);
-      }
-    };
-
-    directPartySelect?.addEventListener("change", updateDirectMessage);
-
-    view.querySelectorAll(".wa-preset-btn").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        view.querySelectorAll(".wa-preset-btn").forEach((b) => b.classList.remove("active"));
-        btn.classList.add("active");
-        activePreset = btn.dataset.preset || "reminder";
-        updateDirectMessage();
-      });
-    });
-
-    view.querySelector("#waDirectCopyBtn")?.addEventListener("click", async () => {
-      const text = directMsgInput?.value || "";
-      try {
-        await navigator.clipboard.writeText(text);
-        showToast("Message copied to clipboard!");
-      } catch {
-        showToast("Unable to copy message.");
-      }
-    });
-
-    view.querySelector("#waDirectWebBtn")?.addEventListener("click", async () => {
-      const phone = formatWhatsAppPhoneNumber(directPhoneInput?.value || "");
-      const text = encodeURIComponent(directMsgInput?.value || "");
-      if (!phone || phone.length < 10) {
-        showToast("Please enter a valid 10-digit mobile number.");
-        directPhoneInput?.focus();
-        return;
-      }
-      const webUrl = `https://web.whatsapp.com/send?phone=${phone}&text=${text}`;
-      if (window.giApp?.openExternal) {
-        await window.giApp.openExternal(webUrl);
-      } else {
-        window.open(webUrl, "_blank");
-      }
-      showToast("Opening WhatsApp Web...");
-    });
-
-    view.querySelector("#waDirectSendDesktopBtn")?.addEventListener("click", async () => {
-      const phone = formatWhatsAppPhoneNumber(directPhoneInput?.value || "");
-      const text = encodeURIComponent(directMsgInput?.value || "");
-      if (!phone || phone.length < 10) {
-        showToast("Please enter a valid 10-digit mobile number.");
-        directPhoneInput?.focus();
-        return;
-      }
-      const desktopUrl = `whatsapp://send?phone=${phone}&text=${text}`;
-      const webUrl = `https://web.whatsapp.com/send?phone=${phone}&text=${text}`;
-      if (window.giApp?.openExternal) {
-        const res = await window.giApp.openExternal(desktopUrl);
-        if (!res?.success) {
-          await window.giApp.openExternal(webUrl);
-        }
-      } else {
-        window.open(desktopUrl, "_blank");
-      }
-      showToast("Launching System WhatsApp Desktop app...");
-    });
   }
 
   // 1. Link / Connect Action (Secured with Terms Check & Verification Modal)
@@ -30348,15 +30183,6 @@ function bindWhatsAppConnectActions() {
           elements.featureView.innerHTML = whatsappConnectTemplate();
           bindFeatureActions();
           showToast("WhatsApp Connected Successfully!");
-        },
-        onUseDesktop: () => {
-          const directPanel = view.querySelector("#waDirectDesktopPanel");
-          if (directPanel) {
-            directPanel.scrollIntoView({ behavior: "smooth", block: "start" });
-            directPanel.style.outline = "2px solid #25D366";
-            setTimeout(() => { directPanel.style.outline = ""; }, 2000);
-            showToast("You can send messages directly using System WhatsApp Desktop below!");
-          }
         }
       });
     });

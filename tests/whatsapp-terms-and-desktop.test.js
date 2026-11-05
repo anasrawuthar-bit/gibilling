@@ -178,51 +178,21 @@ app.whenReady().then(async () => {
     assert.strictEqual(termsModalCheck.hasSvgQrAfterAccept, true, "QR code SVG is generated immediately upon acceptance");
     console.log("  ✓ Terms modal functions cleanly and activates QR code upon acceptance");
 
-    console.log("Test 4: Verify Direct WhatsApp Desktop Quick Send panel...");
+    console.log("Test 4: Verify 'Send via System WhatsApp Desktop (No QR Required)' is completely removed...");
     const desktopPanelCheck = await window.webContents.executeJavaScript(`
-      (async () => {
+      (() => {
         const panel = elements.featureView.querySelector("#waDirectDesktopPanel");
-        const partySelect = panel?.querySelector("#waDirectPartySelect");
-        const phoneInput = panel?.querySelector("#waDirectDesktopPhone");
-        const msgTextarea = panel?.querySelector("#waDirectDesktopMsg");
-        const presetBtns = Array.from(panel?.querySelectorAll(".wa-preset-btn") || []).map(b => b.dataset.preset);
-        const sendDesktopBtn = panel?.querySelector("#waDirectSendDesktopBtn");
-
-        // Click preset 'invoice'
-        const invoiceBtn = panel?.querySelector("[data-preset='invoice']");
-        invoiceBtn?.click();
-        await new Promise((r) => setTimeout(r, 100));
-        const msgAfterInvoice = msgTextarea?.value || "";
-
-        // Click preset 'statement'
-        const statementBtn = panel?.querySelector("[data-preset='statement']");
-        statementBtn?.click();
-        await new Promise((r) => setTimeout(r, 100));
-        const msgAfterStatement = msgTextarea?.value || "";
-
+        const panelText = elements.featureView?.textContent || "";
         return {
           hasPanel: Boolean(panel),
-          hasPartySelect: Boolean(partySelect),
-          hasPhoneInput: Boolean(phoneInput),
-          presetBtns,
-          hasSendDesktopBtn: Boolean(sendDesktopBtn),
-          msgHasInvoice: msgAfterInvoice.includes("Invoice No") || msgAfterInvoice.includes("latest tax invoice"),
-          msgHasStatement: msgAfterStatement.includes("Statement of Account Summary")
+          hasDesktopTitle: panelText.includes("Send via System WhatsApp Desktop (No QR Required)")
         };
       })()
     `);
 
-    assert.strictEqual(desktopPanelCheck.hasPanel, true, "Desktop quick send panel must be present");
-    assert.strictEqual(desktopPanelCheck.hasPartySelect, true, "Party dropdown must be present");
-    assert.strictEqual(desktopPanelCheck.hasPhoneInput, true, "Phone input must be present");
-    assert.ok(desktopPanelCheck.presetBtns.includes("reminder"));
-    assert.ok(desktopPanelCheck.presetBtns.includes("invoice"));
-    assert.ok(desktopPanelCheck.presetBtns.includes("statement"));
-    assert.ok(desktopPanelCheck.presetBtns.includes("custom"));
-    assert.strictEqual(desktopPanelCheck.hasSendDesktopBtn, true);
-    assert.strictEqual(desktopPanelCheck.msgHasInvoice, true);
-    assert.strictEqual(desktopPanelCheck.msgHasStatement, true);
-    console.log("  ✓ Direct WhatsApp Desktop panel allows instant fallback messaging with presets");
+    assert.strictEqual(desktopPanelCheck.hasPanel, false, "Desktop quick send panel must be removed");
+    assert.strictEqual(desktopPanelCheck.hasDesktopTitle, false, "Desktop quick send text must not exist on page");
+    console.log("  ✓ 'Send via System WhatsApp Desktop (No QR Required)' is completely removed from the page");
 
     console.log("Test 5: Verify Link Device button triggers verification modal (prevents fake bypass)...");
     const linkDeviceCheck = await window.webContents.executeJavaScript(`
@@ -233,7 +203,7 @@ app.whenReady().then(async () => {
 
         const verifyBackdrop = document.getElementById("waPairingVerifyModalBackdrop");
         const verifyTitle = verifyBackdrop?.textContent?.includes("Confirm Device Pairing");
-        const verifyTip = verifyBackdrop?.textContent?.includes("Use WhatsApp Desktop");
+        const verifyNotice = verifyBackdrop?.textContent?.includes("Did you scan the QR code with WhatsApp?");
         const confirmBtn = verifyBackdrop?.querySelector("#waConfirmPairingBtn");
 
         // Click Confirm
@@ -245,7 +215,7 @@ app.whenReady().then(async () => {
 
         return {
           verifyTitle,
-          verifyTip,
+          verifyNotice,
           isNowConnected,
           chatWorkspaceExists
         };
@@ -253,7 +223,7 @@ app.whenReady().then(async () => {
     `);
 
     assert.strictEqual(linkDeviceCheck.verifyTitle, true, "Pairing verification modal opens on link device");
-    assert.strictEqual(linkDeviceCheck.verifyTip, true, "Tip about WhatsApp desktop fallback is included");
+    assert.strictEqual(linkDeviceCheck.verifyNotice, true, "Notice about scanning QR code is included");
     assert.strictEqual(linkDeviceCheck.isNowConnected, true, "Connects only upon explicit user confirmation");
     assert.strictEqual(linkDeviceCheck.chatWorkspaceExists, true, "Navigates to chat workspace upon confirmed pairing");
     console.log("  ✓ Link Device prevents fake bypass and prompts with real verification");
