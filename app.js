@@ -11283,7 +11283,6 @@ function saleReturnTemplate() {
         ${kpiCard("Return Value", formatCurrency(total), "Credit note total for selected view", "neutral")}
         ${kpiCard("Adjusted / Refunded", formatCurrency(adjusted), "Value already adjusted or refunded", "success")}
         ${kpiCard("Open Credit", formatCurrency(openBalance), "Still available to adjust", openBalance > 0 ? "danger" : "success")}
-        ${state.businessSettings?.enableTax !== false ? kpiCard("GST Reversal", formatCurrency(taxTotal), "Output tax reduction", "info") : ""}
       </section>
 
       <section class="data-table-card invoice-data-card">
@@ -11757,7 +11756,6 @@ function estimateTemplate() {
         ${kpiCard(kpi.total,    formatCurrency(totalValue),    `${allRows.length} total record${allRows.length === 1 ? "" : "s"}`, "neutral")}
         ${kpiCard(kpi.accepted, formatCurrency(acceptedValue), "Ready to convert into sale", "success")}
         ${kpiCard(kpi.pending,  String(pendingCount),          "Draft or sent", pendingCount ? "info" : "success")}
-        ${state.businessSettings?.enableTax !== false ? kpiCard(kpi.tax, formatCurrency(taxValue), `${convertedCount} converted`, "info") : kpiCard("Converted", String(convertedCount), "Converted to sale", "info")}
       </section>
 
       <section class="data-table-card invoice-data-card">
@@ -18669,7 +18667,6 @@ function purchaseReturnTemplate() {
         ${kpiCard("Return Value", formatCurrency(total), "Debit note total for selected view", "neutral")}
         ${kpiCard("Adjusted / Refunded", formatCurrency(adjusted), "Value already adjusted or refunded", "success")}
         ${kpiCard("Open Debit", formatCurrency(openBalance), "Still available to adjust against supplier", openBalance > 0 ? "danger" : "success")}
-        ${state.businessSettings?.enableTax !== false ? kpiCard("GST Reversal", formatCurrency(taxTotal), "Input tax reduction", "info") : ""}
       </section>
 
       <section class="data-table-card invoice-data-card">
@@ -19237,7 +19234,6 @@ function expenseTemplate() {
         ${kpiCard("This Month", formatCurrency(thisMonthRows.reduce((sum, row) => sum + expenseTotal(row), 0)), `${thisMonthRows.length} expense records`, "neutral")}
         ${kpiCard("Paid", formatCurrency(paid), "Cash or bank already paid", "success")}
         ${kpiCard("Payable", formatCurrency(payable), "Unpaid expense balance", payable > 0 ? "danger" : "success")}
-        ${kpiCard("Input GST", formatCurrency(inputTax), `${categories} categories used`, "info")}
       </section>
 
       <section class="data-table-card invoice-data-card">
