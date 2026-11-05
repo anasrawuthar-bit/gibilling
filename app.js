@@ -29061,6 +29061,21 @@ Warm regards,
             </div>
 
             <div class="system-share-options-list">
+              ${whatsappConnectState.connected ? `
+              <!-- Send via Linked WhatsApp (Instant Direct) -->
+              <button type="button" class="system-share-option-card wa-linked-option" id="waCardLinkedBtn" title="Directly send via linked WhatsApp device">
+                <div class="option-icon-box wa-icon-bg" style="background:#25D366;color:#ffffff;">
+                  <svg class="gi-icon"><use href="#gi-send"></use></svg>
+                </div>
+                <div class="option-content">
+                  <div class="option-title-row">
+                    <strong>Send via Linked WhatsApp</strong>
+                    <span class="share-badge-fast" style="background:#dcfce7;color:#15803d;font-weight:700;">Active Device</span>
+                  </div>
+                  <span class="option-desc">Send PDF and message directly from your linked mobile WhatsApp session</span>
+                </div>
+              </button>
+              ` : ""}
               <!-- WhatsApp Desktop App -->
               <button type="button" class="system-share-option-card wa-desktop-option" id="waCardDesktopBtn" title="Directly send via WhatsApp Desktop app installed on PC">
                 <div class="option-icon-box wa-icon-bg">
@@ -29127,6 +29142,11 @@ Warm regards,
           <button class="secondary-button" type="button" id="waFooterPickAppBtn" title="Choose any app on your computer">
             <svg class="gi-icon" style="width:15px;height:15px;margin-right:5px;"><use href="#gi-external-link"></use></svg> Pick Computer App
           </button>
+          ${whatsappConnectState.connected ? `
+            <button class="primary-button wa-primary-btn" type="button" id="waFooterLinkedBtn" style="background:#25D366;border-color:#25D366;font-weight:700;" title="Send instantly via linked WhatsApp">
+              <svg class="gi-icon" style="width:16px;height:16px;margin-right:6px;fill:currentColor;"><use href="#gi-send"></use></svg> Send via Linked WhatsApp
+            </button>
+          ` : ""}
           <button class="primary-button wa-primary-btn" type="button" id="waFooterDesktopBtn" title="Open native WhatsApp Desktop app">
             <svg class="gi-icon" style="width:16px;height:16px;margin-right:6px;"><use href="#gi-whatsapp"></use></svg> WhatsApp Desktop
           </button>
@@ -29196,6 +29216,45 @@ Warm regards,
       showToast("Unable to copy to clipboard.");
     }
   });
+
+  // Linked WhatsApp Direct Send
+  const handleSendLinkedWhatsApp = async () => {
+    const phone = getCleanNumber();
+    if (!phone) {
+      showToast("Please enter a valid recipient phone number.");
+      backdrop.querySelector("#waRecipientPhone")?.focus();
+      return;
+    }
+    const cardBtn = backdrop.querySelector("#waCardLinkedBtn");
+    const footerBtn = backdrop.querySelector("#waFooterLinkedBtn");
+    if (cardBtn) cardBtn.disabled = true;
+    if (footerBtn) footerBtn.disabled = true;
+
+    showToast("Sending document via Linked WhatsApp...");
+    try {
+      const pdfPath = await ensureTempPdfPath();
+      const res = await window.giApp.whatsappSendMessage({
+        phone,
+        message: getMessage(),
+        pdfPath,
+        pdfName: recordOrInvoice.filename || `${docNo.replace(/[^a-zA-Z0-9_-]/g, "_")}.pdf`,
+      });
+      if (res?.success) {
+        showToast("Sent successfully via Linked WhatsApp!");
+        close();
+      } else {
+        showToast(res?.error || "Error sending message via Linked WhatsApp.");
+      }
+    } catch (e) {
+      showToast("Failed to send: " + (e?.message || String(e)));
+    } finally {
+      if (cardBtn) cardBtn.disabled = false;
+      if (footerBtn) footerBtn.disabled = false;
+    }
+  };
+
+  backdrop.querySelector("#waCardLinkedBtn")?.addEventListener("click", handleSendLinkedWhatsApp);
+  backdrop.querySelector("#waFooterLinkedBtn")?.addEventListener("click", handleSendLinkedWhatsApp);
 
   // 2. Open WhatsApp Desktop App (whatsapp:// protocol)
   const handleOpenDesktop = async () => {
@@ -29615,6 +29674,8 @@ function loadWhatsAppConnectState() {
         searchQuery: parsed.searchQuery || "",
         chats: parsed.chats || {},
         directParties: Array.isArray(parsed.directParties) ? parsed.directParties : [],
+        currentUser: parsed.currentUser || null,
+        qrDataUrl: null,
       };
     }
   } catch (_) {}
@@ -29625,10 +29686,60 @@ function loadWhatsAppConnectState() {
     searchQuery: "",
     chats: {},
     directParties: [],
+    currentUser: null,
+    qrDataUrl: null,
   };
 }
 
 let whatsappConnectState = loadWhatsAppConnectState();
+
+function initWhatsAppEventListener() {
+  if (typeof window === "undefined" || window._waListenerBound) return;
+  window._waListenerBound = true;
+
+  if (window.giApp?.onWhatsAppStatusChange) {
+    window.giApp.onWhatsAppStatusChange((status) => {
+      console.log("[Renderer] WhatsApp status update:", status);
+      if (status.connected) {
+        whatsappConnectState.connected = true;
+        whatsappConnectState.currentUser = status.user;
+        whatsappConnectState.qrDataUrl = null;
+        saveWhatsAppConnectState();
+        if (currentView === "whatsapp") {
+          elements.featureView.innerHTML = whatsappConnectTemplate();
+          bindFeatureActions();
+        }
+        showToast("WhatsApp Connected as " + (status.user?.phone ? ("+" + status.user.phone) : "Linked Device") + "!");
+      } else if (status.status === "qr" && status.qrDataUrl) {
+        whatsappConnectState.connected = false;
+        whatsappConnectState.qrDataUrl = status.qrDataUrl;
+        if (currentView === "whatsapp") {
+          renderWhatsAppPairingQr();
+        }
+      } else if (status.status === "disconnected") {
+        whatsappConnectState.connected = false;
+        whatsappConnectState.currentUser = null;
+        whatsappConnectState.qrDataUrl = null;
+        saveWhatsAppConnectState();
+        if (currentView === "whatsapp") {
+          elements.featureView.innerHTML = whatsappConnectTemplate();
+          bindFeatureActions();
+        }
+      }
+    });
+  }
+
+  if (window.giApp?.whatsappGetStatus) {
+    window.giApp.whatsappGetStatus().then((status) => {
+      if (status?.connected) {
+        whatsappConnectState.connected = true;
+        whatsappConnectState.currentUser = status.user;
+        saveWhatsAppConnectState();
+      }
+    }).catch(() => {});
+  }
+}
+initWhatsAppEventListener();
 
 function saveWhatsAppConnectState() {
   try {
@@ -29693,54 +29804,43 @@ async function renderWhatsAppPairingQr() {
   if (!container) return;
 
   const isAccepted = Boolean(whatsappConnectState.termsAccepted);
-  const qrUrl = "https://web.whatsapp.com/connect?app=zynbill&t=" + (isAccepted ? "active" : "placeholder");
-  let renderedSvg = "";
-  if (window.giApp?.generateQrSvg) {
+
+  if (window.giApp?.whatsappGetStatus) {
     try {
-      const res = await window.giApp.generateQrSvg({ text: qrUrl, options: { margin: 1, errorCorrectionLevel: "M" } });
-      if (res?.success && res.svg) {
-        renderedSvg = res.svg;
+      const status = await window.giApp.whatsappGetStatus();
+      if (status?.connected) {
+        whatsappConnectState.connected = true;
+        whatsappConnectState.currentUser = status.user;
+        saveWhatsAppConnectState();
+        elements.featureView.innerHTML = whatsappConnectTemplate();
+        bindFeatureActions();
+        return;
       }
-    } catch (_) {}
+      if (status?.qrDataUrl) {
+        whatsappConnectState.qrDataUrl = status.qrDataUrl;
+      } else if (status?.status === "disconnected" || !status?.status) {
+        window.giApp.whatsappStartSession(false).catch((e) => console.warn("WA session start:", e));
+      }
+    } catch (e) {
+      console.warn("Could not query WA status:", e);
+    }
   }
 
-  if (!renderedSvg) {
-    renderedSvg = `
-      <svg viewBox="0 0 200 200" width="200" height="200">
-        <rect width="200" height="200" fill="#ffffff"/>
-        <rect x="15" y="15" width="45" height="45" rx="4" fill="#000000"/>
-        <rect x="22" y="22" width="31" height="31" rx="2" fill="#ffffff"/>
-        <rect x="28" y="28" width="19" height="19" rx="1" fill="#000000"/>
-        <rect x="140" y="15" width="45" height="45" rx="4" fill="#000000"/>
-        <rect x="147" y="22" width="31" height="31" rx="2" fill="#ffffff"/>
-        <rect x="153" y="28" width="19" height="19" rx="1" fill="#000000"/>
-        <rect x="15" y="140" width="45" height="45" rx="4" fill="#000000"/>
-        <rect x="22" y="147" width="31" height="31" rx="2" fill="#ffffff"/>
-        <rect x="28" y="153" width="19" height="19" rx="1" fill="#000000"/>
-        <g fill="#000000">
-          <rect x="70" y="18" width="8" height="8"/><rect x="85" y="18" width="14" height="8"/><rect x="115" y="18" width="8" height="8"/>
-          <rect x="68" y="32" width="12" height="6"/><rect x="92" y="32" width="6" height="14"/><rect x="108" y="32" width="14" height="6"/>
-          <rect x="75" y="45" width="14" height="8"/><rect x="118" y="45" width="8" height="8"/>
-          <rect x="18" y="70" width="8" height="14"/><rect x="35" y="72" width="12" height="6"/><rect x="55" y="70" width="8" height="8"/>
-          <rect x="142" y="70" width="14" height="8"/><rect x="165" y="70" width="14" height="8"/>
-          <rect x="20" y="90" width="14" height="6"/><rect x="42" y="88" width="8" height="14"/><rect x="148" y="85" width="8" height="14"/><rect x="168" y="90" width="12" height="6"/>
-          <rect x="18" y="112" width="10" height="8"/><rect x="38" y="110" width="14" height="8"/><rect x="58" y="114" width="8" height="8"/>
-          <rect x="140" y="112" width="12" height="6"/><rect x="162" y="110" width="18" height="8"/>
-          <rect x="70" y="145" width="14" height="8"/><rect x="92" y="142" width="8" height="14"/><rect x="110" y="145" width="12" height="6"/>
-          <rect x="75" y="165" width="8" height="14"/><rect x="90" y="168" width="16" height="8"/><rect x="115" y="165" width="8" height="8"/>
-          <rect x="142" y="145" width="10" height="8"/><rect x="160" y="142" width="8" height="14"/><rect x="175" y="145" width="10" height="6"/>
-          <rect x="145" y="165" width="18" height="8"/><rect x="170" y="168" width="14" height="12"/>
-        </g>
-      </svg>
+  const qrImageHtml = whatsappConnectState.qrDataUrl
+    ? `<img src="${whatsappConnectState.qrDataUrl}" alt="WhatsApp Linked Devices QR" style="width:196px;height:196px;display:block;border-radius:8px;" />`
+    : `
+      <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:196px;width:196px;gap:12px;color:#64748b;text-align:center;">
+        <div style="width:28px;height:28px;border:3px solid #e2e8f0;border-top-color:#25D366;border-radius:50%;animation:spin 1s linear infinite;"></div>
+        <span style="font-size:12px;font-weight:600;">Generating live QR code...</span>
+      </div>
     `;
-  }
 
   if (!isAccepted) {
     container.innerHTML = `
       <div style="display:flex;flex-direction:column;align-items:center;">
         <div class="wa-pairing-qr-wrap wa-pairing-qr-locked" id="waLockedQrTrigger" title="Click to view & accept Standard Usage Terms" style="position:relative;width:200px;height:200px;background:#ffffff;border:1.5px dashed #cbd5e1;border-radius:12px;overflow:hidden;cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 8px rgba(0,0,0,0.04);">
           <div class="wa-qr-blur-layer">
-            ${renderedSvg}
+            ${qrImageHtml}
           </div>
           <div class="wa-qr-center-lock-overlay">
             <div style="width:44px;height:44px;border-radius:50%;background:#ffffff;box-shadow:0 4px 14px rgba(15,23,42,0.18);display:flex;align-items:center;justify-content:center;color:#475569;border:1px solid #e2e8f0;transition:transform 0.2s ease;">
@@ -29764,14 +29864,11 @@ async function renderWhatsAppPairingQr() {
 
   container.innerHTML = `
     <div style="display:flex;flex-direction:column;align-items:center;">
-      <div class="wa-pairing-qr-wrap" style="position:relative;width:200px;height:200px;padding:8px;background:#ffffff;border:1px solid #86efac;border-radius:12px;box-shadow:0 4px 16px rgba(37,211,102,0.14);display:flex;align-items:center;justify-content:center;">
-        ${renderedSvg}
-        <div class="wa-pairing-qr-center-logo">
-          <svg viewBox="0 0 24 24" style="width:24px;height:24px;color:#25D366;fill:currentColor;"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 0 1-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 0 1-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 0 1 2.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0 0 12.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 0 0 5.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.82 11.82 0 0 0-3.48-8.413Z"/></svg>
-        </div>
+      <div class="wa-pairing-qr-wrap" style="position:relative;width:200px;height:200px;padding:2px;background:#ffffff;border:1px solid #86efac;border-radius:12px;box-shadow:0 4px 16px rgba(37,211,102,0.14);display:flex;align-items:center;justify-content:center;">
+        ${qrImageHtml}
       </div>
       <div style="background:#dcfce7;color:#15803d;font-size:11px;font-weight:700;padding:3px 10px;border-radius:12px;margin-top:8px;display:inline-flex;align-items:center;gap:5px;border:1px solid #bbf7d0;">
-        <span style="width:7px;height:7px;border-radius:50%;background:#16a34a;display:inline-block;"></span> QR Active &amp; Ready to Scan
+        <span style="width:7px;height:7px;border-radius:50%;background:#16a34a;display:inline-block;"></span> Official WhatsApp QR • Ready to Scan
       </div>
     </div>
   `;
@@ -29882,7 +29979,7 @@ function whatsappConnectTemplate() {
         <div class="wa-connect-brand">
           <svg class="gi-icon" style="width:24px;height:24px;color:#25D366;fill:currentColor;"><use href="#gi-whatsapp"></use></svg>
           <h1>WhatsApp Connect</h1>
-          <span class="wa-status-pill online"><span class="wa-status-dot"></span> Connected</span>
+          <span class="wa-status-pill online"><span class="wa-status-dot"></span> Connected: ${escapeHtml(whatsappConnectState.currentUser?.phone ? ("+" + whatsappConnectState.currentUser.phone) : (whatsappConnectState.currentUser?.name || "Linked Device"))}</span>
         </div>
         <div class="wa-connect-actions">
           <button type="button" class="outline-mini-button" data-wa-action="disconnect" title="Log out from WhatsApp" style="color:#dc2626;border-color:#fecaca;background:#fff5f5;display:inline-flex;align-items:center;gap:4px;">
@@ -30137,7 +30234,7 @@ function bindWhatsAppConnectActions() {
 
   // 1. Link / Connect Action (Secured with Terms Check & Verification Modal)
   view.querySelectorAll("[data-wa-action='connect']").forEach((btn) => {
-    btn.addEventListener("click", () => {
+    btn.addEventListener("click", async () => {
       const termsCheck = view.querySelector("#waTermsCheck");
       const termsAccepted = termsCheck ? termsCheck.checked : Boolean(whatsappConnectState.termsAccepted);
       if (!termsAccepted) {
@@ -30147,27 +30244,37 @@ function bindWhatsAppConnectActions() {
           whatsappConnectState.termsAccepted = true;
           saveWhatsAppConnectState();
           renderWhatsAppPairingQr();
-          showToast("Terms accepted! Please scan the QR code, then click Link Device.");
+          showToast("Terms accepted! Please scan the QR code on your mobile.");
         });
         return;
       }
 
-      openWhatsAppPairingVerificationModal({
-        onConfirmLink: () => {
+      if (window.giApp?.whatsappGetStatus) {
+        const s = await window.giApp.whatsappGetStatus();
+        if (s?.connected) {
           whatsappConnectState.connected = true;
+          whatsappConnectState.currentUser = s.user;
           saveWhatsAppConnectState();
           elements.featureView.innerHTML = whatsappConnectTemplate();
           bindFeatureActions();
-          showToast("WhatsApp Connected Successfully!");
+          showToast("WhatsApp Connected as " + (s.user?.phone ? ("+" + s.user.phone) : "Linked Device") + "!");
+          return;
         }
-      });
+      }
+
+      showToast("Please scan the QR code with WhatsApp on your mobile phone ('Linked devices') to connect.");
     });
   });
 
   // 2. Disconnect / Re-link QR Action
   view.querySelectorAll("[data-wa-action='disconnect'], [data-wa-action='show-qr']").forEach((btn) => {
-    btn.addEventListener("click", () => {
+    btn.addEventListener("click", async () => {
+      if (window.giApp?.whatsappDisconnect) {
+        await window.giApp.whatsappDisconnect();
+      }
       whatsappConnectState.connected = false;
+      whatsappConnectState.currentUser = null;
+      whatsappConnectState.qrDataUrl = null;
       saveWhatsAppConnectState();
       elements.featureView.innerHTML = whatsappConnectTemplate();
       bindFeatureActions();
@@ -30367,6 +30474,16 @@ function bindWhatsAppConnectActions() {
 
     const cleanPhone = formatWhatsAppPhoneNumber(activeParty.phone);
     if (cleanPhone) {
+      if (whatsappConnectState.connected && window.giApp?.whatsappSendMessage) {
+        const sendRes = await window.giApp.whatsappSendMessage({
+          phone: cleanPhone,
+          message: text,
+        });
+        if (sendRes?.success) {
+          showToast("Message sent via Linked WhatsApp!");
+          return;
+        }
+      }
       const desktopUrl = `whatsapp://send?phone=${cleanPhone}&text=${encodeURIComponent(text)}`;
       const webUrl = `https://web.whatsapp.com/send?phone=${cleanPhone}&text=${encodeURIComponent(text)}`;
       if (window.giApp?.openExternal) {

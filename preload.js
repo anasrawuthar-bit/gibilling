@@ -75,4 +75,14 @@ contextBridge.exposeInMainWorld("giApp", {
   openSystemShare: (filePath) => ipcRenderer.invoke("app:open-system-share", filePath),
   openExternal: (url) => ipcRenderer.invoke("whatsapp:open-link", url),
   generateQrSvg: (payload) => ipcRenderer.invoke("app:generate-qr-svg", payload),
+  whatsappGetStatus: () => ipcRenderer.invoke("whatsapp:get-status"),
+  whatsappStartSession: (forceNew) => ipcRenderer.invoke("whatsapp:start-session", forceNew),
+  whatsappDisconnect: () => ipcRenderer.invoke("whatsapp:disconnect"),
+  whatsappSendMessage: (payload) => ipcRenderer.invoke("whatsapp:send-message", payload),
+  onWhatsAppStatusChange: (callback) => {
+    if (typeof callback !== "function") return () => {};
+    const handler = (_event, data) => callback(data);
+    ipcRenderer.on("whatsapp:status-update", handler);
+    return () => ipcRenderer.removeListener("whatsapp:status-update", handler);
+  },
 });

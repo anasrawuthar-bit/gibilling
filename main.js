@@ -3,6 +3,7 @@ const path = require("path");
 const fs = require("fs");
 const database = require("./database");
 const { SyncService, DisabledSyncAdapter } = require("./sync-service");
+const { whatsappService } = require("./whatsapp-service");
 
 let mainWindow = null;
 let tray = null;
@@ -669,6 +670,11 @@ if (singleInstanceLock) {
     createMenu();
     createTray();
     createMainWindow();
+    whatsappService.init({
+      app,
+      ipcMain,
+      getMainWindow: () => mainWindow,
+    });
     syncService.start();
     startScheduledBackupService();
 
