@@ -15402,32 +15402,6 @@ function bindFeatureActions() {
     });
   }
 
-  const itemDateTypeSelect = elements.featureView.querySelector("#itemDateTypeSelect");
-  if (itemDateTypeSelect) {
-    itemDateTypeSelect.addEventListener("change", (e) => {
-      itemAdvancedFilter.datePreset = e.target.value;
-      if (e.target.value !== "custom") {
-        itemAdvancedFilter.dateFrom = "";
-        itemAdvancedFilter.dateTo = "";
-      }
-      const selectedId = elements.featureView.querySelector(".item-list-item.active")?.dataset.itemId;
-      elements.featureView.innerHTML = itemsTemplate(selectedId ? Number(selectedId) : null, "overview", itemSearchQuery);
-      bindFeatureActions();
-    });
-  }
-
-  const itemDateFrom = elements.featureView.querySelector("#itemDateFrom");
-  const itemDateTo = elements.featureView.querySelector("#itemDateTo");
-  const onItemDateChange = () => {
-    itemAdvancedFilter.dateFrom = itemDateFrom?.value || "";
-    itemAdvancedFilter.dateTo = itemDateTo?.value || "";
-    const selectedId = elements.featureView.querySelector(".item-list-item.active")?.dataset.itemId;
-    elements.featureView.innerHTML = itemsTemplate(selectedId ? Number(selectedId) : null, "overview", itemSearchQuery);
-    bindFeatureActions();
-  };
-  itemDateFrom?.addEventListener("change", onItemDateChange);
-  itemDateTo?.addEventListener("change", onItemDateChange);
-
   elements.featureView.querySelectorAll("[data-item-type-filter]").forEach((btn) => {
     btn.addEventListener("click", () => {
       itemAdvancedFilter.itemType = btn.dataset.itemTypeFilter;
@@ -22449,25 +22423,12 @@ function itemsTemplate(selectedItemId = null, activeTab = "overview", query = it
     { value: "low", label: "Low Stock" },
     { value: "out", label: "Out of Stock" },
     { value: "negative", label: "Negative Stock (< 0)" },
-    { value: "active", label: "Active in Period" },
   ];
 
   const itemTypeOptions = [
     { value: "all", label: "All Types" },
     { value: "product", label: "Products" },
     { value: "service", label: "Services" },
-  ];
-
-  const dateTypeOptions = [
-    { value: "all", label: "All Dates" },
-    { value: "today", label: "Today" },
-    { value: "yesterday", label: "Yesterday" },
-    { value: "thisWeek", label: "This Week" },
-    { value: "thisMonth", label: "This Month" },
-    { value: "lastMonth", label: "Last Month" },
-    { value: "thisQuarter", label: "This Quarter" },
-    { value: "thisYear", label: "This Financial Year" },
-    { value: "custom", label: "Custom Range" },
   ];
 
   return `
@@ -22524,33 +22485,6 @@ function itemsTemplate(selectedItemId = null, activeTab = "overview", query = it
               ${categories.map((c) => `<option value="${escapeHtml(c)}" ${f.category === c ? "selected" : ""}>${escapeHtml(c)}</option>`).join("")}
             </select>
           </label>
-        ` : ""}
-
-        <label class="adv-filter-field item-filter-select-field">
-          <span>Date Type</span>
-          <select class="form-input compact-input item-filter-select" id="itemDateTypeSelect">
-            ${dateTypeOptions.map((opt) => `
-              <option value="${opt.value}" ${f.datePreset === opt.value ? "selected" : ""}>${escapeHtml(opt.label)}</option>
-            `).join("")}
-          </select>
-        </label>
-
-        ${f.datePreset === "custom" ? `
-          <div class="item-filter-custom-dates">
-            <label class="adv-filter-field">
-              <span>From</span>
-              <input type="date" class="form-input compact-input item-filter-date" id="itemDateFrom" value="${escapeHtml(f.dateFrom || "")}">
-            </label>
-            <label class="adv-filter-field">
-              <span>To</span>
-              <input type="date" class="form-input compact-input item-filter-date" id="itemDateTo" value="${escapeHtml(f.dateTo || "")}">
-            </label>
-          </div>
-        ` : (range.from || range.to) ? `
-          <div class="item-filter-range-badge" title="Active period date range">
-            <svg class="gi-icon" style="width:13px;height:13px;margin-right:4px;"><use href="#gi-calendar"></use></svg>
-            <span>${formatDate(range.from)} &ndash; ${formatDate(range.to)}</span>
-          </div>
         ` : ""}
 
         ${(activeFilterCount > 0 || normalizedQuery) ? `<button class="filter-clear-btn" type="button" id="clearItemFilters">Clear</button>` : ""}
