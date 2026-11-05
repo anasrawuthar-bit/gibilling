@@ -31378,7 +31378,7 @@ function settingsAboutTemplate() {
     <header class="settings-page-header">
       <div>
         <h2>About &amp; Version</h2>
-        <p>Software release information, system environment, and update checks.</p>
+        <p>Software release information and update checks.</p>
       </div>
     </header>
 
@@ -31397,29 +31397,11 @@ function settingsAboutTemplate() {
           <span class="badge" style="background:#e0f2fe;color:#0369a1;font-weight:700;font-size:13px;padding:4px 10px;">v1.1.0 Release</span>
         </div>
 
-        <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(220px, 1fr));gap:16px;margin-top:20px;">
-          <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:14px;">
+        <div style="margin-top:20px;">
+          <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:16px;max-width:320px;">
             <div style="font-size:11px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:0.04em;">Application Version</div>
-            <div style="font-size:18px;font-weight:700;color:#0f172a;margin-top:4px;">1.1.0</div>
+            <div style="font-size:20px;font-weight:800;color:#0f172a;margin-top:4px;">1.1.0</div>
             <div style="font-size:12px;color:#10b981;margin-top:4px;font-weight:500;">✓ Up to Date (Production)</div>
-          </div>
-
-          <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:14px;">
-            <div style="font-size:11px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:0.04em;">Database Schema</div>
-            <div style="font-size:18px;font-weight:700;color:#0f172a;margin-top:4px;">Version 9</div>
-            <div style="font-size:12px;color:#0284c7;margin-top:4px;font-weight:500;">✓ SQLite Enterprise Engine</div>
-          </div>
-
-          <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:14px;">
-            <div style="font-size:11px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:0.04em;">Architecture</div>
-            <div style="font-size:18px;font-weight:700;color:#0f172a;margin-top:4px;">Local-First</div>
-            <div style="font-size:12px;color:#10b981;margin-top:4px;font-weight:500;">✓ 100% Offline Resilient</div>
-          </div>
-
-          <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:14px;">
-            <div style="font-size:11px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:0.04em;">Target Platform</div>
-            <div style="font-size:18px;font-weight:700;color:#0f172a;margin-top:4px;">Windows x64</div>
-            <div style="font-size:12px;color:#64748b;margin-top:4px;">Electron Desktop App</div>
           </div>
         </div>
       </section>
