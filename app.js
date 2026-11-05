@@ -20175,7 +20175,6 @@ function paymentOutTemplate() {
         ${kpiCard("This Month", formatCurrency(thisMonthTotal), `${thisMonthPayments.length} supplier payments`, "danger")}
         ${kpiCard("Total Paid", formatCurrency(totalPaid), "All recorded payments", "neutral")}
         ${kpiCard("Supplier Payable", formatCurrency(payable), "Outstanding balances", payable > 0 ? "danger" : "success")}
-        ${kpiCard("Payments", String(allPayments.length), "Recorded transactions", "info")}
       </section>
 
       <section class="data-table-card invoice-data-card">
@@ -21117,8 +21116,7 @@ function bankModalTemplate(account = null) {
 
         <form id="bankAccountForm" class="bank-modal-form" data-bank-id="${escapeHtml(account?.id || "")}" novalidate>
           <div class="bank-modal-body">
-            
-            <div class="bank-type-section">
+                <div class="bank-type-section">
               <label class="bank-section-label">Account Type</label>
               <div class="bank-type-chips" id="bankTypeChips">
                 <button type="button" class="bank-chip active" data-type="current">Current Account</button>
@@ -21168,8 +21166,7 @@ function bankModalTemplate(account = null) {
               <!-- Right Column: Settings & Live Preview -->
               <div class="bank-form-col">
                 <label class="bank-section-label">Invoice Print &amp; Settings</label>
-                
-                <div class="bank-toggles-card">
+                        <div class="bank-toggles-card">
                   <label class="bank-toggle-row">
                     <input type="checkbox" name="printBankDetails" id="bankPrintDetailsCheck" ${Number(account?.printBankDetails ?? 1) ? "checked" : ""}>
                     <div>
@@ -32033,7 +32030,6 @@ function paymentInTemplate() {
         ${kpiCard("This Month", formatCurrency(thisMonthTotal), `${thisMonthPayments.length} payment${thisMonthPayments.length === 1 ? "" : "s"} received`, "success")}
         ${kpiCard("Total Received", formatCurrency(totalReceived), "All time collected", "neutral")}
         ${kpiCard("Receivable", formatCurrency(receivable), "Pending customer balances", receivable > 0 ? "danger" : "success")}
-        ${kpiCard("Payments", String(payments.length), "All recorded", "info")}
       </section>
 
       <section class="data-table-card invoice-data-card">
