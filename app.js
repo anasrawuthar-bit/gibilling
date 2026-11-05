@@ -239,7 +239,7 @@ let posKeyboardShortcutsBound = false;
 
 // ── Vyapar-Style Filter State ────────────────────────────────────────────────
 const transactionTopFilters = {
-  sale: { preset: "all", dateFrom: "", dateTo: "", party: "" },
+  sale: { preset: "thisMonth", dateFrom: "", dateTo: "", party: "" },
   purchase: { preset: "all", dateFrom: "", dateTo: "", party: "" },
   estimate: { preset: "all", dateFrom: "", dateTo: "", party: "" },
   proforma: { preset: "all", dateFrom: "", dateTo: "", party: "" },
@@ -255,7 +255,12 @@ const transactionTopFilters = {
 
 function getTransactionTopFilter(type) {
   if (!transactionTopFilters[type]) {
-    transactionTopFilters[type] = { preset: "all", dateFrom: "", dateTo: "", party: "" };
+    transactionTopFilters[type] = {
+      preset: type === "sale" ? "thisMonth" : "all",
+      dateFrom: "",
+      dateTo: "",
+      party: "",
+    };
   }
   return transactionTopFilters[type];
 }
@@ -8489,9 +8494,11 @@ async function saveTransactionEditor(event) {
     }
 
     if (editorType === "sale") {
-      saleTopFilter = { preset: "all", dateFrom: "", dateTo: "", party: "" };
+      transactionTopFilters.sale = { preset: "thisMonth", dateFrom: "", dateTo: "", party: "" };
+      saleTopFilter = transactionTopFilters.sale;
     } else if (editorType === "purchase") {
-      purchaseTopFilter = { preset: "all", dateFrom: "", dateTo: "", party: "" };
+      transactionTopFilters.purchase = { preset: "all", dateFrom: "", dateTo: "", party: "" };
+      purchaseTopFilter = transactionTopFilters.purchase;
     }
 
     if (saveMode === 'print' && ['sale', 'purchase'].includes(editorType)) {
@@ -10780,7 +10787,13 @@ function renderInvoiceWorkspace(type) {
 function invoiceWorkspaceTemplate(type) {
   const isSale = type === "sale";
   const query = isSale ? saleInvoiceSearchQuery : purchaseInvoiceSearchQuery;
-  const topFilter = isSale ? saleTopFilter : purchaseTopFilter;
+  const topFilter = getTransactionTopFilter(type);
+  if (isSale) {
+    saleTopFilter = topFilter;
+    topFilter.party = ""; // On Sale Invoices page, party filter dropdown is omitted
+  } else {
+    purchaseTopFilter = topFilter;
+  }
   const colFilters = isSale ? saleColumnFilters : purchaseColumnFilters;
   const allRows = invoiceRowsForType(type);
   const searchedRows = query ? allRows.filter((entry) => entryMatchesSearch(entry, query)) : allRows;
@@ -10817,11 +10830,18 @@ function invoiceWorkspaceTemplate(type) {
   const actionLabel = isSale ? "+ Add Sale" : "+ Add Purchase";
   const paidLabel = isSale ? "Received" : "Paid";
   const balanceLabel = isSale ? "Receivable" : "Payable";
-  const hasFilters = query || topFilter.preset !== "all" || activeColFilterCount > 0;
-  const emptyTitle = hasFilters ? `No matching ${isSale ? "sale invoices" : "purchase bills"}` : `No ${isSale ? "sale invoices" : "purchase bills"} yet`;
+  const defaultPreset = isSale ? "thisMonth" : "all";
+  const hasFilters = query || topFilter.preset !== defaultPreset || (isSale ? false : Boolean(topFilter.party)) || activeColFilterCount > 0;
+  const emptyTitle = hasFilters
+    ? `No matching ${isSale ? "sale invoices" : "purchase bills"}`
+    : (allRows.length > 0 && rows.length === 0 && topFilter.preset === "thisMonth"
+        ? "No sale invoices this month"
+        : `No ${isSale ? "sale invoices" : "purchase bills"} yet`);
   const emptyCopy = hasFilters
-    ? "Try adjusting the date range, party, or column filters."
-    : `Create your first ${isSale ? "sale invoice" : "purchase bill"} to start tracking totals, balances, and ledger impact.`;
+    ? `Try adjusting the ${isSale ? "date range or search query" : "date range, party, or column filters"}.`
+    : (allRows.length > 0 && rows.length === 0 && topFilter.preset === "thisMonth"
+        ? "There are no invoices dated this month. Switch the date filter to 'All Dates' or create a new sale."
+        : `Create your first ${isSale ? "sale invoice" : "purchase bill"} to start tracking totals, balances, and ledger impact.`);
 
   return `
     <section class="invoice-workspace ${isSale ? "sale-workspace" : "purchase-workspace"}">
@@ -10834,7 +10854,7 @@ function invoiceWorkspaceTemplate(type) {
         </div>
       </header>
 
-      ${topFilterBarHTML(type, topFilter, query)}
+      ${topFilterBarHTML(type, topFilter, query, { showParty: !isSale })}
 
       <section class="kpi-grid invoice-kpis">
         ${kpiCard(`Total ${isSale ? "Sales" : "Purchases"}`, formatCurrency(total), rows.length === 1 ? `1 ${isSale ? "invoice" : "bill"}` : `${rows.length} ${isSale ? "invoices" : "bills"}`, "neutral")}
@@ -10843,7 +10863,7 @@ function invoiceWorkspaceTemplate(type) {
       </section>
 
       <section class="data-table-card invoice-data-card">
-        ${rows.length ? invoiceRowsTable(displayRows, { isSale, partyLabel, numberLabel, paidLabel, colFilters, type, pagination: { totalRecords, currentPage, totalPages, pageSize } }) : emptyWorkspace(emptyTitle, emptyCopy, hasFilters ? `<button class="top-filter-clear-btn" data-top-filter-clear="${type}" type="button" style="margin-top:14px;padding:8px 18px;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;">Show All ${isSale ? "Invoices" : "Bills"}</button>` : "")}
+        ${rows.length ? invoiceRowsTable(displayRows, { isSale, partyLabel, numberLabel, paidLabel, colFilters, type, pagination: { totalRecords, currentPage, totalPages, pageSize } }) : emptyWorkspace(emptyTitle, emptyCopy, (hasFilters || (allRows.length > 0 && topFilter.preset === "thisMonth")) ? `<button class="top-filter-clear-btn" data-top-filter-preset="${type}" data-preset-value="all" type="button" style="margin-top:14px;padding:8px 18px;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;">Show All ${isSale ? "Invoices" : "Bills"}</button>` : "")}
       </section>
     </section>
   `;
@@ -10951,9 +10971,10 @@ function topFilterDateControlsHTML(type, topFilter, options = {}) {
     thisYear: "This Year",
     custom: "Custom",
   };
-  const presetLabel = presetLabels[preset] || options.allLabel || "All Dates";
+  const presetLabel = presetLabels[preset] || options.allLabel || (type === "sale" ? "This Month" : "All Dates");
   const showRange = preset === "custom" || Boolean(range.from || range.to);
-  const isFiltered = preset !== "all" || Boolean(party);
+  const defaultPreset = type === "sale" ? "thisMonth" : "all";
+  const isFiltered = preset !== defaultPreset || (options.showParty && Boolean(party));
 
   const parties = options.showParty ? [...new Set((state.parties || []).map((p) => p.name).filter(Boolean))].sort() : [];
 
@@ -11000,7 +11021,8 @@ function topFilterDateControlsHTML(type, topFilter, options = {}) {
   `;
 }
 
-function topFilterBarHTML(type, topFilter, query = "") {
+function topFilterBarHTML(type, topFilter, query = "", options = {}) {
+  const showParty = options.showParty !== undefined ? options.showParty : (type !== "sale");
   return `
     <div class="top-filter-bar" data-top-filter-type="${type}">
       <div class="top-filter-search-box">
@@ -11016,7 +11038,7 @@ function topFilterBarHTML(type, topFilter, query = "") {
       </div>
 
       <div class="top-filter-controls">
-        ${topFilterDateControlsHTML(type, topFilter, { showParty: true })}
+        ${topFilterDateControlsHTML(type, topFilter, { ...options, showParty })}
       </div>
     </div>
   `;
@@ -15134,11 +15156,14 @@ function bindFeatureActions() {
   elements.featureView.querySelectorAll("[data-top-filter-clear]").forEach((btn) => {
     btn.addEventListener("click", () => {
       const type = btn.dataset.topFilterClear;
-      transactionTopFilters[type] = { preset: "all", dateFrom: "", dateTo: "", party: "" };
+      const defaultPreset = type === "sale" ? "thisMonth" : "all";
+      transactionTopFilters[type] = { preset: defaultPreset, dateFrom: "", dateTo: "", party: "" };
       if (type === "purchase") {
         purchaseInvoiceSearchQuery = "";
+        purchaseTopFilter = transactionTopFilters.purchase;
       } else if (type === "sale") {
         saleInvoiceSearchQuery = "";
+        saleTopFilter = transactionTopFilters.sale;
       } else if (['estimate', 'proforma', 'saleOrder', 'deliveryChallan', 'purchaseOrder'].includes(type)) {
         estimateSearchQuery = "";
       } else if (type === "saleReturn") {
