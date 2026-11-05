@@ -21377,3 +21377,42 @@ body:not([data-entry-type="party"]) .party-modal-top-bar {
 }
 
 
+
+
+/* ==========================================================================
+   PARTY STATEMENT DOWNLOAD & WHATSAPP SHARING
+   ========================================================================== */
+.party-detail-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.wa-btn {
+  background: #25D366 !important;
+  color: #064e1f !important;
+  font-weight: 600 !important;
+  border: 1px solid #1ebd5a !important;
+}
+
+.wa-btn:hover {
+  background: #1ebd5a !important;
+  color: #032b11 !important;
+}
+
+.wa-btn svg {
+  fill: currentColor;
+}
+
+button.secondary-button.wa-btn {
+  background: #ecfdf5 !important;
+  color: #047857 !important;
+  border-color: #a7f3d0 !important;
+}
+
+button.secondary-button.wa-btn:hover {
+  background: #d1fae5 !important;
+  color: #065f46 !important;
+  border-color: #6ee7b7 !important;
+}

@@ -15766,6 +15766,16 @@ function bindFeatureActions() {
         exportCurrentReportToPdf();
         return;
       }
+      if (button.dataset.reportTool === "share-whatsapp") {
+        const parties = (state.parties || []).slice().sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+        const selectedParty = parties.find((p) => String(p.id) === reportPartyFilter || p.name === reportPartyFilter) || parties[0];
+        if (selectedParty) {
+          sharePartyStatementOnWhatsApp(selectedParty, reportDateScope());
+        } else {
+          showToast("No party selected for WhatsApp sharing.");
+        }
+        return;
+      }
       showToast(button.dataset.reportMessage || "Export placeholder ready.");
     });
   });
@@ -15922,10 +15932,46 @@ function bindFeatureActions() {
       }
     });
   }
-  elements.featureView.querySelectorAll("[data-party-id]:not([data-action='edit-party'])").forEach((button) => {
+  elements.featureView.querySelectorAll("[data-party-id]:not([data-action='edit-party']):not([data-action='download-party-statement']):not([data-action='share-party-statement-whatsapp']):not([data-action='view-party-statement-report'])").forEach((button) => {
     button.addEventListener("click", () => {
       elements.featureView.innerHTML = partiesTemplate(Number(button.dataset.partyId), button.dataset.partyTab || "transactions", partySearchQuery);
       bindFeatureActions();
+    });
+  });
+
+  // Download Party Statement
+  elements.featureView.querySelectorAll("[data-action='download-party-statement']").forEach((button) => {
+    button.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const partyId = button.dataset.partyId;
+      const party = (state.parties || []).find((p) => String(p.id) === String(partyId));
+      if (party) {
+        const range = getPartyDateRange(partyAdvancedFilter);
+        downloadPartyStatementPdf(party, range);
+      }
+    });
+  });
+
+  // Share Party Statement via WhatsApp
+  elements.featureView.querySelectorAll("[data-action='share-party-statement-whatsapp']").forEach((button) => {
+    button.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const partyId = button.dataset.partyId;
+      const party = (state.parties || []).find((p) => String(p.id) === String(partyId));
+      if (party) {
+        const range = getPartyDateRange(partyAdvancedFilter);
+        sharePartyStatementOnWhatsApp(party, range);
+      }
+    });
+  });
+
+  // View Party Statement Report
+  elements.featureView.querySelectorAll("[data-action='view-party-statement-report']").forEach((button) => {
+    button.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const partyId = button.dataset.partyId;
+      reportPartyFilter = String(partyId);
+      showView("reports", "partyStatement");
     });
   });
   const partySearchInput = elements.featureView.querySelector("#partySearchInput");
@@ -21600,6 +21646,17 @@ function partyDetail(party, activeTab) {
           <h2>${escapeHtml(party.name)}</h2>
           <p>${partyMeta || "No contact details"}</p>
         </div>
+        <div class="party-detail-header-actions">
+          <button class="secondary-button compact-button" type="button" data-action="download-party-statement" data-party-id="${party.id}" title="Download complete statement as PDF">
+            <svg class="gi-icon" style="width:14px;height:14px;margin-right:4px;"><use href="#gi-download"></use></svg> Download Statement
+          </button>
+          <button class="primary-button compact-button wa-btn" type="button" data-action="share-party-statement-whatsapp" data-party-id="${party.id}" title="Send statement to ${escapeHtml(party.name)} via WhatsApp">
+            <svg class="gi-icon" style="width:14px;height:14px;margin-right:4px;"><use href="#gi-whatsapp"></use></svg> WhatsApp Share
+          </button>
+          <button class="secondary-button compact-button" type="button" data-action="view-party-statement-report" data-party-id="${party.id}" title="Open full Statement Report in Reports Center">
+            <svg class="gi-icon" style="width:14px;height:14px;margin-right:4px;"><use href="#gi-file-text"></use></svg> Statement Report
+          </button>
+        </div>
       </header>
       <div class="party-balance-grid">
         <article><span>Receivable</span><strong>${formatCurrency(party.receivable || 0)}</strong></article>
@@ -21878,12 +21935,20 @@ function partyLedgerTable(party) {
 
   return `
     <div class="table-card party-ledger-table">
-      ${(range.from || range.to) ? `
-        <div class="party-ledger-period-banner">
-          <span>Showing ledger from <strong>${formatDate(range.from)}</strong> to <strong>${formatDate(range.to)}</strong> (${countInPeriod} record${countInPeriod === 1 ? "" : "s"})</span>
+      <div class="party-ledger-period-banner" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+        <div>
+          <span>Showing ledger: <strong>${(range.from || range.to) ? `${formatDate(range.from)} &ndash; ${formatDate(range.to)}` : "All Time"}</strong> (${countInPeriod} record${countInPeriod === 1 ? "" : "s"})</span>
           <span>Period Movement: <strong class="${(periodDebit - periodCredit) >= 0 ? "receivable-text" : "payable-text"}">${formatCurrency(Math.abs(periodDebit - periodCredit))}</strong></span>
         </div>
-      ` : ""}
+        <div style="display:flex;gap:6px;align-items:center;">
+          <button class="secondary-button compact-button" type="button" data-action="download-party-statement" data-party-id="${party.id}" title="Download complete statement as PDF">
+            <svg class="gi-icon" style="width:13px;height:13px;margin-right:3px;"><use href="#gi-download"></use></svg> Download PDF
+          </button>
+          <button class="secondary-button compact-button wa-btn" type="button" data-action="share-party-statement-whatsapp" data-party-id="${party.id}" title="Share statement on WhatsApp">
+            <svg class="gi-icon" style="width:13px;height:13px;margin-right:3px;"><use href="#gi-whatsapp"></use></svg> WhatsApp
+          </button>
+        </div>
+      </div>
       <table>
         <thead>
           <tr>
@@ -23283,6 +23348,11 @@ function reportPageShell({
           ${summary ? `<small>${escapeHtml(summary)}</small>` : ""}
         </div>
         <div class="report-header-actions">
+          ${activeReport === "partyStatement" ? `
+            <button class="secondary-button compact-button wa-btn" data-report-tool="share-whatsapp" type="button" title="Send statement to party via WhatsApp">
+              <svg class="gi-icon" style="width:14px;height:14px;margin-right:4px;"><use href="#gi-whatsapp"></use></svg> WhatsApp Share
+            </button>
+          ` : ""}
           <button class="secondary-button compact-button" data-report-tool="export" data-report-message="${escapeHtml(exportMessage)}" type="button">${escapeHtml(exportLabel)}</button>
           <button class="secondary-button compact-button" data-report-tool="export-pdf" type="button">Export PDF</button>
           <button class="secondary-button compact-button" data-report-tool="print" type="button">Print</button>
@@ -24634,34 +24704,24 @@ function partyMatchesTarget(row, party) {
   return false;
 }
 
-function partyStatementReport() {
-  const parties = (state.parties || []).slice().sort((a, b) => (a.name || "").localeCompare(b.name || ""));
-  const selectedParty = parties.find((p) => String(p.id) === reportPartyFilter || p.name === reportPartyFilter) || parties[0];
+function calculatePartyStatementData(party, options = {}) {
+  const targetParty = typeof party === "object" ? party : (state.parties || []).find((p) => String(p.id) === String(party) || p.name === party);
+  if (!targetParty) return null;
 
-  if (!selectedParty) {
-    return reportPageShell({
-      activeReport: "partyStatement",
-      eyebrow: "Party Reports",
-      title: "Party Statement / Ledger Account",
-      summary: "Customer and supplier running ledger balance statement.",
-      kpis: [],
-      body: emptyWorkspace("No Parties Found", "Add customers or suppliers to generate running ledger statements."),
-    });
-  }
+  const from = options.from || "";
+  const to = options.to || "";
 
-  const { from, to } = reportDateScope();
-
-  let openingBalance = Number(selectedParty.openingBalance || 0);
-  if (selectedParty.openingBalanceType === "payable") {
+  let openingBalance = Number(targetParty.openingBalance || 0);
+  if (targetParty.openingBalanceType === "payable") {
     openingBalance = -Math.abs(openingBalance);
-  } else if (selectedParty.openingBalanceType === "receivable") {
+  } else if (targetParty.openingBalanceType === "receivable") {
     openingBalance = Math.abs(openingBalance);
   }
 
-  const allInvoices = (state.invoices || []).filter((inv) => partyMatchesTarget(inv, selectedParty));
-  const allPayments = (state.payments || []).filter((pmt) => partyMatchesTarget(pmt, selectedParty));
-  const allCreditNotes = (state.creditNotes || []).filter((cn) => partyMatchesTarget(cn, selectedParty) && creditNoteStatus(cn) !== "cancelled");
-  const allDebitNotes = (state.debitNotes || []).filter((dn) => partyMatchesTarget(dn, selectedParty) && debitNoteStatus(dn) !== "cancelled");
+  const allInvoices = (state.invoices || []).filter((inv) => partyMatchesTarget(inv, targetParty));
+  const allPayments = (state.payments || []).filter((pmt) => partyMatchesTarget(pmt, targetParty));
+  const allCreditNotes = (state.creditNotes || []).filter((cn) => partyMatchesTarget(cn, targetParty) && creditNoteStatus(cn) !== "cancelled");
+  const allDebitNotes = (state.debitNotes || []).filter((dn) => partyMatchesTarget(dn, targetParty) && debitNoteStatus(dn) !== "cancelled");
 
   if (from) {
     for (const inv of allInvoices) {
@@ -24691,13 +24751,14 @@ function partyStatementReport() {
   const transactions = [];
 
   for (const inv of allInvoices) {
-    if (isInReportDateScope(inv)) {
+    const d = (inv.date || "").slice(0, 10);
+    if ((!from || d >= from) && (!to || d <= to)) {
       const isSale = inv.type === "sale";
       transactions.push({
         date: inv.date,
         voucherType: isSale ? "Sale Invoice" : "Purchase Bill",
         voucherNo: inv.invoiceNo || "-",
-        particulars: `Subtotal: ${formatCurrency(invoiceTaxableValue(inv))} | GST: ${formatCurrency(invoiceTaxValue(inv))}`,
+        particulars: "Subtotal: " + formatCurrency(invoiceTaxableValue(inv)) + " | GST: " + formatCurrency(invoiceTaxValue(inv)),
         debit: isSale ? invoiceTotalValue(inv) : 0,
         credit: !isSale ? invoiceTotalValue(inv) : 0,
       });
@@ -24705,13 +24766,14 @@ function partyStatementReport() {
   }
 
   for (const p of allPayments) {
-    if (isInReportDateScope(p)) {
+    const d = (p.paymentDate || p.date || "").slice(0, 10);
+    if ((!from || d >= from) && (!to || d <= to)) {
       const isIn = p.type === "payment_in";
       transactions.push({
         date: p.paymentDate || p.date,
         voucherType: isIn ? "Payment Received" : "Payment Made",
         voucherNo: p.referenceNo || p.receiptNo || p.method || "-",
-        particulars: `Mode: ${titleCase(p.paymentMode || p.method || "Cash")}${p.notes ? ` - ${p.notes}` : ""}`,
+        particulars: "Mode: " + titleCase(p.paymentMode || p.method || "Cash") + (p.notes ? " - " + p.notes : ""),
         debit: !isIn ? Number(p.amount || 0) : 0,
         credit: isIn ? Number(p.amount || 0) : 0,
       });
@@ -24719,7 +24781,8 @@ function partyStatementReport() {
   }
 
   for (const cn of allCreditNotes) {
-    if (isInReportDateScope(cn)) {
+    const d = (cn.date || cn.creditDate || "").slice(0, 10);
+    if ((!from || d >= from) && (!to || d <= to)) {
       transactions.push({
         date: cn.date || cn.creditDate,
         voucherType: "Credit Note",
@@ -24732,7 +24795,8 @@ function partyStatementReport() {
   }
 
   for (const dn of allDebitNotes) {
-    if (isInReportDateScope(dn)) {
+    const d = (dn.date || dn.debitDate || "").slice(0, 10);
+    if ((!from || d >= from) && (!to || d <= to)) {
       transactions.push({
         date: dn.date || dn.debitDate,
         voucherType: "Debit Note",
@@ -24753,8 +24817,443 @@ function partyStatementReport() {
   const formatBal = (val) => {
     const formatted = formatCurrency(Math.abs(val));
     if (Math.abs(val) < 0.01) return formatCurrency(0);
-    return val > 0 ? `${formatted} Dr` : `${formatted} Cr`;
+    return val > 0 ? (formatted + " Dr") : (formatted + " Cr");
   };
+
+  const calculatedTransactions = transactions.map((t) => {
+    runningBalance += t.debit - t.credit;
+    totalDebits += t.debit;
+    totalCredits += t.credit;
+    return {
+      ...t,
+      runningBalance,
+      formattedBalance: formatBal(runningBalance),
+    };
+  });
+
+  const closingBalance = runningBalance;
+  const closingBalanceType = closingBalance > 0.01 ? "Receivable" : (closingBalance < -0.01 ? "Payable" : "Settled");
+
+  const periodText = from && to
+    ? (formatDate(from) + " to " + formatDate(to))
+    : (from ? ("From " + formatDate(from)) : (to ? ("Up to " + formatDate(to)) : "All Time"));
+
+  const business = state.businessSettings || defaultBusinessSettings();
+  const businessName = business.businessName || state.activeCompany || "ZynBill";
+
+  const upiLine = business.bankDetails?.upiId ? ("\n🔗 *UPI Payment:* " + business.bankDetails.upiId) : "";
+  const bankLine = business.bankDetails?.accountNo ? ("\n🏦 *Bank:* " + (business.bankDetails.bankName || "") + " A/c " + business.bankDetails.accountNo + " (IFSC: " + (business.bankDetails.ifsc || "") + ")") : "";
+
+  const summaryMessage = "Dear *" + targetParty.name + "*,\n\n" +
+    "Here is your Statement of Account from *" + businessName + "*:\n\n" +
+    "📅 *Statement Period:* " + periodText + "\n" +
+    "💰 *Opening Balance:* " + formatBal(openingBalance) + "\n" +
+    "📈 *Total Debits (Dr):* " + formatCurrency(totalDebits) + "\n" +
+    "📉 *Total Credits (Cr):* " + formatCurrency(totalCredits) + "\n" +
+    "💳 *Closing Net Balance:* " + formatBal(closingBalance) + " (" + closingBalanceType + ")\n" +
+    upiLine + bankLine + "\n" +
+    "📎 Detailed statement PDF is attached.\n" +
+    "Please clear any pending dues at your earliest convenience.\n\n" +
+    "Warm regards,\n*" + businessName + "*";
+
+  const dateStamp = new Date().toISOString().slice(0, 10);
+  const printTimestamp = new Date().toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" });
+  const safePartyName = targetParty.name.replace(/[^a-zA-Z0-9_-]/g, "_");
+  const filename = "Statement_" + safePartyName + "_" + dateStamp + ".pdf";
+
+  const htmlContent = '<!DOCTYPE html>\n' +
+'<html lang="en">\n' +
+'<head>\n' +
+'  <meta charset="utf-8">\n' +
+'  <title>Statement of Account - ' + escapeHtml(targetParty.name) + '</title>\n' +
+'  <style>\n' +
+'    @page { size: A4; margin: 12mm 14mm 14mm 14mm; }\n' +
+'    * { box-sizing: border-box; }\n' +
+'    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; color: #1e293b; background: #fff; margin: 0; font-size: 11px; line-height: 1.4; }\n' +
+'    .stmt-header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #0c65c2; padding-bottom: 12px; margin-bottom: 14px; }\n' +
+'    .company-info h1 { margin: 0 0 4px; font-size: 20px; color: #0f172a; font-weight: 800; }\n' +
+'    .company-info p { margin: 2px 0; color: #475569; font-size: 11px; }\n' +
+'    .stmt-meta { text-align: right; }\n' +
+'    .stmt-meta h2 { margin: 0 0 4px; font-size: 18px; color: #0c65c2; font-weight: 800; text-transform: uppercase; letter-spacing: 0.04em; }\n' +
+'    .stmt-meta .period-badge { display: inline-block; background: #e0f2fe; color: #0369a1; padding: 3px 8px; border-radius: 4px; font-weight: 600; font-size: 11px; margin-top: 4px; }\n' +
+'    .stmt-meta .print-date { font-size: 10px; color: #94a3b8; margin-top: 4px; }\n' +
+'    .stmt-party-card { display: flex; justify-content: space-between; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 10px 14px; margin-bottom: 14px; }\n' +
+'    .stmt-party-left h3 { margin: 0 0 4px; font-size: 14px; color: #0f172a; font-weight: 700; }\n' +
+'    .stmt-party-left p { margin: 2px 0; color: #475569; font-size: 10.5px; }\n' +
+'    .stmt-party-right { text-align: right; }\n' +
+'    .stmt-party-right p { margin: 2px 0; color: #475569; font-size: 10.5px; }\n' +
+'    .kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 16px; }\n' +
+'    .kpi-box { border: 1px solid #e2e8f0; border-top: 3px solid #0c65c2; border-radius: 6px; padding: 8px 10px; background: #f8fafc; }\n' +
+'    .kpi-box.receivable { border-top-color: #ef4444; }\n' +
+'    .kpi-box.payable { border-top-color: #0284c7; }\n' +
+'    .kpi-box.settled { border-top-color: #10b981; }\n' +
+'    .kpi-box span { display: block; font-size: 9.5px; font-weight: 600; color: #64748b; text-transform: uppercase; margin-bottom: 2px; }\n' +
+'    .kpi-box strong { display: block; font-size: 14px; font-weight: 800; color: #0f172a; }\n' +
+'    .kpi-box small { display: block; font-size: 9.5px; color: #94a3b8; margin-top: 2px; }\n' +
+'    table { width: 100%; border-collapse: collapse; font-size: 10px; margin-bottom: 16px; }\n' +
+'    th { background: #0c65c2; color: #fff; font-weight: 700; text-align: left; padding: 6px 8px; border: 1px solid #0c65c2; white-space: nowrap; }\n' +
+'    td { padding: 5px 8px; border: 1px solid #e2e8f0; color: #1e293b; vertical-align: top; }\n' +
+'    tbody tr:nth-child(even) { background: #f8fafc; }\n' +
+'    tr.op-row td { background: #f1f5f9; font-weight: 600; color: #334155; }\n' +
+'    tr.cl-row td { background: #e0f2fe; font-weight: 700; color: #0369a1; border-top: 2px solid #0c65c2; border-bottom: 2px solid #0c65c2; }\n' +
+'    .num { text-align: right; font-variant-numeric: tabular-nums; }\n' +
+'    .stmt-footer-grid { display: flex; justify-content: space-between; align-items: flex-end; margin-top: 24px; padding-top: 12px; border-top: 1px solid #e2e8f0; }\n' +
+'    .stmt-bank-box { font-size: 10px; color: #475569; }\n' +
+'    .stmt-bank-box strong { color: #0f172a; }\n' +
+'    .stmt-sign-box { text-align: right; font-size: 10px; color: #475569; }\n' +
+'    .stmt-sign-line { width: 160px; border-top: 1px solid #94a3b8; margin-top: 40px; margin-bottom: 4px; }\n' +
+'    .pdf-footer { margin-top: 20px; text-align: center; font-size: 9px; color: #94a3b8; }\n' +
+'  </style>\n' +
+'</head>\n' +
+'<body>\n' +
+'  <header class="stmt-header">\n' +
+'    <div class="company-info">\n' +
+'      <h1>' + escapeHtml(businessName) + '</h1>\n' +
+'      ' + (business.address ? ('<p>' + escapeHtml(business.address) + '</p>') : '') + '\n' +
+'      ' + (business.gstin || business.phone ? ('<p>' + [business.gstin ? ('GSTIN: ' + escapeHtml(business.gstin)) : '', business.phone ? ('Phone: ' + escapeHtml(business.phone)) : '', business.email ? ('Email: ' + escapeHtml(business.email)) : ''].filter(Boolean).join(' | ') + '</p>') : '') + '\n' +
+'    </div>\n' +
+'    <div class="stmt-meta">\n' +
+'      <h2>Statement of Account</h2>\n' +
+'      <div class="period-badge">Period: ' + escapeHtml(periodText) + '</div>\n' +
+'      <div class="print-date">Generated: ' + escapeHtml(printTimestamp) + '</div>\n' +
+'    </div>\n' +
+'  </header>\n' +
+'  <section class="stmt-party-card">\n' +
+'    <div class="stmt-party-left">\n' +
+'      <h3>' + escapeHtml(targetParty.name) + '</h3>\n' +
+'      ' + (targetParty.billingAddress ? ('<p>' + escapeHtml(targetParty.billingAddress) + '</p>') : '') + '\n' +
+'      ' + (targetParty.phone ? ('<p>Phone: ' + escapeHtml(targetParty.phone) + '</p>') : '') + '\n' +
+'      ' + (targetParty.email ? ('<p>Email: ' + escapeHtml(targetParty.email) + '</p>') : '') + '\n' +
+'    </div>\n' +
+'    <div class="stmt-party-right">\n' +
+'      <p><strong>Party Type:</strong> ' + escapeHtml(partyRole(targetParty).label) + '</p>\n' +
+'      ' + (targetParty.gstin ? ('<p><strong>GSTIN:</strong> ' + escapeHtml(targetParty.gstin) + '</p>') : '') + '\n' +
+'      ' + (targetParty.pan ? ('<p><strong>PAN:</strong> ' + escapeHtml(targetParty.pan) + '</p>') : '') + '\n' +
+'      ' + (targetParty.state ? ('<p><strong>State:</strong> ' + escapeHtml(targetParty.state) + '</p>') : '') + '\n' +
+'    </div>\n' +
+'  </section>\n' +
+'  <div class="kpi-grid">\n' +
+'    <div class="kpi-box">\n' +
+'      <span>Opening Balance</span>\n' +
+'      <strong>' + escapeHtml(formatBal(openingBalance)) + '</strong>\n' +
+'      <small>' + (openingBalance > 0 ? "Receivable" : (openingBalance < 0 ? "Payable" : "Settled")) + '</small>\n' +
+'    </div>\n' +
+'    <div class="kpi-box">\n' +
+'      <span>Total Debits (Dr)</span>\n' +
+'      <strong>' + escapeHtml(formatCurrency(totalDebits)) + '</strong>\n' +
+'      <small>Billed / Outward</small>\n' +
+'    </div>\n' +
+'    <div class="kpi-box">\n' +
+'      <span>Total Credits (Cr)</span>\n' +
+'      <strong>' + escapeHtml(formatCurrency(totalCredits)) + '</strong>\n' +
+'      <small>Receipts / Inward</small>\n' +
+'    </div>\n' +
+'    <div class="kpi-box ' + closingBalanceType.toLowerCase() + '">\n' +
+'      <span>Closing Balance</span>\n' +
+'      <strong>' + escapeHtml(formatBal(closingBalance)) + '</strong>\n' +
+'      <small>' + (closingBalance > 0 ? "Net Receivable from Party" : (closingBalance < 0 ? "Net Payable to Party" : "Account Cleared")) + '</small>\n' +
+'    </div>\n' +
+'  </div>\n' +
+'  <table>\n' +
+'    <thead>\n' +
+'      <tr>\n' +
+'        <th style="width: 75px;">Date</th>\n' +
+'        <th style="width: 105px;">Voucher Type</th>\n' +
+'        <th style="width: 95px;">Voucher No</th>\n' +
+'        <th>Particulars</th>\n' +
+'        <th class="num" style="width: 85px;">Debit (Dr)</th>\n' +
+'        <th class="num" style="width: 85px;">Credit (Cr)</th>\n' +
+'        <th class="num" style="width: 95px;">Balance</th>\n' +
+'      </tr>\n' +
+'    </thead>\n' +
+'    <tbody>\n' +
+'      <tr class="op-row">\n' +
+'        <td>' + (from ? formatDate(from) : "-") + '</td>\n' +
+'        <td>Opening Balance</td>\n' +
+'        <td>-</td>\n' +
+'        <td>Opening balance brought forward</td>\n' +
+'        <td class="num">-</td>\n' +
+'        <td class="num">-</td>\n' +
+'        <td class="num">' + escapeHtml(formatBal(openingBalance)) + '</td>\n' +
+'      </tr>\n' +
+      calculatedTransactions.map((t) => (
+'        <tr>\n' +
+'          <td>' + formatDate(t.date) + '</td>\n' +
+'          <td>' + escapeHtml(t.voucherType) + '</td>\n' +
+'          <td>' + escapeHtml(t.voucherNo) + '</td>\n' +
+'          <td>' + escapeHtml(t.particulars) + '</td>\n' +
+'          <td class="num">' + (t.debit ? escapeHtml(formatCurrency(t.debit)) : "-") + '</td>\n' +
+'          <td class="num">' + (t.credit ? escapeHtml(formatCurrency(t.credit)) : "-") + '</td>\n' +
+'          <td class="num">' + escapeHtml(t.formattedBalance) + '</td>\n' +
+'        </tr>\n'
+      )).join('') +
+'      <tr class="cl-row">\n' +
+'        <td>' + (to ? formatDate(to) : "Current") + '</td>\n' +
+'        <td>Closing Balance</td>\n' +
+'        <td>-</td>\n' +
+'        <td>Closing balance carried down</td>\n' +
+'        <td class="num">' + escapeHtml(formatCurrency(totalDebits)) + '</td>\n' +
+'        <td class="num">' + escapeHtml(formatCurrency(totalCredits)) + '</td>\n' +
+'        <td class="num">' + escapeHtml(formatBal(closingBalance)) + '</td>\n' +
+'      </tr>\n' +
+'    </tbody>\n' +
+'  </table>\n' +
+'  <div class="stmt-footer-grid">\n' +
+'    <div class="stmt-bank-box">\n' +
+'      ' + (business.bankDetails?.bankName ? ('<p><strong>Bank:</strong> ' + escapeHtml(business.bankDetails.bankName) + ' | <strong>A/c:</strong> ' + escapeHtml(business.bankDetails.accountNo || "") + ' | <strong>IFSC:</strong> ' + escapeHtml(business.bankDetails.ifsc || "") + '</p>') : '') + '\n' +
+'      ' + (business.bankDetails?.upiId ? ('<p><strong>UPI ID:</strong> ' + escapeHtml(business.bankDetails.upiId) + '</p>') : '') + '\n' +
+'      <p style="color:#94a3b8;margin-top:6px;">This is a computer generated statement of account.</p>\n' +
+'    </div>\n' +
+'    <div class="stmt-sign-box">\n' +
+'      <div class="stmt-sign-line"></div>\n' +
+'      <strong>For ' + escapeHtml(businessName) + '</strong>\n' +
+'      <p>Authorized Signatory</p>\n' +
+'    </div>\n' +
+'  </div>\n' +
+'  <footer class="pdf-footer">\n' +
+'    <span>ZynBill Statement &bull; ' + escapeHtml(businessName) + '</span>\n' +
+'  </footer>\n' +
+'</body>\n' +
+'</html>';
+
+  return {
+    party: targetParty,
+    from,
+    to,
+    periodText,
+    openingBalance,
+    transactions: calculatedTransactions,
+    totalDebits,
+    totalCredits,
+    closingBalance,
+    closingBalanceType,
+    formattedOpeningBalance: formatBal(openingBalance),
+    formattedClosingBalance: formatBal(closingBalance),
+    summaryMessage,
+    htmlContent,
+    filename,
+  };
+}
+
+async function downloadPartyStatementPdf(party, options = {}) {
+  const targetParty = typeof party === "object" ? party : (state.parties || []).find((p) => String(p.id) === String(party) || p.name === party);
+  if (!targetParty) {
+    showToast("Please select a party first.");
+    return;
+  }
+  const statement = calculatePartyStatementData(targetParty, options);
+  if (!statement) {
+    showToast("Failed to generate statement.");
+    return;
+  }
+
+  if (window.giApp?.exportPdf) {
+    try {
+      const res = await window.giApp.exportPdf({
+        htmlContent: statement.htmlContent,
+        defaultFilename: statement.filename
+      });
+      if (res?.success) {
+        showToast("Statement PDF downloaded: " + (res.filePath ? res.filePath.split(/[\\/]/).pop() : statement.filename));
+      } else if (!res?.canceled) {
+        showToast("Statement PDF export was cancelled or failed.");
+      }
+    } catch (e) {
+      showToast("Statement export failed: " + e.message);
+    }
+  } else {
+    const printWindow = window.open("", "_blank");
+    if (printWindow) {
+      printWindow.document.write(statement.htmlContent);
+      printWindow.document.close();
+      printWindow.focus();
+      printWindow.print();
+    } else {
+      window.print();
+    }
+  }
+}
+
+async function sharePartyStatementOnWhatsApp(party, options = {}) {
+  const targetParty = typeof party === "object" ? party : (state.parties || []).find((p) => String(p.id) === String(party) || p.name === party);
+  if (!targetParty) {
+    showToast("Please select a party first.");
+    return;
+  }
+
+  let phone = String(targetParty.phone || "").replace(/\D/g, "");
+  if (phone.startsWith("0") && phone.length === 11) phone = "91" + phone.slice(1);
+  else if (phone.length === 10) phone = "91" + phone;
+
+  if (!phone || phone.length < 10) {
+    promptPartyPhoneForWhatsApp(targetParty, options);
+    return;
+  }
+
+  const statement = calculatePartyStatementData(targetParty, options);
+  if (!statement) {
+    showToast("Failed to generate statement.");
+    return;
+  }
+
+  let tempPdfPath = null;
+  if (window.giApp?.saveTempPdf) {
+    try {
+      const res = await window.giApp.saveTempPdf({
+        htmlContent: statement.htmlContent,
+        filename: statement.filename
+      });
+      if (res?.success && res.filePath) {
+        tempPdfPath = res.filePath;
+      }
+    } catch (err) {
+      console.warn("Could not pre-save statement temp PDF:", err);
+    }
+  }
+
+  const statementRecord = {
+    ...targetParty,
+    party: targetParty.name,
+    partyName: targetParty.name,
+    phone: phone,
+    invoiceNo: statement.filename.replace(".pdf", ""),
+    id: "stmt-" + targetParty.id,
+    amount: Math.abs(statement.closingBalance),
+    received: 0,
+    customMessage: statement.summaryMessage,
+    hasPdf: true,
+    htmlContent: statement.htmlContent,
+    pdfPath: tempPdfPath,
+    filename: statement.filename,
+    statementData: statement,
+  };
+
+  openWhatsAppShareModal(statementRecord, "partyStatement");
+
+  const textEncoded = encodeURIComponent(statement.summaryMessage);
+  const desktopUrl = "whatsapp://send?phone=" + phone + "&text=" + textEncoded;
+  if (window.giApp?.openExternal) {
+    try {
+      const res = await window.giApp.openExternal(desktopUrl);
+      if (!res?.success) {
+        window.open("https://web.whatsapp.com/send?phone=" + phone + "&text=" + textEncoded, "_blank");
+      }
+    } catch {
+      window.open("https://web.whatsapp.com/send?phone=" + phone + "&text=" + textEncoded, "_blank");
+    }
+  } else {
+    window.open(desktopUrl, "_blank");
+  }
+
+  showToast("WhatsApp opened for " + targetParty.name + "! Statement PDF ready.");
+}
+
+function promptPartyPhoneForWhatsApp(party, options = {}) {
+  document.getElementById("partyPhonePromptModalBackdrop")?.remove();
+  const backdrop = document.createElement("div");
+  backdrop.id = "partyPhonePromptModalBackdrop";
+  backdrop.className = "whatsapp-modal-backdrop";
+  backdrop.innerHTML = `
+    <section class="whatsapp-modal" role="dialog" aria-modal="true" style="max-width: 440px;">
+      <header class="whatsapp-modal-header">
+        <div class="whatsapp-brand-title">
+          <svg class="gi-icon wa-brand-icon"><use href="#gi-whatsapp"></use></svg>
+          <div>
+            <h3>Enter WhatsApp Mobile Number</h3>
+            <p>Statement for ${escapeHtml(party.name)}</p>
+          </div>
+        </div>
+        <button class="close-button" type="button" data-prompt-close aria-label="Close">&times;</button>
+      </header>
+      <div class="whatsapp-modal-body" style="padding: 16px 20px;">
+        <p style="margin-top:0;font-size:13px;color:#475569;">
+          <strong>${escapeHtml(party.name)}</strong> does not have a mobile number saved. Please enter their 10-digit WhatsApp number:
+        </p>
+        <div class="whatsapp-input-row" style="margin-top:12px;">
+          <label><strong>Mobile Number *</strong></label>
+          <div class="whatsapp-phone-input-wrap">
+            <span class="phone-prefix">+91</span>
+            <input class="form-input" id="promptPartyPhoneInput" type="tel" placeholder="Mobile Number" autofocus>
+          </div>
+        </div>
+        <label style="display:flex;align-items:center;gap:8px;margin-top:12px;font-size:12px;color:#334155;cursor:pointer;">
+          <input type="checkbox" id="promptSavePhoneToParty" checked>
+          <span>Save this phone number to <strong>${escapeHtml(party.name)}</strong>'s profile</span>
+        </label>
+      </div>
+      <footer class="whatsapp-modal-footer">
+        <div class="wa-footer-left">
+          <button class="secondary-button" type="button" data-prompt-close>Cancel</button>
+        </div>
+        <div class="wa-footer-actions">
+          <button class="primary-button wa-primary-btn" type="button" id="promptSubmitPhoneBtn">
+            <svg class="gi-icon" style="width:15px;height:15px;margin-right:5px;"><use href="#gi-whatsapp"></use></svg> Save &amp; Send WhatsApp
+          </button>
+        </div>
+      </footer>
+    </section>
+  `;
+  document.body.append(backdrop);
+
+  const close = () => backdrop.remove();
+  backdrop.querySelectorAll("[data-prompt-close]").forEach((btn) => btn.addEventListener("click", close));
+  backdrop.addEventListener("click", (e) => { if (e.target === backdrop) close(); });
+
+  const inputEl = backdrop.querySelector("#promptPartyPhoneInput");
+  const saveCheckEl = backdrop.querySelector("#promptSavePhoneToParty");
+  const submitBtn = backdrop.querySelector("#promptSubmitPhoneBtn");
+
+  const submit = async () => {
+    let raw = (inputEl.value || "").replace(/\D/g, "");
+    if (!raw || raw.length < 10) {
+      showToast("Please enter a valid 10-digit mobile number.");
+      inputEl.focus();
+      return;
+    }
+    const cleanNumber = raw.length === 10 ? raw : (raw.startsWith("91") && raw.length === 12 ? raw.slice(2) : raw);
+    party.phone = cleanNumber;
+    if (saveCheckEl?.checked) {
+      try {
+        const inState = (state.parties || []).find((p) => String(p.id) === String(party.id));
+        if (inState) inState.phone = cleanNumber;
+        if (window.giDB?.updateParty && party.id) {
+          await window.giDB.updateParty({ ...party, phone: cleanNumber });
+        }
+      } catch (e) {
+        console.warn("Could not save phone to DB:", e);
+      }
+    }
+    close();
+    sharePartyStatementOnWhatsApp(party, options);
+  };
+
+  submitBtn?.addEventListener("click", submit);
+  inputEl?.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      submit();
+    }
+  });
+  inputEl?.focus();
+}
+
+function partyStatementReport() {
+  const parties = (state.parties || []).slice().sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+  const selectedParty = parties.find((p) => String(p.id) === reportPartyFilter || p.name === reportPartyFilter) || parties[0];
+
+  if (!selectedParty) {
+    return reportPageShell({
+      activeReport: "partyStatement",
+      eyebrow: "Party Reports",
+      title: "Party Statement / Ledger Account",
+      summary: "Customer and supplier running ledger balance statement.",
+      kpis: [],
+      body: emptyWorkspace("No Parties Found", "Add customers or suppliers to generate running ledger statements."),
+    });
+  }
+
+  const { from, to } = reportDateScope();
+  const statement = calculatePartyStatementData(selectedParty, { from, to });
 
   const tableRows = [];
   tableRows.push([
@@ -24764,13 +25263,10 @@ function partyStatementReport() {
     "Opening balance brought forward",
     "-",
     "-",
-    formatBal(openingBalance),
+    statement.formattedOpeningBalance,
   ]);
 
-  for (const t of transactions) {
-    runningBalance += t.debit - t.credit;
-    totalDebits += t.debit;
-    totalCredits += t.credit;
+  for (const t of statement.transactions) {
     tableRows.push([
       formatDate(t.date),
       t.voucherType,
@@ -24778,41 +25274,40 @@ function partyStatementReport() {
       t.particulars,
       t.debit ? formatCurrency(t.debit) : "-",
       t.credit ? formatCurrency(t.credit) : "-",
-      formatBal(runningBalance),
+      t.formattedBalance,
     ]);
   }
 
-  const closingBalance = runningBalance;
   tableRows.push([
     to ? formatDate(to) : "Current",
     "Closing Balance",
     "-",
     "Closing balance carried down",
-    formatCurrency(totalDebits),
-    formatCurrency(totalCredits),
-    formatBal(closingBalance),
+    formatCurrency(statement.totalDebits),
+    formatCurrency(statement.totalCredits),
+    statement.formattedClosingBalance,
   ]);
 
   const partyDetailsSubtitle = [
-    selectedParty.gstin ? `GSTIN: ${selectedParty.gstin}` : "",
-    selectedParty.phone ? `Phone: ${selectedParty.phone}` : "",
+    selectedParty.gstin ? ("GSTIN: " + selectedParty.gstin) : "",
+    selectedParty.phone ? ("Phone: " + selectedParty.phone) : "",
     partyRole(selectedParty).label,
   ].filter(Boolean).join(" | ");
 
   return reportPageShell({
     activeReport: "partyStatement",
     eyebrow: "Party Reports",
-    title: `Party Statement - ${selectedParty.name}`,
+    title: "Party Statement - " + selectedParty.name,
     summary: partyDetailsSubtitle || "Customer and supplier running ledger account statement.",
     exportLabel: "Export Statement (CSV)",
     exportMessage: "Statement export ready.",
     kpis: [
-      { label: "Opening Balance", value: formatBal(openingBalance), note: openingBalance > 0 ? "Receivable" : (openingBalance < 0 ? "Payable" : "Settled"), tone: "neutral" },
-      { label: "Total Debits (Dr)", value: formatCurrency(totalDebits), note: "Invoices / Outward payments", tone: "info" },
-      { label: "Total Credits (Cr)", value: formatCurrency(totalCredits), note: "Bills / Receipts", tone: "info" },
-      { label: "Closing Balance", value: formatBal(closingBalance), note: closingBalance > 0 ? "Net Receivable from Party" : (closingBalance < 0 ? "Net Payable to Party" : "Account Cleared"), tone: closingBalance > 0 ? "danger" : (closingBalance < 0 ? "neutral" : "success") },
+      { label: "Opening Balance", value: statement.formattedOpeningBalance, note: statement.openingBalance > 0 ? "Receivable" : (statement.openingBalance < 0 ? "Payable" : "Settled"), tone: "neutral" },
+      { label: "Total Debits (Dr)", value: formatCurrency(statement.totalDebits), note: "Invoices / Outward payments", tone: "info" },
+      { label: "Total Credits (Cr)", value: formatCurrency(statement.totalCredits), note: "Bills / Receipts", tone: "info" },
+      { label: "Closing Balance", value: statement.formattedClosingBalance, note: statement.closingBalance > 0 ? "Net Receivable from Party" : (statement.closingBalance < 0 ? "Net Payable to Party" : "Account Cleared"), tone: statement.closingBalance > 0 ? "danger" : (statement.closingBalance < 0 ? "neutral" : "success") },
     ],
-    body: reportTableCard(`Ledger Transactions - ${selectedParty.name}`, ["Date", "Voucher Type", "Voucher No", "Particulars", "Debit (Dr)", "Credit (Cr)", "Balance"], tableRows, "No transactions found for this party in selected period.", `${transactions.length} transactions`),
+    body: reportTableCard("Ledger Transactions - " + selectedParty.name, ["Date", "Voucher Type", "Voucher No", "Particulars", "Debit (Dr)", "Credit (Cr)", "Balance"], tableRows, "No transactions found for this party in selected period.", statement.transactions.length + " transactions"),
   });
 }
 
@@ -27963,6 +28458,7 @@ function openWhatsAppShareModal(recordOrInvoice, docType = "sale") {
     purchaseReturn: "Debit Note",
     paymentIn: "Payment Receipt",
     paymentReminder: "Payment Reminder",
+    partyStatement: "Statement of Account",
   }[docType] || "Invoice";
 
   const defaultTemplate = `Dear *{party_name}*,
@@ -28004,8 +28500,8 @@ Warm regards,
         <div class="whatsapp-brand-title">
           <svg class="gi-icon wa-brand-icon"><use href="#gi-whatsapp"></use></svg>
           <div>
-            <h3 id="waModalTitle">${docType === "paymentReminder" ? "Send Payment Reminder" : "Share on WhatsApp"}</h3>
-            <p>${docType === "paymentReminder" ? `Reminder for ${escapeHtml(partyName)} &bull; Balance Due: ${formatCurrency(balanceDue)}` : `${escapeHtml(docTypeLabel)} #${escapeHtml(docNo)} &bull; ${escapeHtml(partyName)} &bull; ${formatCurrency(grandTotal)}`}</p>
+            <h3 id="waModalTitle">${docType === "partyStatement" ? "Share Statement of Account" : (docType === "paymentReminder" ? "Send Payment Reminder" : "Share on WhatsApp")}</h3>
+            <p>${docType === "partyStatement" ? `Statement for ${escapeHtml(partyName)} &bull; Net Balance: ${recordOrInvoice.statementData?.formattedClosingBalance || formatCurrency(grandTotal)}` : (docType === "paymentReminder" ? `Reminder for ${escapeHtml(partyName)} &bull; Balance Due: ${formatCurrency(balanceDue)}` : `${escapeHtml(docTypeLabel)} #${escapeHtml(docNo)} &bull; ${escapeHtml(partyName)} &bull; ${formatCurrency(grandTotal)}`)}</p>
           </div>
         </div>
         <button class="close-button" type="button" data-wa-close aria-label="Close">&times;</button>
@@ -28040,12 +28536,12 @@ Warm regards,
               <div class="whatsapp-pdf-info">
                 <svg class="gi-icon" style="width:20px;height:20px;color:#ef4444;"><use href="#gi-receipt"></use></svg>
                 <div>
-                  <strong>${escapeHtml(docNo)}.pdf</strong>
-                  <span>Ready to attach &amp; send</span>
+                  <strong>${escapeHtml(recordOrInvoice.filename || (docNo + '.pdf'))}</strong>
+                  <span>${recordOrInvoice.pdfPath ? "Statement PDF ready to attach" : "Ready to attach &amp; send"}</span>
                 </div>
               </div>
-              <button type="button" class="secondary-button" id="waSaveAndLocatePdfBtn" title="Generate PDF and show file in folder to drag-and-drop into WhatsApp">
-                ${icon("paperclip")} Save &amp; Locate PDF
+              <button type="button" class="secondary-button" id="waSaveAndLocatePdfBtn" title="Show PDF file in folder to drag-and-drop into WhatsApp">
+                ${icon("paperclip")} ${recordOrInvoice.pdfPath ? "Show PDF in Folder" : "Save &amp; Locate PDF"}
               </button>
             </div>
             ` : ""}
@@ -28282,26 +28778,36 @@ Warm regards,
   backdrop.querySelector("#waSaveAndLocatePdfBtn")?.addEventListener("click", async () => {
     const btn = backdrop.querySelector("#waSaveAndLocatePdfBtn");
     btn.disabled = true;
-    btn.textContent = "Generating PDF...";
+    btn.textContent = "Locating PDF...";
     try {
-      const preview = recordOrInvoice.rows ? recordOrInvoice : (typeof invoicePreviewDataFromRecord === "function" ? invoicePreviewDataFromRecord(recordOrInvoice) : sampleInvoicePreviewData());
-      const currentFormat = "a4";
-      const a4Tpl = business.a4Template || "modern";
-      const paperMarkup = invoicePreviewMarkup(preview, {
-        printerType: currentFormat,
-        a4Template: a4Tpl,
-        thermalTemplate: "retail",
-        thermalWidth: "80mm"
-      });
-      const styles = `<style>${Array.from(document.styleSheets).map((s) => {
-        try { return Array.from(s.cssRules).map(r => r.cssText).join('\\n'); } catch { return ''; }
-      }).join('\\n')}</style>`;
-      const htmlContent = `<!DOCTYPE html><html><head><meta charset="utf-8">${styles}<style>body{background:#fff;padding:20px;font-family:system-ui,-apple-system,sans-serif;}</style></head><body><div class="invoice-preview-paper paper-a4 template-${a4Tpl}">${paperMarkup}</div></body></html>`;
-      const filename = `${docNo.replace(/[^a-zA-Z0-9_-]/g, "_")}.pdf`;
+      if (recordOrInvoice.pdfPath && window.giApp?.showItemInFolder) {
+        await window.giApp.showItemInFolder(recordOrInvoice.pdfPath);
+        showToast("Showing Statement PDF in folder! Drag and drop into WhatsApp chat.");
+        return;
+      }
+      let htmlContent = recordOrInvoice.htmlContent;
+      let filename = recordOrInvoice.filename || `${docNo.replace(/[^a-zA-Z0-9_-]/g, "_")}.pdf`;
+
+      if (!htmlContent) {
+        const preview = recordOrInvoice.rows ? recordOrInvoice : (typeof invoicePreviewDataFromRecord === "function" ? invoicePreviewDataFromRecord(recordOrInvoice) : sampleInvoicePreviewData());
+        const currentFormat = "a4";
+        const a4Tpl = business.a4Template || "modern";
+        const paperMarkup = invoicePreviewMarkup(preview, {
+          printerType: currentFormat,
+          a4Template: a4Tpl,
+          thermalTemplate: "retail",
+          thermalWidth: "80mm"
+        });
+        const styles = `<style>${Array.from(document.styleSheets).map((s) => {
+          try { return Array.from(s.cssRules).map(r => r.cssText).join('\\n'); } catch { return ''; }
+        }).join('\\n')}</style>`;
+        htmlContent = `<!DOCTYPE html><html><head><meta charset="utf-8">${styles}<style>body{background:#fff;padding:20px;font-family:system-ui,-apple-system,sans-serif;}</style></head><body><div class="invoice-preview-paper paper-a4 template-${a4Tpl}">${paperMarkup}</div></body></html>`;
+      }
 
       if (window.giApp?.saveTempPdf) {
         const res = await window.giApp.saveTempPdf({ htmlContent, filename });
         if (res.success && res.filePath) {
+          recordOrInvoice.pdfPath = res.filePath;
           showToast("PDF saved! Opening folder for drag-and-drop into WhatsApp...");
           if (window.giApp.showItemInFolder) {
             await window.giApp.showItemInFolder(res.filePath);
@@ -28316,7 +28822,7 @@ Warm regards,
       showToast(`PDF generation error: ${err.message}`);
     } finally {
       btn.disabled = false;
-      btn.innerHTML = `${icon("paperclip")} Save &amp; Locate PDF`;
+      btn.innerHTML = `${icon("paperclip")} ${recordOrInvoice.pdfPath ? "Show PDF in Folder" : "Save &amp; Locate PDF"}`;
     }
   });
 
