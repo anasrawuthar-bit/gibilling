@@ -22161,3 +22161,139 @@ button.secondary-button.wa-btn:hover {
 .wa-message-bubble.has-attachment .wa-bubble-text {
   margin-top: 4px;
 }
+
+/* ==========================================================================
+   COMPACT WHATSAPP SHARE MODAL
+   ========================================================================== */
+.whatsapp-modal.wa-compact-share-modal {
+  max-width: 480px !important;
+  border-radius: 16px;
+}
+
+.wa-compact-phone-row {
+  display: flex;
+  flex-direction: column;
+}
+
+.wa-compact-doc-pill {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+}
+
+.wa-compact-msg-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  background: #f8fafc;
+  border: 1px dashed #cbd5e1;
+  border-radius: 8px;
+}
+
+.wa-share-action-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.wa-share-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  background: #ffffff;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 12px;
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.15s ease-in-out;
+  width: 100%;
+  font-family: inherit;
+}
+
+.wa-share-card:hover {
+  border-color: #25d366;
+  background: #f0fdf4;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 10px -2px rgba(37, 211, 102, 0.15);
+}
+
+.wa-share-card.wa-share-card-inbuilt {
+  border-color: #86efac;
+  background: #fdfefe;
+}
+
+.wa-share-card.wa-share-card-inbuilt:hover {
+  border-color: #16a34a;
+  background: #f0fdf4;
+}
+
+.wa-share-card.wa-share-card-instant {
+  border-color: #a7f3d0;
+  background: #f0fdf4;
+}
+
+.wa-share-card.wa-share-card-instant:hover {
+  border-color: #10b981;
+  background: #ecfdf5;
+}
+
+.wa-card-icon-box {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.wa-card-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.wa-card-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 2px;
+}
+
+.wa-card-title-row strong {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.wa-card-badge {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.wa-card-desc {
+  display: block;
+  font-size: 11.5px;
+  color: #64748b;
+  line-height: 1.35;
+}
+
+.wa-card-chevron {
+  flex-shrink: 0;
+  transition: transform 0.15s ease, color 0.15s ease;
+}
+
+.wa-share-card:hover .wa-card-chevron {
+  transform: translateX(3px);
+  color: #16a34a;
+}

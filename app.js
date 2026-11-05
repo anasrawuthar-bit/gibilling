@@ -25574,24 +25574,7 @@ async function sharePartyStatementOnWhatsApp(party, options = {}) {
     statementData: statement,
   };
 
-  openWhatsAppShareModal(statementRecord, "partyStatement");
-
-  const textEncoded = encodeURIComponent(statement.summaryMessage);
-  const desktopUrl = "whatsapp://send?phone=" + phone + "&text=" + textEncoded;
-  if (window.giApp?.openExternal) {
-    try {
-      const res = await window.giApp.openExternal(desktopUrl);
-      if (!res?.success) {
-        window.open("https://web.whatsapp.com/send?phone=" + phone + "&text=" + textEncoded, "_blank");
-      }
-    } catch {
-      window.open("https://web.whatsapp.com/send?phone=" + phone + "&text=" + textEncoded, "_blank");
-    }
-  } else {
-    window.open(desktopUrl, "_blank");
-  }
-
-  showToast("WhatsApp opened for " + targetParty.name + "! Statement PDF ready.");
+    openWhatsAppShareModal(statementRecord, "partyStatement");
 }
 
 function promptPartyPhoneForWhatsApp(party, options = {}) {
@@ -29116,8 +29099,23 @@ function openWhatsAppShareModal(recordOrInvoice, docType = "sale") {
   const docDate = recordOrInvoice.date || recordOrInvoice.invoiceDate || formatDate(new Date().toISOString());
   const dueDate = recordOrInvoice.dueDate || recordOrInvoice.validUntil || "-";
 
-  let partyName = recordOrInvoice.party || recordOrInvoice.partyName || recordOrInvoice.customerName || "";
-  let recipientPhone = String(recordOrInvoice.phone || "").trim();
+  let partyName = "";
+  if (recordOrInvoice.party) {
+    if (typeof recordOrInvoice.party === "string") {
+      partyName = recordOrInvoice.party;
+    } else if (typeof recordOrInvoice.party === "object" && recordOrInvoice.party.name) {
+      partyName = recordOrInvoice.party.name;
+    }
+  }
+  if (!partyName && typeof recordOrInvoice.partyName === "string") partyName = recordOrInvoice.partyName;
+  if (!partyName && typeof recordOrInvoice.customerName === "string") partyName = recordOrInvoice.customerName;
+
+  let recipientPhone = "";
+  if (typeof recordOrInvoice.phone === "string" || typeof recordOrInvoice.phone === "number") {
+    recipientPhone = String(recordOrInvoice.phone).trim();
+  } else if (recordOrInvoice.party && typeof recordOrInvoice.party === "object") {
+    recipientPhone = String(recordOrInvoice.party.phone || recordOrInvoice.party.mobile || "").trim();
+  }
 
   if (!partyName && recordOrInvoice.partyId) {
     const party = (state.parties || []).find((p) => String(p.id) === String(recordOrInvoice.partyId));
@@ -29127,10 +29125,10 @@ function openWhatsAppShareModal(recordOrInvoice, docType = "sale") {
     }
   }
   if (!recipientPhone && partyName) {
-    const party = (state.parties || []).find((p) => p.name === partyName);
+    const party = (state.parties || []).find((p) => (p.name || "").trim().toLowerCase() === partyName.trim().toLowerCase());
     if (party?.phone) recipientPhone = party.phone;
   }
-  if (!partyName) partyName = "Customer";
+  if (!partyName || partyName === "[object Object]") partyName = "Customer";
 
   const grandTotal = typeof recordOrInvoice.amount === "number" ? recordOrInvoice.amount : (invoiceTotalValue(recordOrInvoice) || 0);
   const balanceDue = typeof recordOrInvoice.received === "number" ? Math.max(0, grandTotal - recordOrInvoice.received) : (invoiceBalanceValue(recordOrInvoice) || 0);
@@ -29178,172 +29176,126 @@ Warm regards,
     .replace(/{due_date}/g, dueDate)
     .replace(/{upi_id}/g, business.bankDetails?.upiId || "");
 
-  const cleanPhone = (recipientPhone || "").replace(/\D/g, "");
+  let cleanPhone = (recipientPhone || "").replace(/\D/g, "");
+  if (cleanPhone.startsWith("91") && cleanPhone.length === 12) cleanPhone = cleanPhone.slice(2);
+  else if (cleanPhone.startsWith("0") && cleanPhone.length === 11) cleanPhone = cleanPhone.slice(1);
+
+  const filename = recordOrInvoice.filename || `${String(docNo).replace(/[^a-zA-Z0-9_-]/g, "_")}.pdf`;
+  const isLinkedConnected = (typeof whatsappConnectState !== "undefined" && Boolean(whatsappConnectState?.connected));
 
   const backdrop = document.createElement("div");
   backdrop.id = "whatsappShareModalBackdrop";
   backdrop.className = "whatsapp-modal-backdrop";
   backdrop.innerHTML = `
-    <section class="whatsapp-modal" role="dialog" aria-modal="true" aria-labelledby="waModalTitle">
-      <header class="whatsapp-modal-header">
+    <section class="whatsapp-modal wa-compact-share-modal" role="dialog" aria-modal="true" aria-labelledby="waModalTitle">
+      <header class="whatsapp-modal-header" style="padding:14px 18px;background:linear-gradient(135deg, #075E54 0%, #128C7E 100%);">
         <div class="whatsapp-brand-title">
-          <svg class="gi-icon wa-brand-icon"><use href="#gi-share-2"></use></svg>
+          <svg class="gi-icon wa-brand-icon" style="width:24px;height:24px;color:#25D366;fill:currentColor;"><use href="#gi-whatsapp"></use></svg>
           <div>
-            <h3 id="waModalTitle">${docType === "partyStatement" ? "Share Statement of Account" : (docType === "paymentReminder" ? "Send Payment Reminder" : "Share " + escapeHtml(docTypeLabel))}</h3>
-            <p>${docType === "partyStatement" ? `Statement for ${escapeHtml(partyName)} &bull; Net Balance: ${recordOrInvoice.statementData?.formattedClosingBalance || formatCurrency(grandTotal)}` : (docType === "paymentReminder" ? `Reminder for ${escapeHtml(partyName)} &bull; Balance Due: ${formatCurrency(balanceDue)}` : `${escapeHtml(docTypeLabel)} #${escapeHtml(docNo)} &bull; ${escapeHtml(partyName)} &bull; ${formatCurrency(grandTotal)}`)}</p>
+            <h3 id="waModalTitle" style="font-size:16px;">${docType === "partyStatement" ? "Share Statement of Account" : (docType === "paymentReminder" ? "Send Payment Reminder" : "Share " + escapeHtml(docTypeLabel))}</h3>
+            <p style="font-size:12px;opacity:0.9;">${docType === "partyStatement" ? `Statement for ${escapeHtml(partyName)} &bull; Net Balance: ${recordOrInvoice.statementData?.formattedClosingBalance || formatCurrency(grandTotal)}` : (docType === "paymentReminder" ? `Reminder for ${escapeHtml(partyName)} &bull; Balance Due: ${formatCurrency(balanceDue)}` : `${escapeHtml(docTypeLabel)} #${escapeHtml(docNo)} &bull; ${escapeHtml(partyName)} &bull; ${formatCurrency(grandTotal)}`)}</p>
           </div>
         </div>
         <button class="close-button" type="button" data-wa-close aria-label="Close">&times;</button>
       </header>
 
-      <div class="whatsapp-modal-body">
-        <div class="whatsapp-modal-grid">
-          <!-- Left Column: Document Details & Message -->
-          <div class="whatsapp-details-col">
-            <div class="whatsapp-input-row">
-              <label><strong>Recipient Mobile Number *</strong></label>
-              <div class="whatsapp-phone-input-wrap">
-                <span class="phone-prefix">+91</span>
-                <input class="form-input" id="waRecipientPhone" type="tel" value="${escapeHtml(cleanPhone)}" placeholder="Mobile Number" autofocus>
-              </div>
-              <small class="field-hint">Customer's mobile number for WhatsApp &amp; system sharing.</small>
-            </div>
-
-            <div class="whatsapp-message-box-wrap">
-              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
-                <label><strong>Message Content (Editable)</strong></label>
-                <div style="display:flex;gap:8px;align-items:center;">
-                  ${recordOrInvoice.upiLink ? `<span class="wa-upi-badge"><svg class="gi-icon" style="width:12px;height:12px;"><use href="#gi-wallet"></use></svg> UPI Link Ready</span>` : ""}
-                  <button type="button" class="link-button" id="waCopyMsgBtn" style="font-size:12px;">Copy Message</button>
-                </div>
-              </div>
-              <textarea class="form-input whatsapp-message-textarea" id="waMessageText" rows="6">${escapeHtml(initialMessage)}</textarea>
-            </div>
-
-            ${(docType !== "paymentReminder" || recordOrInvoice.hasPdf) ? `
-            <div class="whatsapp-pdf-box">
-              <div class="whatsapp-pdf-info">
-                <svg class="gi-icon" style="width:20px;height:20px;color:#ef4444;"><use href="#gi-receipt"></use></svg>
-                <div>
-                  <strong>${escapeHtml(recordOrInvoice.filename || (docNo + '.pdf'))}</strong>
-                  <span>${recordOrInvoice.pdfPath ? "Document PDF generated &amp; ready" : "Ready to attach &amp; share"}</span>
-                </div>
-              </div>
-              <button type="button" class="secondary-button" id="waSaveAndLocatePdfBtn" title="Highlight PDF file in Windows Explorer">
-                ${icon("paperclip")} ${recordOrInvoice.pdfPath ? "Show PDF in Folder" : "Save &amp; Locate PDF"}
-              </button>
-            </div>
-            ` : ""}
-
-            <div id="waStatusAlert" class="hidden"></div>
+      <div class="whatsapp-modal-body" style="padding:16px 18px;gap:13px;">
+        <!-- Recipient Phone -->
+        <div class="wa-compact-phone-row">
+          <label style="font-size:12px;font-weight:700;color:#334155;display:block;margin-bottom:5px;">Recipient Mobile Number</label>
+          <div class="whatsapp-phone-input-wrap">
+            <span class="phone-prefix">+91</span>
+            <input class="form-input" id="waRecipientPhone" type="tel" value="${escapeHtml(cleanPhone)}" placeholder="10-digit mobile number" style="font-weight:600;font-size:14px;" autofocus>
           </div>
+        </div>
 
-          <!-- Right Column: Computer System Sharing Options -->
-          <div class="system-share-col">
-            <div class="system-share-header">
-              <svg class="gi-icon" style="width:20px;height:20px;color:#16a34a;"><use href="#gi-share-2"></use></svg>
-              <div>
-                <strong>System Sharing Options</strong>
-                <span>Share using applications installed on this computer</span>
-              </div>
-            </div>
-
-            <div class="system-share-options-list">
-              ${whatsappConnectState.connected ? `
-              <!-- Send via Linked WhatsApp (Instant Direct) -->
-              <button type="button" class="system-share-option-card wa-linked-option" id="waCardLinkedBtn" title="Directly send via linked WhatsApp device">
-                <div class="option-icon-box wa-icon-bg" style="background:#25D366;color:#ffffff;">
-                  <svg class="gi-icon"><use href="#gi-send"></use></svg>
-                </div>
-                <div class="option-content">
-                  <div class="option-title-row">
-                    <strong>Send via Linked WhatsApp</strong>
-                    <span class="share-badge-fast" style="background:#dcfce7;color:#15803d;font-weight:700;">Active Device</span>
-                  </div>
-                  <span class="option-desc">Send PDF and message directly from your linked mobile WhatsApp session</span>
-                </div>
-              </button>
-              ` : ""}
-              <!-- WhatsApp Desktop App -->
-              <button type="button" class="system-share-option-card wa-desktop-option" id="waCardDesktopBtn" title="Directly send via WhatsApp Desktop app installed on PC">
-                <div class="option-icon-box wa-icon-bg">
-                  <svg class="gi-icon"><use href="#gi-whatsapp"></use></svg>
-                </div>
-                <div class="option-content">
-                  <div class="option-title-row">
-                    <strong>WhatsApp Desktop</strong>
-                    <span class="share-badge-fast">Fast Send</span>
-                  </div>
-                  <span class="option-desc">Direct chat pre-filled in your computer's WhatsApp Desktop app</span>
-                </div>
-              </button>
-
-              <!-- Pick Computer App (Open With...) -->
-              <button type="button" class="system-share-option-card open-with-option" id="systemPickAppBtn" title="Choose any installed app on this PC (WhatsApp, Mail, Edge, Adobe Reader)">
-                <div class="option-icon-box app-picker-icon-bg">
-                  <svg class="gi-icon"><use href="#gi-external-link"></use></svg>
-                </div>
-                <div class="option-content">
-                  <div class="option-title-row">
-                    <strong>Pick Computer App (Open With...)</strong>
-                    <span class="share-badge-native">Windows</span>
-                  </div>
-                  <span class="option-desc">Choose from any app installed on your PC to share or open</span>
-                </div>
-              </button>
-
-              <!-- Default Email Client -->
-              <button type="button" class="system-share-option-card email-option" id="systemEmailBtn" title="Draft email with bill details in Outlook, Windows Mail, or Thunderbird">
-                <div class="option-icon-box email-icon-bg">
-                  <svg class="gi-icon"><use href="#gi-mail"></use></svg>
-                </div>
-                <div class="option-content">
-                  <div class="option-title-row">
-                    <strong>Default Email App</strong>
-                  </div>
-                  <span class="option-desc">Open default mail client with bill details pre-filled</span>
-                </div>
-              </button>
-
-              <!-- WhatsApp Web -->
-              <button type="button" class="system-share-option-card web-option" id="waOpenWebBtn" title="Open chat in default web browser">
-                <div class="option-icon-box web-icon-bg">
-                  <svg class="gi-icon"><use href="#gi-globe"></use></svg>
-                </div>
-                <div class="option-content">
-                  <div class="option-title-row">
-                    <strong>WhatsApp Web</strong>
-                  </div>
-                  <span class="option-desc">Open chat in Chrome, Edge, or default browser</span>
-                </div>
-              </button>
-            </div>
+        <!-- Document Attachment Pill -->
+        <div class="wa-compact-doc-pill">
+          <svg class="gi-icon" style="width:20px;height:20px;color:#ef4444;flex-shrink:0;"><use href="#gi-receipt"></use></svg>
+          <div style="flex:1;min-width:0;">
+            <strong style="display:block;font-size:12.5px;color:#0f172a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(filename)}</strong>
+            <span style="display:block;font-size:11px;color:#64748b;">${escapeHtml(docTypeLabel)} PDF &bull; Ready to share</span>
           </div>
+          <button type="button" class="link-button" id="waPreviewMsgToggle" style="font-size:11.5px;color:#0284c7;text-decoration:none;">View Message ▾</button>
+        </div>
+
+        <!-- Collapsible Message Preview -->
+        <div class="wa-compact-msg-preview hidden" id="waMsgPreviewBox">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+            <span style="font-size:11.5px;font-weight:600;color:#64748b;">Message Content:</span>
+            <button type="button" class="link-button" id="waCopyMsgBtn" style="font-size:11px;">Copy Text</button>
+          </div>
+          <textarea class="form-input" id="waMessageText" rows="4" style="font-size:12px;line-height:1.45;resize:vertical;">${escapeHtml(initialMessage)}</textarea>
+        </div>
+
+        <!-- Action Selection Cards -->
+        <div class="wa-share-action-cards">
+          <!-- 1. WhatsApp Connect (Inbuilt) -->
+          <button type="button" class="wa-share-card wa-share-card-inbuilt" id="waCardInbuiltBtn" title="Draft into ZynBill WhatsApp Connect">
+            <div class="wa-card-icon-box" style="background:#25D366;color:#ffffff;">
+              <svg class="gi-icon" style="width:20px;height:20px;fill:currentColor;"><use href="#gi-whatsapp"></use></svg>
+            </div>
+            <div class="wa-card-content">
+              <div class="wa-card-title-row">
+                <strong>Inbuilt WhatsApp Connect</strong>
+                <span class="wa-card-badge" style="background:#dcfce7;color:#15803d;">Recommended</span>
+              </div>
+              <span class="wa-card-desc">Draft into in-app chat with PDF attachment &amp; message ready</span>
+            </div>
+            <svg class="gi-icon wa-card-chevron" style="width:16px;height:16px;color:#94a3b8;"><use href="#gi-chevron-right"></use></svg>
+          </button>
+
+          <!-- 2. Send via Linked WhatsApp (if connected) -->
+          ${isLinkedConnected ? `
+          <button type="button" class="wa-share-card wa-share-card-instant" id="waInstantSendBtn" title="Send directly from linked device">
+            <div class="wa-card-icon-box" style="background:#10b981;color:#ffffff;">
+              <svg class="gi-icon" style="width:18px;height:18px;fill:currentColor;"><use href="#gi-send"></use></svg>
+            </div>
+            <div class="wa-card-content">
+              <div class="wa-card-title-row">
+                <strong>Send via Linked WhatsApp</strong>
+                <span class="wa-card-badge" style="background:#ecfdf5;color:#047857;">Instant Send</span>
+              </div>
+              <span class="wa-card-desc">Send PDF and message directly from your linked mobile in background</span>
+            </div>
+            <svg class="gi-icon wa-card-chevron" style="width:16px;height:16px;color:#94a3b8;"><use href="#gi-chevron-right"></use></svg>
+          </button>
+          ` : ""}
+
+          <!-- 3. WhatsApp Desktop App -->
+          <button type="button" class="wa-share-card" id="waCardDesktopBtn" title="Open in Windows WhatsApp Desktop app">
+            <div class="wa-card-icon-box" style="background:#f1f5f9;color:#334155;border:1px solid #cbd5e1;">
+              <svg class="gi-icon" style="width:18px;height:18px;"><use href="#gi-external-link"></use></svg>
+            </div>
+            <div class="wa-card-content">
+              <div class="wa-card-title-row">
+                <strong>WhatsApp Desktop</strong>
+                <span class="wa-card-badge" style="background:#f1f5f9;color:#475569;">Windows App</span>
+              </div>
+              <span class="wa-card-desc">Direct chat pre-filled in your computer's WhatsApp Desktop app</span>
+            </div>
+            <svg class="gi-icon wa-card-chevron" style="width:16px;height:16px;color:#94a3b8;"><use href="#gi-chevron-right"></use></svg>
+          </button>
+
+          <!-- 4. WhatsApp Web -->
+          <button type="button" class="wa-share-card" id="waCardWebBtn" title="Open in web browser">
+            <div class="wa-card-icon-box" style="background:#f0f9ff;color:#0284c7;border:1px solid #bae6fd;">
+              <svg class="gi-icon" style="width:18px;height:18px;"><use href="#gi-globe"></use></svg>
+            </div>
+            <div class="wa-card-content">
+              <div class="wa-card-title-row">
+                <strong>WhatsApp Web</strong>
+                <span class="wa-card-badge" style="background:#f0f9ff;color:#0369a1;">Browser</span>
+              </div>
+              <span class="wa-card-desc">Open chat in Chrome, Edge, or default web browser</span>
+            </div>
+            <svg class="gi-icon wa-card-chevron" style="width:16px;height:16px;color:#94a3b8;"><use href="#gi-chevron-right"></use></svg>
+          </button>
         </div>
       </div>
 
-      <footer class="whatsapp-modal-footer">
-        <div class="wa-footer-left">
-          <button class="secondary-button" type="button" data-wa-close>Close</button>
-        </div>
-        <div class="wa-footer-actions">
-          <button class="secondary-button" type="button" id="waFooterPickAppBtn" title="Choose any app on your computer">
-            <svg class="gi-icon" style="width:15px;height:15px;margin-right:5px;"><use href="#gi-external-link"></use></svg> Pick Computer App
-          </button>
-          ${whatsappConnectState.connected ? `
-            <button class="primary-button wa-primary-btn" type="button" id="waFooterLinkedBtn" style="background:#25D366;border-color:#25D366;font-weight:700;" title="Send instantly via linked WhatsApp">
-              <svg class="gi-icon" style="width:16px;height:16px;margin-right:6px;fill:currentColor;"><use href="#gi-send"></use></svg> Send via Linked WhatsApp
-            </button>
-          ` : ""}
-          <button class="primary-button wa-primary-btn" type="button" id="waFooterDesktopBtn" title="Open native WhatsApp Desktop app">
-            <svg class="gi-icon" style="width:16px;height:16px;margin-right:6px;"><use href="#gi-whatsapp"></use></svg> WhatsApp Desktop
-          </button>
-          ${(waSettings.phoneNumberId && waSettings.accessToken) ? `
-            <button class="secondary-button wa-cloud-btn" type="button" id="waSendCloudBtn" title="Send directly in background via official Meta Cloud API">
-              ${icon("zap")} Send via Meta Cloud API
-            </button>
-          ` : ""}
-        </div>
+      <footer class="whatsapp-modal-footer" style="padding:10px 18px;justify-content:flex-end;">
+        <button class="secondary-button" type="button" data-wa-close>Cancel</button>
       </footer>
     </section>
   `;
@@ -29367,7 +29319,7 @@ Warm regards,
   const ensureTempPdfPath = async () => {
     if (recordOrInvoice.pdfPath) return recordOrInvoice.pdfPath;
     let htmlContent = recordOrInvoice.htmlContent;
-    let filename = recordOrInvoice.filename || `${docNo.replace(/[^a-zA-Z0-9_-]/g, "_")}.pdf`;
+    let outFilename = recordOrInvoice.filename || `${String(docNo).replace(/[^a-zA-Z0-9_-]/g, "_")}.pdf`;
 
     if (!htmlContent) {
       const preview = recordOrInvoice.rows ? recordOrInvoice : (typeof invoicePreviewDataFromRecord === "function" ? invoicePreviewDataFromRecord(recordOrInvoice) : sampleInvoicePreviewData());
@@ -29380,13 +29332,13 @@ Warm regards,
         thermalWidth: "80mm"
       });
       const styles = `<style>${Array.from(document.styleSheets).map((s) => {
-        try { return Array.from(s.cssRules).map(r => r.cssText).join('\\n'); } catch { return ''; }
-      }).join('\\n')}</style>`;
+        try { return Array.from(s.cssRules).map(r => r.cssText).join('\n'); } catch { return ''; }
+      }).join('\n')}</style>`;
       htmlContent = `<!DOCTYPE html><html><head><meta charset="utf-8">${styles}<style>body{background:#fff;padding:20px;font-family:system-ui,-apple-system,sans-serif;}</style></head><body><div class="invoice-preview-paper paper-a4 template-${a4Tpl}">${paperMarkup}</div></body></html>`;
     }
 
     if (window.giApp?.saveTempPdf) {
-      const res = await window.giApp.saveTempPdf({ htmlContent, filename });
+      const res = await window.giApp.saveTempPdf({ htmlContent, filename: outFilename });
       if (res?.success && res.filePath) {
         recordOrInvoice.pdfPath = res.filePath;
         return res.filePath;
@@ -29395,7 +29347,18 @@ Warm regards,
     return null;
   };
 
-  // 1. Copy Message
+  // Toggle Message Preview
+  const msgToggleBtn = backdrop.querySelector("#waPreviewMsgToggle");
+  const msgPreviewBox = backdrop.querySelector("#waMsgPreviewBox");
+  msgToggleBtn?.addEventListener("click", () => {
+    if (msgPreviewBox) {
+      const isHidden = msgPreviewBox.classList.contains("hidden");
+      msgPreviewBox.classList.toggle("hidden", !isHidden);
+      msgToggleBtn.textContent = isHidden ? "Hide Message ▴" : "View Message ▾";
+    }
+  });
+
+  // Copy Message
   backdrop.querySelector("#waCopyMsgBtn")?.addEventListener("click", async () => {
     try {
       await navigator.clipboard.writeText(getMessage());
@@ -29405,30 +29368,117 @@ Warm regards,
     }
   });
 
-  // Linked WhatsApp Direct Send
-  const handleSendLinkedWhatsApp = async () => {
+  // 1. Open in Inbuilt WhatsApp Connect
+  backdrop.querySelector("#waCardInbuiltBtn")?.addEventListener("click", async () => {
     const phone = getCleanNumber();
-    if (!phone) {
-      showToast("Please enter a valid recipient phone number.");
+    showToast("Preparing document for WhatsApp Connect...");
+    let pdfPath = null;
+    try {
+      pdfPath = await ensureTempPdfPath();
+    } catch (e) {
+      console.warn("Could not generate PDF:", e);
+    }
+    const outFilename = recordOrInvoice.filename || `${String(docNo).replace(/[^a-zA-Z0-9_-]/g, "_")}.pdf`;
+
+    // Find or register party in WhatsApp Connect
+    let party = null;
+    if (recordOrInvoice.partyId) {
+      party = (state.parties || []).find((p) => String(p.id) === String(recordOrInvoice.partyId));
+    }
+    if (!party && partyName && partyName !== "Customer") {
+      party = (state.parties || []).find((p) => (p.name || "").trim().toLowerCase() === partyName.trim().toLowerCase());
+    }
+    if (!party && phone) {
+      const cleanTargetPhone = phone.replace(/^91/, "");
+      party = (state.parties || []).find((p) => String(p.phone || "").replace(/\D/g, "").includes(cleanTargetPhone));
+    }
+
+    if (!party) {
+      const directId = "direct-" + (phone || Date.now());
+      if (typeof whatsappConnectState !== "undefined") {
+        whatsappConnectState.directParties = whatsappConnectState.directParties || [];
+        party = whatsappConnectState.directParties.find((p) => p.id === directId);
+        if (!party) {
+          party = {
+            id: directId,
+            name: partyName || ("Customer " + (phone ? ("+" + phone) : "")),
+            phone: phone ? ("+" + phone) : "",
+            balance: balanceDue,
+            isDirect: true
+          };
+          whatsappConnectState.directParties.unshift(party);
+        } else {
+          if (phone) party.phone = "+" + phone;
+          if (partyName && partyName !== "Customer") party.name = partyName;
+        }
+      } else {
+        party = { id: directId, name: partyName, phone: "+" + phone };
+      }
+    } else if (phone && !party.phone) {
+      party.phone = phone;
+    }
+
+    if (typeof whatsappConnectState !== "undefined") {
+      whatsappConnectState.activePartyId = party.id;
+      whatsappConnectState.draftAttachment = {
+        name: outFilename,
+        path: pdfPath,
+        size: `${docTypeLabel} • ${formatCurrency(grandTotal)}`,
+        type: "pdf"
+      };
+      whatsappConnectState.draftMessage = getMessage();
+      if (typeof saveWhatsAppConnectState === "function") saveWhatsAppConnectState();
+    }
+
+    close();
+    showView("whatsapp");
+
+    setTimeout(() => {
+      const view = elements.featureView?.querySelector(".whatsapp-connect-view");
+      const input = view?.querySelector("#waMessageInput");
+      const draftBar = view?.querySelector("#waDraftAttachmentBar");
+      if (draftBar) {
+        draftBar.classList.remove("hidden");
+        const nameEl = draftBar.querySelector(".wa-draft-doc-name");
+        const sizeEl = draftBar.querySelector(".wa-draft-doc-size");
+        if (nameEl) nameEl.textContent = outFilename;
+        if (sizeEl) sizeEl.textContent = (typeof whatsappConnectState !== "undefined" && whatsappConnectState.draftAttachment?.size) ? whatsappConnectState.draftAttachment.size : "PDF Document";
+      }
+      if (input) {
+        input.value = getMessage();
+        autoExpandWaInput(input);
+        input.focus();
+        if (typeof whatsappConnectState !== "undefined") whatsappConnectState.draftMessage = null;
+      }
+    }, 120);
+
+    showToast(`${docTypeLabel} #${docNo} drafted into WhatsApp Connect!`);
+  });
+
+  // 2. Instant Send via Linked WhatsApp
+  backdrop.querySelector("#waInstantSendBtn")?.addEventListener("click", async () => {
+    const phone = getCleanNumber();
+    if (!phone || phone.length < 10) {
+      showToast("Please enter a valid 10-digit mobile number.");
       backdrop.querySelector("#waRecipientPhone")?.focus();
       return;
     }
-    const cardBtn = backdrop.querySelector("#waCardLinkedBtn");
-    const footerBtn = backdrop.querySelector("#waFooterLinkedBtn");
-    if (cardBtn) cardBtn.disabled = true;
-    if (footerBtn) footerBtn.disabled = true;
-
-    showToast("Sending document via Linked WhatsApp...");
+    const sendBtn = backdrop.querySelector("#waInstantSendBtn");
+    if (sendBtn) {
+      sendBtn.disabled = true;
+      sendBtn.innerHTML = `<div class="wa-card-icon-box" style="background:#10b981;color:#ffffff;"><span class="spinner" style="width:16px;height:16px;border:2px solid #fff;border-top-color:transparent;border-radius:50%;display:inline-block;animation:spin 0.8s linear infinite;"></span></div><div class="wa-card-content"><div class="wa-card-title-row"><strong>Sending document...</strong></div><span class="wa-card-desc">Sending via linked device in background</span></div>`;
+    }
     try {
       const pdfPath = await ensureTempPdfPath();
+      const outFilename = recordOrInvoice.filename || `${String(docNo).replace(/[^a-zA-Z0-9_-]/g, "_")}.pdf`;
       const res = await window.giApp.whatsappSendMessage({
-        phone,
+        phone: typeof formatWhatsAppPhoneNumber === "function" ? formatWhatsAppPhoneNumber(phone) : phone,
         message: getMessage(),
         pdfPath,
-        pdfName: recordOrInvoice.filename || `${docNo.replace(/[^a-zA-Z0-9_-]/g, "_")}.pdf`,
+        pdfName: outFilename,
       });
       if (res?.success) {
-        showToast("Sent successfully via Linked WhatsApp!");
+        showToast(`Sent successfully to +${phone} via Linked WhatsApp!`);
         close();
       } else {
         showToast(res?.error || "Error sending message via Linked WhatsApp.");
@@ -29436,176 +29486,52 @@ Warm regards,
     } catch (e) {
       showToast("Failed to send: " + (e?.message || String(e)));
     } finally {
-      if (cardBtn) cardBtn.disabled = false;
-      if (footerBtn) footerBtn.disabled = false;
+      if (sendBtn) sendBtn.disabled = false;
     }
-  };
+  });
 
-  backdrop.querySelector("#waCardLinkedBtn")?.addEventListener("click", handleSendLinkedWhatsApp);
-  backdrop.querySelector("#waFooterLinkedBtn")?.addEventListener("click", handleSendLinkedWhatsApp);
-
-  // 2. Open WhatsApp Desktop App (whatsapp:// protocol)
-  const handleOpenDesktop = async () => {
+  // 3. Open WhatsApp Desktop App
+  backdrop.querySelector("#waCardDesktopBtn")?.addEventListener("click", () => {
     const phone = getCleanNumber();
-    if (!phone) {
-      showToast("Please enter a valid recipient phone number.");
+    if (!phone || phone.length < 10) {
+      showToast("Please enter a valid 10-digit mobile number.");
       backdrop.querySelector("#waRecipientPhone")?.focus();
       return;
     }
     const text = encodeURIComponent(getMessage());
     const desktopUrl = `whatsapp://send?phone=${phone}&text=${text}`;
     if (window.giApp?.openExternal) {
-      const res = await window.giApp.openExternal(desktopUrl);
-      if (!res?.success) {
+      window.giApp.openExternal(desktopUrl).then((res) => {
+        if (!res?.success) {
+          window.open(`https://web.whatsapp.com/send?phone=${phone}&text=${text}`, "_blank");
+        }
+      }).catch(() => {
         window.open(`https://web.whatsapp.com/send?phone=${phone}&text=${text}`, "_blank");
-      }
+      });
     } else {
       window.open(desktopUrl, "_blank");
     }
-    close();
-  };
-
-  backdrop.querySelector("#waCardDesktopBtn")?.addEventListener("click", handleOpenDesktop);
-  backdrop.querySelector("#waFooterDesktopBtn")?.addEventListener("click", handleOpenDesktop);
-
-  // 3. Pick Computer App (Windows OpenAs dialog)
-  const handlePickComputerApp = async () => {
-    const pickBtn = backdrop.querySelector("#systemPickAppBtn");
-    const footerBtn = backdrop.querySelector("#waFooterPickAppBtn");
-    if (pickBtn) pickBtn.disabled = true;
-    if (footerBtn) footerBtn.disabled = true;
-    try {
-      const pdfPath = await ensureTempPdfPath();
-      if (pdfPath && window.giApp?.openSystemShare) {
-        const res = await window.giApp.openSystemShare(pdfPath);
-        if (res?.success) {
-          showToast("Opened Computer App Picker! Select an application to share or open.");
-        } else {
-          showToast("Opening file with default application...");
-        }
-      } else {
-        showToast("Unable to generate PDF file for app picker.");
-      }
-    } catch (err) {
-      showToast(`Error: ${err.message}`);
-    } finally {
-      if (pickBtn) pickBtn.disabled = false;
-      if (footerBtn) footerBtn.disabled = false;
-    }
-  };
-
-  backdrop.querySelector("#systemPickAppBtn")?.addEventListener("click", handlePickComputerApp);
-  backdrop.querySelector("#waFooterPickAppBtn")?.addEventListener("click", handlePickComputerApp);
-
-  // 4. Default Email Client
-  backdrop.querySelector("#systemEmailBtn")?.addEventListener("click", async () => {
-    const partyEmail = recordOrInvoice.email || recordOrInvoice.customerEmail || "";
-    const subject = `${docTypeLabel} #${docNo} from ${business.businessName || state.activeCompany || "Business"}`;
-    const body = getMessage();
-    const mailUrl = `mailto:${encodeURIComponent(partyEmail)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
-    if (window.giApp?.openExternal) {
-      await window.giApp.openExternal(mailUrl);
-    } else {
-      window.location.href = mailUrl;
-    }
+    showToast(`Opening WhatsApp Desktop for +${phone}...`);
     close();
   });
 
-  // 5. Open WhatsApp Web (browser fallback)
-  backdrop.querySelector("#waOpenWebBtn")?.addEventListener("click", async () => {
+  // 4. Open WhatsApp Web
+  backdrop.querySelector("#waCardWebBtn")?.addEventListener("click", () => {
     const phone = getCleanNumber();
-    if (!phone) {
-      showToast("Please enter a valid recipient phone number.");
+    if (!phone || phone.length < 10) {
+      showToast("Please enter a valid 10-digit mobile number.");
       backdrop.querySelector("#waRecipientPhone")?.focus();
       return;
     }
     const text = encodeURIComponent(getMessage());
     const webUrl = `https://web.whatsapp.com/send?phone=${phone}&text=${text}`;
     if (window.giApp?.openExternal) {
-      await window.giApp.openExternal(webUrl);
+      window.giApp.openExternal(webUrl);
     } else {
       window.open(webUrl, "_blank");
     }
+    showToast(`Opening WhatsApp Web for +${phone}...`);
     close();
-  });
-
-  // 6. Save PDF & Locate in folder
-  backdrop.querySelector("#waSaveAndLocatePdfBtn")?.addEventListener("click", async () => {
-    const btn = backdrop.querySelector("#waSaveAndLocatePdfBtn");
-    btn.disabled = true;
-    btn.textContent = "Locating PDF...";
-    try {
-      const pdfPath = await ensureTempPdfPath();
-      if (pdfPath && window.giApp?.showItemInFolder) {
-        await window.giApp.showItemInFolder(pdfPath);
-        showToast("Showing PDF in folder! You can drag-and-drop or attach it anywhere.");
-      } else {
-        showToast("PDF generation requires desktop application.");
-      }
-    } catch (err) {
-      showToast(`PDF error: ${err.message}`);
-    } finally {
-      btn.disabled = false;
-      btn.innerHTML = `${icon("paperclip")} ${recordOrInvoice.pdfPath ? "Show PDF in Folder" : "Save &amp; Locate PDF"}`;
-    }
-  });
-
-  // 7. Send via Meta Cloud API (if credentials present)
-  backdrop.querySelector("#waSendCloudBtn")?.addEventListener("click", async () => {
-    const btn = backdrop.querySelector("#waSendCloudBtn");
-    const statusBox = backdrop.querySelector("#waStatusAlert");
-    const phone = getCleanNumber();
-    if (!phone) {
-      showToast("Please enter a valid recipient phone number.");
-      backdrop.querySelector("#waRecipientPhone")?.focus();
-      return;
-    }
-
-    btn.disabled = true;
-    btn.textContent = "Sending via Meta...";
-    if (statusBox) {
-      statusBox.className = "wa-status-box info";
-      statusBox.classList.remove("hidden");
-      statusBox.textContent = "Transmitting message to Meta WhatsApp Cloud API...";
-    }
-
-    try {
-      if (window.giApp?.sendWhatsAppCloudMessage) {
-        const payload = {
-          phoneNumberId: waSettings.phoneNumberId,
-          accessToken: waSettings.accessToken,
-          to: phone,
-          textBody: getMessage(),
-        };
-        const res = await window.giApp.sendWhatsAppCloudMessage(payload);
-        if (res.success) {
-          if (statusBox) {
-            statusBox.className = "wa-status-box success";
-            statusBox.innerHTML = `<strong>Sent!</strong> Message delivered via Meta Cloud API (ID: ${escapeHtml(res.messageId || "OK")})`;
-          }
-          showToast("WhatsApp message sent successfully via Meta Cloud API!");
-          setTimeout(close, 1800);
-        } else {
-          if (statusBox) {
-            statusBox.className = "wa-status-box error";
-            statusBox.innerHTML = `<strong>Meta API Error:</strong> ${escapeHtml(res.error || "Failed to send")}`;
-          }
-        }
-      } else {
-        if (statusBox) {
-          statusBox.className = "wa-status-box error";
-          statusBox.textContent = "Meta Cloud API requires desktop application.";
-        }
-      }
-    } catch (err) {
-      if (statusBox) {
-        statusBox.className = "wa-status-box error";
-        statusBox.textContent = `Error: ${err.message}`;
-      }
-    } finally {
-      btn.disabled = false;
-      btn.innerHTML = `${icon("zap")} Send via Meta Cloud API`;
-    }
   });
 }
 
