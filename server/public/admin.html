@@ -580,15 +580,9 @@
         <input type="text" id="planName" class="text-control" placeholder="e.g. Standard Business" required>
       </div>
 
-      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
-        <div class="field-group">
-          <label class="field-label">Plan Code (Unique)</label>
-          <input type="text" id="planCode" class="text-control" placeholder="e.g. Standard" required>
-        </div>
-        <div class="field-group">
-          <label class="field-label">Price (₹)</label>
-          <input type="number" id="planPrice" class="text-control" value="2999" required>
-        </div>
+      <div class="field-group">
+        <label class="field-label">Price (₹)</label>
+        <input type="number" id="planPrice" class="text-control" value="2999" required>
       </div>
 
       <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
@@ -986,7 +980,7 @@
 
     function openAddPlanModal() {
       document.getElementById('planName').value = '';
-      document.getElementById('planCode').value = '';
+      const pCodeEl = document.getElementById('planCode'); if (pCodeEl) pCodeEl.value = '';
       document.getElementById('planPrice').value = '2999';
       document.getElementById('planDays').value = '365';
       document.getElementById('planDevices').value = '2';
@@ -1000,13 +994,13 @@
 
     async function savePlan() {
       const name = document.getElementById('planName').value.trim();
-      const code = document.getElementById('planCode').value.trim();
+      const pCodeEl = document.getElementById('planCode'); const code = pCodeEl ? pCodeEl.value.trim() : (name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || ('plan_' + Date.now()));
       const price = parseFloat(document.getElementById('planPrice').value || 0);
       const duration_days = parseInt(document.getElementById('planDays').value || 365, 10);
       const max_devices = parseInt(document.getElementById('planDevices').value || 2, 10);
       const description = document.getElementById('planDesc').value.trim();
 
-      if (!name || !code) {
+      if (!name) {
         alert('Plan Name and Plan Code are required.');
         return;
       }

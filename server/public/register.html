@@ -283,7 +283,7 @@
 
         <div class="full-width">
           <button type="submit" class="btn-submit" id="btnRegister">
-            <span>Continue &amp; Verify Email</span>
+            <span>Register Business Account</span>
           </button>
         </div>
       </div>
@@ -291,33 +291,6 @@
 
     <div style="text-align: center; margin-top: 24px; font-size: 13px; color: var(--text-muted);">
       Already registered? <a href="#" onclick="showStatusLookup()" style="color: #0284c7; font-weight: 600; text-decoration: none;">Track Approval Status</a>
-    </div>
-  </div>
-
-  <!-- OTP Verification Modal -->
-  <div class="modal-backdrop hidden" id="otpModal">
-    <div class="modal-card">
-      <div style="width: 48px; height: 48px; border-radius: 12px; background: #e0f2fe; color: #0284c7; display: inline-flex; align-items: center; justify-content: center; font-size: 24px; margin-bottom: 12px;">✉️</div>
-      <h3 style="font-size: 18px; color: #0f172a; margin-bottom: 6px;">Email Verification</h3>
-      <p style="font-size: 13.5px; color: #64748b;">We sent a 6-digit verification code to <br><strong id="otpEmailTarget" style="color:#0f172a;"></strong></p>
-
-      <div class="alert-box alert-error" id="otpError" style="margin-top: 14px;"></div>
-      <div class="alert-box alert-success" id="otpDevHint" style="margin-top: 14px; font-weight: 600;"></div>
-
-      <div class="otp-digits">
-        <input type="text" maxlength="1" class="otp-box" data-idx="0" autofocus>
-        <input type="text" maxlength="1" class="otp-box" data-idx="1">
-        <input type="text" maxlength="1" class="otp-box" data-idx="2">
-        <input type="text" maxlength="1" class="otp-box" data-idx="3">
-        <input type="text" maxlength="1" class="otp-box" data-idx="4">
-        <input type="text" maxlength="1" class="otp-box" data-idx="5">
-      </div>
-
-      <button type="button" class="btn-submit" id="btnVerifyOtp" onclick="handleVerifyOtp()">Verify Code &amp; Submit</button>
-
-      <div style="margin-top: 16px; font-size: 12.5px; color: #64748b;">
-        Didn't receive email? <button type="button" onclick="resendOtp()" style="background: none; border: none; color: #0284c7; font-weight: 600; cursor: pointer;">Resend Code</button>
-      </div>
     </div>
   </div>
 
@@ -377,21 +350,13 @@
         }
 
         registeredEmail = email;
-        document.getElementById('otpEmailTarget').textContent = email;
-        document.getElementById('otpModal').classList.remove('hidden');
-
-        if (data.devOtp) {
-          const devHint = document.getElementById('otpDevHint');
-          devHint.textContent = `Dev/Test Mode: Your verification OTP is [ ${data.devOtp} ]`;
-          devHint.style.display = 'block';
-        }
-
-        setupOtpBoxes();
+        document.getElementById('statusCompanyName').textContent = companyName;
+        document.getElementById('statusModal').classList.remove('hidden');
       } catch (err) {
         showError('Network error connecting to cloud server.');
       } finally {
         btn.disabled = false;
-        btn.textContent = 'Continue & Verify Email';
+        btn.textContent = 'Register Business Account';
       }
     }
 

@@ -99,6 +99,31 @@ class CloudLicenseManager {
   /**
    * Syncs latest subscription and plan status from cloud backend
    */
+
+  static signOut() {
+    if (!confirm("Are you sure you want to sign out of ZynBill? Your local invoices and master data remain safely on this PC.")) {
+      return;
+    }
+    localStorage.removeItem(CLOUD_STORAGE_KEYS.LICENSE);
+    localStorage.setItem(CLOUD_STORAGE_KEYS.ACTIVATED, "false");
+    if (typeof PinSecurityManager !== "undefined") {
+      PinSecurityManager.disablePin();
+    }
+    if (typeof showToast === "function") {
+      showToast("Signed out of ZynBill account.", "info");
+    }
+
+    const actModal = document.getElementById("cloudActivationModal");
+    const form = document.getElementById("cloudActivationForm");
+    const otpStep = document.getElementById("activationOtpStep");
+    form?.classList.remove("hidden");
+    otpStep?.classList.add("hidden");
+    actModal?.classList.remove("hidden");
+
+    CloudSyncWidget.updatePlanPill();
+    CloudSyncWidget.updatePopoverDetails();
+  }
+
   static async syncLicenseWithServer() {
     const license = this.getLicense();
     const sUrl = this.getServerUrl();
@@ -207,6 +232,22 @@ class CloudSyncWidget {
 
     planPill?.addEventListener("click", () => {
       SubscriptionModalController.open();
+    });
+
+    
+    document.getElementById("sidebarSignOutBtn")?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      CloudLicenseManager.signOut();
+    });
+
+    document.getElementById("btnSettingsSignOut")?.addEventListener("click", () => {
+      CloudLicenseManager.signOut();
+    });
+
+    document.getElementById("brandHomeButton")?.addEventListener("click", () => {
+      if (typeof navigateView === "function") {
+        navigateView("home");
+      }
     });
 
     planDetailsBtn?.addEventListener("click", () => {

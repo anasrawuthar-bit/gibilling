@@ -1695,6 +1695,15 @@ function bindEvents() {
   document.querySelector('.company-switch')?.addEventListener('click', () => {
     navigateView("appSettings", "COMPANY");
   });
+  document.getElementById("brandHomeButton")?.addEventListener("click", () => {
+    navigateView("home");
+  });
+  document.getElementById("sidebarSignOutBtn")?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    if (typeof CloudLicenseManager !== "undefined") {
+      CloudLicenseManager.signOut();
+    }
+  });
   document.querySelectorAll(".open-company-button").forEach((button) => {
     button.addEventListener("click", () => openCompany(button.dataset.company));
   });
@@ -3590,7 +3599,7 @@ function populateTransactionEditorDraft(draft) {
       const discount = rowElement.querySelector('[name="discount"]');
       if (discount && row.discount !== undefined) discount.value = Number(row.discount || 0);
       const tax = rowElement.querySelector('[name="tax"]');
-      if (tax) ensureSelectValue(tax, taxOptionLabel(row.taxRate, editorTaxSplitMode() === "igst"));
+      if (tax) ensureSelectValue(tax, row.taxType || taxOptionLabel(row.taxRate, editorTaxSplitMode() === "igst"));
     });
   }
 
@@ -7867,9 +7876,7 @@ function applyEditorItemIntelligence(row, initial = false) {
   if (tax) {
     const isService = String(item.itemType || "").toLowerCase() === "service";
     const preferredTax = item.taxType
-      ? (editorTaxSplitMode() === "igst"
-          ? (item.taxType.startsWith("GST@") ? item.taxType.replace("GST@", "IGST@") : item.taxType)
-          : (item.taxType.startsWith("IGST@") ? item.taxType.replace("IGST@", "GST@") : item.taxType))
+      ? item.taxType
       : taxOptionLabel(item.taxRate, editorTaxSplitMode() === "igst");
     tax.innerHTML = editorTaxOptionsMarkup(preferredTax, isService);
     ensureSelectValue(tax, preferredTax);
@@ -7929,12 +7936,10 @@ function syncEditorTaxOptions() {
     const taxSelect = row.querySelector('[name="tax"]');
     if (!taxSelect) return;
     const currentVal = String(taxSelect.value || "").trim();
-    const rate = parseTaxRate(currentVal);
-    if (rate > 0) {
-      const targetLabel = taxOptionLabel(rate, isIgst);
-      const isService = String(row.querySelector('[name="item"]')?.value || "").toLowerCase().includes("service");
-      taxSelect.innerHTML = editorTaxOptionsMarkup(targetLabel, isService);
-      ensureSelectValue(taxSelect, targetLabel);
+    const isService = String(row.querySelector('[name="item"]')?.value || "").toLowerCase().includes("service");
+    if (currentVal && currentVal.toLowerCase() !== "none") {
+      taxSelect.innerHTML = editorTaxOptionsMarkup(currentVal, isService);
+      ensureSelectValue(taxSelect, currentVal);
     }
   });
 }
@@ -8127,7 +8132,12 @@ function recalcTransactionEditor() {
     taxTotal += taxAmount;
     const isExplicitIgst = taxValue.toUpperCase().startsWith("IGST");
     const isExplicitGst = taxValue.toUpperCase().startsWith("GST");
-    if (taxSplitMode === "igst") {
+    if (isExplicitIgst) {
+      igstTotal += taxAmount;
+    } else if (isExplicitGst) {
+      cgstTotal += taxAmount / 2;
+      sgstTotal += taxAmount / 2;
+    } else if (taxSplitMode === "igst") {
       igstTotal += taxAmount;
     } else {
       cgstTotal += taxAmount / 2;
@@ -31367,6 +31377,35 @@ function settingsSecurityTemplate() {
             <button type="button" class="secondary-button" id="btnSettingsSyncNow">Sync to Cloud</button>
             <button type="button" class="primary-button" id="btnSettingsBackupNow">Backup SQLite DB Now</button>
           </div>
+        </div>
+      </section>
+
+      <!-- 4. Account Session & Sign Out -->
+      <section class="settings-card" style="grid-column: 1 / -1; border-color: #fecaca; background: #fffafb;">
+        <div class="settings-card-head">
+          <div style="display:flex;align-items:center;gap:12px;">
+            <div style="width:38px;height:38px;border-radius:10px;background:#fef2f2;border:1px solid #fecaca;display:flex;align-items:center;justify-content:center;color:#dc2626;">
+              <svg class="gi-icon" style="width:18px;height:18px;"><use href="#gi-log-out"></use></svg>
+            </div>
+            <div>
+              <h3 style="margin:0;font-size:15px;color:#0f172a;">Account Session &amp; Sign Out</h3>
+              <p style="margin:2px 0 0;font-size:12.5px;color:#64748b;">Signed in as <strong>${escapeHtml(license.email || "Current Account")}</strong> (${escapeHtml(license.companyName || "ZynBill")})</p>
+            </div>
+          </div>
+          <span class="badge" style="background:#fef2f2;color:#dc2626;font-weight:700;">PC Session</span>
+        </div>
+
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;padding:16px;background:#ffffff;border:1px solid #fee2e2;border-radius:10px;margin-top:14px;">
+          <div>
+            <div style="font-weight:600;font-size:13.5px;color:#0f172a;">Sign out of this computer</div>
+            <div style="font-size:12px;color:#64748b;margin-top:2px;">
+              Disconnect your cloud session on this PC. Your local database and bills remain securely on this machine.
+            </div>
+          </div>
+          <button type="button" class="secondary-button" id="btnSettingsSignOut" style="color:#dc2626;border-color:#fca5a5;background:#fef2f2;display:inline-flex;align-items:center;gap:6px;font-weight:700;">
+            <svg class="gi-icon" style="width:14px;height:14px;"><use href="#gi-log-out"></use></svg>
+            Sign Out of ZynBill
+          </button>
         </div>
       </section>
     </div>
