@@ -16493,7 +16493,75 @@ function bindFeatureActions() {
   csvFileInput?.addEventListener("change", () => handleCsvFileSelected(csvFileInput));
   elements.featureView.querySelector("[data-action='csv-import-run']")?.addEventListener("click", runCsvImport);
   elements.featureView.querySelector("[data-action='csv-import-export-template']")?.addEventListener("click", () => exportCsvTemplate(elements.featureView.dataset.importType || "items"));
-  elements.featureView.querySelector("[data-action='export-items-csv']")?.addEventListener("click", () => exportItemsToCsv());
+  // Export Items actions
+  elements.featureView.querySelector("[data-action='export-items-csv']")?.addEventListener("click", () => exportItemsToCsv(state.items || []));
+  elements.featureView.querySelector("[data-action='export-selected-items-csv']")?.addEventListener("click", () => {
+    const selectedIds = new Set(
+      Array.from(elements.featureView.querySelectorAll(".export-item-checkbox:checked"))
+        .map((cb) => Number(cb.dataset.itemId))
+    );
+    const selectedItems = (state.items || []).filter((item) => selectedIds.has(Number(item.id)));
+    if (!selectedItems.length) {
+      showToast("Please select at least one item to export.");
+      return;
+    }
+    exportItemsToCsv(selectedItems);
+  });
+
+  const selectAllCb = elements.featureView.querySelector("#selectAllExportItems");
+  selectAllCb?.addEventListener("change", (e) => {
+    const checked = e.target.checked;
+    elements.featureView.querySelectorAll(".export-item-checkbox").forEach((cb) => {
+      const tr = cb.closest("tr");
+      if (tr && tr.style.display !== "none") {
+        cb.checked = checked;
+      }
+    });
+    updateExportSelectionUI();
+  });
+
+  elements.featureView.querySelectorAll(".export-item-checkbox").forEach((cb) => {
+    cb.addEventListener("change", (e) => {
+      e.stopPropagation();
+      updateExportSelectionUI();
+    });
+  });
+
+  elements.featureView.querySelectorAll(".export-items-page .data-table tbody tr[data-item-id]").forEach((tr) => {
+    tr.addEventListener("click", (e) => {
+      if (e.target.tagName === "INPUT" || e.target.closest("button") || e.target.closest("a")) return;
+      const cb = tr.querySelector(".export-item-checkbox");
+      if (cb) {
+        cb.checked = !cb.checked;
+        updateExportSelectionUI();
+      }
+    });
+  });
+
+  elements.featureView.querySelector("[data-action='select-all-export-btn']")?.addEventListener("click", () => {
+    elements.featureView.querySelectorAll(".export-item-checkbox").forEach((cb) => {
+      const tr = cb.closest("tr");
+      if (tr && tr.style.display !== "none") cb.checked = true;
+    });
+    updateExportSelectionUI();
+  });
+
+  elements.featureView.querySelector("[data-action='clear-export-selection-btn']")?.addEventListener("click", () => {
+    elements.featureView.querySelectorAll(".export-item-checkbox").forEach((cb) => {
+      cb.checked = false;
+    });
+    updateExportSelectionUI();
+  });
+
+  const exportSearch = elements.featureView.querySelector("#exportItemsSearch");
+  exportSearch?.addEventListener("input", (e) => {
+    const query = e.target.value.trim().toLowerCase();
+    elements.featureView.querySelectorAll(".export-items-page .data-table tbody tr[data-item-id]").forEach((tr) => {
+      const text = tr.textContent.toLowerCase();
+      tr.style.display = text.includes(query) ? "" : "none";
+    });
+    updateExportSelectionUI();
+  });
   elements.featureView.querySelector("[data-action='switch-to-import-items']")?.addEventListener("click", () => showView("importItems"));
   elements.featureView.querySelector("[data-action='switch-to-import-parties']")?.addEventListener("click", () => showView("importParties"));
 
@@ -18460,18 +18528,74 @@ function updateBarcodePreview(page = elements.featureView.querySelector(".barcod
 }
 
 
+function updateExportSelectionUI() {
+  const allCheckboxes = elements.featureView.querySelectorAll(".export-item-checkbox");
+  const checkedBoxes = elements.featureView.querySelectorAll(".export-item-checkbox:checked");
+  const total = allCheckboxes.length;
+  const count = checkedBoxes.length;
+
+  const countText = elements.featureView.querySelector("#exportSelectedCountText");
+  if (countText) {
+    countText.textContent = `${count} of ${total} selected`;
+  }
+
+  const selectAll = elements.featureView.querySelector("#selectAllExportItems");
+  if (selectAll) {
+    selectAll.checked = total > 0 && count === total;
+    selectAll.indeterminate = count > 0 && count < total;
+  }
+
+  const exportSelectedBtn = elements.featureView.querySelector("[data-action='export-selected-items-csv']");
+  const exportSelectedBtnLabel = elements.featureView.querySelector("#exportSelectedBtnLabel");
+  if (exportSelectedBtn) {
+    if (count > 0) {
+      exportSelectedBtn.disabled = false;
+      exportSelectedBtn.style.opacity = "1";
+      exportSelectedBtn.style.cursor = "pointer";
+      exportSelectedBtn.classList.remove("secondary-button");
+      exportSelectedBtn.classList.add("primary-button");
+    } else {
+      exportSelectedBtn.disabled = true;
+      exportSelectedBtn.style.opacity = "0.6";
+      exportSelectedBtn.style.cursor = "not-allowed";
+      exportSelectedBtn.classList.remove("primary-button");
+      exportSelectedBtn.classList.add("secondary-button");
+    }
+  }
+  if (exportSelectedBtnLabel) {
+    exportSelectedBtnLabel.textContent = `Export Selected (${count})`;
+  }
+
+  allCheckboxes.forEach((cb) => {
+    const tr = cb.closest("tr");
+    if (tr) {
+      if (cb.checked) {
+        tr.style.backgroundColor = "#f0f7ff";
+      } else {
+        tr.style.backgroundColor = "";
+      }
+    }
+  });
+}
+
 function exportItemsTemplate() {
   const items = state.items || [];
-  const stockQty = items.reduce((sum, item) => sum + Number(item.currentStock || 0), 0);
-  const stockValue = items.reduce((sum, item) => sum + Number(item.currentStock || 0) * Number(item.purchasePrice || 0), 0);
 
   return `
-    <section class="invoice-workspace">
-      <header class="app-page-header invoice-page-header">
+    <section class="invoice-workspace export-items-page">
+      <header class="app-page-header invoice-page-header" style="align-items:center;flex-wrap:wrap;gap:12px;">
         <div>
           <h1>Export Items</h1>
         </div>
-        <div class="invoice-header-actions">
+        <div class="invoice-header-actions" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+          <div id="exportSelectionPill" class="selection-count-pill" style="display:inline-flex;align-items:center;padding:5px 12px;border-radius:20px;font-size:12.5px;font-weight:600;background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe;">
+            <svg class="gi-icon" style="width:13px;height:13px;margin-right:5px;"><use href="#gi-check"></use></svg>
+            <span id="exportSelectedCountText">0 of ${items.length} selected</span>
+          </div>
+          <button class="secondary-button" data-action="export-selected-items-csv" type="button" disabled style="opacity:0.6;cursor:not-allowed;">
+            <svg class="gi-icon" style="width:14px;height:14px;margin-right:6px;"><use href="#gi-download"></use></svg>
+            <span id="exportSelectedBtnLabel">Export Selected (0)</span>
+          </button>
           <button class="primary-button" data-action="export-items-csv" type="button">
             <svg class="gi-icon" style="width:14px;height:14px;margin-right:6px;"><use href="#gi-download"></use></svg>
             Export All Items (CSV)
@@ -18479,17 +18603,29 @@ function exportItemsTemplate() {
         </div>
       </header>
 
-      <section class="kpi-grid invoice-kpis">
-        ${kpiCard("Total Items", String(items.length), "Master inventory records", "neutral")}
-        ${kpiCard("Total Stock Qty", String(stockQty), "Physical units on hand", "info")}
-        ${kpiCard("Stock Valuation", formatCurrency(stockValue), "At purchase price", "success")}
-        ${kpiCard("Export Format", "CSV / Excel", "Full inventory dataset", "neutral")}
-      </section>
+      <div class="top-filter-bar" style="margin-bottom:12px;padding:8px 12px;background:#fff;border-radius:8px;border:1px solid #e2e8f0;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
+        <div class="top-filter-search-box" style="flex:1;max-width:360px;">
+          <svg class="gi-icon top-filter-search-icon" style="width:14px;height:14px;"><use href="#gi-search"></use></svg>
+          <input
+            type="text"
+            id="exportItemsSearch"
+            class="top-filter-search-input"
+            placeholder="Search items by name, SKU, category..."
+          />
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <button class="secondary-button compact-button" data-action="select-all-export-btn" type="button" style="height:32px;font-size:12px;padding:0 10px;">Select All</button>
+          <button class="secondary-button compact-button" data-action="clear-export-selection-btn" type="button" style="height:32px;font-size:12px;padding:0 10px;">Clear</button>
+        </div>
+      </div>
 
-      <section class="data-table-card invoice-data-card" style="margin-top:12px;">
+      <section class="data-table-card invoice-data-card" style="margin-top:0;">
         <table class="data-table">
           <thead>
             <tr>
+              <th style="width:40px;text-align:center;padding:0 8px;">
+                <input type="checkbox" id="selectAllExportItems" title="Select All Items" style="width:16px;height:16px;cursor:pointer;accent-color:#0c7ee8;">
+              </th>
               <th>Item Name</th>
               <th>SKU</th>
               <th>Category</th>
@@ -18504,7 +18640,10 @@ function exportItemsTemplate() {
           </thead>
           <tbody>
             ${items.length ? items.map((item) => `
-              <tr>
+              <tr data-item-id="${item.id}" style="cursor:pointer;">
+                <td style="width:40px;text-align:center;padding:0 8px;">
+                  <input type="checkbox" class="export-item-checkbox" data-item-id="${item.id}" style="width:16px;height:16px;cursor:pointer;accent-color:#0c7ee8;">
+                </td>
                 <td><strong>${escapeHtml(item.name || "-")}</strong></td>
                 <td><code style="font-size:12px;">${escapeHtml(item.sku || "-")}</code></td>
                 <td>${escapeHtml(item.category || "-")}</td>
@@ -18517,7 +18656,7 @@ function exportItemsTemplate() {
                 <td class="num amount-cell strong">${formatCurrency(Number(item.currentStock || 0) * Number(item.purchasePrice || 0))}</td>
               </tr>
             `).join("") : `
-              <tr><td colspan="10" style="text-align:center;padding:24px;color:#64748b;">No items available to export.</td></tr>
+              <tr><td colspan="11" style="text-align:center;padding:24px;color:#64748b;">No items available to export.</td></tr>
             `}
           </tbody>
         </table>
@@ -18526,11 +18665,12 @@ function exportItemsTemplate() {
   `;
 }
 
-function exportItemsToCsv() {
+function exportItemsToCsv(itemsToExport = null) {
   showGlobalLoader("Exporting Items...", "Preparing CSV file download...");
   setTimeout(() => {
     try {
-      const items = state.items || [];
+      const allItems = state.items || [];
+      const items = Array.isArray(itemsToExport) ? itemsToExport : allItems;
       if (!items.length) {
         showToast("No items to export.");
         return;
@@ -18560,7 +18700,7 @@ function exportItemsToCsv() {
       link.click();
       document.body.removeChild(link);
       URL.revokeObjectURL(url);
-      showToast("Items exported to CSV successfully.");
+      showToast(`${items.length} item(s) exported to CSV successfully.`);
     } finally {
       setTimeout(hideGlobalLoader, 300);
     }
