@@ -29428,7 +29428,7 @@ Warm regards,
     showView("whatsapp");
 
     setTimeout(() => {
-      const view = elements.featureView?.querySelector(".whatsapp-connect-view");
+      const view = elements.featureView?.querySelector(".whatsapp-connect-view") || document.querySelector(".whatsapp-connect-view");
       const input = view?.querySelector("#waMessageInput");
       const draftBar = view?.querySelector("#waDraftAttachmentBar");
       if (draftBar) {
@@ -30006,7 +30006,7 @@ async function draftWhatsAppStatement(party, preset = "thisMonth") {
     type: "pdf"
   };
 
-  const view = elements.featureView?.querySelector(".whatsapp-connect-view");
+  const view = elements.featureView?.querySelector(".whatsapp-connect-view") || document.querySelector(".whatsapp-connect-view");
   const input = view?.querySelector("#waMessageInput");
   const draftBar = view?.querySelector("#waDraftAttachmentBar");
 
@@ -30430,21 +30430,6 @@ function whatsappConnectTemplate() {
             </div>
 
             <div class="wa-quick-pills-bar" style="position:relative;">
-              <div class="wa-statement-period-menu hidden" id="waStatementPeriodMenu">
-                <div class="wa-period-menu-header">Select Statement Period</div>
-                <button type="button" class="wa-period-item" data-period="thisMonth">
-                  <span class="period-dot"></span> <strong>This Month</strong> (Current)
-                </button>
-                <button type="button" class="wa-period-item" data-period="lastMonth">
-                  <span class="period-dot"></span> <strong>Last Month</strong>
-                </button>
-                <button type="button" class="wa-period-item" data-period="thisFinancialYear">
-                  <span class="period-dot"></span> <strong>Current Financial Year</strong>
-                </button>
-                <button type="button" class="wa-period-item" data-period="all">
-                  <span class="period-dot"></span> <strong>All Time</strong> (Full Ledger)
-                </button>
-              </div>
               ${latestInvoice ? `
                 <button type="button" class="wa-quick-pill highlight" data-wa-quick="latest-bill" title="Draft Latest Invoice PDF (#${escapeHtml(latestInvoice.invoiceNo || 'INV')})">
                   <span style="color:#2563eb;">📄</span> <strong>Latest Bill</strong>
@@ -30800,7 +30785,8 @@ function bindWhatsAppConnectActions() {
   });
 
   stmtPeriodMenu?.querySelectorAll(".wa-period-item").forEach((btn) => {
-    btn.addEventListener("click", () => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
       const period = btn.getAttribute("data-period") || "thisMonth";
       stmtPeriodMenu.classList.add("hidden");
       draftWhatsAppStatement(activeParty, period);
@@ -30808,7 +30794,7 @@ function bindWhatsAppConnectActions() {
   });
 
   document.addEventListener("click", (e) => {
-    if (stmtPeriodMenu && !stmtPeriodMenu.contains(e.target) && e.target !== stmtPillBtn) {
+    if (stmtPeriodMenu && !stmtPeriodMenu.contains(e.target) && !stmtPillBtn?.contains(e.target)) {
       stmtPeriodMenu.classList.add("hidden");
     }
   });
