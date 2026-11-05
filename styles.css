@@ -21605,3 +21605,51 @@ button.secondary-button.wa-btn:hover {
   background: #fef2f2;
   border-color: #dc2626;
 }
+
+/* WhatsApp Pairing Gatekeeper & Direct Desktop Quick Send */
+.wa-qr-terms-gatekeeper {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 16px;
+  text-align: center;
+  min-height: 220px;
+  background: #f8fafc;
+  border: 1.5px dashed #cbd5e1;
+  border-radius: 12px;
+  transition: all 0.2s ease;
+}
+
+.wa-direct-desktop-panel {
+  background: #ffffff;
+  border: 1px solid var(--border-color, #e2e8f0);
+  border-radius: 12px;
+  padding: 22px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.04);
+  margin-top: 24px;
+}
+
+.wa-preset-btn {
+  padding: 6px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 20px;
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+  color: #334155;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.wa-preset-btn:hover {
+  background: #f8fafc;
+  border-color: #94a3b8;
+}
+
+.wa-preset-btn.active {
+  background: #f0fdf4 !important;
+  border-color: #25D366 !important;
+  color: #15803d !important;
+  box-shadow: 0 1px 3px rgba(37, 211, 102, 0.2);
+}
