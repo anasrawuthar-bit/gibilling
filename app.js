@@ -10640,8 +10640,12 @@ async function handleEntrySubmit(event) {
     bindFeatureActions();
   }
   if (currentView === "items") {
+    const listPanel = elements.featureView.querySelector(".item-list-panel");
+    const savedScroll = listPanel ? listPanel.scrollTop : 0;
     elements.featureView.innerHTML = itemsTemplate(editingRecordId || null, "overview", itemSearchQuery);
     bindFeatureActions();
+    const nextListPanel = elements.featureView.querySelector(".item-list-panel");
+    if (nextListPanel) nextListPanel.scrollTop = savedScroll;
   }
   renderCurrentList();
   if (currentView === "sales") renderSaleInvoices();
@@ -15393,9 +15397,13 @@ function bindFeatureActions() {
   if (itemStockFilterSelect) {
     itemStockFilterSelect.addEventListener("change", (e) => {
       itemAdvancedFilter.stockLevel = e.target.value;
+      const listPanel = elements.featureView.querySelector(".item-list-panel");
+      const savedScroll = listPanel ? listPanel.scrollTop : 0;
       const selectedId = elements.featureView.querySelector(".item-list-item.active")?.dataset.itemId;
       elements.featureView.innerHTML = itemsTemplate(selectedId ? Number(selectedId) : null, "overview", itemSearchQuery);
       bindFeatureActions();
+      const nextListPanel = elements.featureView.querySelector(".item-list-panel");
+      if (nextListPanel) nextListPanel.scrollTop = savedScroll;
     });
   }
 
@@ -15403,9 +15411,13 @@ function bindFeatureActions() {
   if (itemTypeFilterSelect) {
     itemTypeFilterSelect.addEventListener("change", (e) => {
       itemAdvancedFilter.itemType = e.target.value;
+      const listPanel = elements.featureView.querySelector(".item-list-panel");
+      const savedScroll = listPanel ? listPanel.scrollTop : 0;
       const selectedId = elements.featureView.querySelector(".item-list-item.active")?.dataset.itemId;
       elements.featureView.innerHTML = itemsTemplate(selectedId ? Number(selectedId) : null, "overview", itemSearchQuery);
       bindFeatureActions();
+      const nextListPanel = elements.featureView.querySelector(".item-list-panel");
+      if (nextListPanel) nextListPanel.scrollTop = savedScroll;
     });
   }
 
@@ -15413,9 +15425,13 @@ function bindFeatureActions() {
   if (itemCategoryFilter) {
     itemCategoryFilter.addEventListener("change", (e) => {
       itemAdvancedFilter.category = itemCategoryFilter.value;
+      const listPanel = elements.featureView.querySelector(".item-list-panel");
+      const savedScroll = listPanel ? listPanel.scrollTop : 0;
       const selectedId = elements.featureView.querySelector(".item-list-item.active")?.dataset.itemId;
       elements.featureView.innerHTML = itemsTemplate(selectedId ? Number(selectedId) : null, "overview", itemSearchQuery);
       bindFeatureActions();
+      const nextListPanel = elements.featureView.querySelector(".item-list-panel");
+      if (nextListPanel) nextListPanel.scrollTop = savedScroll;
     });
   }
 
@@ -16304,61 +16320,96 @@ function bindFeatureActions() {
       bindFeatureActions();
     });
   });
-  elements.featureView.querySelectorAll("[data-item-id]:not([data-action='edit-item']):not([data-action='print-item-barcode'])").forEach((button) => {
-    button.addEventListener("click", () => {
-      elements.featureView.innerHTML = itemsTemplate(Number(button.dataset.itemId), "stockLedger", itemSearchQuery);
-      bindFeatureActions();
+  function bindItemDetailActions() {
+    elements.featureView.querySelector("[data-action='edit-item']")?.addEventListener("click", (event) => {
+      const id = Number(event.currentTarget.dataset.itemId);
+      const item = (state.items || []).find((record) => Number(record.id) === id);
+      if (item) openEntryModal("item", item);
     });
-  });
+    elements.featureView.querySelectorAll("[data-action='print-item-barcode']").forEach((btn) => {
+      btn.addEventListener("click", (event) => {
+        event.stopPropagation();
+        const id = Number(event.currentTarget.dataset.itemId);
+        const item = (state.items || []).find((record) => Number(record.id) === id);
+        if (item) {
+          barcodeQueue = [{
+            itemId: item.id,
+            copies: Math.max(1, Math.min(120, Number(item.currentStock || item.openingStock || 12))),
+            customCode: item.sku || barcodeValueForItem(item),
+          }];
+          showView("barcodeGenerator");
+          showToast(`Preparing barcode labels for "${item.name}".`);
+        }
+      });
+    });
+    elements.featureView.querySelectorAll("[data-item-sort-col]").forEach((th) => {
+      th.addEventListener("click", () => {
+        const col = th.dataset.itemSortCol;
+        const current = itemStockLedgerSort || { column: "date", direction: "desc" };
+        let newDir = "asc";
+        if (current.column === col) {
+          newDir = current.direction === "asc" ? "desc" : "asc";
+        } else {
+          newDir = (col === "date" || col === "qtyIn" || col === "qtyOut" || col === "rate") ? "desc" : "asc";
+        }
+        itemStockLedgerSort = { column: col, direction: newDir };
+        const activeItemBtn = elements.featureView.querySelector(".item-list-item.active");
+        const activeItemId = activeItemBtn ? Number(activeItemBtn.dataset.itemId) : null;
+        const item = (state.items || []).find((r) => Number(r.id) === activeItemId);
+        if (item) {
+          const tabBody = elements.featureView.querySelector(".item-tab-body");
+          if (tabBody) {
+            tabBody.innerHTML = itemStockLedgerTable(item);
+            bindItemDetailActions();
   const itemSearchInput = elements.featureView.querySelector("#itemSearchInput");
   itemSearchInput?.addEventListener("input", () => {
+    const listPanel = elements.featureView.querySelector(".item-list-panel");
+    const savedScroll = listPanel ? listPanel.scrollTop : 0;
     const selectedId = elements.featureView.querySelector(".item-list-item.active")?.dataset.itemId;
     itemSearchQuery = itemSearchInput.value;
     elements.searchInput.value = itemSearchQuery;
     elements.featureView.innerHTML = itemsTemplate(selectedId ? Number(selectedId) : null, "stockLedger", itemSearchQuery);
     bindFeatureActions();
+    const nextListPanel = elements.featureView.querySelector(".item-list-panel");
+    if (nextListPanel) nextListPanel.scrollTop = savedScroll;
     const nextSearchInput = elements.featureView.querySelector("#itemSearchInput");
     nextSearchInput?.focus();
     nextSearchInput?.setSelectionRange(itemSearchQuery.length, itemSearchQuery.length);
   });
-  elements.featureView.querySelectorAll("[data-item-sort-col]").forEach((th) => {
-    th.addEventListener("click", () => {
-      const col = th.dataset.itemSortCol;
-      const current = itemStockLedgerSort || { column: "date", direction: "desc" };
-      let newDir = "asc";
-      if (current.column === col) {
-        newDir = current.direction === "asc" ? "desc" : "asc";
-      } else {
-        newDir = (col === "date" || col === "qtyIn" || col === "qtyOut" || col === "rate") ? "desc" : "asc";
-      }
-      itemStockLedgerSort = { column: col, direction: newDir };
-      const selectedId = elements.featureView.querySelector(".item-list-item.active")?.dataset.itemId;
-      elements.featureView.innerHTML = itemsTemplate(selectedId ? Number(selectedId) : null, "stockLedger", itemSearchQuery);
-      bindFeatureActions();
-    });
-  });
   elements.featureView.querySelector("[data-action='add-item']")?.addEventListener("click", () => openEntryModal("item"));
-  elements.featureView.querySelector("[data-action='edit-item']")?.addEventListener("click", (event) => {
-    const id = Number(event.currentTarget.dataset.itemId);
-    const item = (state.items || []).find((record) => Number(record.id) === id);
-    if (item) openEntryModal("item", item);
-  });
-  elements.featureView.querySelectorAll("[data-action='print-item-barcode']").forEach((btn) => {
-    btn.addEventListener("click", (event) => {
-      event.stopPropagation();
-      const id = Number(event.currentTarget.dataset.itemId);
+          }
+        }
+      });
+    });
+    elements.featureView.querySelectorAll(".item-detail-panel [data-invoice-action]").forEach((button) => {
+      button.addEventListener("click", (e) => {
+        e.stopPropagation();
+        button.closest("details")?.removeAttribute("open");
+        handleInvoiceListAction(button.dataset.invoiceAction, button.dataset.invoiceId);
+      });
+    });
+  }
+
+  elements.featureView.querySelectorAll(".item-list-item[data-item-id]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const id = Number(button.dataset.itemId);
+      elements.featureView.querySelectorAll(".item-list-item").forEach((btn) => btn.classList.remove("active"));
+      button.classList.add("active");
+      const detailPanel = elements.featureView.querySelector(".item-detail-panel");
       const item = (state.items || []).find((record) => Number(record.id) === id);
-      if (item) {
-        barcodeQueue = [{
-          itemId: item.id,
-          copies: Math.max(1, Math.min(120, Number(item.currentStock || item.openingStock || 12))),
-          customCode: item.sku || barcodeValueForItem(item),
-        }];
-        showView("barcodeGenerator");
-        showToast(`Preparing barcode labels for "${item.name}".`);
+      if (detailPanel) {
+        detailPanel.innerHTML = item ? itemDetail(item) : emptyItemDetail();
+        bindItemDetailActions();
       }
     });
+    button.addEventListener("dblclick", (e) => {
+      e.preventDefault();
+      const id = Number(button.dataset.itemId);
+      const item = (state.items || []).find((record) => Number(record.id) === id);
+      if (item) openEntryModal("item", item);
+    });
   });
+  bindItemDetailActions();
   elements.featureView.querySelector("[data-action='print-all-barcodes']")?.addEventListener("click", () => {
     showView("barcodeGenerator");
   });
@@ -16369,7 +16420,7 @@ function bindFeatureActions() {
   });
   bindBarcodeGeneratorActions();
   elements.featureView.querySelector("[data-action='back-to-items']")?.addEventListener("click", () => {
-    renderFeatureView("items");
+    showView("items");
   });
   bindPosActions();
 
@@ -22440,10 +22491,6 @@ function itemsTemplate(selectedItemId = null, activeTab = "overview", query = it
         <div class="title-actions">
           <button class="secondary-button" type="button" data-action="manage-item-masters">Units &amp; Categories</button>
           <button class="secondary-button" type="button" data-action="stock-adjustment">Stock Adjustment</button>
-          <button class="secondary-button" type="button" data-action="print-all-barcodes" title="Open Barcode Label Print Center">
-            <svg class="gi-icon" style="width:14px;height:14px;margin-right:4px;vertical-align:text-bottom;"><use href="#gi-printer"></use></svg>
-            Print Labels
-          </button>
           <button class="secondary-button" type="button" data-action="import-items">Import Items</button>
           <button class="primary-button square" type="button" data-action="add-item">+ Add Item</button>
         </div>
@@ -22790,7 +22837,7 @@ function renderMastersTabContent() {
 
 function bindMastersActions(rowsOnly = false) {
   if (!rowsOnly) {
-  document.querySelectorAll('.masters-tab, #addUnitBtn, #addCategoryBtn').forEach((node) => node.replaceWith(node.cloneNode(true)));
+  document.querySelectorAll('.masters-tab, #addUnitBtn, #addCategoryBtn, [data-action="back-to-items"]').forEach((node) => node.replaceWith(node.cloneNode(true)));
   document.querySelector("[data-masters-tab='units']")?.addEventListener("click", () => {
     document.querySelectorAll(".masters-tab").forEach((t) => t.classList.remove("active"));
     document.querySelector("[data-masters-tab='units']")?.classList.add("active");
@@ -22803,6 +22850,9 @@ function bindMastersActions(rowsOnly = false) {
   });
   document.getElementById("addUnitBtn")?.addEventListener("click", () => openMasterFormModal("unit"));
   document.getElementById("addCategoryBtn")?.addEventListener("click", () => openMasterFormModal("category"));
+    document.querySelector("[data-action='back-to-items']")?.addEventListener("click", () => {
+      showView("items");
+    });
   }
   document.querySelectorAll("[data-edit-unit]").forEach((btn) => {
     btn.addEventListener("click", () => {
