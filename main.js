@@ -459,8 +459,13 @@ function registerDatabaseHandlers() {
   });
   ipcMain.handle("whatsapp:open-link", async (_event, url) => {
     if (typeof url === "string" && (url.startsWith("https://wa.me/") || url.startsWith("https://web.whatsapp.com/") || url.startsWith("whatsapp://"))) {
-      await shell.openExternal(url);
-      return { success: true };
+      try {
+        await shell.openExternal(url);
+        return { success: true };
+      } catch (err) {
+        console.warn("Could not open external WhatsApp link:", url, err);
+        return { success: false, error: err?.message || String(err) };
+      }
     }
     return { success: false, error: "Invalid WhatsApp URL format." };
   });
