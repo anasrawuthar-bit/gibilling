@@ -10445,6 +10445,8 @@ async function handleEntrySubmit(event) {
     const openingBalance = Number(form.get("openingBalance") || 0);
     const openingBalanceType = String(form.get("openingBalanceType") || "receivable");
     const normalizedOpeningBalance = openingBalanceType === "payable" ? -Math.abs(openingBalance) : Math.abs(openingBalance);
+    const resolvedTaxType = String(form.get("taxType") || "unregistered");
+    const resolvedGstin = (resolvedTaxType === "unregistered" || resolvedTaxType === "overseas") ? "" : String(form.get("gstin") || "").trim().toUpperCase();
     const partyDetails = {
       name: party,
       notes,
@@ -10452,11 +10454,11 @@ async function handleEntrySubmit(event) {
       phone: String(form.get("phone") || "").trim(),
       email: String(form.get("email") || "").trim(),
       contactPerson: String(form.get("contactPerson") || "").trim(),
-      taxType: String(form.get("taxType") || (form.get("gstin") ? "gst_registered" : "unregistered")),
-      gstin: String(form.get("gstin") || "").trim().toUpperCase(),
+      taxType: resolvedTaxType,
+      gstin: resolvedGstin,
       legalName: String(form.get("legalName") || "").trim(),
-      state: String(form.get("state") || getStateByGstin(form.get("gstin")) || "").trim(),
-      pan: String(form.get("pan") || (String(form.get("gstin") || "").trim().length >= 12 ? String(form.get("gstin") || "").trim().slice(2, 12) : "")).trim().toUpperCase(),
+      state: String(form.get("state") || (resolvedGstin ? getStateByGstin(resolvedGstin) : "") || "").trim(),
+      pan: String(form.get("pan") || (resolvedGstin.length >= 12 ? resolvedGstin.slice(2, 12) : "")).trim().toUpperCase(),
       billingAddress,
       shippingAddress,
       additionalAddresses,
