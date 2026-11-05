@@ -3523,17 +3523,21 @@ function populateTransactionEditorDraft(draft) {
   if (dueDateInput && draft.dueDate) dueDateInput.value = toEditorDateString(draft.dueDate);
   const firmState = state.businessSettings?.state || "Kerala";
   const draftGstin = String(draft.partyGstin || "").trim().toUpperCase();
+  const partyDerivedState = matchedParty ? (getStateByGstin(matchedParty.gstin) || resolveIndianStateName(matchedParty.state)) : "";
   let draftState = "";
-  const rawDraftState = draft.state !== undefined ? draft.state : draft.placeOfSupply;
-  if (rawDraftState !== undefined && rawDraftState !== null) {
-    const trimmed = String(rawDraftState).trim();
-    if (!trimmed || trimmed.toLowerCase() === "none") {
-      draftState = "";
-    } else {
-      draftState = resolveIndianStateName(trimmed) || trimmed;
-    }
-  } else {
+  if (partyDerivedState) {
+    draftState = partyDerivedState;
+  } else if (draftGstin) {
     draftState = getStateByGstin(draftGstin) || firmState;
+  } else {
+    const rawDraftState = draft.state !== undefined ? draft.state : draft.placeOfSupply;
+    if (rawDraftState !== undefined && rawDraftState !== null) {
+      const trimmed = String(rawDraftState).trim();
+      const resolved = resolveIndianStateName(trimmed) || trimmed;
+      draftState = (matchedParty && !partyDerivedState) ? firmState : (resolved || firmState);
+    } else {
+      draftState = firmState;
+    }
   }
   if (stateInput) ensureSelectValue(stateInput, draftState);
   if (supplyTypeInput && (draft.supplyType || draftGstin)) supplyTypeInput.value = draft.supplyType || (draftGstin ? "b2b" : "b2c");
@@ -7303,7 +7307,7 @@ function selectTransactionParty(party, options = {}) {
   const firmState = state.businessSettings?.state || "Kerala";
   const derivedGstinState = getStateByGstin(party.gstin);
   const resolvedPartyState = resolveIndianStateName(party.state);
-  const targetState = derivedGstinState || resolvedPartyState;
+  const targetState = derivedGstinState || resolvedPartyState || firmState;
   if (targetState && stateInput) ensureSelectValue(stateInput, targetState);
   syncEditorTaxOptions();
   const terms = party.paymentTerms || (Number(party.dueDays || 0) ? `Net ${Number(party.dueDays || 0)}` : "");
@@ -7711,7 +7715,7 @@ function applyEditorPartyIntelligence() {
   const firmState = state.businessSettings?.state || "Kerala";
   const derivedGstinState = getStateByGstin(party.gstin);
   const resolvedPartyState = resolveIndianStateName(party.state);
-  const targetState = derivedGstinState || resolvedPartyState;
+  const targetState = derivedGstinState || resolvedPartyState || firmState;
   if (targetState && stateInput) ensureSelectValue(stateInput, targetState);
   syncEditorTaxOptions();
   const isRegistered = Boolean(party.gstin || party.taxType === "gst_registered" || party.taxType === "composition");
@@ -8160,6 +8164,24 @@ function editorTaxSplitMode() {
   const firmState = state.businessSettings?.state || "Kerala";
   const rawPlace = elements.featureView.querySelector('[name="state"]')?.value || "";
   const placeOfSupply = resolveIndianStateName(rawPlace) || rawPlace;
+
+  const party = getSelectedTransactionParty();
+  if (party) {
+    const partyGstinState = getStateByGstin(party.gstin);
+    const partyState = resolveIndianStateName(party.state);
+    if (!partyGstinState && (!partyState || partyState.toLowerCase() === firmState.toLowerCase())) {
+      if (!placeOfSupply || placeOfSupply.toLowerCase() === firmState.toLowerCase()) {
+        return "local";
+      }
+    }
+    if (partyGstinState && partyGstinState.toLowerCase() !== firmState.toLowerCase()) {
+      return "igst";
+    }
+    if (partyState && partyState.toLowerCase() !== firmState.toLowerCase()) {
+      return "igst";
+    }
+  }
+
   return placeOfSupply && placeOfSupply.toLowerCase() !== firmState.toLowerCase() ? "igst" : "local";
 }
 
@@ -10458,7 +10480,7 @@ async function handleEntrySubmit(event) {
       taxType: resolvedTaxType,
       gstin: resolvedGstin,
       legalName: String(form.get("legalName") || "").trim(),
-      state: String(form.get("state") || (resolvedGstin ? getStateByGstin(resolvedGstin) : "") || "").trim(),
+      state: String(form.get("state") || (resolvedGstin ? getStateByGstin(resolvedGstin) : "") || (state.businessSettings?.state || "Kerala")).trim(),
       pan: String(form.get("pan") || (resolvedGstin.length >= 12 ? resolvedGstin.slice(2, 12) : "")).trim().toUpperCase(),
       billingAddress,
       shippingAddress,
