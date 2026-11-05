@@ -814,9 +814,46 @@ function defaultBusinessSettings() {
     printSignature: true,
     enableAdditionalFields: true,
     enableTax: true,
+    enableCess: false,
     customTaxRates: [0, 0.25, 3, 5, 12, 18, 28, 40],
+    taxSlabs: defaultTaxSlabs(),
     customFields: defaultCustomFieldDefinitions(),
   };
+}
+
+function defaultTaxSlabs() {
+  return [
+    { id: "tax_0", name: "None (0%)", rate: 0, cgst: 0, sgst: 0, igst: 0, cess: 0, isStandard: true },
+    { id: "tax_0_25", name: "GST 0.25%", rate: 0.25, cgst: 0.125, sgst: 0.125, igst: 0.25, cess: 0, isStandard: true },
+    { id: "tax_3", name: "GST 3%", rate: 3, cgst: 1.5, sgst: 1.5, igst: 3, cess: 0, isStandard: true },
+    { id: "tax_5", name: "GST 5%", rate: 5, cgst: 2.5, sgst: 2.5, igst: 5, cess: 0, isStandard: true },
+    { id: "tax_12", name: "GST 12%", rate: 12, cgst: 6, sgst: 6, igst: 12, cess: 0, isStandard: true },
+    { id: "tax_18", name: "GST 18%", rate: 18, cgst: 9, sgst: 9, igst: 18, cess: 0, isStandard: true },
+    { id: "tax_28", name: "GST 28%", rate: 28, cgst: 14, sgst: 14, igst: 28, cess: 0, isStandard: true },
+    { id: "tax_40", name: "GST 40%", rate: 40, cgst: 20, sgst: 20, igst: 40, cess: 0, isStandard: true },
+  ];
+}
+
+function normalizeTaxSlabs(slabs = []) {
+  if (!Array.isArray(slabs) || slabs.length === 0) return defaultTaxSlabs();
+  return slabs.map((s, idx) => {
+    const rate = Math.max(0, Math.min(100, Number(s.rate ?? 0)));
+    const cgst = s.cgst !== undefined ? Number(s.cgst) : rate / 2;
+    const sgst = s.sgst !== undefined ? Number(s.sgst) : rate / 2;
+    const igst = s.igst !== undefined ? Number(s.igst) : rate;
+    const cess = Math.max(0, Math.min(100, Number(s.cess ?? 0)));
+    const name = String(s.name || (rate === 0 ? "None (0%)" : `GST ${rate}%`)).trim();
+    return {
+      id: String(s.id || `tax_${rate}_${idx}`),
+      name,
+      rate,
+      cgst,
+      sgst,
+      igst,
+      cess,
+      isStandard: Boolean(s.isStandard),
+    };
+  });
 }
 
 function defaultCustomFieldDefinitions() {
@@ -5033,7 +5070,18 @@ async function handleBusinessSettingsSubmit(event) {
   if (formElement?.querySelector('[name="enableTax"]')) {
     settings.enableTax = form.get("enableTax") === "on";
   }
-  if (formElement?.querySelector('#customTaxRatesJson')) {
+  if (formElement?.querySelector('[name="enableCess"]')) {
+    settings.enableCess = form.get("enableCess") === "on";
+  }
+  if (formElement?.querySelector('#taxSlabsJson')) {
+    try {
+      const parsedSlabs = JSON.parse(form.get("taxSlabsJson") || "[]");
+      if (Array.isArray(parsedSlabs) && parsedSlabs.length > 0) {
+        settings.taxSlabs = normalizeTaxSlabs(parsedSlabs);
+        settings.customTaxRates = Array.from(new Set(settings.taxSlabs.map((s) => Number(s.rate)).filter((n) => !isNaN(n) && n >= 0 && n <= 100))).sort((a, b) => a - b);
+      }
+    } catch {}
+  } else if (formElement?.querySelector('#customTaxRatesJson')) {
     try {
       const parsed = JSON.parse(form.get("customTaxRatesJson") || "[]");
       if (Array.isArray(parsed) && parsed.length > 0) {
@@ -7895,6 +7943,12 @@ function editorUnitOptionsMarkup(selected = "Pcs") {
 }
 
 function getAvailableTaxRates() {
+  const slabs = state.businessSettings?.taxSlabs;
+  if (Array.isArray(slabs) && slabs.length > 0) {
+    const numeric = slabs.map((s) => Number(s.rate)).filter((n) => !isNaN(n) && n >= 0 && n <= 100);
+    if (!numeric.includes(0)) numeric.unshift(0);
+    return Array.from(new Set(numeric)).sort((a, b) => a - b);
+  }
   const custom = state.businessSettings?.customTaxRates;
   if (Array.isArray(custom) && custom.length > 0) {
     const numeric = custom.map(Number).filter((n) => !isNaN(n) && n >= 0 && n <= 100);
@@ -15524,15 +15578,230 @@ function bindFeatureActions() {
   });
 
   const enableTaxToggle = elements.featureView.querySelector("#enableTaxToggle");
+  const taxSlabsManagementCard = elements.featureView.querySelector("#taxSlabsManagementCard");
   const taxRatesConfigSection = elements.featureView.querySelector("#taxRatesConfigSection");
-  if (enableTaxToggle && taxRatesConfigSection) {
+  if (enableTaxToggle) {
     enableTaxToggle.addEventListener("change", () => {
-      taxRatesConfigSection.classList.toggle("hidden", !enableTaxToggle.checked);
+      if (taxSlabsManagementCard) {
+        taxSlabsManagementCard.style.display = enableTaxToggle.checked ? "" : "none";
+      }
+      if (taxRatesConfigSection) {
+        taxRatesConfigSection.classList.toggle("hidden", !enableTaxToggle.checked);
+      }
+    });
+  }
+
+  const enableCessToggle = elements.featureView.querySelector("#enableCessToggle");
+  const taxSlabCessTh = elements.featureView.querySelector("#taxSlabCessTh");
+  if (enableCessToggle) {
+    enableCessToggle.addEventListener("change", () => {
+      if (taxSlabCessTh) taxSlabCessTh.style.display = enableCessToggle.checked ? "" : "none";
+      elements.featureView.querySelectorAll(".tax-slab-cess-col").forEach((el) => {
+        el.style.display = enableCessToggle.checked ? "" : "none";
+      });
+      if (state.businessSettings) {
+        state.businessSettings.enableCess = enableCessToggle.checked;
+        if (window.giDB?.updateBusinessSettings) {
+          window.giDB.updateBusinessSettings(state.businessSettings).then((ns) => { state = normalizeState(ns); });
+        } else {
+          saveState();
+        }
+      }
+    });
+  }
+
+  const taxSlabsTableBody = elements.featureView.querySelector("#taxSlabsTableBody");
+  const taxSlabsJson = elements.featureView.querySelector("#taxSlabsJson");
+  const customTaxRatesJson = elements.featureView.querySelector("#customTaxRatesJson");
+  const btnAddNewTaxSlab = elements.featureView.querySelector("#btnAddNewTaxSlab");
+  const btnResetTaxSlabs = elements.featureView.querySelector("#btnResetTaxSlabs");
+
+  if (taxSlabsTableBody && taxSlabsJson) {
+    const renderTaxSlabsUI = () => {
+      let slabs = [];
+      try {
+        slabs = JSON.parse(taxSlabsJson.value || "[]");
+      } catch {}
+      if (!Array.isArray(slabs) || slabs.length === 0) slabs = defaultTaxSlabs();
+      slabs = normalizeTaxSlabs(slabs);
+      taxSlabsJson.value = JSON.stringify(slabs);
+      if (customTaxRatesJson) {
+        customTaxRatesJson.value = JSON.stringify(slabs.map((s) => Number(s.rate)));
+      }
+
+      const isCess = enableCessToggle ? enableCessToggle.checked : Boolean(state.businessSettings?.enableCess);
+      if (taxSlabCessTh) taxSlabCessTh.style.display = isCess ? "" : "none";
+
+      taxSlabsTableBody.innerHTML = slabs.map((slab) => {
+        const isZero = Number(slab.rate) === 0;
+        return `
+          <tr class="tax-slab-row" data-slab-id="${escapeHtml(slab.id)}">
+            <td class="tax-slab-name-cell">
+              <div class="tax-slab-title-group">
+                <strong class="tax-slab-title">${escapeHtml(slab.name)}</strong>
+                <span class="tax-slab-badge ${slab.isStandard ? 'standard' : 'custom'}">${slab.isStandard ? 'Standard GST' : 'Custom'}</span>
+              </div>
+            </td>
+            <td class="tax-slab-rate-cell" style="text-align:center;">
+              <span class="tax-slab-rate-pill">${slab.rate}%</span>
+            </td>
+            <td class="tax-slab-split-cell">
+              ${isZero ? `
+                <span class="tax-slab-no-split">Zero Tax / Exempt (0%)</span>
+              ` : `
+                <div class="tax-slab-split-pills">
+                  <span class="split-pill cgst">CGST: <strong>${slab.cgst}%</strong></span>
+                  <span class="split-plus">+</span>
+                  <span class="split-pill sgst">SGST: <strong>${slab.sgst}%</strong></span>
+                </div>
+              `}
+            </td>
+            <td class="tax-slab-igst-cell" style="text-align:center;">
+              <span class="split-pill igst">IGST: <strong>${slab.igst}%</strong></span>
+            </td>
+            <td class="tax-slab-cess-col tax-slab-cess-cell" style="text-align:center; ${isCess ? '' : 'display:none;'}">
+              <span class="split-pill cess">${slab.cess || 0}%</span>
+            </td>
+            <td class="tax-slab-actions-cell" style="text-align:right;">
+              <div class="tax-slab-actions-wrap">
+                <button type="button" class="btn-action-edit-slab" data-edit-slab="${escapeHtml(slab.id)}" title="Edit Tax Slab">
+                  <svg class="gi-icon"><use href="#gi-edit"></use></svg>
+                  Edit
+                </button>
+                ${isZero ? '' : `
+                  <button type="button" class="btn-action-delete-slab" data-delete-slab="${escapeHtml(slab.id)}" title="Delete Tax Slab">
+                    <svg class="gi-icon"><use href="#gi-trash"></use></svg>
+                    Delete
+                  </button>
+                `}
+              </div>
+            </td>
+          </tr>
+        `;
+      }).join("");
+
+      taxSlabsTableBody.querySelectorAll("[data-edit-slab]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const slabId = btn.dataset.editSlab;
+          let currentSlabs = [];
+          try {
+            currentSlabs = JSON.parse(taxSlabsJson.value || "[]");
+          } catch {}
+          const target = currentSlabs.find((s) => String(s.id) === String(slabId));
+          if (target) {
+            openTaxSlabModal(target, (updatedSlab) => {
+              const idx = currentSlabs.findIndex((s) => String(s.id) === String(slabId));
+              if (idx >= 0) {
+                currentSlabs[idx] = updatedSlab;
+              }
+              currentSlabs.sort((a, b) => Number(a.rate) - Number(b.rate));
+              taxSlabsJson.value = JSON.stringify(currentSlabs);
+              if (customTaxRatesJson) {
+                customTaxRatesJson.value = JSON.stringify(currentSlabs.map((s) => Number(s.rate)));
+              }
+              renderTaxSlabsUI();
+              if (state.businessSettings) {
+                state.businessSettings.taxSlabs = currentSlabs;
+                state.businessSettings.customTaxRates = Array.from(new Set(currentSlabs.map((s) => Number(s.rate)))).sort((a, b) => a - b);
+                if (window.giDB?.updateBusinessSettings) {
+                  window.giDB.updateBusinessSettings(state.businessSettings).then((ns) => { state = normalizeState(ns); });
+                } else {
+                  saveState();
+                }
+              }
+              showToast(`Updated "${updatedSlab.name}" successfully.`);
+            });
+          }
+        });
+      });
+
+      taxSlabsTableBody.querySelectorAll("[data-delete-slab]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const slabId = btn.dataset.deleteSlab;
+          let currentSlabs = [];
+          try {
+            currentSlabs = JSON.parse(taxSlabsJson.value || "[]");
+          } catch {}
+          const target = currentSlabs.find((s) => String(s.id) === String(slabId));
+          if (!target) return;
+          if (confirm(`Are you sure you want to delete "${target.name}"?`)) {
+            currentSlabs = currentSlabs.filter((s) => String(s.id) !== String(slabId));
+            taxSlabsJson.value = JSON.stringify(currentSlabs);
+            if (customTaxRatesJson) {
+              customTaxRatesJson.value = JSON.stringify(currentSlabs.map((s) => Number(s.rate)));
+            }
+            renderTaxSlabsUI();
+            if (state.businessSettings) {
+              state.businessSettings.taxSlabs = currentSlabs;
+              state.businessSettings.customTaxRates = Array.from(new Set(currentSlabs.map((s) => Number(s.rate)))).sort((a, b) => a - b);
+              if (window.giDB?.updateBusinessSettings) {
+                window.giDB.updateBusinessSettings(state.businessSettings).then((ns) => { state = normalizeState(ns); });
+              } else {
+                saveState();
+              }
+            }
+            showToast(`Deleted "${target.name}".`);
+          }
+        });
+      });
+    };
+
+    renderTaxSlabsUI();
+
+    btnAddNewTaxSlab?.addEventListener("click", () => {
+      openTaxSlabModal(null, (newSlab) => {
+        let currentSlabs = [];
+        try {
+          currentSlabs = JSON.parse(taxSlabsJson.value || "[]");
+        } catch {}
+        const existingIdx = currentSlabs.findIndex((s) => Number(s.rate) === Number(newSlab.rate));
+        if (existingIdx >= 0) {
+          currentSlabs[existingIdx] = newSlab;
+        } else {
+          currentSlabs.push(newSlab);
+        }
+        currentSlabs.sort((a, b) => Number(a.rate) - Number(b.rate));
+        taxSlabsJson.value = JSON.stringify(currentSlabs);
+        if (customTaxRatesJson) {
+          customTaxRatesJson.value = JSON.stringify(currentSlabs.map((s) => Number(s.rate)));
+        }
+        renderTaxSlabsUI();
+        if (state.businessSettings) {
+          state.businessSettings.taxSlabs = currentSlabs;
+          state.businessSettings.customTaxRates = Array.from(new Set(currentSlabs.map((s) => Number(s.rate)))).sort((a, b) => a - b);
+          if (window.giDB?.updateBusinessSettings) {
+            window.giDB.updateBusinessSettings(state.businessSettings).then((ns) => { state = normalizeState(ns); });
+          } else {
+            saveState();
+          }
+        }
+        showToast(`Tax slab "${newSlab.name}" added successfully.`);
+      });
+    });
+
+    btnResetTaxSlabs?.addEventListener("click", () => {
+      if (confirm("Reset all tax slabs to standard GST rates (0%, 0.25%, 3%, 5%, 12%, 18%, 28%, 40%)?")) {
+        const standardSlabs = defaultTaxSlabs();
+        taxSlabsJson.value = JSON.stringify(standardSlabs);
+        if (customTaxRatesJson) {
+          customTaxRatesJson.value = JSON.stringify(standardSlabs.map((s) => Number(s.rate)));
+        }
+        renderTaxSlabsUI();
+        if (state.businessSettings) {
+          state.businessSettings.taxSlabs = standardSlabs;
+          state.businessSettings.customTaxRates = standardSlabs.map((s) => Number(s.rate));
+          if (window.giDB?.updateBusinessSettings) {
+            window.giDB.updateBusinessSettings(state.businessSettings).then((ns) => { state = normalizeState(ns); });
+          } else {
+            saveState();
+          }
+        }
+        showToast("Reset to standard GST tax slabs.");
+      }
     });
   }
 
   const chipsContainer = elements.featureView.querySelector("#taxRatesChipsContainer");
-  const customTaxRatesJson = elements.featureView.querySelector("#customTaxRatesJson");
   const newTaxRateInput = elements.featureView.querySelector("#newTaxRateInput");
   const btnAddTaxRate = elements.featureView.querySelector("#btnAddTaxRate");
   const btnResetTaxRates = elements.featureView.querySelector("#btnResetTaxRates");
@@ -16743,15 +17012,24 @@ function setupBusinessTemplate() {
     },
     {
       num: "4",
-      title: "Inventory & Tax Rules",
-      desc: "Negative stock blocking, MRP auto-calculation, default tax inclusion, and HSN enforcement.",
-      status: settings.enableHsn ? "HSN Enabled" : "Standard Tax",
+      title: "Tax Configuration",
+      desc: "Configure GST slabs, intra-state split (CGST & SGST), IGST rates, and Cess.",
+      status: settings.enableTax !== false ? "GST Enabled" : "Non-Tax Mode",
       statusClass: "status-success",
-      tab: "TAX_INVENTORY",
-      action: "Configure Tax Rules",
+      tab: "TAX",
+      action: "Configure Tax",
     },
     {
       num: "5",
+      title: "Inventory Rules & Compliance",
+      desc: "Negative stock blocking, MRP auto-calculation, default tax inclusion, and HSN enforcement.",
+      status: settings.enableHsn ? "HSN Enabled" : "Standard Rules",
+      statusClass: "status-success",
+      tab: "INVENTORY",
+      action: "Configure Inventory Rules",
+    },
+    {
+      num: "6",
       title: "Custom Fields & Extra Notes",
       desc: "Add vehicle numbers, PO reference, delivery dates, or custom tracking notes.",
       status: "Custom Fields Ready",
@@ -27672,12 +27950,14 @@ const SETTINGS_TABS = [
   { id: "COMPANY", label: "Company Profile", note: "Identity, tax & logo", icon: "building" },
   { id: "INVOICING", label: "Invoicing & Sequences", note: "Prefix, numbers & terms", icon: "receipt" },
   { id: "PRINTING", label: "Print & Thermal POS", note: "A4, 80mm/58mm & QR", icon: "printer" },
-  { id: "TAX_INVENTORY", label: "Inventory & Tax Rules", note: "Negative stock, MRP & HSN", icon: "box" },
+  { id: "TAX", label: "Tax", note: "GST slabs, CGST/SGST & Cess", icon: "calculator" },
+  { id: "INVENTORY", label: "Inventory Rules", note: "Negative stock, MRP & HSN", icon: "box" },
   { id: "CUSTOM_FIELDS", label: "Custom Fields", note: "Extra transaction fields", icon: "tools" },
   { id: "ABOUT", label: "About & Version", note: "System info & build", icon: "help" },
 ];
 
 function settingsTemplate(active = "COMPANY") {
+  if (active === "TAX_INVENTORY") active = "TAX";
   if (active === "GENERAL" || !SETTINGS_TABS.some((t) => t.id === active)) {
     if (active === "CUSTOM FIELDS") active = "CUSTOM_FIELDS";
     else active = "COMPANY";
@@ -27686,7 +27966,8 @@ function settingsTemplate(active = "COMPANY") {
   const renderActiveContent = () => {
     if (active === "INVOICING") return settingsInvoicingTemplate();
     if (active === "PRINTING") return settingsPrintingTemplate();
-    if (active === "TAX_INVENTORY") return settingsTaxInventoryTemplate();
+    if (active === "TAX") return settingsTaxTemplate();
+    if (active === "INVENTORY") return settingsInventoryTemplate();
     if (active === "CUSTOM_FIELDS") return customFieldsSettingsTemplate();
     if (active === "ABOUT") return settingsAboutTemplate();
     return settingsCompanyProfileTemplate();
@@ -28235,18 +28516,26 @@ function settingsPrintingTemplate() {
   `;
 }
 
-function settingsTaxInventoryTemplate() {
+function settingsTaxTemplate() {
   const settings = state.businessSettings || defaultBusinessSettings();
   const taxEnabled = settings.enableTax !== false;
-  const rates = Array.isArray(settings.customTaxRates) && settings.customTaxRates.length
-    ? settings.customTaxRates
-    : [0, 0.25, 3, 5, 12, 18, 28, 40];
+  const cessEnabled = Boolean(settings.enableCess);
+  const taxSlabs = normalizeTaxSlabs(settings.taxSlabs || (Array.isArray(settings.customTaxRates) ? settings.customTaxRates.map((r) => ({
+    id: `tax_${r}`,
+    name: r === 0 ? "None (0%)" : `GST ${r}%`,
+    rate: r,
+    cgst: r / 2,
+    sgst: r / 2,
+    igst: r,
+    cess: 0,
+    isStandard: [0, 0.25, 3, 5, 12, 18, 28, 40].includes(r),
+  })) : defaultTaxSlabs()));
 
   return `
     <header class="settings-page-header">
       <div>
-        <h2>Inventory &amp; Tax Rules</h2>
-        <p>Set operational guardrails for negative inventory, tax computation defaults, and GST compliance.</p>
+        <h2>Tax Configuration</h2>
+        <p>Configure active GST rates, split breakdown (CGST &amp; SGST), inter-state IGST, and Cess rules.</p>
       </div>
       <div class="settings-header-actions">
         <span class="settings-status-indicator" id="businessSettingsStatus"></span>
@@ -28254,11 +28543,11 @@ function settingsTaxInventoryTemplate() {
       </div>
     </header>
 
-    <form class="business-settings-form" id="businessSettingsForm" data-settings-subtab="TAX_INVENTORY">
+    <form class="business-settings-form" id="businessSettingsForm" data-settings-subtab="TAX">
       <div class="settings-form-grid">
         <section class="settings-card" style="grid-column: 1 / -1;">
           <div class="settings-card-head">
-            <h3>Tax System Configuration</h3>
+            <h3>Tax System Controls</h3>
             <span class="badge">Master Switch</span>
           </div>
           <div class="settings-toggle-stack">
@@ -28266,32 +28555,83 @@ function settingsTaxInventoryTemplate() {
               <input type="checkbox" id="enableTaxToggle" name="enableTax" ${taxEnabled ? "checked" : ""}>
               <div class="settings-toggle-info">
                 <strong>Enable GST / Tax System</strong>
-                <span>Turn off to completely disable GST and run a clean non-tax billing business. When disabled, tax columns, percentages, and GST reports are completely hidden from invoices, items, and navigation.</span>
+                <span>Turn off to completely disable GST and run a clean non-tax billing business. When disabled, tax columns, percentages, and GST reports are completely hidden across invoices, items, and navigation.</span>
+              </div>
+            </label>
+            <label class="settings-toggle-row" style="margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border-color, #f1f5f9);">
+              <input type="checkbox" id="enableCessToggle" name="enableCess" ${cessEnabled ? "checked" : ""}>
+              <div class="settings-toggle-info">
+                <strong>Enable Cess (Compensation / Additional Cess)</strong>
+                <span>Enable this if your business deals with commodities or goods attracting GST Cess. Adds a dedicated Cess % column and calculation across tax slabs and invoices.</span>
               </div>
             </label>
           </div>
-
-          <div id="taxRatesConfigSection" class="tax-rates-config-section ${taxEnabled ? "" : "hidden"}" style="margin-top: 18px; padding-top: 18px; border-top: 1px solid var(--border-color, #e2e8f0);">
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 12px;">
-              <div>
-                <strong style="font-size: 14px; color: var(--text-heading, #1e293b); display: block;">Custom Tax Rates (%)</strong>
-                <span style="font-size: 12px; color: var(--text-muted, #64748b);">Customize the tax percentages available in your billing dropdowns. The 'None' option represents 0% tax.</span>
-              </div>
-              <button type="button" id="btnResetTaxRates" class="secondary-button" style="padding: 4px 10px; font-size: 12px;">Reset to Standard Rates</button>
-            </div>
-
-            <div id="taxRatesChipsContainer" class="tax-rates-chips-container" style="display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px;">
-              <!-- Chips will be rendered here dynamically -->
-            </div>
-
-            <div class="tax-rate-add-bar" style="display: flex; gap: 8px; align-items: center; max-width: 320px;">
-              <input type="number" id="newTaxRateInput" class="form-input" placeholder="e.g. 6 or 7.5" min="0" max="100" step="0.01" style="height: 36px; font-size: 13px;">
-              <button type="button" id="btnAddTaxRate" class="secondary-button" style="white-space: nowrap; height: 36px; padding: 0 14px; font-weight: 600;">+ Add Rate</button>
-            </div>
-            <input type="hidden" id="customTaxRatesJson" name="customTaxRatesJson" value="${escapeHtml(JSON.stringify(rates))}">
-          </div>
         </section>
 
+        <section class="settings-card" id="taxSlabsManagementCard" style="grid-column: 1 / -1; ${taxEnabled ? '' : 'display:none;'}">
+          <div class="settings-card-head" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
+            <div>
+              <h3 style="margin:0 0 4px 0;">Currently Active Tax Slabs &amp; Split Breakdown</h3>
+              <p style="margin:0; font-size:12px; color:var(--text-muted, #64748b);">
+                Shows all active taxes used in billing. Each slab displays its intra-state split (CGST + SGST) and inter-state rate (IGST).
+              </p>
+            </div>
+            <div style="display:flex; gap:8px;">
+              <button type="button" id="btnResetTaxSlabs" class="secondary-button" style="font-size:12px; padding:6px 12px; font-weight:600;">Reset Standard GST</button>
+              <button type="button" id="btnAddNewTaxSlab" class="primary-button" style="font-size:12px; padding:6px 14px; font-weight:600; display:inline-flex; align-items:center; gap:6px;">
+                <svg class="gi-icon" style="width:13px; height:13px;"><use href="#gi-plus"></use></svg>
+                + Add New Tax Slab
+              </button>
+            </div>
+          </div>
+
+          <div class="tax-slabs-table-wrap" style="margin-top: 16px;">
+            <table class="tax-slabs-table">
+              <thead>
+                <tr>
+                  <th>Tax Slab / Name</th>
+                  <th style="text-align:center;">Total Rate</th>
+                  <th>Intra-State Split (CGST + SGST)</th>
+                  <th style="text-align:center;">Inter-State (IGST)</th>
+                  <th id="taxSlabCessTh" class="tax-slab-cess-col" style="text-align:center; ${cessEnabled ? '' : 'display:none;'}">Cess (%)</th>
+                  <th style="text-align:right;">Actions</th>
+                </tr>
+              </thead>
+              <tbody id="taxSlabsTableBody">
+                <!-- Rendered dynamically -->
+              </tbody>
+            </table>
+          </div>
+
+          <input type="hidden" id="taxSlabsJson" name="taxSlabsJson" value="${escapeHtml(JSON.stringify(taxSlabs))}">
+          <input type="hidden" id="customTaxRatesJson" name="customTaxRatesJson" value="${escapeHtml(JSON.stringify(taxSlabs.map((s) => Number(s.rate))))}">
+        </section>
+      </div>
+    </form>
+  `;
+}
+
+function settingsTaxInventoryTemplate() {
+  return settingsTaxTemplate();
+}
+
+function settingsInventoryTemplate() {
+  const settings = state.businessSettings || defaultBusinessSettings();
+
+  return `
+    <header class="settings-page-header">
+      <div>
+        <h2>Inventory Rules &amp; Compliance</h2>
+        <p>Set operational guardrails for negative inventory, MRP pricing defaults, and HSN compliance.</p>
+      </div>
+      <div class="settings-header-actions">
+        <span class="settings-status-indicator" id="businessSettingsStatus"></span>
+        <button class="primary-button" type="submit" form="businessSettingsForm">Save Preferences</button>
+      </div>
+    </header>
+
+    <form class="business-settings-form" id="businessSettingsForm" data-settings-subtab="INVENTORY">
+      <div class="settings-form-grid">
         <section class="settings-card">
           <div class="settings-card-head">
             <h3>Inventory Protection</h3>
@@ -28342,6 +28682,158 @@ function settingsTaxInventoryTemplate() {
       </div>
     </form>
   `;
+}
+
+function openTaxSlabModal(slabToEdit = null, onSave = null) {
+  document.getElementById("taxSlabModal")?.remove();
+  const isEditing = Boolean(slabToEdit);
+  const settings = state.businessSettings || defaultBusinessSettings();
+  const cessEnabled = Boolean(settings.enableCess);
+
+  const initialRate = isEditing ? slabToEdit.rate : "";
+  const initialName = isEditing ? slabToEdit.name : "";
+  const initialCgst = isEditing ? slabToEdit.cgst : (initialRate !== "" ? initialRate / 2 : "");
+  const initialSgst = isEditing ? slabToEdit.sgst : (initialRate !== "" ? initialRate / 2 : "");
+  const initialIgst = isEditing ? slabToEdit.igst : initialRate;
+  const initialCess = isEditing ? (slabToEdit.cess || 0) : 0;
+
+  const modal = document.createElement("div");
+  modal.className = "modal-backdrop";
+  modal.id = "taxSlabModal";
+  modal.style.zIndex = "999999";
+
+  modal.innerHTML = `
+    <div class="modal-card" style="width: min(540px, 94vw); max-height: 90vh; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 20px 45px rgba(0,0,0,0.25); border-radius: 12px; background: #ffffff;">
+      <header class="modal-card-header" style="display:flex; justify-content:space-between; align-items:center; padding:16px 20px; border-bottom:1px solid #e2e8f0; background:#f8fafc;">
+        <div>
+          <strong style="font-size:16px; color:#0f172a;">${isEditing ? `Edit Tax Slab: ${escapeHtml(slabToEdit.name)}` : "Add New Tax Slab"}</strong>
+          <p style="margin:2px 0 0 0; font-size:12px; color:#64748b;">Specify total tax percentage, CGST/SGST split, and optional Cess</p>
+        </div>
+        <button type="button" class="close-button" data-action="close-tax-modal" style="font-size:22px; border:none; background:transparent; cursor:pointer; color:#64748b;">&times;</button>
+      </header>
+
+      <form id="taxSlabForm" style="padding:20px; overflow-y:auto; display:flex; flex-direction:column; gap:16px;">
+        <div style="display:grid; grid-template-columns: 1fr 1.5fr; gap:12px;">
+          <div>
+            <label style="font-size:12px; font-weight:600; color:#334155; display:block; margin-bottom:6px;">Total Tax Rate (%) *</label>
+            <input type="number" step="0.01" min="0" max="100" id="taxSlabRateInput" class="form-input" required value="${initialRate}" placeholder="e.g. 18 or 6" style="width:100%; height:38px; font-weight:700; font-size:15px;">
+          </div>
+          <div>
+            <label style="font-size:12px; font-weight:600; color:#334155; display:block; margin-bottom:6px;">Tax Slab Name *</label>
+            <input type="text" id="taxSlabNameInput" class="form-input" required value="${escapeHtml(initialName)}" placeholder="e.g. GST 18%" style="width:100%; height:38px; font-size:14px;">
+          </div>
+        </div>
+
+        <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:14px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+            <strong style="font-size:12px; text-transform:uppercase; letter-spacing:0.5px; color:#475569;">Intra-State &amp; Inter-State Split</strong>
+            <span style="font-size:11px; color:#64748b;">Auto-calculated (50/50 split)</span>
+          </div>
+          <div style="display:grid; grid-template-columns: 1fr 1fr; gap:12px;">
+            <div>
+              <label style="font-size:12px; font-weight:600; color:#1d4ed8; display:block; margin-bottom:4px;">CGST Rate (%) (Central)</label>
+              <input type="number" step="0.001" min="0" max="100" id="taxSlabCgstInput" class="form-input" required value="${initialCgst}" style="width:100%; height:34px; font-weight:600;">
+            </div>
+            <div>
+              <label style="font-size:12px; font-weight:600; color:#15803d; display:block; margin-bottom:4px;">SGST Rate (%) (State)</label>
+              <input type="number" step="0.001" min="0" max="100" id="taxSlabSgstInput" class="form-input" required value="${initialSgst}" style="width:100%; height:34px; font-weight:600;">
+            </div>
+          </div>
+          <div style="margin-top:12px;">
+            <label style="font-size:12px; font-weight:600; color:#7e22ce; display:block; margin-bottom:4px;">IGST Rate (%) (Inter-State)</label>
+            <input type="number" step="0.01" min="0" max="100" id="taxSlabIgstInput" class="form-input" required value="${initialIgst}" style="width:100%; height:34px; font-weight:600;">
+          </div>
+          <small style="display:block; margin-top:8px; color:#64748b; font-size:11.5px; line-height:1.4;">
+            For local/intra-state sales, GST splits equally into CGST &amp; SGST. For inter-state sales, full IGST is charged.
+          </small>
+        </div>
+
+        ${cessEnabled ? `
+          <div style="background:#fffbeb; border:1px solid #fde68a; border-radius:8px; padding:14px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; gap:12px;">
+              <div>
+                <strong style="font-size:13px; color:#92400e; display:block;">Cess Rate (%)</strong>
+                <span style="font-size:11.5px; color:#b45309;">Applies in addition to GST for luxury/sin/notified goods</span>
+              </div>
+              <input type="number" step="0.01" min="0" max="100" id="taxSlabCessInput" class="form-input" value="${initialCess}" placeholder="0" style="width:110px; height:36px; text-align:right; font-weight:700; color:#92400e;">
+            </div>
+          </div>
+        ` : ''}
+
+        <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:6px; padding-top:12px; border-top:1px solid #e2e8f0;">
+          <button type="button" class="secondary-button" data-action="close-tax-modal" style="padding:8px 16px;">Cancel</button>
+          <button type="submit" class="primary-button" style="padding:8px 20px; font-weight:600;">${isEditing ? "Update Tax Slab" : "Add Tax Slab"}</button>
+        </div>
+      </form>
+    </div>
+  `;
+
+  document.body.appendChild(modal);
+
+  const rateInput = modal.querySelector("#taxSlabRateInput");
+  const nameInput = modal.querySelector("#taxSlabNameInput");
+  const cgstInput = modal.querySelector("#taxSlabCgstInput");
+  const sgstInput = modal.querySelector("#taxSlabSgstInput");
+  const igstInput = modal.querySelector("#taxSlabIgstInput");
+
+  let userHasTypedName = isEditing;
+  nameInput?.addEventListener("input", () => {
+    userHasTypedName = true;
+  });
+
+  rateInput?.addEventListener("input", () => {
+    const val = parseFloat(rateInput.value);
+    if (!isNaN(val)) {
+      const half = Math.round((val / 2) * 1000) / 1000;
+      if (cgstInput) cgstInput.value = half;
+      if (sgstInput) sgstInput.value = half;
+      if (igstInput) igstInput.value = val;
+      if (!userHasTypedName && nameInput) {
+        nameInput.value = val === 0 ? "None (0%)" : `GST ${val}%`;
+      }
+    }
+  });
+
+  const closeModal = () => modal.remove();
+  modal.querySelectorAll('[data-action="close-tax-modal"]').forEach((btn) => btn.addEventListener("click", closeModal));
+
+  const escHandler = (e) => {
+    if (e.key === "Escape") {
+      closeModal();
+      document.removeEventListener("keydown", escHandler);
+    }
+  };
+  document.addEventListener("keydown", escHandler);
+
+  modal.querySelector("#taxSlabForm")?.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const rate = parseFloat(rateInput.value);
+    if (isNaN(rate) || rate < 0 || rate > 100) {
+      showToast("Please enter a valid total tax rate between 0 and 100.");
+      return;
+    }
+    const name = nameInput.value.trim() || (rate === 0 ? "None (0%)" : `GST ${rate}%`);
+    const cgst = parseFloat(cgstInput.value) || 0;
+    const sgst = parseFloat(sgstInput.value) || 0;
+    const igst = parseFloat(igstInput.value) || 0;
+    const cess = cessEnabled ? (parseFloat(modal.querySelector("#taxSlabCessInput")?.value) || 0) : 0;
+
+    const slabData = {
+      id: isEditing ? slabToEdit.id : `tax_${rate}_${Date.now()}`,
+      name,
+      rate,
+      cgst,
+      sgst,
+      igst,
+      cess,
+      isStandard: isEditing ? Boolean(slabToEdit.isStandard) : false,
+    };
+
+    if (typeof onSave === "function") {
+      onSave(slabData);
+    }
+    closeModal();
+  });
 }
 
 function openWhatsAppPaymentReminder(partyOrId, invoice = null) {

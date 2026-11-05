@@ -2278,8 +2278,45 @@ function defaultBusinessSettings(companyName = "testt") {
     enableHsn: true,
     enableAdditionalFields: true,
     enableTax: true,
+    enableCess: false,
     customTaxRates: [0, 0.25, 3, 5, 12, 18, 28, 40],
+    taxSlabs: defaultTaxSlabs(),
   };
+}
+
+function defaultTaxSlabs() {
+  return [
+    { id: "tax_0", name: "None (0%)", rate: 0, cgst: 0, sgst: 0, igst: 0, cess: 0, isStandard: true },
+    { id: "tax_0_25", name: "GST 0.25%", rate: 0.25, cgst: 0.125, sgst: 0.125, igst: 0.25, cess: 0, isStandard: true },
+    { id: "tax_3", name: "GST 3%", rate: 3, cgst: 1.5, sgst: 1.5, igst: 3, cess: 0, isStandard: true },
+    { id: "tax_5", name: "GST 5%", rate: 5, cgst: 2.5, sgst: 2.5, igst: 5, cess: 0, isStandard: true },
+    { id: "tax_12", name: "GST 12%", rate: 12, cgst: 6, sgst: 6, igst: 12, cess: 0, isStandard: true },
+    { id: "tax_18", name: "GST 18%", rate: 18, cgst: 9, sgst: 9, igst: 18, cess: 0, isStandard: true },
+    { id: "tax_28", name: "GST 28%", rate: 28, cgst: 14, sgst: 14, igst: 28, cess: 0, isStandard: true },
+    { id: "tax_40", name: "GST 40%", rate: 40, cgst: 20, sgst: 20, igst: 40, cess: 0, isStandard: true },
+  ];
+}
+
+function normalizeTaxSlabs(slabs = []) {
+  if (!Array.isArray(slabs) || slabs.length === 0) return defaultTaxSlabs();
+  return slabs.map((s, idx) => {
+    const rate = Math.max(0, Math.min(100, Number(s.rate ?? 0)));
+    const cgst = s.cgst !== undefined ? Number(s.cgst) : rate / 2;
+    const sgst = s.sgst !== undefined ? Number(s.sgst) : rate / 2;
+    const igst = s.igst !== undefined ? Number(s.igst) : rate;
+    const cess = Math.max(0, Math.min(100, Number(s.cess ?? 0)));
+    const name = String(s.name || (rate === 0 ? "None (0%)" : `GST ${rate}%`)).trim();
+    return {
+      id: String(s.id || `tax_${rate}_${idx}`),
+      name,
+      rate,
+      cgst,
+      sgst,
+      igst,
+      cess,
+      isStandard: Boolean(s.isStandard),
+    };
+  });
 }
 
 function defaultCustomFields() {
@@ -2319,6 +2356,8 @@ function getBusinessSettings(explicitCompanyId = null) {
       ...(saved.bankDetails || {}),
     },
     customFields: normalizeCustomFields(saved.customFields || defaults.customFields),
+    enableCess: saved.enableCess !== undefined ? Boolean(saved.enableCess) : Boolean(defaults.enableCess ?? false),
+    taxSlabs: normalizeTaxSlabs(saved.taxSlabs || defaults.taxSlabs),
   };
   if (!res.invoicePrefixB2B || res.invoicePrefixB2B === "INV") {
     res.invoicePrefixB2B = "B2B";
@@ -2384,9 +2423,15 @@ function updateBusinessSettings(settings = {}) {
     enableHsn: settings.enableHsn !== undefined ? Boolean(settings.enableHsn) : Boolean(current.enableHsn ?? true),
     enableAdditionalFields: settings.enableAdditionalFields !== undefined ? Boolean(settings.enableAdditionalFields) : Boolean(current.enableAdditionalFields ?? true),
     enableTax: settings.enableTax !== undefined ? Boolean(settings.enableTax) : Boolean(current.enableTax ?? true),
-    customTaxRates: Array.isArray(settings.customTaxRates)
-      ? Array.from(new Set(settings.customTaxRates.map(Number).filter((n) => !isNaN(n) && n >= 0 && n <= 100))).sort((a, b) => a - b)
-      : (current.customTaxRates || [0, 0.25, 3, 5, 12, 18, 28, 40]),
+    enableCess: settings.enableCess !== undefined ? Boolean(settings.enableCess) : Boolean(current.enableCess ?? false),
+    taxSlabs: Array.isArray(settings.taxSlabs) && settings.taxSlabs.length > 0
+      ? normalizeTaxSlabs(settings.taxSlabs)
+      : (current.taxSlabs ? normalizeTaxSlabs(current.taxSlabs) : defaultTaxSlabs()),
+    customTaxRates: Array.isArray(settings.taxSlabs) && settings.taxSlabs.length > 0
+      ? Array.from(new Set(settings.taxSlabs.map((s) => Number(s.rate)).filter((n) => !isNaN(n) && n >= 0 && n <= 100))).sort((a, b) => a - b)
+      : (Array.isArray(settings.customTaxRates)
+        ? Array.from(new Set(settings.customTaxRates.map(Number).filter((n) => !isNaN(n) && n >= 0 && n <= 100))).sort((a, b) => a - b)
+        : (current.customTaxRates || [0, 0.25, 3, 5, 12, 18, 28, 40])),
   };
   Object.entries(next).forEach(([key, value]) => {
     run("INSERT OR REPLACE INTO company_settings (company_id, key, value) VALUES (?, ?, ?)", [company.id, key, JSON.stringify(value)]);
