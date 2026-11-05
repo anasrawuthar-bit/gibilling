@@ -17283,14 +17283,6 @@ function barcodeGeneratorTemplate() {
       <header class="app-page-header invoice-page-header barcode-titlebar">
         <div class="barcode-title-block">
           <h1>Barcode Generator</h1>
-          <div class="barcode-active-setup-pill">
-            <span class="barcode-hardware-badge ${currentPreset.isThermal ? "thermal" : "regular"}">
-              ${currentPreset.isThermal ? "🏷️ Label Printer" : "📄 Regular Printer"}
-            </span>
-            <span id="barcodeActiveSetupText" class="barcode-preset-badge">
-              ${currentPreset.name} (${currentPreset.widthMm}&times;${currentPreset.heightMm} mm)
-            </span>
-          </div>
         </div>
         <div class="barcode-top-controls">
           <!-- Printer Type Switcher -->
@@ -17322,11 +17314,6 @@ function barcodeGeneratorTemplate() {
           <button class="secondary-button square" type="button" data-action="open-barcode-setup" title="Change Printer Hardware & Size">
             <svg class="gi-icon" style="width:14px;height:14px;margin-right:4px;"><use href="#gi-settings"></use></svg>
             Change Setup
-          </button>
-
-          <button class="primary-button square" type="button" data-action="open-print-preview">
-            <svg class="gi-icon" style="width:15px;height:15px;margin-right:6px;"><use href="#gi-printer"></use></svg>
-            Preview All &amp; Print (<span id="barcodeTopCopyMetric">${totalLabels}</span>)
           </button>
         </div>
       </header>
