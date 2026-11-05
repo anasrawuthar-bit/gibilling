@@ -29747,6 +29747,426 @@ function getWhatsAppActiveParty() {
   return partyWithBal || allParties[0];
 }
 
+function getPartyLatestInvoice(party) {
+  if (!party) return null;
+  const pId = String(party.id || "");
+  const pName = (party.name || "").trim().toLowerCase();
+  const partyInvoices = (state.invoices || []).filter((inv) => {
+    if (pId && String(inv.partyId || "") === pId) return true;
+    if (pName && (inv.party || "").trim().toLowerCase() === pName) return true;
+    return false;
+  }).sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
+  return partyInvoices[0] || null;
+}
+
+function renderWhatsAppMessageBubble(m) {
+  const isMe = m.from === "me";
+  const hasAttachment = Boolean(m.attachment);
+  const isDelivered = m.status === "delivered";
+  return `
+    <div class="wa-message-bubble ${isMe ? "sent" : "received"} ${hasAttachment ? "has-attachment" : ""}">
+      ${hasAttachment ? `
+        <div class="wa-bubble-doc-card" data-doc-path="${escapeHtml(m.attachment.path || "")}" title="Click to open ${escapeHtml(m.attachment.name || "document")}">
+          <div class="wa-doc-icon-badge">
+            <svg viewBox="0 0 24 24" width="22" height="22" fill="#ef4444">
+              <path d="M20 2H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-8.5 7.5c0 .83-.67 1.5-1.5 1.5H9v2H7.5V7H10c.83 0 1.5.67 1.5 1.5v1zm5 2c0 .83-.67 1.5-1.5 1.5h-2.5V7H15c.83 0 1.5.67 1.5 1.5v3zm4-3H19v1h1.5V11H19v2h-1.5V7h3v1.5zM9 9.5h1v-1H9v1zM4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm10 5.5h1v-3h-1v3z"/>
+            </svg>
+          </div>
+          <div class="wa-doc-info">
+            <div class="wa-doc-name">${escapeHtml(m.attachment.name || "Document.pdf")}</div>
+            <div class="wa-doc-meta">${escapeHtml(m.attachment.size || "PDF Document")} &bull; Click to open</div>
+          </div>
+          <button type="button" class="wa-doc-action-btn" title="Open PDF">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+              <path d="M19 19H5V5h7V3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2v-7h-2v7zM14 3v2h3.59l-9.83 9.83 1.41 1.41L19 6.41V10h2V3h-7z"/>
+            </svg>
+          </button>
+        </div>
+      ` : ""}
+      ${m.text ? `<div class="wa-bubble-text">${escapeHtml(m.text)}</div>` : ""}
+      <div class="wa-bubble-footer">
+        <span>${escapeHtml(m.time || "12:46 PM")}</span>
+        ${isMe ? `<span class="wa-check-icon ${isDelivered ? "wa-delivered" : ""}">&#10003;&#10003;</span>` : ""}
+      </div>
+    </div>
+  `;
+}
+
+async function generateTempInvoicePdf(inv, party) {
+  if (!inv) return null;
+  const targetParty = party || (state.parties || []).find((p) => String(p.id) === String(inv.partyId)) || { name: inv.party || "Customer" };
+  const business = state.businessSettings || defaultBusinessSettings();
+  const preview = inv.rows ? inv : (typeof invoicePreviewDataFromRecord === "function" ? invoicePreviewDataFromRecord(inv) : sampleInvoicePreviewData());
+  const a4Tpl = business.a4Template || "modern";
+  const paperMarkup = invoicePreviewMarkup(preview, {
+    printerType: "a4",
+    a4Template: a4Tpl,
+    thermalTemplate: "retail",
+    thermalWidth: "80mm"
+  });
+  const styles = `<style>${Array.from(document.styleSheets).map((s) => {
+    try { return Array.from(s.cssRules).map(r => r.cssText).join('\n'); } catch { return ''; }
+  }).join('\n')}</style>`;
+  const htmlContent = `<!DOCTYPE html><html><head><meta charset="utf-8">${styles}<style>body{background:#fff;padding:20px;font-family:system-ui,-apple-system,sans-serif;}</style></head><body><div class="invoice-preview-paper paper-a4 template-${a4Tpl}">${paperMarkup}</div></body></html>`;
+  const filename = `${String(inv.invoiceNo || "Invoice").replace(/[^a-zA-Z0-9_-]/g, "_")}.pdf`;
+  if (window.giApp?.saveTempPdf) {
+    const res = await window.giApp.saveTempPdf({ htmlContent, filename });
+    if (res?.success && res.filePath) {
+      return { filePath: res.filePath, filename };
+    }
+  }
+  return null;
+}
+
+function openWhatsAppQuickStatementModal(party) {
+  if (!party) return;
+  document.getElementById("waStatementModalBackdrop")?.remove();
+  let currentPreset = "thisMonth";
+
+  const getStatement = (preset) => {
+    return calculatePartyStatementData(party, { preset });
+  };
+
+  let stmt = getStatement(currentPreset);
+
+  const backdrop = document.createElement("div");
+  backdrop.id = "waStatementModalBackdrop";
+  backdrop.className = "whatsapp-modal-backdrop";
+  backdrop.innerHTML = `
+    <div class="whatsapp-modal" role="dialog" aria-modal="true" style="max-width:540px;border-radius:16px;overflow:hidden;box-shadow:0 20px 40px rgba(0,0,0,0.2);">
+      <header class="whatsapp-modal-header" style="background:#075e54;color:#ffffff;padding:16px 20px;display:flex;align-items:center;justify-content:space-between;">
+        <div style="display:flex;align-items:center;gap:10px;">
+          <span style="font-size:20px;">📊</span>
+          <div>
+            <h3 style="margin:0;font-size:16px;font-weight:700;color:#ffffff;">Send Party Statement PDF</h3>
+            <span style="font-size:12px;opacity:0.9;">Recipient: ${escapeHtml(party.name || "Customer")} (${escapeHtml(party.phone || "No phone")})</span>
+          </div>
+        </div>
+        <button type="button" id="waStmtCloseBtn" style="background:none;border:none;font-size:22px;color:#ffffff;cursor:pointer;">&times;</button>
+      </header>
+      <div style="padding:20px;background:#f8fafc;display:flex;flex-direction:column;gap:14px;">
+        <div>
+          <label style="font-size:12px;font-weight:700;color:#334155;display:block;margin-bottom:6px;">Select Period Range</label>
+          <select id="waStmtPresetSelect" class="form-input" style="width:100%;font-weight:600;padding:8px 12px;border:1px solid #cbd5e1;border-radius:8px;">
+            <option value="thisMonth" selected>This Month (Current)</option>
+            <option value="lastMonth">Last Month</option>
+            <option value="thisFinancialYear">Current Financial Year</option>
+            <option value="all">All Time</option>
+          </select>
+        </div>
+        <div id="waStmtSummaryBox" style="background:#ffffff;border:1px solid #e2e8f0;border-radius:10px;padding:12px 16px;display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;text-align:center;">
+          <div>
+            <span style="font-size:11px;color:#64748b;display:block;">Total Debits</span>
+            <strong id="waStmtDebits" style="font-size:13px;color:#0f172a;">${escapeHtml(formatCurrency(stmt.totalDebits))}</strong>
+          </div>
+          <div>
+            <span style="font-size:11px;color:#64748b;display:block;">Total Credits</span>
+            <strong id="waStmtCredits" style="font-size:13px;color:#10b981;">${escapeHtml(formatCurrency(stmt.totalCredits))}</strong>
+          </div>
+          <div>
+            <span style="font-size:11px;color:#64748b;display:block;">Closing Due</span>
+            <strong id="waStmtClosing" style="font-size:13px;color:#dc2626;">${escapeHtml(stmt.formattedClosingBalance)}</strong>
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;">
+          <svg viewBox="0 0 24 24" width="24" height="24" fill="#ef4444"><path d="M20 2H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-8.5 7.5c0 .83-.67 1.5-1.5 1.5H9v2H7.5V7H10c.83 0 1.5.67 1.5 1.5v1zm5 2c0 .83-.67 1.5-1.5 1.5h-2.5V7H15c.83 0 1.5.67 1.5 1.5v3zm4-3H19v1h1.5V11H19v2h-1.5V7h3v1.5zM9 9.5h1v-1H9v1zM4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm10 5.5h1v-3h-1v3z"/></svg>
+          <div style="flex:1;">
+            <strong id="waStmtPdfName" style="font-size:12.5px;color:#991b1b;display:block;">${escapeHtml(stmt.filename)}</strong>
+            <span style="font-size:11px;color:#b91c1c;">Ledger Statement PDF will be generated &amp; attached</span>
+          </div>
+        </div>
+        <div>
+          <label style="font-size:12px;font-weight:700;color:#334155;display:block;margin-bottom:6px;">Message Caption</label>
+          <textarea id="waStmtCaption" class="form-input" rows="4" style="width:100%;font-size:12.5px;line-height:1.45;border:1px solid #cbd5e1;border-radius:8px;resize:none;">${escapeHtml(stmt.summaryMessage)}</textarea>
+        </div>
+        <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:6px;">
+          <button type="button" class="outline-mini-button" id="waStmtDraftBtn" style="padding:8px 14px;font-weight:600;">Draft into Chat</button>
+          <button type="button" class="primary-button" id="waStmtSendBtn" style="background:#25D366;border-color:#25D366;font-weight:700;padding:8px 18px;display:inline-flex;align-items:center;gap:6px;">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"></path></svg> Send Statement PDF
+          </button>
+        </div>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(backdrop);
+
+  const close = () => backdrop.remove();
+  backdrop.querySelector("#waStmtCloseBtn")?.addEventListener("click", close);
+  backdrop.addEventListener("click", (e) => { if (e.target === backdrop) close(); });
+
+  const select = backdrop.querySelector("#waStmtPresetSelect");
+  select?.addEventListener("change", (e) => {
+    currentPreset = e.target.value;
+    stmt = getStatement(currentPreset);
+    backdrop.querySelector("#waStmtDebits").textContent = formatCurrency(stmt.totalDebits);
+    backdrop.querySelector("#waStmtCredits").textContent = formatCurrency(stmt.totalCredits);
+    backdrop.querySelector("#waStmtClosing").textContent = stmt.formattedClosingBalance;
+    backdrop.querySelector("#waStmtPdfName").textContent = stmt.filename;
+    backdrop.querySelector("#waStmtCaption").value = stmt.summaryMessage;
+  });
+
+  backdrop.querySelector("#waStmtDraftBtn")?.addEventListener("click", () => {
+    const input = document.getElementById("waMessageInput");
+    if (input) {
+      input.value = backdrop.querySelector("#waStmtCaption").value;
+      input.focus();
+    }
+    close();
+    showToast("Statement message drafted into input box.");
+  });
+
+  backdrop.querySelector("#waStmtSendBtn")?.addEventListener("click", async () => {
+    const sendBtn = backdrop.querySelector("#waStmtSendBtn");
+    if (sendBtn) sendBtn.disabled = true;
+    showToast("Generating & sending Statement PDF via WhatsApp...");
+    try {
+      let pdfPath = null;
+      if (window.giApp?.saveTempPdf) {
+        const pdfRes = await window.giApp.saveTempPdf({
+          htmlContent: stmt.htmlContent,
+          filename: stmt.filename
+        });
+        if (pdfRes?.success) pdfPath = pdfRes.filePath;
+      }
+      const cleanPhone = formatWhatsAppPhoneNumber(party.phone);
+      const caption = backdrop.querySelector("#waStmtCaption").value;
+      const now = new Date();
+      const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      const pKey = String(party.id || party.name || "default");
+
+      if (cleanPhone && window.giApp?.whatsappSendMessage) {
+        const sendRes = await window.giApp.whatsappSendMessage({
+          phone: cleanPhone,
+          message: caption,
+          pdfPath,
+          pdfName: stmt.filename
+        });
+        if (!sendRes?.success && !sendRes?.messageId) {
+          showToast("Send error: " + (sendRes?.error || "Failed to send PDF"));
+        }
+      }
+
+      whatsappConnectState.chats[pKey] = whatsappConnectState.chats[pKey] || [];
+      whatsappConnectState.chats[pKey].push({
+        id: "msg-" + Date.now(),
+        text: caption,
+        time: timeStr,
+        from: "me",
+        status: "delivered",
+        attachment: {
+          name: stmt.filename,
+          path: pdfPath,
+          size: "Ledger Statement PDF",
+          type: "pdf"
+        }
+      });
+      saveWhatsAppConnectState();
+
+      close();
+      showToast(`Statement PDF sent to ${party.name}!`);
+      elements.featureView.innerHTML = whatsappConnectTemplate();
+      bindFeatureActions();
+    } catch (err) {
+      showToast("Failed to send Statement: " + err.message);
+    } finally {
+      if (sendBtn) sendBtn.disabled = false;
+    }
+  });
+}
+
+function openWhatsAppQuickLatestBillModal(party, invoice) {
+  if (!party || !invoice) {
+    showToast("No invoice available for this party.");
+    return;
+  }
+  document.getElementById("waLatestBillModalBackdrop")?.remove();
+  const docNo = invoice.invoiceNo || invoice.id || "INV-001";
+  const totalAmt = typeof invoice.amount === "number" ? invoice.amount : (invoiceTotalValue(invoice) || 0);
+  const defaultMsg = formatDirectInvoiceMessage(party, invoice);
+  const filename = `${String(docNo).replace(/[^a-zA-Z0-9_-]/g, "_")}.pdf`;
+
+  const backdrop = document.createElement("div");
+  backdrop.id = "waLatestBillModalBackdrop";
+  backdrop.className = "whatsapp-modal-backdrop";
+  backdrop.innerHTML = `
+    <div class="whatsapp-modal" role="dialog" aria-modal="true" style="max-width:540px;border-radius:16px;overflow:hidden;box-shadow:0 20px 40px rgba(0,0,0,0.2);">
+      <header class="whatsapp-modal-header" style="background:#075e54;color:#ffffff;padding:16px 20px;display:flex;align-items:center;justify-content:space-between;">
+        <div style="display:flex;align-items:center;gap:10px;">
+          <span style="font-size:20px;">📄</span>
+          <div>
+            <h3 style="margin:0;font-size:16px;font-weight:700;color:#ffffff;">Send Latest Invoice PDF</h3>
+            <span style="font-size:12px;opacity:0.9;">Recipient: ${escapeHtml(party.name || "Customer")} (${escapeHtml(party.phone || "No phone")})</span>
+          </div>
+        </div>
+        <button type="button" id="waBillCloseBtn" style="background:none;border:none;font-size:22px;color:#ffffff;cursor:pointer;">&times;</button>
+      </header>
+      <div style="padding:20px;background:#f8fafc;display:flex;flex-direction:column;gap:14px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;background:#ffffff;border:1px solid #e2e8f0;border-radius:10px;padding:12px 16px;">
+          <div>
+            <strong style="font-size:14px;color:#0f172a;">Invoice #${escapeHtml(docNo)}</strong>
+            <span style="font-size:12px;color:#64748b;display:block;">Dated: ${escapeHtml(formatDate(invoice.date))}</span>
+          </div>
+          <div style="text-align:right;">
+            <span style="font-size:11px;color:#64748b;display:block;">Invoice Amount</span>
+            <strong style="font-size:15px;color:#2563eb;">${escapeHtml(formatCurrency(totalAmt))}</strong>
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;">
+          <svg viewBox="0 0 24 24" width="24" height="24" fill="#2563eb"><path d="M20 2H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-8.5 7.5c0 .83-.67 1.5-1.5 1.5H9v2H7.5V7H10c.83 0 1.5.67 1.5 1.5v1zm5 2c0 .83-.67 1.5-1.5 1.5h-2.5V7H15c.83 0 1.5.67 1.5 1.5v3zm4-3H19v1h1.5V11H19v2h-1.5V7h3v1.5zM9 9.5h1v-1H9v1zM4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm10 5.5h1v-3h-1v3z"/></svg>
+          <div style="flex:1;">
+            <strong style="font-size:12.5px;color:#1e40af;display:block;">${escapeHtml(filename)}</strong>
+            <span style="font-size:11px;color:#3b82f6;">Tax Invoice PDF will be generated &amp; attached</span>
+          </div>
+        </div>
+        <div>
+          <label style="font-size:12px;font-weight:700;color:#334155;display:block;margin-bottom:6px;">Message Caption</label>
+          <textarea id="waBillCaption" class="form-input" rows="5" style="width:100%;font-size:12.5px;line-height:1.45;border:1px solid #cbd5e1;border-radius:8px;resize:none;">${escapeHtml(defaultMsg)}</textarea>
+        </div>
+        <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:6px;">
+          <button type="button" class="outline-mini-button" id="waBillDraftBtn" style="padding:8px 14px;font-weight:600;">Draft into Chat</button>
+          <button type="button" class="primary-button" id="waBillSendBtn" style="background:#25D366;border-color:#25D366;font-weight:700;padding:8px 18px;display:inline-flex;align-items:center;gap:6px;">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"></path></svg> Send Invoice PDF
+          </button>
+        </div>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(backdrop);
+
+  const close = () => backdrop.remove();
+  backdrop.querySelector("#waBillCloseBtn")?.addEventListener("click", close);
+  backdrop.addEventListener("click", (e) => { if (e.target === backdrop) close(); });
+
+  backdrop.querySelector("#waBillDraftBtn")?.addEventListener("click", () => {
+    const input = document.getElementById("waMessageInput");
+    if (input) {
+      input.value = backdrop.querySelector("#waBillCaption").value;
+      input.focus();
+    }
+    close();
+    showToast("Invoice message drafted into input box.");
+  });
+
+  backdrop.querySelector("#waBillSendBtn")?.addEventListener("click", async () => {
+    const sendBtn = backdrop.querySelector("#waBillSendBtn");
+    if (sendBtn) sendBtn.disabled = true;
+    showToast("Generating & sending Invoice PDF via WhatsApp...");
+    try {
+      const pdfRes = await generateTempInvoicePdf(invoice, party);
+      const cleanPhone = formatWhatsAppPhoneNumber(party.phone);
+      const caption = backdrop.querySelector("#waBillCaption").value;
+      const now = new Date();
+      const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      const pKey = String(party.id || party.name || "default");
+
+      if (cleanPhone && window.giApp?.whatsappSendMessage) {
+        const sendResult = await window.giApp.whatsappSendMessage({
+          phone: cleanPhone,
+          message: caption,
+          pdfPath: pdfRes?.filePath,
+          pdfName: filename
+        });
+        if (!sendResult?.success && !sendResult?.messageId) {
+          showToast("Send error: " + (sendResult?.error || "Failed to send PDF"));
+        }
+      }
+
+      whatsappConnectState.chats[pKey] = whatsappConnectState.chats[pKey] || [];
+      whatsappConnectState.chats[pKey].push({
+        id: "msg-" + Date.now(),
+        text: caption,
+        time: timeStr,
+        from: "me",
+        status: "delivered",
+        attachment: {
+          name: filename,
+          path: pdfRes?.filePath,
+          size: "Invoice PDF",
+          type: "pdf"
+        }
+      });
+      saveWhatsAppConnectState();
+
+      close();
+      showToast(`Invoice #${docNo} PDF sent to ${party.name}!`);
+      elements.featureView.innerHTML = whatsappConnectTemplate();
+      bindFeatureActions();
+    } catch (err) {
+      showToast("Failed to send Invoice: " + err.message);
+    } finally {
+      if (sendBtn) sendBtn.disabled = false;
+    }
+  });
+}
+
+function openWhatsAppInvoicePickerModal(party) {
+  if (!party) return;
+  document.getElementById("waPickerModalBackdrop")?.remove();
+  const pId = String(party.id || "");
+  const pName = (party.name || "").trim().toLowerCase();
+  const partyInvoices = (state.invoices || []).filter((inv) => {
+    if (pId && String(inv.partyId || "") === pId) return true;
+    if (pName && (inv.party || "").trim().toLowerCase() === pName) return true;
+    return false;
+  }).sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
+
+  const backdrop = document.createElement("div");
+  backdrop.id = "waPickerModalBackdrop";
+  backdrop.className = "whatsapp-modal-backdrop";
+  backdrop.innerHTML = `
+    <div class="whatsapp-modal" role="dialog" aria-modal="true" style="max-width:540px;border-radius:16px;overflow:hidden;box-shadow:0 20px 40px rgba(0,0,0,0.2);">
+      <header class="whatsapp-modal-header" style="background:#075e54;color:#ffffff;padding:16px 20px;display:flex;align-items:center;justify-content:space-between;">
+        <div style="display:flex;align-items:center;gap:10px;">
+          <span style="font-size:20px;">📋</span>
+          <div>
+            <h3 style="margin:0;font-size:16px;font-weight:700;color:#ffffff;">Select Invoice to Send</h3>
+            <span style="font-size:12px;opacity:0.9;">Customer: ${escapeHtml(party.name || "Customer")}</span>
+          </div>
+        </div>
+        <button type="button" id="waPickerCloseBtn" style="background:none;border:none;font-size:22px;color:#ffffff;cursor:pointer;">&times;</button>
+      </header>
+      <div style="padding:16px 20px;background:#f8fafc;max-height:400px;overflow-y:auto;display:flex;flex-direction:column;gap:8px;">
+        ${partyInvoices.length ? partyInvoices.map((inv) => {
+          const docNo = inv.invoiceNo || inv.id || "INV";
+          const total = typeof inv.amount === "number" ? inv.amount : (invoiceTotalValue(inv) || 0);
+          return `
+            <div class="wa-picker-row" data-inv-id="${escapeHtml(String(inv.id))}" style="display:flex;align-items:center;justify-content:space-between;padding:12px 14px;background:#ffffff;border:1px solid #e2e8f0;border-radius:10px;cursor:pointer;transition:all 0.12s ease;">
+              <div>
+                <strong style="font-size:13.5px;color:#0f172a;display:block;">#${escapeHtml(docNo)}</strong>
+                <span style="font-size:11.5px;color:#64748b;">${escapeHtml(formatDate(inv.date))}</span>
+              </div>
+              <div style="text-align:right;">
+                <strong style="font-size:13.5px;color:#10b981;display:block;">${escapeHtml(formatCurrency(total))}</strong>
+                <span style="font-size:11px;color:#2563eb;font-weight:600;">Select &amp; Send PDF &rarr;</span>
+              </div>
+            </div>
+          `;
+        }).join("") : `
+          <div style="padding:32px 16px;text-align:center;color:#64748b;font-size:13px;">
+            No invoices found for this party.
+          </div>
+        `}
+      </div>
+    </div>
+  `;
+  document.body.appendChild(backdrop);
+
+  const close = () => backdrop.remove();
+  backdrop.querySelector("#waPickerCloseBtn")?.addEventListener("click", close);
+  backdrop.addEventListener("click", (e) => { if (e.target === backdrop) close(); });
+
+  backdrop.querySelectorAll(".wa-picker-row").forEach((row) => {
+    row.addEventListener("click", () => {
+      const invId = row.getAttribute("data-inv-id");
+      const found = partyInvoices.find((i) => String(i.id) === invId);
+      if (found) {
+        close();
+        openWhatsAppQuickLatestBillModal(party, found);
+      }
+    });
+  });
+}
+
 function ensureDefaultWhatsAppChatsForParty(party) {
   if (!party) return [];
   const partyKey = String(party.id || party.name || "default");
@@ -29755,18 +30175,24 @@ function ensureDefaultWhatsAppChatsForParty(party) {
   }
   whatsappConnectState.chats = whatsappConnectState.chats || {};
 
+  const latestInv = getPartyLatestInvoice(party);
   const initialMsgs = [
     {
       id: "msg-init-1",
-      text: formatDirectInvoiceMessage(party),
-      time: "5:18 PM",
+      text: formatDirectInvoiceMessage(party, latestInv),
+      time: "12:46 PM",
       from: "me",
       status: "delivered",
+      attachment: latestInv ? {
+        name: `${String(latestInv.invoiceNo || "Invoice").replace(/[^a-zA-Z0-9_-]/g, "_")}.pdf`,
+        size: "82 KB • PDF Document",
+        type: "pdf"
+      } : null,
     },
     {
       id: "msg-init-2",
       text: formatDirectPaymentReminder(party),
-      time: "5:19 PM",
+      time: "12:47 PM",
       from: "me",
       status: "delivered",
     }
@@ -29945,6 +30371,7 @@ function whatsappConnectTemplate() {
   ];
 
   const currentActiveParty = getWhatsAppActiveParty() || displayParties[0];
+  const latestInvoice = getPartyLatestInvoice(currentActiveParty);
   const cleanPhone = String(currentActiveParty.phone || "").replace(/\D/g, "");
   const hasValidPhone = cleanPhone.length >= 7;
   const messages = hasValidPhone ? ensureDefaultWhatsAppChatsForParty(currentActiveParty) : [];
@@ -30071,33 +30498,50 @@ function whatsappConnectTemplate() {
           ` : `
             <div class="wa-chat-messages-scroll" id="waChatMessagesScroll">
               <div class="wa-date-pill">TODAY</div>
-              ${messages.map((m) => `
-                <div class="wa-message-bubble ${m.from === "me" ? "sent" : "received"}">
-                  <div class="wa-bubble-text">${escapeHtml(m.text)}</div>
-                  <div class="wa-bubble-footer">
-                    <span>${escapeHtml(m.time || "5:18 PM")}</span>
-                    ${m.from === "me" ? '<span class="wa-check-icon">&#10003;&#10003;</span>' : ''}
-                  </div>
-                </div>
-              `).join("")}
+              ${messages.map(renderWhatsAppMessageBubble).join("")}
             </div>
 
             <div class="wa-quick-pills-bar">
-              <button type="button" class="wa-quick-pill" data-wa-quick="smart" title="Smart quick templates">
-                <span>&#10024; Smart Messaging &#709;</span>
-              </button>
-              <button type="button" class="wa-quick-pill" data-wa-quick="statement" title="Send Account Statement">
-                <span style="color:#ef4444;">&#128196;</span> Party Statement &#708;
-              </button>
-              <button type="button" class="wa-quick-pill" data-wa-quick="transactions" title="Send Recent Bills / Invoices">
-                <span style="color:#10b981;">&#128203;</span> Send Transactions &#708;
+              ${latestInvoice ? `
+                <button type="button" class="wa-quick-pill highlight" data-wa-quick="latest-bill" title="Send Latest Invoice PDF (#${escapeHtml(latestInvoice.invoiceNo || 'INV')})">
+                  <span style="color:#2563eb;">📄</span> <strong>Latest Bill</strong>
+                  <span class="pill-badge">#${escapeHtml(latestInvoice.invoiceNo || 'INV')} &bull; ${escapeHtml(formatCurrency(latestInvoice.total || latestInvoice.amount || 0))}</span>
+                </button>
+              ` : `
+                <button type="button" class="wa-quick-pill disabled" title="No invoices found for this customer" style="opacity:0.6;cursor:not-allowed;">
+                  <span style="color:#94a3b8;">📄</span> <span>No Recent Bills</span>
+                </button>
+              `}
+              <button type="button" class="wa-quick-pill" data-wa-quick="statement-pdf" title="Generate &amp; Send Party Account Statement PDF">
+                <span style="color:#ef4444;">📊</span> <strong>Party Statement (PDF)</strong>
               </button>
               <button type="button" class="wa-quick-pill accent" data-wa-quick="reminder" title="Send Pending Payment Reminder">
-                <span>&#128276; Payment Reminder</span>
+                <span>🔔 Payment Reminder</span>
+              </button>
+              <button type="button" class="wa-quick-pill" data-wa-quick="smart" title="Smart quick templates">
+                <span>✨ Smart Templates ▾</span>
               </button>
             </div>
 
-            <footer class="wa-chat-input-bar">
+            <footer class="wa-chat-input-bar" style="position:relative;">
+              <div class="wa-attach-popover hidden" id="waAttachPopover">
+                <button type="button" class="wa-attach-popover-item ${latestInvoice ? '' : 'disabled'}" id="waAttachLatestBill">
+                  <span style="color:#2563eb;">📄</span>
+                  <span>Send Latest Invoice PDF ${latestInvoice ? `(#${escapeHtml(latestInvoice.invoiceNo)})` : ''}</span>
+                </button>
+                <button type="button" class="wa-attach-popover-item" id="waAttachPickInvoice">
+                  <span style="color:#10b981;">📋</span>
+                  <span>Choose from Past Invoices...</span>
+                </button>
+                <button type="button" class="wa-attach-popover-item" id="waAttachStatement">
+                  <span style="color:#ef4444;">📊</span>
+                  <span>Generate Statement PDF...</span>
+                </button>
+                <button type="button" class="wa-attach-popover-item" id="waAttachCustomFile">
+                  <span style="color:#6366f1;">📎</span>
+                  <span>Attach File from PC...</span>
+                </button>
+              </div>
               <button type="button" class="wa-input-attach-btn" id="waAttachBtn" title="Attach Invoice / Document">&plus;</button>
               <input type="text" id="waMessageInput" class="wa-text-input" placeholder="Type a Message" autocomplete="off" />
               <button type="button" class="wa-send-action-btn" id="waSendBtn" title="Send Message (Enter)">
@@ -30363,28 +30807,29 @@ function bindWhatsAppConnectActions() {
   const activeParty = getWhatsAppActiveParty();
   const input = view.querySelector("#waMessageInput");
 
-  // 8. Payment Reminder Quick Pill
+  // 8. Latest Bill Quick Pill (with PDF)
+  view.querySelector("[data-wa-quick='latest-bill']")?.addEventListener("click", () => {
+    if (!activeParty) return;
+    const latest = getPartyLatestInvoice(activeParty);
+    if (latest) {
+      openWhatsAppQuickLatestBillModal(activeParty, latest);
+    } else {
+      showToast("No recent invoices found for this customer.");
+    }
+  });
+
+  // 9. Party Statement (with PDF) Quick Pill
+  view.querySelector("[data-wa-quick='statement-pdf']")?.addEventListener("click", () => {
+    if (!activeParty) return;
+    openWhatsAppQuickStatementModal(activeParty);
+  });
+
+  // 10. Payment Reminder Quick Pill
   view.querySelector("[data-wa-quick='reminder']")?.addEventListener("click", () => {
     if (!input || !activeParty) return;
     input.value = formatDirectPaymentReminder(activeParty);
     input.focus();
     showToast("Payment reminder drafted into message box.");
-  });
-
-  // 9. Party Statement Quick Pill
-  view.querySelector("[data-wa-quick='statement']")?.addEventListener("click", () => {
-    if (!input || !activeParty) return;
-    input.value = formatDirectStatementMessage(activeParty);
-    input.focus();
-    showToast("Party statement drafted into message box.");
-  });
-
-  // 10. Send Transactions (Recent Invoice) Quick Pill
-  view.querySelector("[data-wa-quick='transactions']")?.addEventListener("click", () => {
-    if (!input || !activeParty) return;
-    input.value = formatDirectInvoiceMessage(activeParty);
-    input.focus();
-    showToast("Transaction details drafted into message box.");
   });
 
   // 11. Smart Messaging Templates Quick Pill
@@ -30404,18 +30849,105 @@ function bindWhatsAppConnectActions() {
     showToast("Smart message template inserted.");
   });
 
-  // 12. Attach Invoice / Doc Button (+)
-  view.querySelector("#waAttachBtn")?.addEventListener("click", () => {
-    if (!activeParty) return;
-    const partyInvoices = (state.invoices || []).filter((inv) => String(inv.partyId) === String(activeParty.id) || (inv.party && inv.party === activeParty.name));
-    if (partyInvoices.length) {
-      openWhatsAppShareModal(partyInvoices[0], "sale");
-    } else {
-      showToast("Select or open any invoice to attach PDF or bill.");
+  // 12. Attach Popover Menu & Actions (+)
+  const attachBtn = view.querySelector("#waAttachBtn");
+  const popover = view.querySelector("#waAttachPopover");
+
+  attachBtn?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    popover?.classList.toggle("hidden");
+  });
+
+  document.addEventListener("click", (e) => {
+    if (popover && !popover.contains(e.target) && e.target !== attachBtn) {
+      popover.classList.add("hidden");
     }
   });
 
-  // 13. Send Message handler
+  view.querySelector("#waAttachLatestBill")?.addEventListener("click", () => {
+    popover?.classList.add("hidden");
+    const latest = getPartyLatestInvoice(activeParty);
+    if (latest) {
+      openWhatsAppQuickLatestBillModal(activeParty, latest);
+    } else {
+      showToast("No recent invoices found for this customer.");
+    }
+  });
+
+  view.querySelector("#waAttachPickInvoice")?.addEventListener("click", () => {
+    popover?.classList.add("hidden");
+    openWhatsAppInvoicePickerModal(activeParty);
+  });
+
+  view.querySelector("#waAttachStatement")?.addEventListener("click", () => {
+    popover?.classList.add("hidden");
+    openWhatsAppQuickStatementModal(activeParty);
+  });
+
+  view.querySelector("#waAttachCustomFile")?.addEventListener("click", async () => {
+    popover?.classList.add("hidden");
+    if (window.giApp?.selectFile) {
+      const res = await window.giApp.selectFile({
+        filters: [{ name: "PDF Documents", extensions: ["pdf"] }, { name: "All Files", extensions: ["*"] }]
+      });
+      if (res?.success && res.filePath) {
+        const filePath = res.filePath;
+        const fileName = filePath.split(/[\/\\]/).pop();
+        const cleanPhone = formatWhatsAppPhoneNumber(activeParty.phone);
+        const caption = (input?.value || `Document attached: ${fileName}`).trim();
+        const now = new Date();
+        const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        const pKey = String(activeParty.id || activeParty.name || "default");
+
+        showToast(`Sending ${fileName} via WhatsApp...`);
+        if (cleanPhone && window.giApp?.whatsappSendMessage) {
+          await window.giApp.whatsappSendMessage({
+            phone: cleanPhone,
+            message: caption,
+            pdfPath: filePath,
+            pdfName: fileName
+          });
+        }
+
+        whatsappConnectState.chats[pKey] = whatsappConnectState.chats[pKey] || [];
+        whatsappConnectState.chats[pKey].push({
+          id: "msg-" + Date.now(),
+          text: caption,
+          time: timeStr,
+          from: "me",
+          status: "delivered",
+          attachment: {
+            name: fileName,
+            path: filePath,
+            size: "Attached Document",
+            type: "pdf"
+          }
+        });
+        saveWhatsAppConnectState();
+        if (input) input.value = "";
+        elements.featureView.innerHTML = whatsappConnectTemplate();
+        bindFeatureActions();
+      }
+    }
+  });
+
+  // 12b. Document Bubble Click-to-Open in Chat
+  view.querySelectorAll(".wa-bubble-doc-card").forEach((card) => {
+    card.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const docPath = card.getAttribute("data-doc-path");
+      if (!docPath) return;
+      if (window.giApp?.openPath) {
+        const res = await window.giApp.openPath(docPath);
+        if (!res?.success && window.giApp?.showItemInFolder) {
+          await window.giApp.showItemInFolder(docPath);
+        }
+      } else if (window.giApp?.showItemInFolder) {
+        await window.giApp.showItemInFolder(docPath);
+      }
+    });
+  });
+
   const sendBtn = view.querySelector("#waSendBtn");
   const doSend = async () => {
     const text = (input?.value || "").trim();

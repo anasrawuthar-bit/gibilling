@@ -72,6 +72,8 @@ contextBridge.exposeInMainWorld("giApp", {
   exportPdf: (payload) => ipcRenderer.invoke("app:export-pdf", payload),
   saveTempPdf: (payload) => ipcRenderer.invoke("whatsapp:save-temp-pdf", payload),
   showItemInFolder: (filePath) => ipcRenderer.invoke("whatsapp:show-in-folder", filePath),
+  openPath: (filePath) => ipcRenderer.invoke("app:open-path", filePath),
+  selectFile: (options) => ipcRenderer.invoke("app:select-file", options),
   openSystemShare: (filePath) => ipcRenderer.invoke("app:open-system-share", filePath),
   openExternal: (url) => ipcRenderer.invoke("whatsapp:open-link", url),
   generateQrSvg: (payload) => ipcRenderer.invoke("app:generate-qr-svg", payload),

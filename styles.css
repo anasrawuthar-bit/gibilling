@@ -18930,6 +18930,160 @@ textarea:focus-visible {
   border: 1px solid #e2e8f0;
 }
 
+/* WhatsApp Document Bubbles, Quick Pills & Attachment Menu */
+.wa-message-bubble.has-attachment {
+  padding: 8px 10px;
+}
+
+.wa-bubble-doc-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  background: rgba(0, 0, 0, 0.04);
+  border: 1px solid rgba(0, 0, 0, 0.07);
+  border-radius: 8px;
+  margin-bottom: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+
+.wa-bubble-doc-card:hover {
+  background: rgba(0, 0, 0, 0.08);
+  border-color: rgba(0, 0, 0, 0.14);
+}
+
+.wa-doc-icon-badge {
+  width: 36px;
+  height: 36px;
+  border-radius: 6px;
+  background: #fee2e2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.wa-doc-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.wa-doc-name {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #0f172a;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.wa-doc-meta {
+  font-size: 11px;
+  color: #64748b;
+  margin-top: 2px;
+}
+
+.wa-doc-action-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: none;
+  background: #ffffff;
+  color: #475569;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+  transition: all 0.12s ease;
+  flex-shrink: 0;
+}
+
+.wa-doc-action-btn:hover {
+  background: #f1f5f9;
+  color: #0f172a;
+}
+
+.wa-quick-pill.highlight {
+  background: #eff6ff;
+  border-color: #bfdbfe;
+  color: #1d4ed8;
+  font-weight: 600;
+}
+
+.wa-quick-pill.highlight:hover {
+  background: #dbeafe;
+  border-color: #93c5fd;
+}
+
+.wa-quick-pill .pill-badge {
+  background: rgba(37, 99, 235, 0.1);
+  color: #1e40af;
+  padding: 2px 6px;
+  border-radius: 10px;
+  font-size: 11px;
+  margin-left: 2px;
+  font-weight: 600;
+}
+
+.wa-attach-popover {
+  position: absolute;
+  bottom: 60px;
+  left: 16px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.15);
+  padding: 6px;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 240px;
+  animation: waPopoverSlideUp 0.15s ease-out;
+}
+
+@keyframes waPopoverSlideUp {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.wa-attach-popover-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border-radius: 8px;
+  border: none;
+  background: transparent;
+  color: #1e293b;
+  font-size: 13px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.12s ease;
+  width: 100%;
+}
+
+.wa-attach-popover-item:hover {
+  background: #f1f5f9;
+  color: #0f172a;
+}
+
+.wa-attach-popover-item.disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.wa-check-icon.wa-delivered {
+  color: #53bdeb;
+}
+
+
 /* ==========================================================================
    FEATURE 1: ANALYTICS BUSINESS INTELLIGENCE DASHBOARD
    ========================================================================== */

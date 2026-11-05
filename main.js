@@ -530,6 +530,29 @@ function registerDatabaseHandlers() {
     }
     return { success: false, error: "File not found on disk." };
   });
+  ipcMain.handle("app:open-path", async (_event, filePath) => {
+    const fs = require("fs");
+    if (filePath && fs.existsSync(filePath)) {
+      try {
+        await shell.openPath(filePath);
+        return { success: true };
+      } catch (err) {
+        return { success: false, error: err?.message || String(err) };
+      }
+    }
+    return { success: false, error: "File not found on disk." };
+  });
+  ipcMain.handle("app:select-file", async (_event, options = {}) => {
+    const { dialog } = require("electron");
+    const result = await dialog.showOpenDialog({
+      properties: ["openFile"],
+      filters: options?.filters || [{ name: "PDF Documents", extensions: ["pdf"] }, { name: "All Files", extensions: ["*"] }]
+    });
+    if (!result.canceled && result.filePaths && result.filePaths.length > 0) {
+      return { success: true, filePath: result.filePaths[0] };
+    }
+    return { success: false, canceled: true };
+  });
   ipcMain.handle("app:generate-qr-svg", async (_event, { text, options = {} } = {}) => {
     try {
       if (!text || typeof text !== "string") {
