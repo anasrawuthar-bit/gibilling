@@ -75,6 +75,7 @@ contextBridge.exposeInMainWorld("giDB", {
 
 contextBridge.exposeInMainWorld("giApp", {
   getVersion: () => ipcRenderer.invoke("app:get-version"),
+  getSystemInfo: () => ipcRenderer.invoke("app:get-system-info"),
   exportPdf: (payload) => ipcRenderer.invoke("app:export-pdf", payload),
   saveTempPdf: (payload) => ipcRenderer.invoke("whatsapp:save-temp-pdf", payload),
   showItemInFolder: (filePath) => ipcRenderer.invoke("whatsapp:show-in-folder", filePath),

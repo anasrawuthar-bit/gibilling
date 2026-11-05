@@ -1,6 +1,7 @@
 const { app, BrowserWindow, Menu, Tray, dialog, ipcMain, nativeImage, shell } = require("electron");
 const path = require("path");
 const fs = require("fs");
+const os = require("os");
 const database = require("./database");
 const { SyncService, DisabledSyncAdapter } = require("./sync-service");
 const { whatsappService } = require("./whatsapp-service");
@@ -284,6 +285,19 @@ async function triggerExitBackupIfEnabled() {
 
 function registerDatabaseHandlers() {
   ipcMain.handle("app:get-version", () => app.getVersion());
+  ipcMain.handle("app:get-system-info", () => {
+    let username = "";
+    try {
+      username = os.userInfo ? os.userInfo().username : "";
+    } catch (_) {}
+    return {
+      hostname: os.hostname(),
+      platform: os.platform(),
+      release: os.release(),
+      arch: os.arch(),
+      username
+    };
+  });
   ipcMain.handle("db:get-state", () => database.getState());
   ipcMain.handle("db:get-info", () => ({
     type: "SQLite",

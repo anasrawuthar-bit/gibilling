@@ -867,7 +867,7 @@ class ActivationUiController {
         const res = await fetch(`${serverUrl.replace(/\/$/, "")}/api/v1/auth/desktop-initiate-login`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email, password, machineName: "Windows Desktop" })
+          body: JSON.stringify({ email, password, machineName: await this.getMachineName() })
         });
 
         const data = await res.json();
@@ -925,7 +925,7 @@ class ActivationUiController {
         const res = await fetch(`${serverUrl}/api/v1/auth/desktop-verify-device`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email: this.pendingEmail, code, machineName: "Windows Desktop" })
+          body: JSON.stringify({ email: this.pendingEmail, code, machineName: await this.getMachineName() })
         });
 
         const data = await res.json();
@@ -981,7 +981,7 @@ class ActivationUiController {
         const res = await fetch(`${serverUrl}/api/v1/auth/desktop-initiate-login`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email: this.pendingEmail, password, machineName: "Windows Desktop" })
+          body: JSON.stringify({ email: this.pendingEmail, password, machineName: await this.getMachineName() })
         });
         const data = await res.json();
         if (data.ok && data.devOtp) {

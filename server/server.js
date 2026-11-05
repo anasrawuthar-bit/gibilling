@@ -394,6 +394,19 @@ const server = http.createServer(async (req, res) => {
     const customer = masterDb.prepare('SELECT * FROM customers WHERE email = ?').get(cleanEmail);
     if (!customer) return sendJson(res, 404, { ok: false, error: 'Customer not found.' });
 
+    // Check max_devices limit
+    const activeDeviceCount = masterDb.prepare('SELECT COUNT(*) as c FROM device_tokens WHERE customer_id = ?').get(customer.id).c;
+    const planRecord = masterDb.prepare('SELECT max_devices FROM plans WHERE name = ? OR code = ? LIMIT 1').get(customer.plan, customer.plan);
+    const maxAllowed = planRecord ? (planRecord.max_devices || 2) : 2;
+
+    if (activeDeviceCount >= maxAllowed) {
+      return sendJson(res, 403, {
+        ok: false,
+        error: `Device limit reached (${activeDeviceCount}/${maxAllowed} PCs). Please revoke an unused PC from your Customer Portal or contact support to upgrade your plan.`,
+        code: 'DEVICE_LIMIT_REACHED'
+      });
+    }
+
     // Issue Device Token
     const token = generateToken('zyndev_');
     const nowIso = new Date().toISOString();
@@ -496,6 +509,19 @@ const server = http.createServer(async (req, res) => {
     }
 
     // Generate Device Token
+    // Check max_devices limit
+    const activeDeviceCount = masterDb.prepare('SELECT COUNT(*) as c FROM device_tokens WHERE customer_id = ?').get(customer.id).c;
+    const planRecord = masterDb.prepare('SELECT max_devices FROM plans WHERE name = ? OR code = ? LIMIT 1').get(customer.plan, customer.plan);
+    const maxAllowed = planRecord ? (planRecord.max_devices || 2) : 2;
+
+    if (activeDeviceCount >= maxAllowed) {
+      return sendJson(res, 403, {
+        ok: false,
+        error: `Device limit reached (${activeDeviceCount}/${maxAllowed} PCs). Please revoke an unused PC from your Customer Portal or upgrade your plan.`,
+        code: 'DEVICE_LIMIT_REACHED'
+      });
+    }
+
     const token = generateToken('zyndev_');
     const nowIso = new Date().toISOString();
 
@@ -660,8 +686,10 @@ const server = http.createServer(async (req, res) => {
 
     const statusFilter = query.status || '';
     let sql = `
-      SELECT id, company_name, owner_name, email, phone, state, gstin, status, plan, valid_until, rejection_reason, created_at, approved_at
-      FROM customers
+      SELECT c.id, c.company_name, c.owner_name, c.email, c.phone, c.state, c.gstin, c.status, c.plan, c.valid_until, c.rejection_reason, c.created_at, c.approved_at,
+             (SELECT COUNT(*) FROM device_tokens WHERE customer_id = c.id) as active_devices,
+             (SELECT max_devices FROM plans WHERE name = c.plan OR code = c.plan LIMIT 1) as max_devices
+      FROM customers c
     `;
     const params = [];
 
@@ -789,7 +817,28 @@ const server = http.createServer(async (req, res) => {
     return sendJson(res, 200, { ok: true, message: 'Subscription updated successfully.', customerId });
   }
 
-  // ── Plan Management Endpoints (Super Admin) ─────────────────────────
+  // Get Connected Devices for Customer
+  if (req.method === 'GET' && pathname === '/api/v1/admin/customer-devices') {
+    if (!verifyAdmin(req, res)) return;
+    const customerId = query.customerId;
+    if (!customerId) return sendJson(res, 400, { ok: false, error: 'Customer ID required.' });
+    const devices = masterDb.prepare(`
+      SELECT token, machine_name, created_at, last_active_at FROM device_tokens WHERE customer_id = ? ORDER BY last_active_at DESC
+    `).all(customerId);
+    return sendJson(res, 200, { ok: true, devices });
+  }
+
+  // Admin Revoke Customer Device
+  if (req.method === 'POST' && pathname === '/api/v1/admin/revoke-device') {
+    if (!verifyAdmin(req, res)) return;
+    const body = await parseJsonBody(req);
+    const { token } = body;
+    if (!token) return sendJson(res, 400, { ok: false, error: 'Token required.' });
+    masterDb.prepare('DELETE FROM device_tokens WHERE token = ?').run(token);
+    return sendJson(res, 200, { ok: true, message: 'Device authorization revoked by admin.' });
+  }
+
+    // ── Plan Management Endpoints (Super Admin) ─────────────────────────
 
   // 1. Get All Plans
   if (req.method === 'GET' && pathname === '/api/v1/admin/plans') {
@@ -983,6 +1032,9 @@ const server = http.createServer(async (req, res) => {
     const expiry = customer.valid_until ? new Date(customer.valid_until).getTime() : now + 365 * 86400000;
     const daysRemaining = Math.max(0, Math.ceil((expiry - now) / (24 * 60 * 60 * 1000)));
 
+    const planRecord = masterDb.prepare('SELECT max_devices FROM plans WHERE name = ? OR code = ? LIMIT 1').get(customer.plan, customer.plan);
+    const maxDevices = planRecord ? (planRecord.max_devices || 2) : 2;
+
     return sendJson(res, 200, {
       ok: true,
       customer: {
@@ -997,6 +1049,7 @@ const server = http.createServer(async (req, res) => {
         plan: customer.plan,
         validUntil: customer.valid_until,
         daysRemaining,
+        maxDevices,
         gracePeriodDays: 14
       },
       devices

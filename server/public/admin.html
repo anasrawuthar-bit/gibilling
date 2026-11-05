@@ -608,12 +608,116 @@
     </div>
   </div>
 
+  <!-- Modal: Connected Devices for Customer -->
+  <div class="modal-backdrop hidden" id="devicesModal">
+    <div class="modal-card" style="max-width: 580px;">
+      <div class="modal-head">
+        <h3 id="devicesModalTitle">Authorized Devices (PCs)</h3>
+        <p id="devicesModalSubtitle">Connected Windows terminals for this customer account.</p>
+      </div>
+
+      <div id="adminDevicesListContainer" style="max-height: 380px; overflow-y: auto; margin-bottom: 20px;">
+        <!-- Populated dynamically -->
+      </div>
+
+      <div class="modal-actions">
+        <button type="button" class="btn-action btn-secondary" onclick="closeDevicesModal()">Close</button>
+      </div>
+    </div>
+  </div>
+
   <script>
     let adminToken = localStorage.getItem('zynbill_admin_token');
     let allCustomers = [];
     let currentFilter = 'all';
     let selectedCustomerId = null;
     let allPlans = [];
+    let currentDevicesCustomerId = null;
+    let currentDevicesCustomerName = '';
+
+    async function openDevicesModal(customerId, companyName) {
+      currentDevicesCustomerId = customerId;
+      currentDevicesCustomerName = companyName;
+      document.getElementById('devicesModalTitle').textContent = `Authorized Terminals - ${companyName}`;
+      document.getElementById('devicesModalSubtitle').textContent = 'Manage active desktop PC activations for this customer.';
+      document.getElementById('devicesModal').classList.remove('hidden');
+
+      const container = document.getElementById('adminDevicesListContainer');
+      container.innerHTML = '<div style="text-align:center; padding:20px; color:var(--muted); font-size:13px;">Loading devices...</div>';
+
+      try {
+        const res = await fetch(`/api/v1/admin/customer-devices?customerId=${encodeURIComponent(customerId)}`, {
+          headers: { 'Authorization': 'Bearer ' + adminToken }
+        });
+        const data = await res.json();
+        if (!data.ok) throw new Error(data.error || 'Failed to fetch devices.');
+
+        const devices = data.devices || [];
+        if (devices.length === 0) {
+          container.innerHTML = '<div style="text-align:center; padding:28px; background:#f8fafc; border-radius:10px; color:var(--muted); font-size:13px;">No devices authorized yet for this customer.</div>';
+          return;
+        }
+
+        container.innerHTML = devices.map(d => {
+          const lastActiveDate = new Date(d.last_active_at);
+          const isRecentlyActive = (Date.now() - lastActiveDate.getTime()) < 15 * 60 * 1000;
+          const statusBadge = isRecentlyActive
+            ? '<span style="display:inline-flex; align-items:center; gap:4px; font-size:11px; font-weight:700; color:#047857; background:#ecfdf5; padding:2px 8px; border-radius:6px;"><span style="width:6px; height:6px; border-radius:50%; background:#10b981;"></span> Online</span>'
+            : '<span style="font-size:11px; font-weight:600; color:#64748b; background:#f1f5f9; padding:2px 8px; border-radius:6px;">Sync Standby</span>';
+
+          return `
+            <div style="display:flex; justify-content:space-between; align-items:center; padding:12px 14px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:10px; margin-bottom:10px;">
+              <div style="display:flex; align-items:center; gap:12px;">
+                <div style="width:38px; height:38px; border-radius:8px; background:#e0f2fe; color:#0284c7; display:flex; align-items:center; justify-content:center; font-size:18px;">
+                  💻
+                </div>
+                <div>
+                  <div style="display:flex; align-items:center; gap:8px;">
+                    <strong style="color:#0f172a; font-size:13.5px;">${escapeHtml(d.machine_name || 'Windows Desktop')}</strong>
+                    ${statusBadge}
+                  </div>
+                  <div style="font-size:11.5px; color:var(--muted); margin-top:2px;">
+                    First Linked: ${new Date(d.created_at).toLocaleDateString([], { year:'numeric', month:'short', day:'numeric' })} • Last Active: ${lastActiveDate.toLocaleString([], { dateStyle:'short', timeStyle:'short' })}
+                  </div>
+                </div>
+              </div>
+              <button class="btn-action btn-reject" style="font-size:12px; padding:5px 12px;" onclick="adminRevokeDevice('${d.token}', '${escapeHtml(d.machine_name || 'this PC')}')">
+                Revoke PC
+              </button>
+            </div>
+          `;
+        }).join('');
+      } catch (err) {
+        container.innerHTML = `<div style="color:#dc2626; padding:14px; text-align:center; font-size:13px;">Error: ${err.message}</div>`;
+      }
+    }
+
+    function closeDevicesModal() {
+      document.getElementById('devicesModal').classList.add('hidden');
+    }
+
+    async function adminRevokeDevice(token, machineName) {
+      if (!confirm(`Are you sure you want to revoke ${machineName}? This PC will lose access to the customer account.`)) return;
+      try {
+        const res = await fetch('/api/v1/admin/revoke-device', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer ' + adminToken
+          },
+          body: JSON.stringify({ token })
+        });
+        const data = await res.json();
+        if (data.ok) {
+          openDevicesModal(currentDevicesCustomerId, currentDevicesCustomerName);
+          loadCustomers();
+        } else {
+          alert(data.error || 'Failed to revoke device.');
+        }
+      } catch (err) {
+        alert(err.message);
+      }
+    }
 
     window.addEventListener('DOMContentLoaded', () => {
       if (adminToken) {
@@ -741,6 +845,11 @@
             <td>
               <span class="plan-badge">${escapeHtml(c.plan || 'Professional')}</span>
               <div style="color: var(--muted); font-size: 11.5px; margin-top: 4px;">Expires: ${validStr}</div>
+              <div style="margin-top: 5px;">
+                <span class="badge" style="background:#eff6ff; color:#1d4ed8; font-weight:700; font-size:11px; padding:2px 8px; border-radius:6px; cursor:pointer;" onclick="openDevicesModal('${c.id}', '${escapeHtml(c.company_name)}')" title="View connected PC terminals">
+                  💻 ${c.active_devices || 0} / ${c.max_devices || 2} PCs
+                </span>
+              </div>
             </td>
             <td>
               <span class="status-badge ${badgeClass}">${badgeLabel}</span>
@@ -753,6 +862,7 @@
                 ` : c.status === 'active' ? `
                   <button class="btn-action btn-secondary" onclick="toggleStatus('${c.id}', 'suspended')">Suspend</button>
                   <button class="btn-action btn-secondary" onclick="openApproveModal('${c.id}', '${escapeHtml(c.company_name)}', '${escapeHtml(c.email)}')">Renew</button>
+                  <button class="btn-action btn-secondary" onclick="openDevicesModal('${c.id}', '${escapeHtml(c.company_name)}')">Devices</button>
                 ` : c.status === 'suspended' ? `
                   <button class="btn-action btn-approve" onclick="toggleStatus('${c.id}', 'active')">Activate</button>
                 ` : `
