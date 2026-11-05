@@ -15893,6 +15893,8 @@ body .entry-form .item-tab-panel.active {
   opacity: 0.6;
 }
 
+.top-filter-select,
+.invoice-quick-filters select,
 .top-filter-party-select {
   height: 34px;
   padding: 0 28px 0 10px;

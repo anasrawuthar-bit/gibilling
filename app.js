@@ -10994,7 +10994,7 @@ function topFilterDateControlsHTML(type, topFilter, options = {}) {
   const presetLabel = presetLabels[preset] || options.allLabel || "This Month";
   const showRange = preset === "custom" || Boolean(range.from || range.to);
   const defaultPreset = "thisMonth";
-  const isFiltered = preset !== defaultPreset || (options.showParty && Boolean(party));
+  const isFiltered = options.isFiltered !== undefined ? options.isFiltered : (preset !== defaultPreset || (options.showParty && Boolean(party)));
 
   const parties = options.showParty ? [...new Set((state.parties || []).map((p) => p.name).filter(Boolean))].sort() : [];
 
@@ -11276,7 +11276,7 @@ function saleReturnTemplate() {
           ${creditNoteSearchQuery ? `<button class="top-filter-search-clear" data-credit-note-search-clear type="button" title="Clear search">×</button>` : ""}
         </div>
         <div class="top-filter-controls">
-          ${topFilterDateControlsHTML("saleReturn", topFilter, { showParty: false })}
+          ${topFilterDateControlsHTML("saleReturn", topFilter, { showParty: false, isFiltered })}
           <div class="invoice-quick-filters" role="group" aria-label="Credit note filters">
             ${creditNoteQuickFilterButtons()}
           </div>
@@ -11298,7 +11298,7 @@ function saleReturnTemplate() {
 
 function creditNoteQuickFilterButtons() {
   const filters = [
-    ["all", "All"],
+    ["all", "All Filter Options"],
     ["open", "Open"],
     ["partial", "Part Adjusted"],
     ["adjusted", "Adjusted"],
@@ -11306,9 +11306,13 @@ function creditNoteQuickFilterButtons() {
     ["b2b", "B2B"],
     ["b2c", "B2C"],
   ];
-  return filters.map(([value, label]) => `
-    <button class="${creditNoteQuickFilter === value ? "active" : ""}" data-credit-note-filter="${value}" type="button">${label}</button>
-  `).join("");
+  return `
+    <select class="top-filter-pill top-filter-select" data-credit-note-filter title="Filter Options" aria-label="Filter Options">
+      ${filters.map(([value, label]) => `
+        <option value="${value}" ${creditNoteQuickFilter === value ? "selected" : ""}>${label}</option>
+      `).join("")}
+    </select>
+  `;
 }
 
 function creditNoteRowsTable(rows) {
@@ -11749,7 +11753,7 @@ function estimateTemplate() {
           ${estimateSearchQuery ? `<button class="top-filter-search-clear" data-estimate-search-clear type="button" title="Clear search">×</button>` : ""}
         </div>
         <div class="top-filter-controls">
-          ${topFilterDateControlsHTML(view, topFilter, { showParty: false })}
+          ${topFilterDateControlsHTML(view, topFilter, { showParty: false, isFiltered })}
           <div class="invoice-quick-filters" role="group" aria-label="${escapeHtml(meta.noun)} filters">
             ${estimateQuickFilterButtons()}
           </div>
@@ -11930,7 +11934,7 @@ function estimateItemSummary(estimateId) {
 
 function estimateQuickFilterButtons() {
   const filters = [
-    ["all", "All"],
+    ["all", "All Filter Options"],
     ["draft", "Draft"],
     ["sent", "Sent"],
     ["accepted", "Accepted"],
@@ -11939,9 +11943,13 @@ function estimateQuickFilterButtons() {
     ["b2b", "B2B"],
     ["b2c", "B2C"],
   ];
-  return filters.map(([value, label]) => `
-    <button class="${estimateQuickFilter === value ? "active" : ""}" data-estimate-filter="${value}" type="button">${label}</button>
-  `).join("");
+  return `
+    <select class="top-filter-pill top-filter-select" data-estimate-filter title="Filter Options" aria-label="Filter Options">
+      ${filters.map(([value, label]) => `
+        <option value="${value}" ${estimateQuickFilter === value ? "selected" : ""}>${label}</option>
+      `).join("")}
+    </select>
+  `;
 }
 
 function estimateQuickFilterMatches(quote, filter) {
@@ -14995,12 +15003,17 @@ function bindFeatureActions() {
     nextSearchInput?.focus();
     nextSearchInput?.setSelectionRange(expenseSearchQuery.length, expenseSearchQuery.length);
   });
-  elements.featureView.querySelectorAll("[data-expense-filter]").forEach((button) => {
-    button.addEventListener("click", () => {
-      expenseQuickFilter = button.dataset.expenseFilter || "all";
+  elements.featureView.querySelectorAll("[data-expense-filter]").forEach((el) => {
+    const handler = (val) => {
+      expenseQuickFilter = val || "all";
       elements.featureView.innerHTML = expenseTemplate();
       bindFeatureActions();
-    });
+    };
+    if (el.tagName === "SELECT") {
+      el.addEventListener("change", (e) => handler(e.target.value));
+    } else {
+      el.addEventListener("click", () => handler(el.dataset.expenseFilter));
+    }
   });
   elements.featureView.querySelectorAll("[data-expense-action]").forEach((button) => {
     button.addEventListener("click", () => {
@@ -15048,12 +15061,17 @@ function bindFeatureActions() {
     nextSearchInput?.focus();
     nextSearchInput?.setSelectionRange(estimateSearchQuery.length, estimateSearchQuery.length);
   });
-  elements.featureView.querySelectorAll("[data-estimate-filter]").forEach((button) => {
-    button.addEventListener("click", () => {
-      estimateQuickFilter = button.dataset.estimateFilter || "all";
+  elements.featureView.querySelectorAll("[data-estimate-filter]").forEach((el) => {
+    const handler = (val) => {
+      estimateQuickFilter = val || "all";
       elements.featureView.innerHTML = estimateTemplate();
       bindFeatureActions();
-    });
+    };
+    if (el.tagName === "SELECT") {
+      el.addEventListener("change", (e) => handler(e.target.value));
+    } else {
+      el.addEventListener("click", () => handler(el.dataset.estimateFilter));
+    }
   });
   elements.featureView.querySelectorAll("[data-invoice-action]").forEach((button) => {
     button.addEventListener("click", (e) => {
@@ -15185,18 +15203,22 @@ function bindFeatureActions() {
       } else if (type === "sale") {
         saleInvoiceSearchQuery = "";
         saleTopFilter = transactionTopFilters.sale;
-      } else if (['estimate', 'proforma', 'saleOrder', 'deliveryChallan', 'purchaseOrder'].includes(type)) {
+            } else if (['estimate', 'proforma', 'saleOrder', 'deliveryChallan', 'purchaseOrder'].includes(type)) {
         estimateSearchQuery = "";
+        estimateQuickFilter = "all";
       } else if (type === "saleReturn") {
         creditNoteSearchQuery = "";
+        creditNoteQuickFilter = "all";
       } else if (type === "purchaseReturn") {
         debitNoteSearchQuery = "";
+        debitNoteQuickFilter = "all";
       } else if (type === "paymentIn") {
         paymentInSearchQuery = "";
       } else if (type === "paymentOut") {
         paymentOutSearchQuery = "";
       } else if (type === "expenses") {
         expenseSearchQuery = "";
+        expenseQuickFilter = "all";
       }
       if (invoicePagination[type]) invoicePagination[type].page = 1;
       refreshActiveTransactionView(type);
@@ -15473,12 +15495,17 @@ function bindFeatureActions() {
     nextSearchInput?.focus();
     nextSearchInput?.setSelectionRange(creditNoteSearchQuery.length, creditNoteSearchQuery.length);
   });
-  elements.featureView.querySelectorAll("[data-credit-note-filter]").forEach((button) => {
-    button.addEventListener("click", () => {
-      creditNoteQuickFilter = button.dataset.creditNoteFilter || "all";
+  elements.featureView.querySelectorAll("[data-credit-note-filter]").forEach((el) => {
+    const handler = (val) => {
+      creditNoteQuickFilter = val || "all";
       elements.featureView.innerHTML = saleReturnTemplate();
       bindFeatureActions();
-    });
+    };
+    if (el.tagName === "SELECT") {
+      el.addEventListener("change", (e) => handler(e.target.value));
+    } else {
+      el.addEventListener("click", () => handler(el.dataset.creditNoteFilter));
+    }
   });
   elements.featureView.querySelectorAll("[data-credit-note-action]").forEach((button) => {
     button.addEventListener("click", () => {
@@ -15499,12 +15526,17 @@ function bindFeatureActions() {
     nextSearchInput?.focus();
     nextSearchInput?.setSelectionRange(debitNoteSearchQuery.length, debitNoteSearchQuery.length);
   });
-  elements.featureView.querySelectorAll("[data-debit-note-filter]").forEach((button) => {
-    button.addEventListener("click", () => {
-      debitNoteQuickFilter = button.dataset.debitNoteFilter || "all";
+  elements.featureView.querySelectorAll("[data-debit-note-filter]").forEach((el) => {
+    const handler = (val) => {
+      debitNoteQuickFilter = val || "all";
       elements.featureView.innerHTML = purchaseReturnTemplate();
       bindFeatureActions();
-    });
+    };
+    if (el.tagName === "SELECT") {
+      el.addEventListener("change", (e) => handler(e.target.value));
+    } else {
+      el.addEventListener("click", () => handler(el.dataset.debitNoteFilter));
+    }
   });
   elements.featureView.querySelectorAll("[data-debit-note-action]").forEach((button) => {
     button.addEventListener("click", () => {
@@ -18707,7 +18739,7 @@ function purchaseReturnTemplate() {
           ${debitNoteSearchQuery ? `<button class="top-filter-search-clear" data-debit-note-search-clear type="button" title="Clear search">×</button>` : ""}
         </div>
         <div class="top-filter-controls">
-          ${topFilterDateControlsHTML("purchaseReturn", topFilter, { showParty: false })}
+          ${topFilterDateControlsHTML("purchaseReturn", topFilter, { showParty: false, isFiltered })}
           <div class="invoice-quick-filters" role="group" aria-label="Debit note filters">
             ${debitNoteQuickFilterButtons()}
           </div>
@@ -18729,7 +18761,7 @@ function purchaseReturnTemplate() {
 
 function debitNoteQuickFilterButtons() {
   const filters = [
-    ["all", "All"],
+    ["all", "All Filter Options"],
     ["open", "Open"],
     ["partial", "Part Adjusted"],
     ["adjusted", "Adjusted"],
@@ -18737,9 +18769,13 @@ function debitNoteQuickFilterButtons() {
     ["b2b", "B2B"],
     ["b2c", "B2C"],
   ];
-  return filters.map(([value, label]) => `
-    <button class="${debitNoteQuickFilter === value ? "active" : ""}" data-debit-note-filter="${value}" type="button">${label}</button>
-  `).join("");
+  return `
+    <select class="top-filter-pill top-filter-select" data-debit-note-filter title="Filter Options" aria-label="Filter Options">
+      ${filters.map(([value, label]) => `
+        <option value="${value}" ${debitNoteQuickFilter === value ? "selected" : ""}>${label}</option>
+      `).join("")}
+    </select>
+  `;
 }
 
 function debitNoteRowsTable(rows) {
@@ -19274,7 +19310,7 @@ function expenseTemplate() {
           ${expenseSearchQuery ? `<button class="top-filter-search-clear" data-expense-search-clear type="button" title="Clear search">×</button>` : ""}
         </div>
         <div class="top-filter-controls">
-          ${topFilterDateControlsHTML("expenses", topFilter, { showParty: false })}
+          ${topFilterDateControlsHTML("expenses", topFilter, { showParty: false, isFiltered })}
           <div class="invoice-quick-filters" role="group" aria-label="Expense filters">
             ${expenseQuickFilterButtons()}
           </div>
@@ -19302,16 +19338,20 @@ function expenseRows() {
 
 function expenseQuickFilterButtons() {
   const filters = [
-    ["all", "All"],
+    ["all", "All Filter Options"],
     ["paid", "Paid"],
     ["due", "Payable"],
     ["partial", "Part Paid"],
     ["gst", "GST"],
     ["nogst", "No GST"],
   ];
-  return filters.map(([value, label]) => `
-    <button class="${expenseQuickFilter === value ? "active" : ""}" data-expense-filter="${value}" type="button">${label}</button>
-  `).join("");
+  return `
+    <select class="top-filter-pill top-filter-select" data-expense-filter title="Filter Options" aria-label="Filter Options">
+      ${filters.map(([value, label]) => `
+        <option value="${value}" ${expenseQuickFilter === value ? "selected" : ""}>${label}</option>
+      `).join("")}
+    </select>
+  `;
 }
 
 function expenseRowsTable(rows) {
