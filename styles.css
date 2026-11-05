@@ -21993,3 +21993,163 @@ button.secondary-button.wa-btn:hover {
   color: #15803d !important;
   box-shadow: 0 1px 3px rgba(37, 211, 102, 0.2);
 }
+
+
+/* WhatsApp Desktop-Style Draft Attachment Bar */
+.wa-draft-attachment-bar {
+  display: flex;
+  align-items: center;
+  padding: 8px 16px;
+  background: #f0f2f5;
+  border-top: 1px solid #d1d7db;
+  gap: 8px;
+  transition: all 0.15s ease;
+}
+
+.wa-draft-attachment-bar.hidden {
+  display: none !important;
+}
+
+.wa-draft-doc-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 6px 12px;
+  max-width: 420px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+.wa-draft-doc-icon {
+  font-size: 18px;
+  line-height: 1;
+}
+
+.wa-draft-doc-details {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+
+.wa-draft-doc-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: #0f172a;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.wa-draft-doc-size {
+  font-size: 10.5px;
+  color: #64748b;
+}
+
+.wa-draft-doc-remove {
+  background: none;
+  border: none;
+  font-size: 18px;
+  line-height: 1;
+  color: #64748b;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 4px;
+  transition: all 0.1s;
+}
+
+.wa-draft-doc-remove:hover {
+  background: #fee2e2;
+  color: #dc2626;
+}
+
+/* Statement Period Popover Menu */
+.wa-statement-period-menu {
+  position: absolute;
+  bottom: 48px;
+  left: 120px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.15);
+  padding: 6px;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 220px;
+  animation: waPopoverSlideUp 0.15s ease-out;
+}
+
+.wa-statement-period-menu.hidden {
+  display: none !important;
+}
+
+.wa-period-menu-header {
+  font-size: 11px;
+  font-weight: 700;
+  color: #64748b;
+  padding: 6px 10px 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.wa-period-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: none;
+  background: transparent;
+  color: #1e293b;
+  font-size: 12.5px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.12s ease;
+  width: 100%;
+}
+
+.wa-period-item:hover {
+  background: #f1f5f9;
+  color: #0f172a;
+}
+
+.wa-period-item .period-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #ef4444;
+}
+
+/* Authentic WhatsApp Checkmarks */
+.wa-check-icon {
+  font-size: 11px;
+  font-weight: 700;
+  color: #8696a0;
+  letter-spacing: -1.5px;
+  display: inline-block;
+  line-height: 1;
+}
+
+.wa-check-icon.wa-delivered {
+  color: #8696a0;
+}
+
+.wa-check-icon.wa-read {
+  color: #53bdeb;
+}
+
+.wa-bubble-text {
+  font-size: 13px;
+  line-height: 1.42;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.wa-message-bubble.has-attachment .wa-bubble-text {
+  margin-top: 4px;
+}

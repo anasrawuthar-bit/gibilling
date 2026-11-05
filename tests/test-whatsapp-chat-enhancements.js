@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain } = require("electron");
+const { app, BrowserWindow } = require("electron");
 const path = require("path");
 const fs = require("fs");
 const assert = require("assert");
@@ -25,7 +25,7 @@ app.whenReady().then(async () => {
 
     const evalRes = await win.webContents.executeJavaScript(`
       (async () => {
-        // Setup state
+        // 1. Setup mock state
         state.parties = [
           { id: "party-anas", name: "anas", phone: "9048253862", balance: 10764, state: "Kerala" },
           { id: "party-rafi", name: "rafi", phone: "", balance: 0, state: "Kerala" }
@@ -41,84 +41,102 @@ app.whenReady().then(async () => {
             total: 5000,
             received: 0,
             balance: 5000,
-            date: "2026-11-05"
+            date: "2026-11-04"
           }
         ];
 
-        // WhatsApp connected mock state
         whatsappConnectState.connected = true;
         whatsappConnectState.termsAccepted = true;
         whatsappConnectState.currentUser = { phone: "919048253862", name: "ZynBill Desktop" };
         whatsappConnectState.activePartyId = "party-anas";
         whatsappConnectState.chats = {};
+        whatsappConnectState.draftAttachment = null;
 
-        // Navigate to WhatsApp Connect view
+        // Navigate to WhatsApp view
         showView("whatsapp");
         await new Promise(r => setTimeout(r, 400));
 
         const view = document.querySelector(".whatsapp-connect-view");
         const latestBillPill = view?.querySelector("[data-wa-quick='latest-bill']");
-        const statementPdfPill = view?.querySelector("[data-wa-quick='statement-pdf']");
-        const reminderPill = view?.querySelector("[data-wa-quick='reminder']");
-        const smartPill = view?.querySelector("[data-wa-quick='smart']");
-        const attachBtn = view?.querySelector("#waAttachBtn");
-        const popover = view?.querySelector("#waAttachPopover");
+        const stmtPill = view?.querySelector("#waStmtPillBtn");
+        const stmtMenu = view?.querySelector("#waStatementPeriodMenu");
+        const input = view?.querySelector("#waMessageInput");
+        const draftBar = view?.querySelector("#waDraftAttachmentBar");
+        const sendBtn = view?.querySelector("#waSendBtn");
 
-        // Test popover toggle
-        attachBtn?.click();
-        const popoverOpened = !popover?.classList.contains("hidden");
+        const initialChecks = {
+          hasView: Boolean(view),
+          isTextarea: input?.tagName === "TEXTAREA",
+          hasLatestBillPill: Boolean(latestBillPill),
+          hasStmtPill: Boolean(stmtPill),
+          hasDraftBar: Boolean(draftBar),
+          draftBarInitiallyHidden: draftBar?.classList.contains("hidden"),
+        };
 
-        // Test Latest Bill click
+        // 2. Test clicking Latest Bill -> Direct Draft into Chat (NO POPUP MODAL)
         latestBillPill?.click();
-        await new Promise(r => setTimeout(r, 200));
-        const billModal = document.getElementById("waLatestBillModalBackdrop");
-        const billModalTitle = billModal?.querySelector("h3")?.textContent?.trim();
-        const billModalDocName = billModal?.querySelector("strong")?.textContent?.trim();
-        billModal?.querySelector("#waBillCloseBtn")?.click();
-        await new Promise(r => setTimeout(r, 100));
+        await new Promise(r => setTimeout(r, 300));
 
-        // Test Statement PDF click
-        statementPdfPill?.click();
-        await new Promise(r => setTimeout(r, 200));
-        const stmtModal = document.getElementById("waStatementModalBackdrop");
-        const stmtModalTitle = stmtModal?.querySelector("h3")?.textContent?.trim();
-        stmtModal?.querySelector("#waStmtCloseBtn")?.click();
-        await new Promise(r => setTimeout(r, 100));
+        const afterLatestBill = {
+          noModalOpened: !document.getElementById("waLatestBillModalBackdrop"),
+          draftBarVisible: !draftBar?.classList.contains("hidden"),
+          draftDocName: draftBar?.querySelector(".wa-draft-doc-name")?.textContent,
+          inputValueHasInvoice: input?.value?.includes("INV-2627-0010"),
+          hasAutoHeight: parseInt(input?.style?.height || "0", 10) >= 40,
+        };
 
-        // Test chat doc card presence
-        const docCard = view?.querySelector(".wa-bubble-doc-card");
-        const docName = docCard?.querySelector(".wa-doc-name")?.textContent?.trim();
+        // 3. Test Statement Period Selector (NO POPUP MODAL)
+        stmtPill?.click();
+        const stmtMenuOpened = !stmtMenu?.classList.contains("hidden");
+        const thisMonthBtn = stmtMenu?.querySelector("[data-period='thisMonth']");
+        thisMonthBtn?.click();
+        await new Promise(r => setTimeout(r, 300));
+
+        const afterStmt = {
+          stmtMenuOpened,
+          noModalOpened: !document.getElementById("waStatementModalBackdrop"),
+          draftBarVisible: !draftBar?.classList.contains("hidden"),
+          draftDocName: draftBar?.querySelector(".wa-draft-doc-name")?.textContent,
+          inputValueHasStatement: input?.value?.includes("Statement of Account"),
+        };
+
+        // 4. Test Sending Message with Document (both text & PDF card in bubble)
+        sendBtn?.click();
+        await new Promise(r => setTimeout(r, 200));
+
+        const bubbles = view?.querySelectorAll(".wa-message-bubble");
+        const lastBubble = bubbles[bubbles.length - 1];
+        const lastDocCard = lastBubble?.querySelector(".wa-bubble-doc-card");
+        const lastText = lastBubble?.querySelector(".wa-bubble-text");
+
+        const afterSend = {
+          draftBarHiddenAgain: draftBar?.classList.contains("hidden"),
+          inputCleared: input?.value === "",
+          hasBubbleDocCard: Boolean(lastDocCard),
+          hasBubbleText: Boolean(lastText),
+          bubbleDocName: lastDocCard?.querySelector(".wa-doc-name")?.textContent,
+        };
 
         return {
-          hasView: Boolean(view),
-          hasLatestBillPill: Boolean(latestBillPill),
-          latestBillText: latestBillPill?.textContent?.replace(/\\s+/g, " ")?.trim(),
-          hasStatementPdfPill: Boolean(statementPdfPill),
-          statementPdfText: statementPdfPill?.textContent?.replace(/\\s+/g, " ")?.trim(),
-          hasReminderPill: Boolean(reminderPill),
-          hasSmartPill: Boolean(smartPill),
-          popoverOpened,
-          billModalOpened: Boolean(billModal),
-          billModalTitle,
-          billModalDocName,
-          stmtModalOpened: Boolean(stmtModal),
-          stmtModalTitle,
-          hasDocCard: Boolean(docCard),
-          docName
+          initialChecks,
+          afterLatestBill,
+          afterStmt,
+          afterSend,
         };
       })()
     `);
 
-    console.log("Evaluation Results:", evalRes);
+    console.log("Evaluation Results:", JSON.stringify(evalRes, null, 2));
 
-    assert(evalRes.hasView, "WhatsApp Connect view must render");
-    assert(evalRes.hasLatestBillPill, "Latest Bill quick pill must exist");
-    assert(evalRes.latestBillText.includes("INV-2627-0010"), "Latest Bill must show #INV-2627-0010");
-    assert(evalRes.hasStatementPdfPill, "Party Statement (PDF) quick pill must exist");
-    assert(evalRes.popoverOpened, "Attachment popover must open on '+' click");
-    assert(evalRes.billModalOpened, "Latest Bill modal must open on click");
-    assert(evalRes.stmtModalOpened, "Statement PDF modal must open on click");
-    assert(evalRes.hasDocCard, "Chat bubble with document card must render");
+    assert(evalRes.initialChecks.hasView, "WhatsApp Connect view must render");
+    assert(evalRes.initialChecks.isTextarea, "Message input must be a flexible textarea");
+    assert(evalRes.afterLatestBill.noModalOpened, "Latest Bill must NOT open a popup modal");
+    assert(evalRes.afterLatestBill.draftBarVisible, "Draft attachment bar must be visible after clicking Latest Bill");
+    assert(evalRes.afterLatestBill.inputValueHasInvoice, "Message input must be filled with invoice details");
+    assert(evalRes.afterStmt.noModalOpened, "Statement must NOT open a popup modal");
+    assert(evalRes.afterStmt.inputValueHasStatement, "Statement details must be drafted into input");
+    assert(evalRes.afterSend.hasBubbleDocCard, "Sent bubble must render document card");
+    assert(evalRes.afterSend.hasBubbleText, "Sent bubble must render caption text together with document");
 
     // Capture screenshot
     const img = await win.webContents.capturePage();
@@ -127,7 +145,7 @@ app.whenReady().then(async () => {
     console.log("✓ Screenshot saved successfully:", artifactPath);
 
     console.log("=================================================");
-    console.log("ALL WHATSAPP CHAT ENHANCEMENT CHECKS PASSED 100%!");
+    console.log("ALL WHATSAPP DESKTOP UX CHECKS PASSED 100%!");
     console.log("=================================================");
     app.exit(0);
   } catch (err) {
