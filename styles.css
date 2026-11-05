@@ -11419,7 +11419,7 @@ body.privacy-mode-active .chart-wrap canvas,
 
 .parties-layout {
   display: grid;
-  grid-template-columns: 320px minmax(0, 1fr);
+  grid-template-columns: 330px minmax(0, 1fr);
   gap: 1px;
   flex: 1;
   min-height: 0;
@@ -11479,6 +11479,8 @@ body.privacy-mode-active .chart-wrap canvas,
   padding: 10px 12px;
   background: #fff;
   text-align: left;
+  cursor: pointer;
+  user-select: none;
 }
 
 .party-list-item.active {
@@ -11757,7 +11759,7 @@ body.privacy-mode-active .chart-wrap canvas,
 
 .items-layout {
   display: grid;
-  grid-template-columns: 310px minmax(0, 1fr);
+  grid-template-columns: 330px minmax(0, 1fr);
   gap: 1px;
   flex: 1;
   min-height: 0;
@@ -22309,4 +22311,54 @@ button.secondary-button.wa-btn:hover {
   bottom: calc(100% + 8px);
   left: 0;
   z-index: 1000;
+}
+
+/* ==========================================================================
+   QUICK EDIT BUTTONS (ITEM & PARTY LISTS)
+   ========================================================================== */
+.item-list-side-wrap,
+.party-list-side-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.list-item-edit-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  min-width: 26px;
+  border-radius: 6px;
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+  color: #64748b;
+  cursor: pointer;
+  transition: all 0.15s ease-in-out;
+  padding: 0;
+  flex-shrink: 0;
+}
+
+.list-item-edit-btn:hover {
+  background: #0284c7;
+  color: #ffffff;
+  border-color: #0284c7;
+  box-shadow: 0 2px 5px rgba(2, 132, 199, 0.25);
+  transform: translateY(-1px);
+}
+
+.item-list-item.active .list-item-edit-btn,
+.party-list-item.active .list-item-edit-btn {
+  background: #e0f2fe;
+  color: #0369a1;
+  border-color: #bae6fd;
+}
+
+.item-list-item.active .list-item-edit-btn:hover,
+.party-list-item.active .list-item-edit-btn:hover {
+  background: #0284c7;
+  color: #ffffff;
+  border-color: #0284c7;
 }

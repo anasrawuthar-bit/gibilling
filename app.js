@@ -16265,10 +16265,48 @@ function bindFeatureActions() {
       }
     });
   }
-  elements.featureView.querySelectorAll("[data-party-id]:not([data-action='edit-party']):not([data-action='download-party-statement']):not([data-action='share-party-statement-whatsapp']):not([data-action='view-party-statement-report'])").forEach((button) => {
-    button.addEventListener("click", () => {
-      elements.featureView.innerHTML = partiesTemplate(Number(button.dataset.partyId), button.dataset.partyTab || "transactions", partySearchQuery);
+  // Party list card selection & double-click edit
+  elements.featureView.querySelectorAll(".party-list-item[data-party-id]").forEach((card) => {
+    card.addEventListener("click", (e) => {
+      if (e.target.closest("[data-action='quick-edit-party']")) return;
+      const listPanel = elements.featureView.querySelector(".party-list-panel");
+      const savedScroll = listPanel ? listPanel.scrollTop : 0;
+      const partyId = Number(card.dataset.partyId);
+      const activeTab = elements.featureView.querySelector(".party-tabs button.active")?.dataset.partyTab || "transactions";
+      elements.featureView.innerHTML = partiesTemplate(partyId, activeTab, partySearchQuery);
       bindFeatureActions();
+      const nextListPanel = elements.featureView.querySelector(".party-list-panel");
+      if (nextListPanel) nextListPanel.scrollTop = savedScroll;
+    });
+
+    card.addEventListener("dblclick", (e) => {
+      e.preventDefault();
+      const id = Number(card.dataset.partyId);
+      const party = (state.parties || []).find((record) => Number(record.id) === id);
+      if (party) openEntryModal("party", party);
+    });
+  });
+
+  // Quick edit icon button on party list items
+  elements.featureView.querySelectorAll("[data-action='quick-edit-party']").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const id = Number(btn.dataset.partyId);
+      const party = (state.parties || []).find((record) => Number(record.id) === id);
+      if (party) openEntryModal("party", party);
+    });
+  });
+
+  // Party detail tab navigation
+  elements.featureView.querySelectorAll(".party-tabs button[data-party-tab]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const selectedId = elements.featureView.querySelector(".party-list-item.active")?.dataset.partyId;
+      const listPanel = elements.featureView.querySelector(".party-list-panel");
+      const savedScroll = listPanel ? listPanel.scrollTop : 0;
+      elements.featureView.innerHTML = partiesTemplate(selectedId ? Number(selectedId) : Number(button.dataset.partyId), button.dataset.partyTab || "transactions", partySearchQuery);
+      bindFeatureActions();
+      const nextListPanel = elements.featureView.querySelector(".party-list-panel");
+      if (nextListPanel) nextListPanel.scrollTop = savedScroll;
     });
   });
 
@@ -16423,7 +16461,8 @@ function bindFeatureActions() {
   }
 
   elements.featureView.querySelectorAll(".item-list-item[data-item-id]").forEach((button) => {
-    button.addEventListener("click", () => {
+    button.addEventListener("click", (e) => {
+      if (e.target.closest("[data-action='quick-edit-item']")) return;
       const id = Number(button.dataset.itemId);
       elements.featureView.querySelectorAll(".item-list-item").forEach((btn) => btn.classList.remove("active"));
       button.classList.add("active");
@@ -16437,6 +16476,16 @@ function bindFeatureActions() {
     button.addEventListener("dblclick", (e) => {
       e.preventDefault();
       const id = Number(button.dataset.itemId);
+      const item = (state.items || []).find((record) => Number(record.id) === id);
+      if (item) openEntryModal("item", item);
+    });
+  });
+
+  // Quick edit icon button on item list items
+  elements.featureView.querySelectorAll("[data-action='quick-edit-item']").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const id = Number(btn.dataset.itemId);
       const item = (state.items || []).find((record) => Number(record.id) === id);
       if (item) openEntryModal("item", item);
     });
@@ -22000,7 +22049,7 @@ function partiesTemplate(selectedPartyId = null, activeTab = "transactions", que
       <header class="feature-titlebar">
         <h1>Parties</h1>
         <div class="feature-titlebar-actions">
-          ${selectedParty ? `<button class="secondary-button" type="button" data-action="edit-party" data-party-id="${selectedParty.id}">Edit Party</button>` : ""}
+          
           <button class="primary-button square" type="button" data-action="add-party">+ Add Party</button>
         </div>
       </header>
@@ -22130,15 +22179,20 @@ function partyListButton(party, selectedId) {
     : icon(isRec ? "arrow-down-left" : "arrow-up-right", `party-balance-arrow ${isRec ? "in-arrow" : "out-arrow"}`);
   const contact = party.phone || party.email || party.gstin || "No contact details";
   return `
-    <button class="party-list-item ${Number(party.id) === Number(selectedId) ? "active" : ""}" data-party-id="${party.id}" type="button">
+    <div class="party-list-item ${Number(party.id) === Number(selectedId) ? "active" : ""}" data-party-id="${party.id}" role="button" tabindex="0">
       <span class="party-list-main"><strong>${escapeHtml(party.name)}</strong><small>${escapeHtml(contact)}</small></span>
-      <span class="party-list-side">
-        <b class="${balanceClass}">
-          ${arrowHtml}
-          ${formatCurrency(Math.abs(balance))}
-        </b>
+      <span class="party-list-side-wrap">
+        <span class="party-list-side">
+          <b class="${balanceClass}">
+            ${arrowHtml}
+            ${formatCurrency(Math.abs(balance))}
+          </b>
+        </span>
+        <button type="button" class="list-item-edit-btn" data-action="quick-edit-party" data-party-id="${party.id}" title="Edit ${escapeHtml(party.name)}">
+          <svg class="gi-icon" style="width:13px;height:13px;"><use href="#gi-edit"></use></svg>
+        </button>
       </span>
-    </button>
+    </div>
   `;
 }
 
@@ -23129,7 +23183,7 @@ function itemListButton(item, selectedId) {
   const isNegative = kind.label !== "Service" && qty < 0;
 
   return `
-    <button class="item-list-item ${Number(item.id) === Number(selectedId) ? "active" : ""}" data-item-id="${item.id}" type="button">
+    <div class="item-list-item ${Number(item.id) === Number(selectedId) ? "active" : ""}" data-item-id="${item.id}" role="button" tabindex="0">
       <span class="item-list-main">
         <strong>${escapeHtml(item.name)}</strong>
         <span class="item-list-prices-row">
@@ -23137,8 +23191,13 @@ function itemListButton(item, selectedId) {
           <span class="item-chip-pur" title="Purchase Cost Price">Cost: <b>${purchasePrice ? formatCurrency(purchasePrice) : "-"}</b></span>
         </span>
       </span>
-      <span class="item-list-side"><em class="item-kind-badge ${kind.className}">${kind.label}</em><b class="${isNegative ? "stock-negative" : ""}">${formatQuantity(qty)}</b></span>
-    </button>
+      <span class="item-list-side-wrap">
+        <span class="item-list-side"><em class="item-kind-badge ${kind.className}">${kind.label}</em><b class="${isNegative ? "stock-negative" : ""}">${formatQuantity(qty)}</b></span>
+        <button type="button" class="list-item-edit-btn" data-action="quick-edit-item" data-item-id="${item.id}" title="Edit ${escapeHtml(item.name)}">
+          <svg class="gi-icon" style="width:13px;height:13px;"><use href="#gi-edit"></use></svg>
+        </button>
+      </span>
+    </div>
   `;
 }
 
@@ -23161,7 +23220,7 @@ function itemDetail(item) {
             <svg class="gi-icon" style="width:14px;height:14px;margin-right:4px;vertical-align:text-bottom;"><use href="#gi-printer"></use></svg>
             Print Barcode
           </button>
-          <button class="secondary-button" type="button" data-action="edit-item" data-item-id="${item.id}">Edit Item</button>
+          
         </div>
       </header>
       <div class="item-metric-grid">
