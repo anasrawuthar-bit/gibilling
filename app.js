@@ -29640,23 +29640,7 @@ function openWhatsAppPairingVerificationModal({ onConfirmLink } = {}) {
 }
 
 function renderWhatsAppTermsGatekeeper() {
-  const container = elements.featureView?.querySelector("#waPairingQrContainer");
-  if (!container) return;
-  container.innerHTML = `
-    <div class="wa-qr-terms-gatekeeper">
-      <div style="width:48px;height:48px;border-radius:50%;background:#eff6ff;color:#2563eb;display:flex;align-items:center;justify-content:center;margin-bottom:12px;">
-        <svg viewBox="0 0 24 24" style="width:24px;height:24px;fill:currentColor;"><path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/></svg>
-      </div>
-      <div style="font-size:13.5px;font-weight:700;color:#1e293b;margin-bottom:4px;">Standard Terms Required</div>
-      <p style="font-size:11.5px;color:#64748b;margin:0 0 14px;max-width:210px;line-height:1.4;">
-        To protect your WhatsApp account and prevent spam, accept the terms below to display the pairing QR code.
-      </p>
-      <button type="button" class="secondary-button" id="waGatekeeperReadTermsBtn" style="font-size:11.5px;padding:6px 14px;border-radius:6px;display:inline-flex;align-items:center;gap:5px;">
-        <svg viewBox="0 0 24 24" style="width:13px;height:13px;fill:currentColor;"><path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/></svg>
-        Read Usage Terms
-      </button>
-    </div>
-  `;
+  return renderWhatsAppPairingQr();
 }
 
 function loadWhatsAppConnectState() {
@@ -29748,12 +29732,8 @@ async function renderWhatsAppPairingQr() {
   const container = elements.featureView?.querySelector("#waPairingQrContainer");
   if (!container) return;
 
-  if (!whatsappConnectState.termsAccepted) {
-    renderWhatsAppTermsGatekeeper();
-    return;
-  }
-
-  const qrUrl = "https://web.whatsapp.com/connect?app=zynbill&t=" + Date.now();
+  const isAccepted = Boolean(whatsappConnectState.termsAccepted);
+  const qrUrl = "https://web.whatsapp.com/connect?app=zynbill&t=" + (isAccepted ? "active" : "placeholder");
   let renderedSvg = "";
   if (window.giApp?.generateQrSvg) {
     try {
@@ -29795,15 +29775,42 @@ async function renderWhatsAppPairingQr() {
     `;
   }
 
+  if (!isAccepted) {
+    container.innerHTML = `
+      <div style="display:flex;flex-direction:column;align-items:center;">
+        <div class="wa-pairing-qr-wrap wa-pairing-qr-locked" id="waLockedQrTrigger" title="Click to view & accept Standard Usage Terms" style="position:relative;width:200px;height:200px;background:#ffffff;border:1.5px dashed #cbd5e1;border-radius:12px;overflow:hidden;cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 8px rgba(0,0,0,0.04);">
+          <div class="wa-qr-blur-layer">
+            ${renderedSvg}
+          </div>
+          <div class="wa-qr-center-lock-overlay">
+            <div style="width:44px;height:44px;border-radius:50%;background:#ffffff;box-shadow:0 4px 14px rgba(15,23,42,0.18);display:flex;align-items:center;justify-content:center;color:#475569;border:1px solid #e2e8f0;transition:transform 0.2s ease;">
+              <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+                <path d="M7 11V7a5 5 0 0 1 9.9-1"></path>
+              </svg>
+            </div>
+            <span style="font-size:11px;font-weight:700;color:#334155;background:rgba(255,255,255,0.92);padding:4px 11px;border-radius:20px;box-shadow:0 2px 6px rgba(0,0,0,0.08);border:1px solid #e2e8f0;display:inline-flex;align-items:center;gap:4px;margin-top:7px;">
+              🔒 Locked • Accept Terms
+            </span>
+          </div>
+        </div>
+        <div style="background:#f1f5f9;color:#64748b;font-size:11px;font-weight:600;padding:3px 10px;border-radius:12px;margin-top:8px;display:inline-flex;align-items:center;gap:5px;border:1px solid #e2e8f0;">
+          <span style="width:7px;height:7px;border-radius:50%;background:#94a3b8;display:inline-block;"></span> QR Locked • Check box below to activate
+        </div>
+      </div>
+    `;
+    return;
+  }
+
   container.innerHTML = `
     <div style="display:flex;flex-direction:column;align-items:center;">
-      <div class="wa-pairing-qr-wrap" style="position:relative;display:inline-block;padding:8px;background:#ffffff;border:1px solid #e2e8f0;border-radius:12px;">
+      <div class="wa-pairing-qr-wrap" style="position:relative;width:200px;height:200px;padding:8px;background:#ffffff;border:1px solid #86efac;border-radius:12px;box-shadow:0 4px 16px rgba(37,211,102,0.14);display:flex;align-items:center;justify-content:center;">
         ${renderedSvg}
         <div class="wa-pairing-qr-center-logo">
           <svg viewBox="0 0 24 24" style="width:24px;height:24px;color:#25D366;fill:currentColor;"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 0 1-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 0 1-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 0 1 2.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0 0 12.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 0 0 5.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.82 11.82 0 0 0-3.48-8.413Z"/></svg>
         </div>
       </div>
-      <div style="background:#dcfce7;color:#15803d;font-size:11px;font-weight:700;padding:3px 10px;border-radius:12px;margin-top:8px;display:inline-flex;align-items:center;gap:5px;">
+      <div style="background:#dcfce7;color:#15803d;font-size:11px;font-weight:700;padding:3px 10px;border-radius:12px;margin-top:8px;display:inline-flex;align-items:center;gap:5px;border:1px solid #bbf7d0;">
         <span style="width:7px;height:7px;border-radius:50%;background:#16a34a;display:inline-block;"></span> QR Active &amp; Ready to Scan
       </div>
     </div>
@@ -30109,23 +30116,18 @@ function bindWhatsAppConnectActions() {
   if (!view) return;
 
   if (!whatsappConnectState.connected) {
-    if (whatsappConnectState.termsAccepted) {
-      renderWhatsAppPairingQr();
-    } else {
-      renderWhatsAppTermsGatekeeper();
-    }
+    renderWhatsAppPairingQr();
 
     // Terms checkbox toggle
     const termsCheck = view.querySelector("#waTermsCheck");
     termsCheck?.addEventListener("change", (e) => {
       whatsappConnectState.termsAccepted = e.target.checked;
       saveWhatsAppConnectState();
+      renderWhatsAppPairingQr();
       if (e.target.checked) {
-        renderWhatsAppPairingQr();
         showToast("Standard Usage Terms accepted! Pairing QR generated.");
       } else {
-        renderWhatsAppTermsGatekeeper();
-        showToast("Terms unchecked. QR code hidden.");
+        showToast("Terms unchecked. QR code locked.");
       }
     });
 
@@ -30142,8 +30144,22 @@ function bindWhatsAppConnectActions() {
       });
     });
 
-    // Delegate Click for Read Terms button in gatekeeper
+    // Click on locked blurred QR or gatekeeper button opens terms modal
     view.addEventListener("click", (e) => {
+      const lockedQr = e.target.closest("#waLockedQrTrigger");
+      if (lockedQr) {
+        e.preventDefault();
+        openWhatsAppUsageTermsModal(() => {
+          const tc = view.querySelector("#waTermsCheck");
+          if (tc) tc.checked = true;
+          whatsappConnectState.termsAccepted = true;
+          saveWhatsAppConnectState();
+          renderWhatsAppPairingQr();
+          showToast("Standard Usage Terms accepted! Pairing QR generated.");
+        });
+        return;
+      }
+
       const target = e.target.closest("#waGatekeeperReadTermsBtn");
       if (target) {
         e.preventDefault();

@@ -90,8 +90,8 @@ app.whenReady().then(async () => {
     assert.strictEqual(formattersCheck.statementHasSummary, true);
     console.log("  ✓ Phone normalization and formatters produce clean, polite, structured messages");
 
-    console.log("Test 2: Navigate to WhatsApp Connect with terms unaccepted -> verify Gatekeeper...");
-    const gatekeeperCheck = await window.webContents.executeJavaScript(`
+    console.log("Test 2: Navigate to WhatsApp Connect with terms unaccepted -> verify Blurred Locked QR...");
+    const lockedQrCheck = await window.webContents.executeJavaScript(`
       (async () => {
         // Reset state
         localStorage.setItem("gi-whatsapp-connect-state", JSON.stringify({
@@ -107,30 +107,40 @@ app.whenReady().then(async () => {
           elements.featureView.innerHTML = whatsappConnectTemplate();
           bindFeatureActions();
         }
-        await new Promise((r) => setTimeout(r, 300));
+        await new Promise((r) => setTimeout(r, 800));
 
         const container = elements.featureView.querySelector("#waPairingQrContainer");
         const termsCheck = elements.featureView.querySelector("#waTermsCheck");
-        const gatekeeper = container?.querySelector(".wa-qr-terms-gatekeeper");
-        const hasSvgQr = Boolean(container?.querySelector("svg:not(.gi-icon) rect[fill='#000000']"));
-        const readTermsBtn = gatekeeper?.querySelector("#waGatekeeperReadTermsBtn");
+        const lockedWrap = container?.querySelector(".wa-pairing-qr-locked");
+        const blurLayer = container?.querySelector(".wa-qr-blur-layer");
+        const lockOverlay = container?.querySelector(".wa-qr-center-lock-overlay");
+        const hasSvgInsideBlur = Boolean(blurLayer?.querySelector("svg"));
+        const hasOldGatekeeper = Boolean(container?.querySelector(".wa-qr-terms-gatekeeper"));
+        const lockedText = container?.textContent || "";
+        const rawHtml = container?.innerHTML || "";
 
         return {
           isTermsChecked: termsCheck?.checked,
-          hasGatekeeper: Boolean(gatekeeper),
-          gatekeeperText: gatekeeper?.textContent || "",
-          hasSvgQr,
-          hasReadTermsBtn: Boolean(readTermsBtn)
+          hasLockedWrap: Boolean(lockedWrap),
+          hasBlurLayer: Boolean(blurLayer),
+          hasLockOverlay: Boolean(lockOverlay),
+          hasSvgInsideBlur,
+          hasOldGatekeeper,
+          lockedText,
+          rawHtml
         };
       })()
     `);
 
-    assert.strictEqual(gatekeeperCheck.isTermsChecked, false, "Terms checkbox must be unchecked initially");
-    assert.strictEqual(gatekeeperCheck.hasGatekeeper, true, "Gatekeeper must be visible when terms not accepted");
-    assert.strictEqual(gatekeeperCheck.hasSvgQr, false, "QR code SVG must NOT be generated until terms are accepted");
-    assert.ok(gatekeeperCheck.gatekeeperText.includes("Standard Terms Required"));
-    assert.strictEqual(gatekeeperCheck.hasReadTermsBtn, true);
-    console.log("  ✓ QR code is gated until user accepts Standard Usage Terms");
+    console.log("  debug lockedQrCheck:", JSON.stringify(lockedQrCheck));
+    assert.strictEqual(lockedQrCheck.isTermsChecked, false, "Terms checkbox must be unchecked initially");
+    assert.strictEqual(lockedQrCheck.hasOldGatekeeper, false, "Old white gatekeeper card must NOT be present");
+    assert.strictEqual(lockedQrCheck.hasLockedWrap, true, "Locked QR wrap must be present");
+    assert.strictEqual(lockedQrCheck.hasBlurLayer, true, "Blur layer must be present");
+    assert.strictEqual(lockedQrCheck.hasLockOverlay, true, "Lock overlay must be present");
+    assert.strictEqual(lockedQrCheck.hasSvgInsideBlur, true, "QR code SVG must be present inside blur layer");
+    assert.ok(lockedQrCheck.lockedText.includes("QR Locked"), "Status badge must indicate QR Locked");
+    console.log("  ✓ Artistic blurred QR code displayed when terms are unaccepted");
 
     console.log("Test 3: Verify Standard Usage Terms modal opens and clicking Accept generates QR code...");
     const termsModalCheck = await window.webContents.executeJavaScript(`

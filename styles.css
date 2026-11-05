@@ -18240,23 +18240,84 @@ textarea:focus-visible {
 }
 
 .wa-qr-display-box {
-  width: 210px;
-  height: 210px;
-  border: 1px solid #e2e8f0;
-  border-radius: 12px;
-  padding: 8px;
-  background: #ffffff;
+  min-width: 216px;
+  min-height: 236px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 16px;
+}
+
+.wa-pairing-qr-wrap {
+  width: 200px;
+  height: 200px;
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
-  margin-bottom: 20px;
+  padding: 8px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
 }
 
-.wa-qr-display-box svg {
+.wa-pairing-qr-wrap svg {
   width: 100%;
   height: 100%;
   border-radius: 6px;
+}
+
+.wa-pairing-qr-wrap.wa-pairing-qr-locked {
+  cursor: pointer;
+  border: 1.5px dashed #cbd5e1;
+  overflow: hidden;
+  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+.wa-pairing-qr-wrap.wa-pairing-qr-locked:hover {
+  transform: translateY(-2px);
+  border-color: #25D366;
+  box-shadow: 0 6px 20px rgba(37, 211, 102, 0.12);
+}
+
+.wa-pairing-qr-wrap.wa-pairing-qr-locked:hover .wa-qr-center-lock-overlay > div:first-child {
+  transform: scale(1.08);
+  border-color: #25D366;
+  color: #16a34a;
+}
+
+.wa-qr-blur-layer {
+  filter: blur(8px);
+  opacity: 0.52;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  user-select: none;
+  pointer-events: none;
+  transition: filter 0.3s ease, opacity 0.3s ease;
+}
+
+.wa-qr-blur-layer svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.wa-qr-center-lock-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.45);
+  backdrop-filter: blur(1.5px);
+  border-radius: 12px;
+  pointer-events: none;
 }
 
 .wa-pairing-qr-center-logo {
@@ -21605,20 +21666,7 @@ button.secondary-button.wa-btn:hover {
   border-color: #dc2626;
 }
 
-/* WhatsApp Pairing Gatekeeper & Direct Desktop Quick Send */
-.wa-qr-terms-gatekeeper {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: 24px 16px;
-  text-align: center;
-  min-height: 220px;
-  background: #f8fafc;
-  border: 1.5px dashed #cbd5e1;
-  border-radius: 12px;
-  transition: all 0.2s ease;
-}
+
 
 
 .wa-preset-btn {
