@@ -206,35 +206,41 @@ class CloudSyncWidget {
 
   static bindDomElements() {
     const badge = document.getElementById("cloudSyncStatusBadge");
-    const popover = document.getElementById("cloudSyncPopover");
-    const closeBtn = document.getElementById("syncPopoverCloseBtn");
     const syncNowBtn = document.getElementById("syncNowBtn");
     const backupBtn = document.getElementById("syncBackupNowBtn");
     const planPill = document.getElementById("sidebarPlanPill");
-    const planDetailsBtn = document.getElementById("syncPlanDetailsBtn");
 
-    badge?.addEventListener("click", (e) => {
+    // Online/Offline pill click gives live ping feedback without opening popover
+    badge?.addEventListener("click", async (e) => {
       e.stopPropagation();
-      popover?.classList.toggle("hidden");
-      this.updatePopoverDetails();
-    });
-
-    closeBtn?.addEventListener("click", () => popover?.classList.add("hidden"));
-
-    document.addEventListener("click", (e) => {
-      if (popover && !popover.contains(e.target) && e.target !== badge && !badge?.contains(e.target)) {
-        popover.classList.add("hidden");
+      badge.style.opacity = "0.5";
+      const isOnline = await this.pingServer();
+      badge.style.opacity = "1";
+      if (isOnline) {
+        this.setStatus("online");
+        if (typeof showToast === "function") {
+          showToast("🟢 ZynBill Cloud: Online & Synchronized", "success");
+        }
+        this.triggerSyncNow();
+      } else {
+        this.setStatus("offline");
+        if (typeof showToast === "function") {
+          showToast("⚪ Offline Mode: Operating with local SQLite database", "info");
+        }
       }
     });
 
     syncNowBtn?.addEventListener("click", () => this.triggerSyncNow());
     backupBtn?.addEventListener("click", () => this.triggerBackupNow());
 
-    planPill?.addEventListener("click", () => {
-      SubscriptionModalController.open();
+    // Clicking the plan pill navigates directly to Settings -> Subscription Plan
+    planPill?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (typeof navigateView === "function") {
+        navigateView("appSettings", "PLAN");
+      }
     });
 
-    
     document.getElementById("sidebarSignOutBtn")?.addEventListener("click", (e) => {
       e.stopPropagation();
       CloudLicenseManager.signOut();
@@ -248,11 +254,6 @@ class CloudSyncWidget {
       if (typeof navigateView === "function") {
         navigateView("home");
       }
-    });
-
-    planDetailsBtn?.addEventListener("click", () => {
-      popover?.classList.add("hidden");
-      SubscriptionModalController.open();
     });
   }
 
@@ -305,8 +306,32 @@ class CloudSyncWidget {
     this.updatePlanPill();
   }
 
+  static async pingServer() {
+    if (!navigator.onLine) return false;
+    try {
+      const sUrl = CloudLicenseManager.getServerUrl();
+      const ctrl = new AbortController();
+      const tid = setTimeout(() => ctrl.abort(), 2000);
+      const res = await fetch(`${sUrl}/api/v1/auth/plans`, {
+        method: "GET",
+        signal: ctrl.signal,
+        cache: "no-store"
+      });
+      clearTimeout(tid);
+      return res.ok;
+    } catch (_) {
+      return false;
+    }
+  }
+
   static async refreshStatus() {
     if (!navigator.onLine) {
+      this.setStatus("offline");
+      return;
+    }
+
+    const isReachable = await this.pingServer();
+    if (!isReachable) {
       this.setStatus("offline");
       return;
     }
@@ -487,6 +512,10 @@ class SubscriptionModalController {
   }
 
   static open() {
+    if (typeof navigateView === "function") {
+      navigateView("appSettings", "PLAN");
+      return;
+    }
     this.renderDetails();
     document.getElementById("subscriptionModal")?.classList.remove("hidden");
   }

@@ -15628,6 +15628,50 @@ function bindFeatureActions() {
       bindFeatureActions();
     }
   });
+  // Subscription Plan Page Actions
+  elements.featureView.querySelector("#btnPlanRefreshLicense")?.addEventListener("click", async () => {
+    const btn = elements.featureView.querySelector("#btnPlanRefreshLicense");
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = "Checking Server...";
+    }
+    try {
+      if (typeof CloudLicenseManager !== "undefined") {
+        await CloudLicenseManager.syncLicenseWithServer();
+      }
+      if (typeof CloudSyncWidget !== "undefined") {
+        await CloudSyncWidget.refreshStatus();
+      }
+      if (typeof showToast === "function") {
+        showToast("Subscription plan and license refreshed.", "success");
+      }
+    } catch (err) {
+      if (typeof showToast === "function") showToast("Failed to refresh: " + err.message, "error");
+    } finally {
+      elements.featureView.innerHTML = settingsTemplate("PLAN");
+      bindFeatureActions();
+    }
+  });
+
+  elements.featureView.querySelector("#btnPlanOpenPortal")?.addEventListener("click", () => {
+    const sUrl = (typeof CloudLicenseManager !== "undefined") ? CloudLicenseManager.getServerUrl() : "http://localhost:4000";
+    const pUrl = sUrl + "/portal";
+    if (window.giApp?.openExternal) window.giApp.openExternal(pUrl);
+    else window.open(pUrl, "_blank");
+  });
+
+  elements.featureView.querySelector("#btnPlanSwitchAccount")?.addEventListener("click", () => {
+    if (typeof ActivationUiController !== "undefined") {
+      ActivationUiController.showActivationModal(true);
+    }
+  });
+
+  elements.featureView.querySelector("#btnPlanSignOut")?.addEventListener("click", () => {
+    if (typeof CloudLicenseManager !== "undefined") {
+      CloudLicenseManager.signOut();
+    }
+  });
+
   elements.featureView.querySelector("#btnSettingsReactivate")?.addEventListener("click", () => {
     if (typeof ActivationUiController !== "undefined") ActivationUiController.showActivationModal(true);
   });
@@ -28138,13 +28182,13 @@ function importTemplate(title = "Import Items") {
 
 const SETTINGS_TABS = [
   { id: "COMPANY", label: "Company Profile", note: "Identity, tax & logo", icon: "building" },
-  { id: "PLAN", label: "Plan & License", note: "Subscription validity & limits", icon: "shield" },
+  { id: "PLAN", label: "Subscription Plan", note: "Tier, validity & multi-PC", icon: "shield" },
   { id: "INVOICING", label: "Invoicing & Sequences", note: "Prefix, numbers & terms", icon: "receipt" },
   { id: "PRINTING", label: "Print & Thermal POS", note: "A4, 80mm/58mm & QR", icon: "printer" },
   { id: "TAX", label: "Tax", note: "GST slabs, CGST/SGST & Cess", icon: "calculator" },
   { id: "INVENTORY", label: "Inventory Rules", note: "Negative stock, MRP & HSN", icon: "box" },
   { id: "CUSTOM_FIELDS", label: "Custom Fields", note: "Extra transaction fields", icon: "tools" },
-  { id: "SECURITY", label: "Security & Cloud License", note: "PIN lock, Sync & Grace period", icon: "lock" },
+  { id: "SECURITY", label: "App Security & PIN", note: "4-Digit PIN & data lock", icon: "lock" },
   { id: "ABOUT", label: "About & Version", note: "System info & build", icon: "help" },
 ];
 
@@ -28193,92 +28237,224 @@ function settingsTemplate(active = "COMPANY") {
 
 
 function settingsPlanDetailsTemplate() {
-  const license = typeof CloudLicenseManager !== "undefined" ? CloudLicenseManager.getLicense() : { plan: "Professional Business", customerEmail: "customer@example.com", expiresAt: "2027-11-05" };
-  const grace = typeof CloudLicenseManager !== "undefined" ? CloudLicenseManager.checkGracePeriod() : { daysRemaining: 365, isOverdue: false, inGracePeriod: false };
-  const expiryDate = license.expiresAt ? new Date(license.expiresAt).toLocaleDateString("en-IN", { dateStyle: "long" }) : "Active / Yearly";
+  const license = typeof CloudLicenseManager !== "undefined"
+    ? CloudLicenseManager.getLicense()
+    : {
+        plan: "Professional Business",
+        companyName: state.activeCompany || "Workspace",
+        email: "customer@domain.com",
+        validUntil: new Date(Date.now() + 365 * 86400000).toISOString(),
+        status: "active",
+        companyId: "tenant_default",
+        token: "zyndev_counter1"
+      };
+
+  const grace = typeof CloudLicenseManager !== "undefined"
+    ? CloudLicenseManager.checkGracePeriod()
+    : { daysRemaining: 365, isOverdue: false, inGracePeriod: false };
+
+  const validUntilRaw = license.validUntil || license.expiresAt;
+  const expiryDate = validUntilRaw
+    ? new Date(validUntilRaw).toLocaleDateString("en-IN", { year: "numeric", month: "long", day: "numeric" })
+    : "Active (Lifetime)";
+
+  const planName = license.plan || "Professional Business";
+  const planDisplayName = planName.toLowerCase().includes("plan") ? planName : (planName + " Plan");
+  const customerEmail = license.email || license.customerEmail || "admin@zynbill.com";
+  const companyName = license.companyName || state.activeCompany || "Business Workspace";
+  const tenantId = license.tenantId || license.companyId || "tenant_default";
+  const deviceToken = license.token ? (license.token.slice(0, 10) + "••••••••") : "zyndev_counter1";
+
+  const isGrace = grace.isOverdue && grace.inGracePeriod;
+  const isExpired = grace.isOverdue && !grace.inGracePeriod;
+
+  const statusBadge = isExpired
+    ? '<span class="status-badge status-badge--danger" style="font-size:12px;font-weight:700;padding:4px 10px;border-radius:6px;background:#fee2e2;color:#b91c1c;">EXPIRED</span>'
+    : isGrace
+    ? ('<span class="status-badge status-badge--warning" style="font-size:12px;font-weight:700;padding:4px 10px;border-radius:6px;background:#fef3c7;color:#92400e;">GRACE PERIOD (' + grace.daysRemaining + 'd left)</span>')
+    : '<span class="status-badge status-badge--success" style="font-size:12px;font-weight:700;padding:4px 10px;border-radius:6px;background:#ecfdf5;color:#047857;">ACTIVE SUBSCRIPTION</span>';
+
+  const progressPercent = Math.min(100, Math.max(0, Math.round((grace.daysRemaining / 365) * 100)));
 
   return `
     <header class="settings-page-header">
       <div>
         <h2>Subscription Plan &amp; Cloud License</h2>
-        <p>Your active subscription tier, cloud synchronization status, device limits, and renewal validity.</p>
+        <p>Active plan tier, license validity, multi-PC terminal setup, and offline continuity status.</p>
       </div>
       <div class="settings-header-actions">
-        <button class="primary-button" type="button" onclick="window.open('http://localhost:4000/portal', '_blank')">Manage in Web Portal ↗</button>
+        <button class="primary-button" id="btnPlanOpenPortal" type="button" style="display:inline-flex;align-items:center;gap:6px;">
+          <span>Manage on Web Portal</span> ↗
+        </button>
       </div>
     </header>
 
     <div class="settings-form-grid">
-      <!-- Active Plan Overview Card -->
-      <section class="settings-card" style="grid-column: 1 / -1; background: linear-gradient(135deg, #f0fdf4 0%, #e0f2fe 100%); border: 1px solid #bbf7d0;">
-        <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 16px;">
+      <!-- 1. Active Plan Hero Card -->
+      <section class="settings-card" style="grid-column: 1 / -1; background: linear-gradient(135deg, #f8fafc 0%, #f0fdf4 100%); border: 1px solid #bbf7d0; box-shadow: 0 4px 16px rgba(22, 163, 74, 0.05); padding: 24px;">
+        <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 20px;">
           <div>
-            <div style="display:flex;align-items:center;gap:12px;">
-              <span style="font-size:28px;">⭐</span>
+            <div style="display: flex; align-items: center; gap: 14px;">
+              <div style="width: 52px; height: 52px; border-radius: 14px; background: #ffffff; border: 1px solid #bbf7d0; display: flex; align-items: center; justify-content: center; font-size: 26px; box-shadow: 0 2px 8px rgba(0,0,0,0.04);">
+                ⭐
+              </div>
               <div>
-                <span class="status-badge status-badge--success" style="font-size:12px;font-weight:700;">ACTIVE SUBSCRIPTION</span>
-                <h3 style="font-size:22px;margin:4px 0 2px;color:#0f172a;font-weight:800;">${escapeHtml(license.plan || "Professional Business")}</h3>
-                <p style="color:#475569;margin:0;font-size:13px;">Registered to: <strong>${escapeHtml(license.customerEmail || "Connected Customer")}</strong></p>
+                <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 4px;">
+                  <h3 style="font-size: 22px; margin: 0; color: #0f172a; font-weight: 800;">${escapeHtml(planDisplayName)}</h3>
+                  ${statusBadge}
+                </div>
+                <p style="color: #64748b; margin: 0; font-size: 13.5px;">Registered Account: <strong style="color: #0f172a;">${escapeHtml(customerEmail)}</strong> (${escapeHtml(companyName)})</p>
               </div>
             </div>
           </div>
-          <div style="text-align: right; background: rgba(255,255,255,0.75); padding: 12px 18px; border-radius: 12px; border: 1px solid rgba(0,0,0,0.06);">
-            <div style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: #64748b; font-weight: 700;">Valid Until</div>
-            <div style="font-size: 18px; font-weight: 800; color: #166534; margin: 2px 0;">${escapeHtml(expiryDate)}</div>
-            <div style="font-size: 12px; font-weight: 600; color: ${grace.isOverdue ? '#dc2626' : '#15803d'};">
-              ${grace.isOverdue ? (grace.inGracePeriod ? `${grace.daysRemaining} days remaining in offline grace` : 'Expired') : `${grace.daysRemaining} days remaining`}
+
+          <div style="text-align: right; background: #ffffff; padding: 14px 20px; border-radius: 12px; border: 1px solid #e2e8f0; min-width: 200px; box-shadow: 0 2px 6px rgba(0,0,0,0.03);">
+            <div style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: #64748b; font-weight: 700;">License Expiry</div>
+            <div style="font-size: 18px; font-weight: 800; color: #15803d; margin: 3px 0;">${escapeHtml(expiryDate)}</div>
+            <div style="font-size: 12.5px; font-weight: 600; color: ${isGrace ? '#d97706' : (isExpired ? '#dc2626' : '#166534')};">
+              ${isExpired ? 'License Expired' : (grace.daysRemaining + ' days remaining')}
+            </div>
+          </div>
+        </div>
+
+        <div style="margin-top: 20px;">
+          <div style="display: flex; justify-content: space-between; font-size: 12px; color: #64748b; margin-bottom: 6px; font-weight: 600;">
+            <span>Subscription Validity</span>
+            <span>${progressPercent}% remaining</span>
+          </div>
+          <div style="background: #e2e8f0; height: 8px; border-radius: 999px; overflow: hidden;">
+            <div style="background: linear-gradient(90deg, #22c55e, #10b981); height: 100%; width: ${progressPercent}%; transition: width 0.4s ease;"></div>
+          </div>
+        </div>
+
+        <div style="margin-top: 16px; padding: 10px 14px; background: rgba(255,255,255,0.85); border: 1px solid #dcfce7; border-radius: 8px; font-size: 12.5px; color: #166534; display: flex; align-items: center; gap: 8px;">
+          <span style="font-weight: 700; font-size: 14px;">✓</span>
+          <span><strong>14-Day Offline Billing Protection Active:</strong> You can create GST bills, print thermal receipts, and record payments completely offline even if internet or Wi-Fi is disconnected.</span>
+        </div>
+      </section>
+
+      <!-- 2. Account & License Credentials -->
+      <section class="settings-card">
+        <div class="settings-card-head">
+          <div style="display: flex; align-items: center; gap: 10px;">
+            <div style="width: 32px; height: 32px; border-radius: 8px; background: #eff6ff; display: flex; align-items: center; justify-content: center; color: #2563eb; font-size: 15px;">
+              🏢
+            </div>
+            <h3 style="margin: 0; font-size: 15px; color: #0f172a;">Account &amp; Workspace</h3>
+          </div>
+          <span class="badge">Identity</span>
+        </div>
+
+        <div style="display: grid; gap: 12px; margin-top: 14px;">
+          <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px 14px;">
+            <div style="font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase;">Workspace Business</div>
+            <div style="font-size: 14px; font-weight: 700; color: #0f172a; margin-top: 2px;">${escapeHtml(companyName)}</div>
+          </div>
+
+          <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px 14px;">
+            <div style="font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase;">Cloud Database Vault</div>
+            <div style="font-family: monospace; font-size: 12.5px; color: #334155; margin-top: 2px;">${escapeHtml(tenantId)} (AES-256 Cloud Mirror)</div>
+          </div>
+
+          <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px 14px;">
+            <div style="font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase;">Device Hardware Key</div>
+            <div style="font-family: monospace; font-size: 12px; color: #64748b; margin-top: 2px;">${escapeHtml(deviceToken)}</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 3. Multi-PC Terminal Synchronization -->
+      <section class="settings-card">
+        <div class="settings-card-head">
+          <div style="display: flex; align-items: center; gap: 10px;">
+            <div style="width: 32px; height: 32px; border-radius: 8px; background: #f0fdf4; display: flex; align-items: center; justify-content: center; color: #16a34a; font-size: 15px;">
+              💻
+            </div>
+            <h3 style="margin: 0; font-size: 15px; color: #0f172a;">Multi-PC Terminals</h3>
+          </div>
+          <span class="badge" style="background:#ecfdf5;color:#047857;font-weight:700;">Multi-Device Ready</span>
+        </div>
+
+        <div style="display: grid; gap: 12px; margin-top: 14px;">
+          <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px 14px;">
+            <div style="font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase;">Current Terminal Role</div>
+            <div style="font-size: 14px; font-weight: 700; color: #0f172a; margin-top: 2px;">Primary Counter Terminal (This PC)</div>
+            <div style="font-size: 12px; color: #16a34a; margin-top: 2px; font-weight: 500;">✓ Local SQLite Engine Active (Zero Latency)</div>
+          </div>
+
+          <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px 14px;">
+            <div style="font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase;">Adding Extra Counter Terminals</div>
+            <div style="font-size: 12.5px; color: #475569; margin-top: 4px; line-height: 1.45;">
+              Install ZynBill on your other billing counter PCs and sign in with the same account and PIN. All sales, stock changes, and customer balances synchronize seamlessly across all terminals.
             </div>
           </div>
         </div>
       </section>
 
-      <!-- Features Included -->
-      <section class="settings-card">
+      <!-- 4. Included Business Entitlements -->
+      <section class="settings-card" style="grid-column: 1 / -1;">
         <div class="settings-card-head">
-          <h3>Included Business Features</h3>
-          <span class="badge">Entitlements</span>
+          <div style="display: flex; align-items: center; gap: 10px;">
+            <div style="width: 32px; height: 32px; border-radius: 8px; background: #faf5ff; display: flex; align-items: center; justify-content: center; color: #9333ea; font-size: 15px;">
+              ✨
+            </div>
+            <h3 style="margin: 0; font-size: 15px; color: #0f172a;">Included Features &amp; Capabilities</h3>
+          </div>
+          <span class="badge">Full Access</span>
         </div>
-        <ul style="list-style:none;padding:0;margin:12px 0 0;display:grid;gap:10px;">
-          <li style="display:flex;align-items:center;gap:10px;font-size:13px;color:#334155;">
-            <span style="color:#16a34a;font-weight:bold;font-size:14px;">✓</span> Unlimited GST &amp; Non-GST Invoicing
-          </li>
-          <li style="display:flex;align-items:center;gap:10px;font-size:13px;color:#334155;">
-            <span style="color:#16a34a;font-weight:bold;font-size:14px;">✓</span> WhatsApp Connect (Instant PDF delivery)
-          </li>
-          <li style="display:flex;align-items:center;gap:10px;font-size:13px;color:#334155;">
-            <span style="color:#16a34a;font-weight:bold;font-size:14px;">✓</span> Multi-Device Real-Time Cloud Synchronization
-          </li>
-          <li style="display:flex;align-items:center;gap:10px;font-size:13px;color:#334155;">
-            <span style="color:#16a34a;font-weight:bold;font-size:14px;">✓</span> 14-Day Offline Billing Grace Period
-          </li>
-          <li style="display:flex;align-items:center;gap:10px;font-size:13px;color:#334155;">
-            <span style="color:#16a34a;font-weight:bold;font-size:14px;">✓</span> Automated Rolling Local Backups (Max 5 Files in C:\ZynBill\Backups)
-          </li>
-        </ul>
+
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; margin-top: 14px;">
+          <div style="display: flex; align-items: flex-start; gap: 10px; font-size: 13px; color: #334155; padding: 10px; background: #f8fafc; border-radius: 8px; border: 1px solid #f1f5f9;">
+            <span style="color: #16a34a; font-weight: 800; font-size: 15px; line-height: 1;">✓</span>
+            <div>
+              <strong>Unlimited GST Invoicing</strong>
+              <div style="font-size: 12px; color: #64748b;">B2B, B2C, POS Thermal, and Credit Notes with zero bill limits.</div>
+            </div>
+          </div>
+
+          <div style="display: flex; align-items: flex-start; gap: 10px; font-size: 13px; color: #334155; padding: 10px; background: #f8fafc; border-radius: 8px; border: 1px solid #f1f5f9;">
+            <span style="color: #16a34a; font-weight: 800; font-size: 15px; line-height: 1;">✓</span>
+            <div>
+              <strong>WhatsApp Connect</strong>
+              <div style="font-size: 12px; color: #64748b;">Send PDF invoices and payment reminders directly to customer phones.</div>
+            </div>
+          </div>
+
+          <div style="display: flex; align-items: flex-start; gap: 10px; font-size: 13px; color: #334155; padding: 10px; background: #f8fafc; border-radius: 8px; border: 1px solid #f1f5f9;">
+            <span style="color: #16a34a; font-weight: 800; font-size: 15px; line-height: 1;">✓</span>
+            <div>
+              <strong>Real-Time Cloud Synchronization</strong>
+              <div style="font-size: 12px; color: #64748b;">Instant cloud replication and automatic multi-PC synchronization.</div>
+            </div>
+          </div>
+
+          <div style="display: flex; align-items: flex-start; gap: 10px; font-size: 13px; color: #334155; padding: 10px; background: #f8fafc; border-radius: 8px; border: 1px solid #f1f5f9;">
+            <span style="color: #16a34a; font-weight: 800; font-size: 15px; line-height: 1;">✓</span>
+            <div>
+              <strong>Automated Local Rolling Backups</strong>
+              <div style="font-size: 12px; color: #64748b;">Auto-saved to C:\ZynBill\Backups with 5-file rolling retention on exit.</div>
+            </div>
+          </div>
+        </div>
       </section>
 
-      <!-- Cloud Sync & Device Security -->
-      <section class="settings-card">
-        <div class="settings-card-head">
-          <h3>Cloud Sync &amp; Device Details</h3>
-          <span class="badge">Security</span>
-        </div>
-        <div class="settings-field-group">
-          <label>Tenant Cloud Database</label>
-          <div style="font-family:monospace;font-size:13px;background:#f1f5f9;padding:8px 12px;border-radius:6px;color:#334155;">
-            ${escapeHtml(license.tenantId || "tenant_default")} (Isolated Encrypted Storage)
+      <!-- 5. Actions Footer Card -->
+      <section class="settings-card" style="grid-column: 1 / -1; background: #ffffff; border: 1px solid #e2e8f0;">
+        <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 14px;">
+          <div style="font-size: 13px; color: #64748b;">
+            💡 Need to renew, change tier, or view invoices? Manage everything on the ZynBill Customer Web Portal.
           </div>
-        </div>
-        <div class="settings-field-group">
-          <label>Offline Grace Protection</label>
-          <div style="font-size:12.5px;color:#475569;line-height:1.5;">
-            You can bill seamlessly even when internet is completely down. Invoices queue safely and synchronize once reconnected.
+          <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+            <button type="button" class="primary-button" id="btnPlanRefreshLicense" style="display: inline-flex; align-items: center; gap: 8px;">
+              <svg class="gi-icon" style="width: 14px; height: 14px;"><use href="#gi-refresh"></use></svg>
+              <span>Sync &amp; Refresh License</span>
+            </button>
+            <button type="button" class="secondary-button" id="btnPlanSwitchAccount">Switch Account</button>
+            <button type="button" class="secondary-button" id="btnPlanSignOut" style="color: #dc2626; border-color: #fecaca;">
+              <svg class="gi-icon" style="width: 13px; height: 13px; margin-right: 4px;"><use href="#gi-log-out"></use></svg>
+              <span>Sign Out</span>
+            </button>
           </div>
-        </div>
-        <div style="margin-top:14px;">
-          <button class="secondary-button" type="button" onclick="if (typeof SubscriptionModalController !== 'undefined') SubscriptionModalController.open();" style="width:100%;justify-content:center;">
-            View Detailed Cloud License Modal
-          </button>
         </div>
       </section>
     </div>

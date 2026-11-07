@@ -167,55 +167,6 @@
             </button>
           </div>
         </div>
-        <div class="cloud-sync-popover hidden" id="cloudSyncPopover">
-          <div class="sync-popover-header">
-            <div>
-              <strong id="syncPopoverStatusTitle">Cloud Connected</strong>
-              <small id="syncPopoverTenant">ZynBill Cloud Ecosystem</small>
-            </div>
-            <button type="button" class="sync-popover-close" id="syncPopoverCloseBtn">&times;</button>
-          </div>
-          <div class="sync-popover-body">
-            <div class="sync-metric-row">
-              <span>Cloud Status:</span>
-              <strong class="sync-status-online" id="syncPopoverStatus">Online</strong>
-            </div>
-            <div class="sync-metric-row">
-              <span>Subscription Plan:</span>
-              <strong style="color:var(--primary-color);" id="syncPopoverPlanName">Professional Plan</strong>
-            </div>
-            <div class="sync-metric-row">
-              <span>Plan Validity:</span>
-              <span id="syncPopoverPlanValidity">365 days remaining</span>
-            </div>
-            <div class="sync-metric-row">
-              <span>Pending Sync Queue:</span>
-              <strong id="syncPopoverPendingCount">0 changes queued</strong>
-            </div>
-            <div class="sync-metric-row">
-              <span>Last Synced:</span>
-              <span id="syncPopoverLastSynced">Just now</span>
-            </div>
-            <div class="sync-metric-row">
-              <span>Automated Daily Backup:</span>
-              <span id="syncPopoverBackupStatus">Today (Active)</span>
-            </div>
-            <div class="sync-grace-warning hidden" id="syncGraceWarning">
-              <span class="grace-icon">⚠️</span>
-              <div>
-                <strong>Offline Grace Period Active</strong>
-                <p id="syncGraceDaysText">14 days remaining to reconnect online and refresh license.</p>
-              </div>
-            </div>
-          </div>
-          <div class="sync-popover-footer">
-            <button type="button" class="secondary-button compact-button" id="syncPlanDetailsBtn">Plan Details</button>
-            <button type="button" class="secondary-button compact-button" id="syncBackupNowBtn">Backup Local DB</button>
-            <button type="button" class="primary-button compact-button" id="syncNowBtn">
-              <svg class="gi-icon sync-spin-icon" style="width:13px;height:13px;margin-right:4px;"><use href="#gi-refresh"></use></svg> Sync Now
-            </button>
-          </div>
-        </div>
         <div class="quick-search-wrap">
           <input class="quick-search" id="searchInput" type="search" placeholder="Open Anything (Ctrl+F)" aria-label="Open Anything" autocomplete="off">
           <button class="sidebar-toggle-btn" id="sidebarToggleBtn" type="button" title="Collapse sidebar (Ctrl+B)" aria-label="Collapse sidebar">
