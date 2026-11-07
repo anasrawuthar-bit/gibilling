@@ -1602,10 +1602,9 @@ function seedDefaults() {
   if (!one("SELECT id FROM companies LIMIT 1")) {
     run(
       "INSERT INTO companies (name, email, country, is_current, created_at) VALUES (?, ?, ?, ?, ?)",
-      ["testt", "demo@gibilling.local", "", 1, now],
+      ["testt", "", "India", 1, now],
     );
   }
-  run("UPDATE companies SET email = ? WHERE email IS NULL OR email = '' OR email LIKE '%badgerhole.com'", ["demo@gibilling.local"]);
   if (!one("SELECT id FROM companies WHERE is_current = 1")) {
     run("UPDATE companies SET is_current = 1 WHERE id = (SELECT id FROM companies ORDER BY id LIMIT 1)");
   }
@@ -1674,7 +1673,7 @@ function getState() {
       pan: s.pan || "",
       state: s.state || "",
       address: s.address || "",
-      phone: s.phone || (c.email === "demo@gibilling.local" ? "" : (c.email || "")),
+      phone: s.phone || (c.phone || ""), email: (c.email === "demo@gibilling.local" ? "" : (c.email || "")),
     };
   });
   return {

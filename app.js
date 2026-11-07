@@ -17382,9 +17382,9 @@ function accountantAccessTemplate() {
       { label: "Open Reports", view: "reports" },
     ],
     metrics: [
-      { label: "Login", value: "Demo", caption: "OTP planned later" },
-      { label: "Backup", value: "Manual", caption: "SQLite copy" },
-      { label: "Audit Trail", value: "Planned", caption: "Review history" },
+      { label: "Login", value: "Cloud / PIN", caption: "Verified Account" },
+      { label: "Backup", value: "Automated", caption: "Daily on Exit" },
+      { label: "Audit Trail", value: "Active", caption: "Tamper-evident log" },
     ],
     sections: [
       { title: "Share Pack", description: "What the accountant usually needs first.", items: ["Profit and loss", "GST reports", "Party ledger", "SQLite backup"] },
@@ -29996,15 +29996,7 @@ function getWhatsAppActiveParty() {
   const directParties = whatsappConnectState.directParties || [];
   const allParties = [...directParties, ...parties];
   if (!allParties.length) {
-    return {
-      id: "demo-1",
-      name: "ajml",
-      phone: "9846515684",
-      balance: 22800,
-      receivable: 22800,
-      payable: 0,
-      state: "Kerala",
-    };
+    return null;
   }
   if (whatsappConnectState.activePartyId) {
     const p = allParties.find((item) => String(item.id) === String(whatsappConnectState.activePartyId));
@@ -30452,11 +30444,27 @@ function whatsappConnectTemplate() {
     ? allParties.filter((p) => (p.name || "").toLowerCase().includes(query) || (p.phone || "").includes(query))
     : allParties;
 
-  const displayParties = filteredParties.length ? filteredParties : [
-    { id: "demo-1", name: "ajml", phone: "9846515684", balance: 22800, receivable: 22800 }
-  ];
+  const displayParties = filteredParties;
 
-  const currentActiveParty = getWhatsAppActiveParty() || displayParties[0];
+  const currentActiveParty = getWhatsAppActiveParty() || displayParties[0] || null;
+  if (!currentActiveParty) {
+    return `
+      <div class="wa-connect-split">
+        <aside class="wa-chat-parties-list">
+          <div style="padding: 24px; text-align: center; color: var(--muted); font-size: 13px;">
+            No parties found. Add a party in the <strong>Parties</strong> tab to start messaging.
+          </div>
+        </aside>
+        <main class="wa-chat-workspace" style="display:flex;align-items:center;justify-content:center;background:#f8fafc;">
+          <div style="text-align: center; max-width: 400px; padding: 32px;">
+            <div style="font-size: 40px; margin-bottom: 12px;">💬</div>
+            <h3 style="font-size: 16px; color: #0f172a; margin-bottom: 6px;">No Party Selected</h3>
+            <p style="font-size: 13px; color: #64748b;">Add a customer or supplier with a valid phone number to share invoices and payment reminders via WhatsApp.</p>
+          </div>
+        </main>
+      </div>
+    `;
+  }
   const latestInvoice = getPartyLatestInvoice(currentActiveParty);
   const cleanPhone = String(currentActiveParty.phone || "").replace(/\D/g, "");
   const hasValidPhone = cleanPhone.length >= 7;
