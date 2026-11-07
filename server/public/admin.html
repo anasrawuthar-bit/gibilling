@@ -230,6 +230,7 @@
       letter-spacing: 0.04em;
     }
     .badge-pending { background: #fef3c7; color: #b45309; }
+    .badge-otp { background: #e0f2fe; color: #0284c7; }
     .badge-active { background: #ecfdf5; color: #047857; }
     .badge-suspended { background: #fee2e2; color: #b91c1c; }
     .badge-rejected { background: #f1f5f9; color: #64748b; }
@@ -822,7 +823,8 @@
       tbody.innerHTML = filtered.map(c => {
         let badgeClass = 'badge-pending';
         let badgeLabel = 'Pending Review';
-        if (c.status === 'active') { badgeClass = 'badge-active'; badgeLabel = 'Active'; }
+        if (c.status === 'pending_verification') { badgeClass = 'badge-otp'; badgeLabel = 'Pending OTP'; }
+        else if (c.status === 'active') { badgeClass = 'badge-active'; badgeLabel = 'Active'; }
         else if (c.status === 'suspended') { badgeClass = 'badge-suspended'; badgeLabel = 'Suspended'; }
         else if (c.status === 'rejected') { badgeClass = 'badge-rejected'; badgeLabel = 'Rejected'; }
 
@@ -903,7 +905,8 @@
       tbody.innerHTML = customers.map(c => {
         let badgeClass = 'badge-pending';
         let badgeLabel = 'Pending Review';
-        if (c.status === 'active') { badgeClass = 'badge-active'; badgeLabel = 'Active'; }
+        if (c.status === 'pending_verification') { badgeClass = 'badge-otp'; badgeLabel = 'Pending OTP'; }
+        else if (c.status === 'active') { badgeClass = 'badge-active'; badgeLabel = 'Active'; }
         else if (c.status === 'suspended') { badgeClass = 'badge-suspended'; badgeLabel = 'Suspended'; }
         else if (c.status === 'rejected') { badgeClass = 'badge-rejected'; badgeLabel = 'Rejected'; }
         const validStr = c.valid_until ? new Date(c.valid_until).toLocaleDateString([], { year: 'numeric', month: 'short', day: 'numeric' }) : 'Not set';

@@ -294,6 +294,36 @@
     </div>
   </div>
 
+  <!-- OTP Email Verification Modal -->
+  <div class="modal-backdrop hidden" id="otpModal">
+    <div class="modal-card">
+      <div style="width: 52px; height: 52px; border-radius: 14px; background: #f0f9ff; color: #0284c7; display: inline-flex; align-items: center; justify-content: center; font-size: 24px; margin-bottom: 12px;">✉️</div>
+      <h3 style="font-size: 19px; font-weight: 700; color: #0f172a; margin-bottom: 4px;">Verify Your Email Address</h3>
+      <p style="font-size: 13px; color: #64748b; margin-bottom: 18px; line-height: 1.5;">
+        A 6-digit verification code has been dispatched to <strong id="otpEmailTarget" style="color: #0f172a;"></strong>.<br>Enter the code below to complete your registration.
+      </p>
+
+      <div class="alert-box alert-error" id="otpError" style="margin-bottom: 14px; display: none;"></div>
+
+      <div class="otp-digits">
+        <input type="text" class="otp-box" maxlength="1" inputmode="numeric" pattern="[0-9]*" autofocus>
+        <input type="text" class="otp-box" maxlength="1" inputmode="numeric" pattern="[0-9]*">
+        <input type="text" class="otp-box" maxlength="1" inputmode="numeric" pattern="[0-9]*">
+        <input type="text" class="otp-box" maxlength="1" inputmode="numeric" pattern="[0-9]*">
+        <input type="text" class="otp-box" maxlength="1" inputmode="numeric" pattern="[0-9]*">
+        <input type="text" class="otp-box" maxlength="1" inputmode="numeric" pattern="[0-9]*">
+      </div>
+
+      <button type="button" class="btn-submit" id="btnVerifyOtp" onclick="handleVerifyOtp()">
+        <span>Verify Code &amp; Continue</span>
+      </button>
+
+      <div style="margin-top: 16px; font-size: 12.5px; color: #64748b;">
+        Didn't receive the email? <a href="#" onclick="resendOtp(event)" style="color: #0284c7; font-weight: 600; text-decoration: none;">Resend Code</a>
+      </div>
+    </div>
+  </div>
+
   <!-- Status / Approval Success Modal -->
   <div class="modal-backdrop hidden" id="statusModal">
     <div class="modal-card" style="max-width: 480px;">
@@ -350,8 +380,9 @@
         }
 
         registeredEmail = email;
-        document.getElementById('statusCompanyName').textContent = companyName;
-        document.getElementById('statusModal').classList.remove('hidden');
+        document.getElementById('otpEmailTarget').textContent = email;
+        document.getElementById('otpModal').classList.remove('hidden');
+        setupOtpBoxes();
       } catch (err) {
         showError('Network error connecting to cloud server.');
       } finally {
@@ -414,9 +445,34 @@
       }
     }
 
-    async function resendOtp() {
+    async function resendOtp(e) {
+      if (e) e.preventDefault();
       if (!registeredEmail) return;
-      alert('Resending OTP to ' + registeredEmail + '...');
+      const errorEl = document.getElementById('otpError');
+      errorEl.style.display = 'none';
+
+      try {
+        const companyName = document.getElementById('companyName').value.trim() || 'Business';
+        const ownerName = document.getElementById('ownerName').value.trim() || 'Owner';
+        const password = document.getElementById('password').value || 'Password123';
+
+        const res = await fetch('/api/v1/auth/register', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ companyName, ownerName, email: registeredEmail, password })
+        });
+        const data = await res.json();
+        if (data.ok) {
+          alert('A new 6-digit verification code has been sent to ' + registeredEmail);
+          setupOtpBoxes();
+        } else {
+          errorEl.textContent = data.error || 'Failed to resend code.';
+          errorEl.style.display = 'block';
+        }
+      } catch (err) {
+        errorEl.textContent = 'Network error resending verification code.';
+        errorEl.style.display = 'block';
+      }
     }
 
     function showError(msg) {

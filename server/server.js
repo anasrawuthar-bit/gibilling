@@ -189,7 +189,7 @@ const server = http.createServer(async (req, res) => {
       masterDb.prepare(`
         UPDATE customers SET
           company_name = ?, owner_name = ?, phone = ?, state = ?, gstin = ?,
-          password_hash = ?, password_salt = ?, status = 'pending_approval', updated_at = ?
+          password_hash = ?, password_salt = ?, status = 'pending_verification', updated_at = ?
         WHERE id = ?
       `).run(companyName, ownerName, phone || '', state || 'Kerala', gstin || '', hash, salt, now, customerId);
     } else {
@@ -197,7 +197,7 @@ const server = http.createServer(async (req, res) => {
         INSERT INTO customers (
           id, company_name, owner_name, email, phone, state, gstin,
           password_hash, password_salt, status, plan, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending_approval', 'Professional', ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending_verification', 'Professional', ?, ?)
       `).run(customerId, companyName, ownerName, cleanEmail, phone || '', state || 'Kerala', gstin || '', hash, salt, now, now);
     }
 
