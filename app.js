@@ -5056,6 +5056,9 @@ async function handleBusinessSettingsSubmit(event) {
   if (form.has("a4Template")) settings.a4Template = String(form.get("a4Template") || "modern");
   if (form.has("thermalTemplate")) settings.thermalTemplate = String(form.get("thermalTemplate") || "retail");
 
+  if (formElement?.querySelector('[name="showPrintPreview"]')) {
+    settings.showPrintPreview = form.get("showPrintPreview") === "on";
+  }
   if (formElement?.querySelector('[name="printCompanyLogo"]')) {
     settings.printCompanyLogo = form.get("printCompanyLogo") === "on";
   }
@@ -5636,6 +5639,13 @@ function resolveIndianStateName(val) {
 function openInvoicePreviewModal(previewData = null, options = {}) {
   const preview = previewData || buildInvoicePreviewData() || sampleInvoicePreviewData();
   if (!preview) return;
+
+  const business = preview.business || state.businessSettings || defaultBusinessSettings();
+  if (options.forcePreview !== true && business.showPrintPreview === false) {
+    triggerDirectInvoicePrint(preview, options);
+    return;
+  }
+
   document.getElementById("invoicePreviewModal")?.remove();
 
   const business = preview.business || state.businessSettings || defaultBusinessSettings();
@@ -5833,6 +5843,48 @@ function openInvoicePreviewModal(previewData = null, options = {}) {
   backdrop.addEventListener("click", (event) => {
     if (event.target === backdrop) backdrop.remove();
   });
+}
+
+function triggerDirectInvoicePrint(preview, options = {}) {
+  const business = preview.business || state.businessSettings || defaultBusinessSettings();
+  let currentFormat = options.printerType || business.printerType || "a4";
+  if (currentFormat === "regular") currentFormat = "a4";
+  const currentThermalWidth = options.thermalWidth || business.thermalWidth || "80mm";
+
+  document.getElementById("invoicePreviewModal")?.remove();
+  const backdrop = document.createElement("div");
+  backdrop.id = "invoicePreviewModal";
+  backdrop.className = "modal-backdrop invoice-preview-backdrop";
+  backdrop.style.cssText = "position:fixed;left:-9999px;top:-9999px;opacity:0;pointer-events:none;";
+  backdrop.innerHTML = `
+    <section class="invoice-preview-modal ${currentFormat === "thermal" ? "is-thermal" : "is-a4"}">
+      <div class="invoice-preview-stage">
+        <div class="invoice-preview-paper ${currentFormat === "thermal" ? `thermal-${currentThermalWidth}` : "a4-paper"}">
+          ${renderInvoicePaperHtml(preview, {
+            printerType: currentFormat,
+            a4Template: options.a4Template || business.a4Template || "modern",
+            thermalTemplate: options.thermalTemplate || business.thermalTemplate || "retail",
+            thermalWidth: currentThermalWidth,
+          })}
+        </div>
+      </div>
+    </section>
+  `;
+  document.body.appendChild(backdrop);
+
+  if (currentFormat === "thermal") {
+    document.body.classList.add("invoice-thermal-print-mode", `thermal-print-${currentThermalWidth}`);
+  } else {
+    document.body.classList.add("invoice-a4-print-mode");
+  }
+
+  setTimeout(() => {
+    window.print();
+    setTimeout(() => {
+      document.body.classList.remove("invoice-thermal-print-mode", "thermal-print-80mm", "thermal-print-58mm", "invoice-a4-print-mode");
+      backdrop.remove();
+    }, 400);
+  }, 100);
 }
 
 function buildInvoicePreviewData() {
@@ -7289,6 +7341,9 @@ function getSelectedTransactionParty() {
 
 function selectTransactionParty(party, options = {}) {
   const partyInput = elements.featureView.querySelector('[name="party"]');
+  if (partyInput) {
+    clearInlineError(partyInput);
+  }
   const phoneInput = elements.featureView.querySelector('[name="phone"]');
   const addressInput = elements.featureView.querySelector('[name="address"]');
   const shippingInput = elements.featureView.querySelector('[name="shippingAddress"]');
@@ -8216,7 +8271,12 @@ function renderTransactionSmartChecks(grandTotal = null, received = null) {
 
   const checks = [];
   const partyName = elements.featureView.querySelector('[name="party"]')?.value || "";
+  const partyInputEl = elements.featureView.querySelector('[name="party"]');
   const party = getSelectedTransactionParty();
+  const hasSelectedParty = Boolean(party || partyInputEl?.dataset.selectedPartyId || (partyName.trim() && findPartyByName(partyName)));
+  if (hasSelectedParty && partyInputEl) {
+    clearInlineError(partyInputEl);
+  }
   const total = grandTotal ?? Number(elements.featureView.querySelector("#editorGrandTotal")?.value || 0);
   const paid = received ?? Number(elements.featureView.querySelector("#editorReceived")?.value || 0);
   const paymentType = elements.featureView.querySelector("#editorPaymentType")?.value || "cash";
@@ -8238,7 +8298,7 @@ function renderTransactionSmartChecks(grandTotal = null, received = null) {
     checks.push({ type: "danger", text: `${meta.noun} needs a ${meta.partyLabel.toLowerCase()} name.` });
   } else if (isEstimate && partyName.trim() && !party) {
     checks.push({ type: "info", text: `${partyName} will be kept on this ${meta.noun.toLowerCase()}; convert when confirmed.` });
-  } else if (!isEstimate && !party && !(editorType === 'sale' && paymentType === 'cash' && supplyType === 'b2c' && !partyName.trim())) {
+  } else if (!isEstimate && !hasSelectedParty && !(editorType === 'sale' && paymentType === 'cash' && supplyType === 'b2c' && !partyName.trim())) {
     checks.push({ type: "danger", text: `${isPurchaseDoc ? "Purchase" : "Sale"} billing needs an existing ${isPurchaseDoc ? "supplier" : "customer"}. Select one or add it first.` });
   }
   if (party) {
@@ -15844,14 +15904,12 @@ function bindFeatureActions() {
             </td>
             <td class="tax-slab-actions-cell" style="text-align:right;">
               <div class="tax-slab-actions-wrap">
-                <button type="button" class="btn-action-edit-slab" data-edit-slab="${escapeHtml(slab.id)}" title="Edit Tax Slab">
-                  <svg class="gi-icon"><use href="#gi-edit"></use></svg>
-                  Edit
+                <button type="button" class="btn-action-edit-slab" data-edit-slab="${escapeHtml(slab.id)}" title="Edit Tax Slab" aria-label="Edit Tax Slab" style="display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;padding:0;border-radius:6px;border:1px solid #cbd5e1;background:#ffffff;color:#0284c7;cursor:pointer;">
+                  <svg class="gi-icon" style="width:14px;height:14px;fill:currentColor;"><use href="#gi-edit"></use></svg>
                 </button>
                 ${isZero ? '' : `
-                  <button type="button" class="btn-action-delete-slab" data-delete-slab="${escapeHtml(slab.id)}" title="Delete Tax Slab">
-                    <svg class="gi-icon"><use href="#gi-trash"></use></svg>
-                    Delete
+                  <button type="button" class="btn-action-delete-slab" data-delete-slab="${escapeHtml(slab.id)}" title="Delete Tax Slab" aria-label="Delete Tax Slab" style="display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;padding:0;border-radius:6px;border:1px solid #fecaca;background:#fff5f5;color:#dc2626;cursor:pointer;">
+                    <svg class="gi-icon" style="width:14px;height:14px;fill:currentColor;"><use href="#gi-trash"></use></svg>
                   </button>
                 `}
               </div>
@@ -16547,6 +16605,11 @@ function bindFeatureActions() {
           if (tabBody) {
             tabBody.innerHTML = itemStockLedgerTable(item);
             bindItemDetailActions();
+          }
+        }
+      });
+    });
+
   const itemSearchInput = elements.featureView.querySelector("#itemSearchInput");
   itemSearchInput?.addEventListener("input", () => {
     const listPanel = elements.featureView.querySelector(".item-list-panel");
@@ -16563,10 +16626,6 @@ function bindFeatureActions() {
     nextSearchInput?.setSelectionRange(itemSearchQuery.length, itemSearchQuery.length);
   });
   elements.featureView.querySelector("[data-action='add-item']")?.addEventListener("click", () => openEntryModal("item"));
-          }
-        }
-      });
-    });
     elements.featureView.querySelectorAll(".item-detail-panel [data-invoice-action]").forEach((button) => {
       button.addEventListener("click", (e) => {
         e.stopPropagation();
@@ -16808,15 +16867,22 @@ function bindFeatureActions() {
       const action = btn.dataset.paymentInAction;
       const paymentId = btn.dataset.paymentId;
       if (action === "delete") {
-        if (!confirm("Delete this payment record? This cannot be undone.")) return;
+        const reason = prompt("Enter deletion reason for this payment record (Required):");
+        if (reason === null) return;
+        if (!reason.trim()) {
+          showToast("Deletion cancelled: A reason is required to delete a payment record.");
+          return;
+        }
         try {
-          if (window.giDB?.deleteTransaction) {
+          if (window.giDB?.deletePayment) {
+            state = normalizeState(await window.giDB.deletePayment({ paymentId, reason: reason.trim() }));
+          } else if (window.giDB?.deleteTransaction) {
             state = normalizeState(await window.giDB.deleteTransaction({ id: paymentId }));
           } else {
             state.payments = (state.payments || []).filter((p) => String(p.id || "") !== paymentId);
             saveState();
           }
-          showToast("Payment deleted.");
+          showToast("Payment record deleted successfully.");
           renderFeatureView("paymentIn");
         } catch (err) {
           showToast(err.message || "Unable to delete payment.");
@@ -16832,15 +16898,22 @@ function bindFeatureActions() {
       const action = btn.dataset.paymentOutAction;
       const paymentId = btn.dataset.paymentId;
       if (action === "delete") {
-        if (!confirm("Delete this payment-out record? This cannot be undone.")) return;
+        const reason = prompt("Enter deletion reason for this payment-out record (Required):");
+        if (reason === null) return;
+        if (!reason.trim()) {
+          showToast("Deletion cancelled: A reason is required to delete a payment record.");
+          return;
+        }
         try {
-          if (window.giDB?.deleteTransaction) {
+          if (window.giDB?.deletePayment) {
+            state = normalizeState(await window.giDB.deletePayment({ paymentId, reason: reason.trim() }));
+          } else if (window.giDB?.deleteTransaction) {
             state = normalizeState(await window.giDB.deleteTransaction({ id: paymentId }));
           } else {
             state.payments = (state.payments || []).filter((p) => String(p.id || "") !== paymentId);
             saveState();
           }
-          showToast("Payment record deleted.");
+          showToast("Payment-out record deleted successfully.");
           renderFeatureView("paymentOut");
         } catch (err) {
           showToast(err.message || "Unable to delete payment.");
@@ -28917,6 +28990,17 @@ function settingsPrintingTemplate() {
             <div class="settings-toggle-stack">
               <label class="settings-toggle-row">
                 <div class="settings-toggle-info">
+                  <strong>Show Print Preview Before Printing</strong>
+                  <span>When turned OFF, printing invoices or documents bypasses the preview modal and triggers direct printing.</span>
+                </div>
+                <div class="settings-toggle-switch">
+                  <input type="checkbox" name="showPrintPreview" ${settings.showPrintPreview !== false ? "checked" : ""}>
+                  <span class="settings-toggle-track"><span class="settings-toggle-thumb"></span></span>
+                </div>
+              </label>
+
+              <label class="settings-toggle-row">
+                <div class="settings-toggle-info">
                   <strong>Print Company Logo</strong>
                   <span>Display your uploaded business logo at the header of printed documents.</span>
                 </div>
@@ -29384,17 +29468,15 @@ function openTaxSlabModal(slabToEdit = null, onSave = null) {
           </small>
         </div>
 
-        ${cessEnabled ? `
-          <div style="background:#fffbeb; border:1px solid #fde68a; border-radius:8px; padding:14px;">
-            <div style="display:flex; justify-content:space-between; align-items:center; gap:12px;">
-              <div>
-                <strong style="font-size:13px; color:#92400e; display:block;">Cess Rate (%)</strong>
-                <span style="font-size:11.5px; color:#b45309;">Applies in addition to GST for luxury/sin/notified goods</span>
-              </div>
-              <input type="number" step="0.01" min="0" max="100" id="taxSlabCessInput" class="form-input" value="${initialCess}" placeholder="0" style="width:110px; height:36px; text-align:right; font-weight:700; color:#92400e;">
+        <div style="background:#fffbeb; border:1px solid #fde68a; border-radius:8px; padding:14px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; gap:12px;">
+            <div>
+              <strong style="font-size:13px; color:#92400e; display:block;">Compensation / Additional Cess (%)</strong>
+              <span style="font-size:11.5px; color:#b45309;">Independent Cess surcharge applicable to specific notified goods/commodities</span>
             </div>
+            <input type="number" step="0.01" min="0" max="100" id="taxSlabCessInput" class="form-input" value="${initialCess}" placeholder="0" style="width:110px; height:36px; text-align:right; font-weight:700; color:#92400e;">
           </div>
-        ` : ''}
+        </div>
 
         <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:6px; padding-top:12px; border-top:1px solid #e2e8f0;">
           <button type="button" class="secondary-button" data-action="close-tax-modal" style="padding:8px 16px;">Cancel</button>
@@ -29542,6 +29624,10 @@ Thank you,
 
 function autoSendBillViaSystemWhatsApp(transaction, preview = null) {
   try {
+    const business = state.businessSettings || defaultBusinessSettings();
+    if (business.whatsappSettings?.autoShareSales !== true) {
+      return; // Respect user preference: Do not open WhatsApp automatically unless explicitly enabled
+    }
     let phone = String(transaction.phone || preview?.phone || "").replace(/\D/g, "");
     if (!phone && (transaction.partyId || transaction.party)) {
       const party = (state.parties || []).find((p) => (transaction.partyId && String(p.id) === String(transaction.partyId)) || (transaction.party && p.name === transaction.party));

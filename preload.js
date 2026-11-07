@@ -46,6 +46,7 @@ contextBridge.exposeInMainWorld("giDB", {
   recordInvoicePayment: (payment) => ipcRenderer.invoke("db:record-invoice-payment", payment),
   recordPaymentIn: (payment) => ipcRenderer.invoke("db:record-payment-in", payment),
   recordPaymentOut: (payment) => ipcRenderer.invoke("db:record-payment-out", payment),
+    deletePayment: (payload) => ipcRenderer.invoke("db:delete-payment", payload),
   recordStockAdjustment: (payload) => ipcRenderer.invoke("db:record-stock-adjustment", payload),
   setInvoiceStatus: (payload) => ipcRenderer.invoke("db:set-invoice-status", payload),
   deleteInvoice: (payload) => ipcRenderer.invoke("db:delete-invoice", payload),

@@ -6206,6 +6206,71 @@ function deleteInvoice(payload) {
   return inDatabaseTransaction(() => deleteInvoiceUnsafe(payload));
 }
 
+function deletePayment(payload) {
+  return inDatabaseTransaction(() => deletePaymentUnsafe(payload));
+}
+
+function deletePaymentUnsafe({ paymentId, id, reason = "" }) {
+  const company = getCurrentCompany();
+  const cleanId = String(paymentId || id || "").trim();
+  if (!cleanId) throw new Error("Payment ID is required.");
+
+  const payment = one(
+    "SELECT id, invoice_id AS invoiceId, transaction_id AS transactionId, type, party, party_id AS partyId, amount, method, payment_date AS paymentDate, notes FROM payments WHERE company_id = ? AND id = ?",
+    [company.id, cleanId]
+  );
+  if (!payment) throw new Error("Payment record not found.");
+
+  // If allocated to an invoice, revert invoice received and balance
+  if (payment.invoiceId) {
+    const inv = one(
+      "SELECT id, type, total, received, balance, status, transaction_id AS transactionId FROM invoices WHERE company_id = ? AND id = ?",
+      [company.id, payment.invoiceId]
+    );
+    if (inv) {
+      const revertedReceived = Math.max(0, Number(inv.received || 0) - Number(payment.amount || 0));
+      const revertedBalance = Math.max(0, Number(inv.total || 0) - revertedReceived);
+      const revertedStatus = revertedReceived <= 0 ? "unpaid" : (revertedBalance <= 0 ? "paid" : "partially_paid");
+      run(
+        "UPDATE invoices SET received = ?, balance = ?, status = ? WHERE company_id = ? AND id = ?",
+        [revertedReceived, revertedBalance, revertedStatus, company.id, inv.id]
+      );
+      if (inv.transactionId) {
+        run(
+          "UPDATE transactions SET status = ? WHERE company_id = ? AND id = ?",
+          [revertedBalance <= 0 ? "paid" : "due", company.id, inv.transactionId]
+        );
+      }
+    }
+  }
+
+  // Delete ledger entries associated with this payment transaction
+  if (payment.transactionId) {
+    run("DELETE FROM ledger_entries WHERE company_id = ? AND transaction_id = ? AND description LIKE ?", [company.id, payment.transactionId, '%Payment%']);
+  }
+
+  // Delete payment record
+  run("DELETE FROM payments WHERE company_id = ? AND id = ?", [company.id, cleanId]);
+
+  // Record audit log with reason
+  recordAuditLog(
+    company.id,
+    "DELETE",
+    payment.type,
+    cleanId,
+    payment.party,
+    {
+      amount: payment.amount,
+      method: payment.method,
+      reason: reason || "User deleted payment record",
+      invoiceId: payment.invoiceId,
+    }
+  );
+
+  persist();
+  return getState();
+}
+
 function deleteInvoiceUnsafe({ invoiceId }) {
   const company = getCurrentCompany();
   const invoice = one(
@@ -7922,6 +7987,7 @@ module.exports = {
   executeRaw: run,
   setInvoiceStatus,
   deleteInvoice,
+  deletePayment,
   createCompany,
   deleteCompany,
   updateCompanyProfile,

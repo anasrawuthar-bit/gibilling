@@ -565,6 +565,7 @@ function registerDatabaseHandlers() {
   ipcMain.handle("db:record-invoice-payment", (_event, payment) => database.recordInvoicePayment(payment));
   ipcMain.handle("db:record-payment-in", (_event, payment) => database.recordPaymentIn(payment));
   ipcMain.handle("db:record-payment-out", (_event, payment) => database.recordPaymentOut(payment));
+  ipcMain.handle("db:delete-payment", (_event, payload) => database.deletePayment(payload));
   ipcMain.handle("db:record-stock-adjustment", (_event, payload) => database.recordStockAdjustment(payload));
   ipcMain.handle("db:set-invoice-status", (_event, payload) => database.setInvoiceStatus(payload));
   ipcMain.handle("db:delete-invoice", (_event, payload) => database.deleteInvoice(payload));
