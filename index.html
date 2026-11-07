@@ -156,11 +156,12 @@
           <button type="button" class="sidebar-brand-link" id="brandHomeButton" title="Go to Dashboard (Home)">
             <div class="sidebar-brand-logo-wrap">
               <img src="assets/zynbill-logo.png" alt="ZynBill" class="sidebar-brand-logo">
+              <span class="logo-status-dot online" id="logoStatusDot" title="ZynBill Cloud: Online"></span>
             </div>
             <span class="sidebar-brand-name">ZynBill</span>
           </button>
-          <div style="display:flex;align-items:center;gap:6px;margin-left:auto;">
-            <button type="button" class="cloud-sync-status-badge online" id="cloudSyncStatusBadge" title="ZynBill Cloud: Online &amp; Synced">
+          <div class="sidebar-header-status-wrap">
+            <button type="button" class="cloud-sync-status-badge online" id="cloudSyncStatusBadge" title="ZynBill Cloud: Online">
               <span class="sync-dot"></span>
               <span class="sync-label" id="syncStatusLabel">Online</span>
               <span class="sync-pending-badge hidden" id="syncPendingBadge">0</span>
@@ -266,16 +267,6 @@
 
         </nav>
         <div class="sidebar-bottom-block">
-          <div class="sidebar-plan-row">
-            <button type="button" class="plan-status-pill" id="sidebarPlanPill" title="Subscription Plan &amp; Validity — Click to view details">
-              <span class="plan-pill-star">★</span>
-              <span id="sidebarPlanName">Pro</span> • <span id="sidebarPlanDays">365d</span>
-            </button>
-            <button type="button" class="sidebar-signout-btn" id="sidebarSignOutBtn" title="Sign Out of ZynBill Account">
-              <svg class="gi-icon" style="width:13px;height:13px;"><use href="#gi-log-out"></use></svg>
-              <span>Sign Out</span>
-            </button>
-          </div>
           <button class="company-switch" type="button" title="Company Profile &amp; Settings" aria-label="Company Profile &amp; Settings">
           <span class="avatar"></span>
           <div class="nav-company-details">
@@ -1330,61 +1321,5 @@
       </div>
     </div>
 
-    <!-- Subscription & License Plan Details Modal -->
-    <div id="subscriptionModal" class="activation-modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="subscriptionModalTitle">
-      <div class="activation-card" style="max-width: 540px;">
-        <header class="activation-header" style="text-align: left; display: flex; justify-content: space-between; align-items: flex-start;">
-          <div>
-            <h2 id="subscriptionModalTitle" style="font-size: 20px; font-weight: 800; color: #0f172a;">Subscription &amp; License</h2>
-            <p style="font-size: 13px; color: #64748b; margin-top: 2px;">Plan status, license validity, and offline grace policy</p>
-          </div>
-          <button type="button" class="modal-close-icon" id="subscriptionModalCloseBtn" style="background: none; border: none; font-size: 24px; cursor: pointer; color: #64748b; line-height: 1;">&times;</button>
-        </header>
-
-        <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 18px; margin: 18px 0;">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-            <span style="font-size: 16px; font-weight: 800; color: #0284c7;" id="subModalPlanName">Professional Business</span>
-            <span class="plan-badge" id="subModalPlanBadge" style="background:#ecfdf5; color:#047857; font-size:11.5px; font-weight:700; padding:3px 8px; border-radius:6px;">ACTIVE</span>
-          </div>
-
-          <div style="font-size: 28px; font-weight: 800; color: #0f172a;" id="subModalDaysLeft">365</div>
-          <div style="font-size: 12.5px; color: #64748b; margin-top: 2px;">Days remaining on current subscription</div>
-
-          <div class="progress-bar-bg" style="background: #e2e8f0; border-radius: 999px; height: 8px; overflow: hidden; margin: 14px 0 8px;">
-            <div id="subModalProgressBar" style="background: #10b981; height: 100%; width: 100%; transition: width 0.3s;"></div>
-          </div>
-
-          <div style="display: flex; justify-content: space-between; font-size: 12.5px; color: #64748b;">
-            <span>License Valid Until:</span>
-            <strong id="subModalValidUntil" style="color: #0f172a;">-</strong>
-          </div>
-        </div>
-
-        <table style="width: 100%; font-size: 13px; border-collapse: collapse; margin-bottom: 18px;">
-          <tr>
-            <td style="padding: 6px 0; color: #64748b;">Company Name:</td>
-            <td style="padding: 6px 0; font-weight: 600; text-align: right;" id="subModalCompanyName">-</td>
-          </tr>
-          <tr>
-            <td style="padding: 6px 0; color: #64748b;">Registered Account:</td>
-            <td style="padding: 6px 0; font-weight: 600; text-align: right;" id="subModalEmail">-</td>
-          </tr>
-          <tr>
-            <td style="padding: 6px 0; color: #64748b;">Offline Grace Period:</td>
-            <td style="padding: 6px 0; font-weight: 600; color: #16a34a; text-align: right;">14 Days Protected</td>
-          </tr>
-          <tr>
-            <td style="padding: 6px 0; color: #64748b;">Device Token:</td>
-            <td style="padding: 6px 0; font-family: monospace; font-size: 11.5px; color: #64748b; text-align: right;" id="subModalToken">zyndev_••••••••</td>
-          </tr>
-        </table>
-
-        <div class="activation-actions" style="margin-top: 20px;">
-          <button type="button" class="primary-button" id="subModalRefreshBtn">Refresh License Online</button>
-          <button type="button" class="secondary-button" id="subModalPortalBtn">Open Customer Portal</button>
-        </div>
-      </div>
-    </div>
-
-  </body>
+    </body>
 </html>

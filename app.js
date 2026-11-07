@@ -10906,13 +10906,13 @@ function invoiceWorkspaceTemplate(type) {
         </div>
       </header>
 
-      ${topFilterBarHTML(type, topFilter, query, { showParty: false })}
-
       <section class="kpi-grid invoice-kpis">
         ${kpiCard(`Total ${isSale ? "Sales" : "Purchases"}`, formatCurrency(total), rows.length === 1 ? `1 ${isSale ? "invoice" : "bill"}` : `${rows.length} ${isSale ? "invoices" : "bills"}`, "neutral")}
         ${kpiCard(paidLabel, formatCurrency(paid), `${rows.filter((r) => invoiceBalanceValue(r) === 0 && invoiceTotalValue(r) > 0).length} fully settled`, "success")}
         ${kpiCard(balanceLabel, formatCurrency(balance), openCount > 0 ? `${openCount} pending` : "All settled", balance > 0 ? "danger" : "success")}
       </section>
+
+      ${topFilterBarHTML(type, topFilter, query, { showParty: false })}
 
       <section class="data-table-card invoice-data-card">
         ${rows.length ? invoiceRowsTable(displayRows, { isSale, partyLabel, numberLabel, paidLabel, colFilters, type, pagination: { totalRecords, currentPage, totalPages, pageSize } }) : emptyWorkspace(emptyTitle, emptyCopy, (hasFilters || (allRows.length > 0 && topFilter.preset === "thisMonth")) ? `<button class="top-filter-clear-btn" data-top-filter-preset="${type}" data-preset-value="all" type="button" style="margin-top:14px;padding:8px 18px;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;">Show All ${isSale ? "Invoices" : "Bills"}</button>` : "")}
@@ -11772,6 +11772,12 @@ function estimateTemplate() {
         </div>
       </header>
 
+      <section class="kpi-grid invoice-kpis">
+        ${kpiCard(kpi.total,    formatCurrency(totalValue),    `${allRows.length} total record${allRows.length === 1 ? "" : "s"}`, "neutral")}
+        ${kpiCard(kpi.accepted, formatCurrency(acceptedValue), "Ready to convert into sale", "success")}
+        ${kpiCard(kpi.pending,  String(pendingCount),          "Draft or sent", pendingCount ? "info" : "success")}
+      </section>
+
       <div class="top-filter-bar">
         <div class="top-filter-search-box">
           <svg class="gi-icon top-filter-search-icon" style="width:14px;height:14px;"><use href="#gi-search"></use></svg>
@@ -11791,12 +11797,6 @@ function estimateTemplate() {
           </div>
         </div>
       </div>
-
-      <section class="kpi-grid invoice-kpis">
-        ${kpiCard(kpi.total,    formatCurrency(totalValue),    `${allRows.length} total record${allRows.length === 1 ? "" : "s"}`, "neutral")}
-        ${kpiCard(kpi.accepted, formatCurrency(acceptedValue), "Ready to convert into sale", "success")}
-        ${kpiCard(kpi.pending,  String(pendingCount),          "Draft or sent", pendingCount ? "info" : "success")}
-      </section>
 
       <section class="data-table-card invoice-data-card">
         ${rows.length ? estimateRowsTable(rows, view) : emptyWorkspace(emptyMsg.title, emptyMsg.copy)}
@@ -11879,22 +11879,25 @@ function estimateActionMenu(quote, view = "estimate") {
     purchaseOrder:   "Cancel PO",
   }[view] || "Cancel";
 
+  const isConverted = status === "converted" || Boolean(quote.converted_to_sale_id) || Boolean(quote.convertedToInvoiceId);
   const actions = [
     ["viewEdit", "View / Edit"],
     ["preview", "Preview"],
     ["print", "Print"],
     ["whatsapp", "Share WhatsApp"],
-    ["markSent", "Mark Sent"],
-    ["markAccepted", "Mark Accepted"],
-    ["convert", convertLabel],
+    ...(!isConverted && status !== "cancelled" ? [
+      ["markSent", "Mark Sent"],
+      ["markAccepted", "Mark Accepted"],
+      ["convert", convertLabel]
+    ] : []),
     ["duplicate", "Duplicate"],
-    ["cancel", cancelLabel],
+    ...(!isConverted && status !== "cancelled" ? [["cancel", cancelLabel]] : []),
     ["delete", "Delete"],
   ];
 
   return `
     <div class="invoice-row-actions" style="display:inline-flex;align-items:center;gap:6px;">
-      ${status !== "converted" && status !== "cancelled" ? `<button type="button" class="action-btn-convert" data-estimate-action="convert" data-estimate-id="${id}" title="${escapeHtml(convertLabel)}">${view === "deliveryChallan" ? "Invoice" : "Convert"}</button>` : ""}
+      ${!isConverted && status !== "cancelled" ? `<button type="button" class="action-btn-convert" data-estimate-action="convert" data-estimate-id="${id}" title="${escapeHtml(convertLabel)}">${view === "deliveryChallan" ? "Invoice" : "Convert"}</button>` : (isConverted ? `<span class="badge" style="background:#ecfdf5;color:#047857;font-weight:700;padding:2px 6px;border-radius:4px;font-size:11px;">Converted</span>` : "")}
       <details>
         <summary aria-label="${escapeHtml(view)} actions">⋮</summary>
         <div class="invoice-action-menu">
@@ -28183,6 +28186,7 @@ function importTemplate(title = "Import Items") {
 const SETTINGS_TABS = [
   { id: "COMPANY", label: "Company Profile", note: "Identity, tax & logo", icon: "building" },
   { id: "PLAN", label: "Subscription Plan", note: "Tier, validity & multi-PC", icon: "shield" },
+  { id: "WHATSAPP", label: "WhatsApp Settings", note: "Auto-share, triggers & rules", icon: "phone" },
   { id: "INVOICING", label: "Invoicing & Sequences", note: "Prefix, numbers & terms", icon: "receipt" },
   { id: "PRINTING", label: "Print & Thermal POS", note: "A4, 80mm/58mm & QR", icon: "printer" },
   { id: "TAX", label: "Tax", note: "GST slabs, CGST/SGST & Cess", icon: "calculator" },
@@ -28206,6 +28210,7 @@ function settingsTemplate(active = "COMPANY") {
     if (active === "INVENTORY") return settingsInventoryTemplate();
     if (active === "CUSTOM_FIELDS") return customFieldsSettingsTemplate();
     if (active === "PLAN") return settingsPlanDetailsTemplate();
+    if (active === "WHATSAPP") return settingsWhatsAppTemplate();
     if (active === "SECURITY") return settingsSecurityTemplate();
     if (active === "ABOUT") return settingsAboutTemplate();
     return settingsCompanyProfileTemplate();
@@ -28240,9 +28245,9 @@ function settingsPlanDetailsTemplate() {
   const license = typeof CloudLicenseManager !== "undefined"
     ? CloudLicenseManager.getLicense()
     : {
-        plan: "Professional Business",
+        plan: "Professional",
         companyName: state.activeCompany || "Workspace",
-        email: "customer@domain.com",
+        email: "owner@company.com",
         validUntil: new Date(Date.now() + 365 * 86400000).toISOString(),
         status: "active",
         companyId: "tenant_default",
@@ -28255,12 +28260,11 @@ function settingsPlanDetailsTemplate() {
 
   const validUntilRaw = license.validUntil || license.expiresAt;
   const expiryDate = validUntilRaw
-    ? new Date(validUntilRaw).toLocaleDateString("en-IN", { year: "numeric", month: "long", day: "numeric" })
+    ? new Date(validUntilRaw).toLocaleDateString("en-IN", { year: "numeric", month: "short", day: "numeric" })
     : "Active (Lifetime)";
 
-  const planName = license.plan || "Professional Business";
-  const planDisplayName = planName.toLowerCase().includes("plan") ? planName : (planName + " Plan");
-  const customerEmail = license.email || license.customerEmail || "admin@zynbill.com";
+  const planName = (license.plan || "Professional").replace(/\s+Plan$/i, "");
+  const customerEmail = license.email || license.customerEmail || "owner@company.com";
   const companyName = license.companyName || state.activeCompany || "Business Workspace";
   const tenantId = license.tenantId || license.companyId || "tenant_default";
   const deviceToken = license.token ? (license.token.slice(0, 10) + "••••••••") : "zyndev_counter1";
@@ -28269,191 +28273,344 @@ function settingsPlanDetailsTemplate() {
   const isExpired = grace.isOverdue && !grace.inGracePeriod;
 
   const statusBadge = isExpired
-    ? '<span class="status-badge status-badge--danger" style="font-size:12px;font-weight:700;padding:4px 10px;border-radius:6px;background:#fee2e2;color:#b91c1c;">EXPIRED</span>'
+    ? '<span class="badge" style="background:#fee2e2;color:#b91c1c;font-weight:700;">EXPIRED</span>'
     : isGrace
-    ? ('<span class="status-badge status-badge--warning" style="font-size:12px;font-weight:700;padding:4px 10px;border-radius:6px;background:#fef3c7;color:#92400e;">GRACE PERIOD (' + grace.daysRemaining + 'd left)</span>')
-    : '<span class="status-badge status-badge--success" style="font-size:12px;font-weight:700;padding:4px 10px;border-radius:6px;background:#ecfdf5;color:#047857;">ACTIVE SUBSCRIPTION</span>';
+    ? ('<span class="badge" style="background:#fef3c7;color:#92400e;font-weight:700;">GRACE PERIOD (' + grace.daysRemaining + 'd left)</span>')
+    : '<span class="badge" style="background:#ecfdf5;color:#047857;font-weight:700;">Active Subscription</span>';
 
   const progressPercent = Math.min(100, Math.max(0, Math.round((grace.daysRemaining / 365) * 100)));
 
   return `
     <header class="settings-page-header">
       <div>
-        <h2>Subscription Plan &amp; Cloud License</h2>
-        <p>Active plan tier, license validity, multi-PC terminal setup, and offline continuity status.</p>
+        <h2>Subscription Plan</h2>
+        <p>Active plan entitlement, validity countdown, authorized counter terminals, and cloud sync status.</p>
       </div>
       <div class="settings-header-actions">
-        <button class="primary-button" id="btnPlanOpenPortal" type="button" style="display:inline-flex;align-items:center;gap:6px;">
-          <span>Manage on Web Portal</span> ↗
+        <button class="primary-button" id="btnPlanOpenPortal" type="button">
+          Open Customer Portal ↗
         </button>
       </div>
     </header>
 
     <div class="settings-form-grid">
-      <!-- 1. Active Plan Hero Card -->
-      <section class="settings-card" style="grid-column: 1 / -1; background: linear-gradient(135deg, #f8fafc 0%, #f0fdf4 100%); border: 1px solid #bbf7d0; box-shadow: 0 4px 16px rgba(22, 163, 74, 0.05); padding: 24px;">
-        <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 20px;">
-          <div>
-            <div style="display: flex; align-items: center; gap: 14px;">
-              <div style="width: 52px; height: 52px; border-radius: 14px; background: #ffffff; border: 1px solid #bbf7d0; display: flex; align-items: center; justify-content: center; font-size: 26px; box-shadow: 0 2px 8px rgba(0,0,0,0.04);">
-                ⭐
-              </div>
-              <div>
-                <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 4px;">
-                  <h3 style="font-size: 22px; margin: 0; color: #0f172a; font-weight: 800;">${escapeHtml(planDisplayName)}</h3>
-                  ${statusBadge}
-                </div>
-                <p style="color: #64748b; margin: 0; font-size: 13.5px;">Registered Account: <strong style="color: #0f172a;">${escapeHtml(customerEmail)}</strong> (${escapeHtml(companyName)})</p>
-              </div>
+      <!-- 1. Hero Plan Card (Clean, standard theme) -->
+      <section class="settings-card" style="grid-column: 1 / -1;">
+        <div class="settings-card-head">
+          <div style="display:flex;align-items:center;gap:14px;">
+            <div style="width:44px;height:44px;border-radius:10px;background:#f0fdf4;border:1px solid #bbf7d0;display:flex;align-items:center;justify-content:center;color:#16a34a;">
+              <svg class="gi-icon" style="width:22px;height:22px;"><use href="#gi-shield"></use></svg>
+            </div>
+            <div>
+              <h3 style="margin:0;font-size:17px;color:#0f172a;">${escapeHtml(planName)} Business Edition</h3>
+              <p style="margin:3px 0 0;font-size:13px;color:#64748b;">Registered Account: <strong style="color:#0f172a;">${escapeHtml(customerEmail)}</strong> (${escapeHtml(companyName)})</p>
             </div>
           </div>
+          ${statusBadge}
+        </div>
 
-          <div style="text-align: right; background: #ffffff; padding: 14px 20px; border-radius: 12px; border: 1px solid #e2e8f0; min-width: 200px; box-shadow: 0 2px 6px rgba(0,0,0,0.03);">
-            <div style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: #64748b; font-weight: 700;">License Expiry</div>
-            <div style="font-size: 18px; font-weight: 800; color: #15803d; margin: 3px 0;">${escapeHtml(expiryDate)}</div>
-            <div style="font-size: 12.5px; font-weight: 600; color: ${isGrace ? '#d97706' : (isExpired ? '#dc2626' : '#166534')};">
-              ${isExpired ? 'License Expired' : (grace.daysRemaining + ' days remaining')}
-            </div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(200px, 1fr));gap:14px;margin-top:18px;">
+          <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:14px;">
+            <div style="font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.04em;">Subscription Validity</div>
+            <div style="font-size:18px;font-weight:800;color:#0f172a;margin-top:4px;">${grace.daysRemaining} Days Remaining</div>
+            <div style="font-size:12px;color:#16a34a;margin-top:3px;font-weight:500;">Valid through ${escapeHtml(expiryDate)}</div>
+          </div>
+
+          <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:14px;">
+            <div style="font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.04em;">Offline Grace Protection</div>
+            <div style="font-size:18px;font-weight:800;color:#16a34a;margin-top:4px;">14 Days Protected</div>
+            <div style="font-size:12px;color:#64748b;margin-top:3px;">Continuous local SQLite billing</div>
+          </div>
+
+          <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:14px;">
+            <div style="font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.04em;">Billing Terminal Role</div>
+            <div style="font-size:18px;font-weight:800;color:#0284c7;margin-top:4px;">Primary Counter (This PC)</div>
+            <div style="font-size:12px;color:#64748b;margin-top:3px;">Real-time cloud synchronized</div>
           </div>
         </div>
 
-        <div style="margin-top: 20px;">
-          <div style="display: flex; justify-content: space-between; font-size: 12px; color: #64748b; margin-bottom: 6px; font-weight: 600;">
-            <span>Subscription Validity</span>
-            <span>${progressPercent}% remaining</span>
+        <div style="margin-top:16px;">
+          <div style="display:flex;justify-content:space-between;font-size:11.5px;color:#64748b;margin-bottom:6px;font-weight:600;">
+            <span>Validity Progress</span>
+            <span>${progressPercent}%</span>
           </div>
-          <div style="background: #e2e8f0; height: 8px; border-radius: 999px; overflow: hidden;">
-            <div style="background: linear-gradient(90deg, #22c55e, #10b981); height: 100%; width: ${progressPercent}%; transition: width 0.4s ease;"></div>
+          <div style="background:#e2e8f0;height:6px;border-radius:999px;overflow:hidden;">
+            <div style="background:#10b981;height:100%;width:${progressPercent}%;"></div>
           </div>
-        </div>
-
-        <div style="margin-top: 16px; padding: 10px 14px; background: rgba(255,255,255,0.85); border: 1px solid #dcfce7; border-radius: 8px; font-size: 12.5px; color: #166534; display: flex; align-items: center; gap: 8px;">
-          <span style="font-weight: 700; font-size: 14px;">✓</span>
-          <span><strong>14-Day Offline Billing Protection Active:</strong> You can create GST bills, print thermal receipts, and record payments completely offline even if internet or Wi-Fi is disconnected.</span>
         </div>
       </section>
 
       <!-- 2. Account & License Credentials -->
       <section class="settings-card">
         <div class="settings-card-head">
-          <div style="display: flex; align-items: center; gap: 10px;">
-            <div style="width: 32px; height: 32px; border-radius: 8px; background: #eff6ff; display: flex; align-items: center; justify-content: center; color: #2563eb; font-size: 15px;">
-              🏢
+          <div style="display:flex;align-items:center;gap:10px;">
+            <div style="width:32px;height:32px;border-radius:8px;background:#eff6ff;display:flex;align-items:center;justify-content:center;color:#2563eb;">
+              <svg class="gi-icon" style="width:16px;height:16px;"><use href="#gi-database"></use></svg>
             </div>
-            <h3 style="margin: 0; font-size: 15px; color: #0f172a;">Account &amp; Workspace</h3>
+            <h3 style="margin:0;font-size:14.5px;color:#0f172a;">Account &amp; Workspace</h3>
           </div>
           <span class="badge">Identity</span>
         </div>
 
-        <div style="display: grid; gap: 12px; margin-top: 14px;">
-          <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px 14px;">
-            <div style="font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase;">Workspace Business</div>
-            <div style="font-size: 14px; font-weight: 700; color: #0f172a; margin-top: 2px;">${escapeHtml(companyName)}</div>
+        <div style="display:grid;gap:10px;margin-top:14px;">
+          <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;padding:10px 12px;">
+            <div style="font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;">Workspace Business</div>
+            <div style="font-size:13.5px;font-weight:700;color:#0f172a;margin-top:2px;">${escapeHtml(companyName)}</div>
           </div>
 
-          <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px 14px;">
-            <div style="font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase;">Cloud Database Vault</div>
-            <div style="font-family: monospace; font-size: 12.5px; color: #334155; margin-top: 2px;">${escapeHtml(tenantId)} (AES-256 Cloud Mirror)</div>
+          <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;padding:10px 12px;">
+            <div style="font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;">Cloud Storage Vault</div>
+            <div style="font-family:monospace;font-size:12px;color:#334155;margin-top:2px;">${escapeHtml(tenantId)} (AES-256 Storage)</div>
           </div>
 
-          <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px 14px;">
-            <div style="font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase;">Device Hardware Key</div>
-            <div style="font-family: monospace; font-size: 12px; color: #64748b; margin-top: 2px;">${escapeHtml(deviceToken)}</div>
+          <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;padding:10px 12px;">
+            <div style="font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;">Device Terminal Key</div>
+            <div style="font-family:monospace;font-size:12px;color:#64748b;margin-top:2px;">${escapeHtml(deviceToken)}</div>
           </div>
         </div>
       </section>
 
-      <!-- 3. Multi-PC Terminal Synchronization -->
+      <!-- 3. Multi-PC Counter Terminals -->
       <section class="settings-card">
         <div class="settings-card-head">
-          <div style="display: flex; align-items: center; gap: 10px;">
-            <div style="width: 32px; height: 32px; border-radius: 8px; background: #f0fdf4; display: flex; align-items: center; justify-content: center; color: #16a34a; font-size: 15px;">
-              💻
+          <div style="display:flex;align-items:center;gap:10px;">
+            <div style="width:32px;height:32px;border-radius:8px;background:#f0fdf4;display:flex;align-items:center;justify-content:center;color:#16a34a;">
+              <svg class="gi-icon" style="width:16px;height:16px;"><use href="#gi-tools"></use></svg>
             </div>
-            <h3 style="margin: 0; font-size: 15px; color: #0f172a;">Multi-PC Terminals</h3>
+            <h3 style="margin:0;font-size:14.5px;color:#0f172a;">Multi-PC Terminals</h3>
           </div>
-          <span class="badge" style="background:#ecfdf5;color:#047857;font-weight:700;">Multi-Device Ready</span>
+          <span class="badge" style="background:#ecfdf5;color:#047857;">Multi-Device Ready</span>
         </div>
 
-        <div style="display: grid; gap: 12px; margin-top: 14px;">
-          <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px 14px;">
-            <div style="font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase;">Current Terminal Role</div>
-            <div style="font-size: 14px; font-weight: 700; color: #0f172a; margin-top: 2px;">Primary Counter Terminal (This PC)</div>
-            <div style="font-size: 12px; color: #16a34a; margin-top: 2px; font-weight: 500;">✓ Local SQLite Engine Active (Zero Latency)</div>
+        <div style="display:grid;gap:10px;margin-top:14px;">
+          <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;padding:10px 12px;">
+            <div style="font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;">Current Terminal</div>
+            <div style="font-size:13.5px;font-weight:700;color:#0f172a;margin-top:2px;">Counter Terminal 1 (Active)</div>
+            <div style="font-size:12px;color:#16a34a;margin-top:2px;">✓ 100% Offline-First SQLite Engine</div>
           </div>
 
-          <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px 14px;">
-            <div style="font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase;">Adding Extra Counter Terminals</div>
-            <div style="font-size: 12.5px; color: #475569; margin-top: 4px; line-height: 1.45;">
-              Install ZynBill on your other billing counter PCs and sign in with the same account and PIN. All sales, stock changes, and customer balances synchronize seamlessly across all terminals.
+          <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;padding:10px 12px;">
+            <div style="font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;">Adding Additional Counter PCs</div>
+            <div style="font-size:12px;color:#475569;margin-top:3px;line-height:1.45;">
+              Install ZynBill on your other billing counter PCs and sign in with the same account and PIN. All sales, stock changes, and customer balances synchronize automatically in real-time.
             </div>
           </div>
         </div>
       </section>
 
-      <!-- 4. Included Business Entitlements -->
+      <!-- 4. Included Plan Capabilities -->
       <section class="settings-card" style="grid-column: 1 / -1;">
         <div class="settings-card-head">
-          <div style="display: flex; align-items: center; gap: 10px;">
-            <div style="width: 32px; height: 32px; border-radius: 8px; background: #faf5ff; display: flex; align-items: center; justify-content: center; color: #9333ea; font-size: 15px;">
-              ✨
+          <div style="display:flex;align-items:center;gap:10px;">
+            <div style="width:32px;height:32px;border-radius:8px;background:#faf5ff;display:flex;align-items:center;justify-content:center;color:#9333ea;">
+              <svg class="gi-icon" style="width:16px;height:16px;"><use href="#gi-receipt"></use></svg>
             </div>
-            <h3 style="margin: 0; font-size: 15px; color: #0f172a;">Included Features &amp; Capabilities</h3>
+            <h3 style="margin:0;font-size:14.5px;color:#0f172a;">Included Business Entitlements</h3>
           </div>
           <span class="badge">Full Access</span>
         </div>
 
-        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; margin-top: 14px;">
-          <div style="display: flex; align-items: flex-start; gap: 10px; font-size: 13px; color: #334155; padding: 10px; background: #f8fafc; border-radius: 8px; border: 1px solid #f1f5f9;">
-            <span style="color: #16a34a; font-weight: 800; font-size: 15px; line-height: 1;">✓</span>
-            <div>
-              <strong>Unlimited GST Invoicing</strong>
-              <div style="font-size: 12px; color: #64748b;">B2B, B2C, POS Thermal, and Credit Notes with zero bill limits.</div>
-            </div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(260px, 1fr));gap:12px;margin-top:14px;">
+          <div style="padding:10px 12px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;font-size:13px;color:#334155;">
+            <strong>✓ Unlimited GST Invoicing</strong>
+            <div style="font-size:12px;color:#64748b;margin-top:2px;">B2B, B2C, POS thermal, and debit/credit notes with zero limits.</div>
           </div>
 
-          <div style="display: flex; align-items: flex-start; gap: 10px; font-size: 13px; color: #334155; padding: 10px; background: #f8fafc; border-radius: 8px; border: 1px solid #f1f5f9;">
-            <span style="color: #16a34a; font-weight: 800; font-size: 15px; line-height: 1;">✓</span>
-            <div>
-              <strong>WhatsApp Connect</strong>
-              <div style="font-size: 12px; color: #64748b;">Send PDF invoices and payment reminders directly to customer phones.</div>
-            </div>
+          <div style="padding:10px 12px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;font-size:13px;color:#334155;">
+            <strong>✓ WhatsApp Connect</strong>
+            <div style="font-size:12px;color:#64748b;margin-top:2px;">Instant PDF invoices and automated payment reminders.</div>
           </div>
 
-          <div style="display: flex; align-items: flex-start; gap: 10px; font-size: 13px; color: #334155; padding: 10px; background: #f8fafc; border-radius: 8px; border: 1px solid #f1f5f9;">
-            <span style="color: #16a34a; font-weight: 800; font-size: 15px; line-height: 1;">✓</span>
-            <div>
-              <strong>Real-Time Cloud Synchronization</strong>
-              <div style="font-size: 12px; color: #64748b;">Instant cloud replication and automatic multi-PC synchronization.</div>
-            </div>
+          <div style="padding:10px 12px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;font-size:13px;color:#334155;">
+            <strong>✓ Multi-Device Real-Time Sync</strong>
+            <div style="font-size:12px;color:#64748b;margin-top:2px;">Continuous cloud replication and automatic terminal synchronization.</div>
           </div>
 
-          <div style="display: flex; align-items: flex-start; gap: 10px; font-size: 13px; color: #334155; padding: 10px; background: #f8fafc; border-radius: 8px; border: 1px solid #f1f5f9;">
-            <span style="color: #16a34a; font-weight: 800; font-size: 15px; line-height: 1;">✓</span>
-            <div>
-              <strong>Automated Local Rolling Backups</strong>
-              <div style="font-size: 12px; color: #64748b;">Auto-saved to C:\ZynBill\Backups with 5-file rolling retention on exit.</div>
-            </div>
+          <div style="padding:10px 12px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;font-size:13px;color:#334155;">
+            <strong>✓ Rolling Local Backups</strong>
+            <div style="font-size:12px;color:#64748b;margin-top:2px;">Automatic SQLite backups to C:\ZynBill\Backups on exit (5 files max).</div>
           </div>
         </div>
       </section>
 
       <!-- 5. Actions Footer Card -->
-      <section class="settings-card" style="grid-column: 1 / -1; background: #ffffff; border: 1px solid #e2e8f0;">
-        <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 14px;">
-          <div style="font-size: 13px; color: #64748b;">
-            💡 Need to renew, change tier, or view invoices? Manage everything on the ZynBill Customer Web Portal.
+      <section class="settings-card" style="grid-column: 1 / -1;">
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;">
+          <div style="font-size:12.5px;color:#64748b;">
+            💡 Need to renew subscription, manage team access, or download invoices? Manage online via the Customer Portal.
           </div>
-          <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
-            <button type="button" class="primary-button" id="btnPlanRefreshLicense" style="display: inline-flex; align-items: center; gap: 8px;">
-              <svg class="gi-icon" style="width: 14px; height: 14px;"><use href="#gi-refresh"></use></svg>
-              <span>Sync &amp; Refresh License</span>
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+            <button type="button" class="primary-button" id="btnPlanRefreshLicense" style="display:inline-flex;align-items:center;gap:6px;">
+              <svg class="gi-icon" style="width:13px;height:13px;"><use href="#gi-refresh"></use></svg>
+              <span>Refresh License Online</span>
             </button>
             <button type="button" class="secondary-button" id="btnPlanSwitchAccount">Switch Account</button>
-            <button type="button" class="secondary-button" id="btnPlanSignOut" style="color: #dc2626; border-color: #fecaca;">
-              <svg class="gi-icon" style="width: 13px; height: 13px; margin-right: 4px;"><use href="#gi-log-out"></use></svg>
+            <button type="button" class="secondary-button" id="btnPlanSignOut" style="color:#dc2626;border-color:#fecaca;">
+              <svg class="gi-icon" style="width:13px;height:13px;margin-right:4px;"><use href="#gi-log-out"></use></svg>
               <span>Sign Out</span>
             </button>
+          </div>
+        </div>
+      </section>
+    </div>
+  `;
+}
+
+
+function settingsWhatsAppTemplate() {
+  const ws = state.businessSettings?.whatsappSettings || {
+    autoPromptSale: true,
+    promptPaymentReceipt: true,
+    promptQuotations: true,
+    enableOverdueReminders: true,
+    includePdfLink: true,
+    includeUpiQr: true,
+    countryCode: "+91",
+    signatureText: "Thank you for doing business with us! - " + (state.activeCompany || "ZynBill")
+  };
+
+  return `
+    <header class="settings-page-header">
+      <div>
+        <h2>WhatsApp Settings</h2>
+        <p>Configure automated WhatsApp sharing triggers, customer notification rules, and messaging preferences.</p>
+      </div>
+      <div class="settings-header-actions">
+        <span class="settings-status-indicator" id="waSettingsStatus"></span>
+        <button class="primary-button" id="btnSaveWhatsAppSettings" type="button">Save WhatsApp Settings</button>
+      </div>
+    </header>
+
+    <div class="settings-form-grid">
+      <!-- 1. Transaction Message Triggers -->
+      <section class="settings-card" style="grid-column: 1 / -1;">
+        <div class="settings-card-head">
+          <div style="display:flex;align-items:center;gap:10px;">
+            <div style="width:34px;height:34px;border-radius:8px;background:#ecfdf5;display:flex;align-items:center;justify-content:center;color:#047857;">
+              <svg class="gi-icon" style="width:18px;height:18px;"><use href="#gi-phone"></use></svg>
+            </div>
+            <div>
+              <h3 style="margin:0;font-size:15px;color:#0f172a;">Transaction Message Triggers</h3>
+              <p style="margin:2px 0 0;font-size:12px;color:#64748b;">Choose which business operations prompt sending a WhatsApp message to the customer.</p>
+            </div>
+          </div>
+          <span class="badge" style="background:#ecfdf5;color:#047857;font-weight:700;">Automation</span>
+        </div>
+
+        <div class="settings-toggle-stack" style="margin-top:14px;">
+          <label class="settings-toggle-row">
+            <div class="settings-toggle-info">
+              <strong>Prompt WhatsApp Share on New Sale Bill</strong>
+              <span>When creating a sales invoice, offer a one-click button to share the bill directly to the customer's WhatsApp.</span>
+            </div>
+            <div class="settings-toggle-switch">
+              <input type="checkbox" id="waTogglePromptSale" ${ws.autoPromptSale !== false ? "checked" : ""}>
+              <span class="settings-toggle-track"><span class="settings-toggle-thumb"></span></span>
+            </div>
+          </label>
+
+          <label class="settings-toggle-row">
+            <div class="settings-toggle-info">
+              <strong>Send Payment In Confirmation Receipts</strong>
+              <span>Prompt to send an instant payment received acknowledgment when recording customer payments.</span>
+            </div>
+            <div class="settings-toggle-switch">
+              <input type="checkbox" id="waTogglePaymentReceipt" ${ws.promptPaymentReceipt !== false ? "checked" : ""}>
+              <span class="settings-toggle-track"><span class="settings-toggle-thumb"></span></span>
+            </div>
+          </label>
+
+          <label class="settings-toggle-row">
+            <div class="settings-toggle-info">
+              <strong>Share Quotations &amp; Estimates</strong>
+              <span>Enable direct WhatsApp sharing for customer price quotations and proforma estimates.</span>
+            </div>
+            <div class="settings-toggle-switch">
+              <input type="checkbox" id="waToggleQuotations" ${ws.promptQuotations !== false ? "checked" : ""}>
+              <span class="settings-toggle-track"><span class="settings-toggle-thumb"></span></span>
+            </div>
+          </label>
+
+          <label class="settings-toggle-row">
+            <div class="settings-toggle-info">
+              <strong>Overdue Outstanding Reminders</strong>
+              <span>Allow sending friendly payment reminder messages with outstanding balance to customers.</span>
+            </div>
+            <div class="settings-toggle-switch">
+              <input type="checkbox" id="waToggleOverdueReminders" ${ws.enableOverdueReminders !== false ? "checked" : ""}>
+              <span class="settings-toggle-track"><span class="settings-toggle-thumb"></span></span>
+            </div>
+          </label>
+        </div>
+      </section>
+
+      <!-- 2. Message Content & Attachments -->
+      <section class="settings-card">
+        <div class="settings-card-head">
+          <div style="display:flex;align-items:center;gap:10px;">
+            <div style="width:34px;height:34px;border-radius:8px;background:#eff6ff;display:flex;align-items:center;justify-content:center;color:#2563eb;">
+              <svg class="gi-icon" style="width:18px;height:18px;"><use href="#gi-file"></use></svg>
+            </div>
+            <h3 style="margin:0;font-size:15px;color:#0f172a;">Message Content</h3>
+          </div>
+          <span class="badge">Formatting</span>
+        </div>
+
+        <div style="display:grid;gap:14px;margin-top:14px;">
+          <div class="settings-field-group">
+            <label style="font-size:12.5px;font-weight:600;color:#0f172a;">Default Country Dialing Code</label>
+            <input type="text" class="form-input" id="waInputCountryCode" value="${escapeHtml(ws.countryCode || "+91")}" placeholder="+91" style="max-width:140px;" />
+            <small style="color:#64748b;font-size:11.5px;margin-top:2px;">Automatically prefixed when customer phone has 10 digits.</small>
+          </div>
+
+          <label class="settings-toggle-row" style="border:none;padding:0;">
+            <div class="settings-toggle-info">
+              <strong style="font-size:13px;">Include Secure PDF Download Link</strong>
+              <span style="font-size:11.5px;">Appends a direct invoice download link in the WhatsApp message text.</span>
+            </div>
+            <div class="settings-toggle-switch">
+              <input type="checkbox" id="waToggleIncludePdf" ${ws.includePdfLink !== false ? "checked" : ""}>
+              <span class="settings-toggle-track"><span class="settings-toggle-thumb"></span></span>
+            </div>
+          </label>
+
+          <label class="settings-toggle-row" style="border:none;padding:0;">
+            <div class="settings-toggle-info">
+              <strong style="font-size:13px;">Include Instant UPI Payment Link</strong>
+              <span style="font-size:11.5px;">Allows customers to click and pay immediately via Google Pay, PhonePe or Paytm.</span>
+            </div>
+            <div class="settings-toggle-switch">
+              <input type="checkbox" id="waToggleIncludeUpi" ${ws.includeUpiQr !== false ? "checked" : ""}>
+              <span class="settings-toggle-track"><span class="settings-toggle-thumb"></span></span>
+            </div>
+          </label>
+        </div>
+      </section>
+
+      <!-- 3. Business Signature & Test Send -->
+      <section class="settings-card">
+        <div class="settings-card-head">
+          <div style="display:flex;align-items:center;gap:10px;">
+            <div style="width:34px;height:34px;border-radius:8px;background:#fefce8;display:flex;align-items:center;justify-content:center;color:#a16207;">
+              <svg class="gi-icon" style="width:18px;height:18px;"><use href="#gi-tools"></use></svg>
+            </div>
+            <h3 style="margin:0;font-size:15px;color:#0f172a;">Signature &amp; Integration</h3>
+          </div>
+          <span class="badge">Desktop Link</span>
+        </div>
+
+        <div style="display:grid;gap:14px;margin-top:14px;">
+          <div class="settings-field-group">
+            <label style="font-size:12.5px;font-weight:600;color:#0f172a;">Custom Message Footer / Signature</label>
+            <textarea class="form-input" id="waInputSignature" rows="3" style="resize:vertical;font-size:12.5px;">${escapeHtml(ws.signatureText || "")}</textarea>
+            <small style="color:#64748b;font-size:11.5px;">Appended at the bottom of every sent invoice and statement message.</small>
+          </div>
+
+          <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:12px;">
+            <div style="font-size:12px;font-weight:700;color:#0f172a;">Desktop WhatsApp Integration Mode</div>
+            <div style="font-size:11.5px;color:#64748b;margin-top:2px;">
+              Opens through your system's installed WhatsApp application or WhatsApp Web. No third-party API subscription required.
+            </div>
           </div>
         </div>
       </section>

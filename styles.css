@@ -22926,3 +22926,54 @@ body.sidebar-collapsed .sidebar-signout-btn span,
 .sidebar-collapsed .sidebar-signout-btn span {
   display: none !important;
 }
+
+/* ── Clean Collapsed & Expanded Status Dot ───────────────────────── */
+.sidebar-brand-logo-wrap {
+  position: relative !important;
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+}
+
+.logo-status-dot {
+  display: none;
+  position: absolute;
+  bottom: -1px;
+  right: -1px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  border: 2px solid #ffffff;
+  background: #22c55e;
+  box-shadow: 0 0 0 1px rgba(0,0,0,0.06);
+  z-index: 2;
+}
+
+.logo-status-dot.online {
+  background: #22c55e;
+}
+
+.logo-status-dot.offline {
+  background: #94a3b8;
+}
+
+.logo-status-dot.syncing {
+  background: #3b82f6;
+}
+
+.sidebar-header-status-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+
+body.sidebar-collapsed .sidebar-header-status-wrap,
+.sidebar-collapsed .sidebar-header-status-wrap {
+  display: none !important;
+}
+
+body.sidebar-collapsed .logo-status-dot,
+.sidebar-collapsed .logo-status-dot {
+  display: block !important;
+}

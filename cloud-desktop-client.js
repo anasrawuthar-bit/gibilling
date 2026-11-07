@@ -130,7 +130,7 @@ class CloudLicenseManager {
     if (!navigator.onLine || !license.token) return license;
 
     try {
-      const res = await fetch(`${sUrl}/api/v1/auth/validate-license`, {
+      const res = await fetch(`${sUrl}/api/v1/system/health`, {
         headers: { 'Authorization': 'Bearer ' + license.token }
       });
       const data = await res.json();
@@ -213,21 +213,11 @@ class CloudSyncWidget {
     // Online/Offline pill click gives live ping feedback without opening popover
     badge?.addEventListener("click", async (e) => {
       e.stopPropagation();
-      badge.style.opacity = "0.5";
+      badge.style.opacity = "0.6";
       const isOnline = await this.pingServer();
       badge.style.opacity = "1";
-      if (isOnline) {
-        this.setStatus("online");
-        if (typeof showToast === "function") {
-          showToast("🟢 ZynBill Cloud: Online & Synchronized", "success");
-        }
-        this.triggerSyncNow();
-      } else {
-        this.setStatus("offline");
-        if (typeof showToast === "function") {
-          showToast("⚪ Offline Mode: Operating with local SQLite database", "info");
-        }
-      }
+      this.setStatus(isOnline ? "online" : "offline");
+      if (isOnline) this.triggerSyncNow();
     });
 
     syncNowBtn?.addEventListener("click", () => this.triggerSyncNow());
@@ -274,6 +264,12 @@ class CloudSyncWidget {
     const badge = document.getElementById("cloudSyncStatusBadge");
     const label = document.getElementById("syncStatusLabel");
     const pendingEl = document.getElementById("syncPendingBadge");
+    const logoDot = document.getElementById("logoStatusDot");
+
+    if (logoDot) {
+      logoDot.className = "logo-status-dot " + status;
+      logoDot.title = status === "online" ? "ZynBill Cloud: Online" : (status === "syncing" ? "Syncing..." : "Operating Offline (SQLite)");
+    }
 
     if (!badge || !label) return;
 
