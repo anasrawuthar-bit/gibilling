@@ -350,11 +350,11 @@
     <form onsubmit="handleLogin(event)">
       <div class="field-group">
         <label class="field-label">Admin Email</label>
-        <input type="email" id="adminEmail" class="text-control" value="admin@zynbill.com" required>
+        <input type="email" id="adminEmail" class="text-control" placeholder="admin@yourdomain.in" autocomplete="username" required>
       </div>
       <div class="field-group">
         <label class="field-label">Password</label>
-        <input type="password" id="adminPassword" class="text-control" value="admin123" required>
+        <input type="password" id="adminPassword" class="text-control" placeholder="••••••••" autocomplete="current-password" required>
       </div>
       <button type="submit" class="btn-action btn-approve" style="width: 100%; height: 44px; font-size: 14px; margin-top: 8px;">Sign In to Console</button>
     </form>
@@ -479,7 +479,7 @@
           <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 16px;">
             <div class="field-group">
               <label class="field-label">SMTP Host (Server)</label>
-              <input type="text" id="smtpHost" class="text-control" placeholder="smtp.gmail.com or mail.zynbill.com" required>
+              <input type="text" id="smtpHost" class="text-control" placeholder="smtp.yourdomain.in or smtp.gmail.com" required>
             </div>
             <div class="field-group">
               <label class="field-label">Port</label>
@@ -500,7 +500,7 @@
 
           <div class="field-group">
             <label class="field-label">Sender Name &amp; Email (From)</label>
-            <input type="text" id="smtpFrom" class="text-control" value='"ZynBill Cloud" &lt;noreply@zynbill.com&gt;'>
+            <input type="text" id="smtpFrom" class="text-control" placeholder='"ZynBill Cloud" &lt;notifications@yourdomain.in&gt;'>
           </div>
 
           <div style="margin: 16px 0; display: flex; align-items: center; gap: 8px;">
@@ -1167,7 +1167,7 @@
           document.getElementById('smtpPort').value = c.port || 587;
           document.getElementById('smtpUser').value = c.user || '';
           document.getElementById('smtpPass').value = c.passMasked || '';
-          document.getElementById('smtpFrom').value = c.from || '"ZynBill Cloud" <noreply@zynbill.com>';
+          document.getElementById('smtpFrom').value = c.from || '';
           document.getElementById('smtpSecure').checked = Boolean(c.secure);
         }
       } catch (err) {

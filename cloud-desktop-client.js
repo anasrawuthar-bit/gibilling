@@ -55,6 +55,13 @@ class CloudLicenseManager {
     const merged = { ...existing, ...license };
     localStorage.setItem(CLOUD_STORAGE_KEYS.LICENSE, JSON.stringify(merged));
     localStorage.setItem(CLOUD_STORAGE_KEYS.ACTIVATED, "true");
+    if (merged.token && window.giDB?.configureSync) {
+      window.giDB.configureSync({
+        serverUrl: this.getServerUrl(),
+        token: merged.token,
+        enabled: true
+      }).catch(() => {});
+    }
   }
 
   static isActivated() {
@@ -1054,6 +1061,15 @@ window.addEventListener("DOMContentLoaded", async () => {
   PinResetInAppController.init();
   SubscriptionModalController.init();
   await CloudSyncWidget.init();
+
+  const activeLicense = CloudLicenseManager.getLicense();
+  if (activeLicense?.token && window.giDB?.configureSync) {
+    window.giDB.configureSync({
+      serverUrl: CloudLicenseManager.getServerUrl(),
+      token: activeLicense.token,
+      enabled: true
+    }).catch(() => {});
+  }
 
   if (!CloudLicenseManager.isActivated()) {
     ActivationUiController.showActivationModal();

@@ -8,3 +8,5 @@ migration-backups/
 *.err
 server/data/
 scratch/
+.env
+server/.env

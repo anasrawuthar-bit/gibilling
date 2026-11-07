@@ -11,6 +11,38 @@ const path = require('node:path');
 const { DatabaseSync } = require('node:sqlite');
 const crypto = require('node:crypto');
 
+// Load environment variables from .env if present
+function loadEnv() {
+  const envCandidates = [
+    path.join(__dirname, '.env'),
+    path.join(process.cwd(), '.env'),
+    path.join(process.cwd(), 'server', '.env')
+  ];
+  for (const envPath of envCandidates) {
+    if (fs.existsSync(envPath)) {
+      try {
+        const lines = fs.readFileSync(envPath, 'utf8').split(/\r?\n/);
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed || trimmed.startsWith('#')) continue;
+          const eqIdx = trimmed.indexOf('=');
+          if (eqIdx !== -1) {
+            const key = trimmed.slice(0, eqIdx).trim();
+            let val = trimmed.slice(eqIdx + 1).trim();
+            if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+              val = val.slice(1, -1);
+            }
+            if (!process.env[key]) {
+              process.env[key] = val;
+            }
+          }
+        }
+      } catch (_) {}
+    }
+  }
+}
+loadEnv();
+
 const DATA_DIR = path.join(__dirname, 'data');
 const TENANTS_DIR = path.join(DATA_DIR, 'tenants');
 
@@ -175,16 +207,27 @@ if (planCount === 0) {
   console.log('[MasterDB] Seeded 3 default subscription plans (Starter, Professional, Enterprise)');
 }
 
-// Seed default Super Admin if not present
-const existingAdmin = masterDb.prepare('SELECT id FROM admins WHERE email = ?').get('admin@zynbill.com');
+// Seed or synchronize Super Admin from .env credentials
+const targetAdminEmail = String(process.env.SUPER_ADMIN_EMAIL || 'admin@zynbill.com').trim().toLowerCase();
+const targetAdminPass = String(process.env.SUPER_ADMIN_PASSWORD || 'admin123');
+const targetAdminName = String(process.env.SUPER_ADMIN_NAME || 'Super Administrator');
+
+const existingAdmin = masterDb.prepare('SELECT id FROM admins WHERE id = ? OR email = ?').get('admin_master', targetAdminEmail);
 if (!existingAdmin) {
   const salt = crypto.randomBytes(16).toString('hex');
-  const hash = crypto.pbkdf2Sync('admin123', salt, 1000, 32, 'sha256').toString('hex');
+  const hash = crypto.pbkdf2Sync(targetAdminPass, salt, 1000, 32, 'sha256').toString('hex');
   masterDb.prepare(`
     INSERT INTO admins (id, email, password_hash, password_salt, name, created_at)
     VALUES (?, ?, ?, ?, ?, ?)
-  `).run('admin_master', 'admin@zynbill.com', hash, salt, 'Super Administrator', new Date().toISOString());
-  console.log('[MasterDB] Initialized default Super Admin (admin@zynbill.com / admin123)');
+  `).run('admin_master', targetAdminEmail, hash, salt, targetAdminName, new Date().toISOString());
+  console.log(`[MasterDB] Initialized Super Admin (${targetAdminEmail}) from .env configuration`);
+} else {
+  const salt = crypto.randomBytes(16).toString('hex');
+  const hash = crypto.pbkdf2Sync(targetAdminPass, salt, 1000, 32, 'sha256').toString('hex');
+  masterDb.prepare(`
+    UPDATE admins SET email = ?, password_hash = ?, password_salt = ?, name = ? WHERE id = ?
+  `).run(targetAdminEmail, hash, salt, targetAdminName, existingAdmin.id);
+  console.log(`[MasterDB] Synchronized Super Admin (${targetAdminEmail}) from .env`);
 }
 
 // ── Password Helper Functions ──────────────────────────────────────────

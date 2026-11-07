@@ -72,4 +72,70 @@ class DisabledSyncAdapter {
   async pull() { throw Object.assign(new Error("Cloud sync is not configured."), { code: "SYNC_DISABLED" }); }
 }
 
-module.exports = { SyncService, DisabledSyncAdapter };
+class HttpSyncAdapter {
+  constructor({ baseUrl = "http://localhost:4000", getToken = () => "", getDeviceId = () => "" } = {}) {
+    this.baseUrl = (baseUrl || "http://localhost:4000").replace(/\/$/, "");
+    this.getToken = typeof getToken === "function" ? getToken : () => getToken;
+    this.getDeviceId = typeof getDeviceId === "function" ? getDeviceId : () => getDeviceId;
+  }
+
+  setBaseUrl(url) {
+    if (url) this.baseUrl = url.replace(/\/$/, "");
+  }
+
+  async registerDevice({ companyId, device }) {
+    return { registered: true, deviceId: device?.id || this.getDeviceId() };
+  }
+
+  async push({ companyId, deviceId, events }) {
+    const token = this.getToken();
+    if (!token) {
+      throw Object.assign(new Error("Device is not activated or missing authentication token."), { code: "AUTH_REQUIRED" });
+    }
+    const res = await fetch(`${this.baseUrl}/api/v1/sync/push`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${token}`
+      },
+      body: JSON.stringify({ events, companyId, deviceId })
+    });
+    const data = await res.json();
+    if (!data.ok) {
+      throw Object.assign(new Error(data.error || "Sync push failed."), { code: data.code || "SERVER_ERROR" });
+    }
+    const acknowledgedIds = new Set(data.acknowledgedIds || []);
+    const results = (events || []).map((ev) => ({
+      id: ev.id,
+      status: acknowledgedIds.has(ev.id) ? "accepted" : "rejected"
+    }));
+    return { results, serverTimestamp: data.serverTimestamp };
+  }
+
+  async pull({ companyId, deviceId, cursor, limit = 100 }) {
+    const token = this.getToken();
+    if (!token) {
+      throw Object.assign(new Error("Device is not activated or missing authentication token."), { code: "AUTH_REQUIRED" });
+    }
+    const url = new URL(`${this.baseUrl}/api/v1/sync/pull`);
+    if (cursor) url.searchParams.set("since", cursor);
+    if (limit) url.searchParams.set("limit", String(limit));
+
+    const res = await fetch(url.toString(), {
+      method: "GET",
+      headers: {
+        "Authorization": `Bearer ${token}`
+      }
+    });
+    const data = await res.json();
+    if (!data.ok) {
+      throw Object.assign(new Error(data.error || "Sync pull failed."), { code: data.code || "SERVER_ERROR" });
+    }
+    return {
+      changes: Array.isArray(data.events) ? data.events : [],
+      cursor: data.cursor || cursor || new Date().toISOString()
+    };
+  }
+}
+
+module.exports = { SyncService, DisabledSyncAdapter, HttpSyncAdapter };

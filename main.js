@@ -3,13 +3,30 @@ const path = require("path");
 const fs = require("fs");
 const os = require("os");
 const database = require("./database");
-const { SyncService, DisabledSyncAdapter } = require("./sync-service");
+const { SyncService, DisabledSyncAdapter, HttpSyncAdapter } = require("./sync-service");
 const { whatsappService } = require("./whatsapp-service");
 
 let mainWindow = null;
 let tray = null;
 let isQuitting = false;
-const syncService = new SyncService({ database, adapter: new DisabledSyncAdapter(), enabled: false });
+
+let syncConfig = {
+  serverUrl: process.env.CLOUD_SERVER_URL || "http://localhost:4000",
+  token: "",
+  enabled: false
+};
+
+const httpSyncAdapter = new HttpSyncAdapter({
+  baseUrl: syncConfig.serverUrl,
+  getToken: () => syncConfig.token
+});
+
+const syncService = new SyncService({
+  database,
+  adapter: httpSyncAdapter,
+  enabled: false,
+  intervalMs: 15000
+});
 
 const singleInstanceLock = app.requestSingleInstanceLock();
 if (!singleInstanceLock) {
@@ -576,6 +593,22 @@ function registerDatabaseHandlers() {
   ipcMain.handle("db:save-journal-voucher", (_event, payload) => database.saveJournalVoucher(payload));
   ipcMain.handle("sync:get-status", () => syncService.getStatus());
   ipcMain.handle("sync:run", () => syncService.syncNow());
+  ipcMain.handle("sync:configure", (_event, config = {}) => {
+    if (config.serverUrl) {
+      syncConfig.serverUrl = config.serverUrl;
+      httpSyncAdapter.setBaseUrl(config.serverUrl);
+    }
+    if (typeof config.token === "string") {
+      syncConfig.token = config.token;
+    }
+    if (typeof config.enabled === "boolean") {
+      syncConfig.enabled = config.enabled;
+      syncService.enabled = config.enabled;
+      if (config.enabled) syncService.start();
+      else syncService.stop();
+    }
+    return syncService.getStatus();
+  });
   ipcMain.handle("db:get-daily-backups", () => database.getBackupHistory?.(app.getPath("userData")) || []);
   ipcMain.handle("db:create-daily-backup", () => database.createDailyAutomatedBackup?.(app.getPath("userData")) || null);
   ipcMain.handle("app:export-pdf", async (_event, { htmlContent, defaultFilename = "invoice.pdf" }) => {

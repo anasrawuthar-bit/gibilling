@@ -35,7 +35,7 @@ function getActiveSmtpConfig() {
     secure: getSetting('smtp_secure', process.env.SMTP_SECURE || 'false') === 'true',
     user: getSetting('smtp_user', process.env.SMTP_USER || ''),
     pass: getSetting('smtp_pass', process.env.SMTP_PASS || ''),
-    from: getSetting('smtp_from', process.env.SMTP_FROM || '"ZynBill Cloud" <noreply@zynbill.com>')
+    from: getSetting('smtp_from', process.env.SMTP_FROM || '')
   };
 }
 
