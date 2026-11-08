@@ -465,6 +465,107 @@
       </div>
     </div>
 
+
+    <!-- ── TAB 4: APP RELEASES & UPDATES ───────────────────────── -->
+    <div id="viewReleases" class="hidden">
+      <!-- Active Live Release Banner -->
+      <div class="table-card" style="padding: 24px 28px; margin-bottom: 24px; border-left: 4px solid var(--accent); background: linear-gradient(180deg, #ffffff 0%, #f0f9ff 100%);">
+        <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 16px;">
+          <div>
+            <div style="display: flex; align-items: center; gap: 10px;">
+              <span class="badge" style="background: #0284c7; color: #ffffff; font-weight: 700; font-size: 11px;">ACTIVE LIVE RELEASE</span>
+              <h3 style="font-size: 20px; font-weight: 800; color: #0f172a;" id="activeRelHeading">v1.1.1</h3>
+            </div>
+            <div style="font-size: 13px; color: var(--muted); margin-top: 6px;">
+              File: <strong id="activeRelFileName" style="color: #0f172a;">ZynBill Setup 1.1.1.exe</strong> &bull; Published: <span id="activeRelDate">-</span>
+            </div>
+            <div style="font-size: 13px; color: #334155; margin-top: 8px; max-width: 650px;" id="activeRelNotes">
+              Loading release details...
+            </div>
+          </div>
+          <div style="display: flex; gap: 10px;">
+            <a href="/download" class="btn-action btn-approve" style="text-decoration: none; display: inline-flex; align-items: center; gap: 6px; height: 38px;">
+              <span>⬇</span> Download Installer (.exe)
+            </a>
+          </div>
+        </div>
+      </div>
+
+      <!-- Upload New Release Form Card -->
+      <div class="table-card" style="padding: 28px; max-width: 780px; margin-bottom: 24px;">
+        <div style="margin-bottom: 20px;">
+          <h3 style="font-size: 18px; font-weight: 700; color: #0f172a;">Upload &amp; Publish New Windows Installer</h3>
+          <p style="font-size: 13px; color: var(--muted); margin-top: 4px;">
+            Upload a newly built <code>.exe</code> installer directly from your browser. Once uploaded, desktop clients checking for updates and website visitors will automatically receive this version.
+          </p>
+        </div>
+
+        <form id="uploadReleaseForm" onsubmit="handleUploadRelease(event)">
+          <div style="display: grid; grid-template-columns: 1fr 2fr; gap: 16px;">
+            <div class="field-group">
+              <label class="field-label">New Version Number</label>
+              <input type="text" id="newRelVersion" class="text-control" placeholder="e.g. 1.1.2" required>
+            </div>
+            <div class="field-group">
+              <label class="field-label">Target Installer File (.exe)</label>
+              <input type="file" id="newRelFile" class="text-control" accept=".exe" required style="padding: 7px 12px;">
+            </div>
+          </div>
+
+          <div class="field-group">
+            <label class="field-label">Release Notes / Changelog</label>
+            <textarea id="newRelNotes" class="text-control" rows="3" placeholder="Key updates, bug fixes, or enhancements in this version..." style="resize: vertical;"></textarea>
+          </div>
+
+          <!-- Upload Progress Bar -->
+          <div id="uploadProgressWrap" style="display: none; margin: 18px 0;">
+            <div style="display: flex; justify-content: space-between; font-size: 12.5px; margin-bottom: 6px;">
+              <span id="uploadStatusText" style="font-weight: 600; color: #0284c7;">Uploading installer...</span>
+              <span id="uploadPercentText" style="font-weight: 700; color: #0f172a;">0%</span>
+            </div>
+            <div style="width: 100%; height: 8px; background: #e2e8f0; border-radius: 4px; overflow: hidden;">
+              <div id="uploadProgressBar" style="width: 0%; height: 100%; background: #0284c7; transition: width 0.2s ease;"></div>
+            </div>
+          </div>
+
+          <div style="display: flex; gap: 12px; align-items: center; margin-top: 20px;">
+            <button type="submit" class="btn-action btn-approve" id="btnUploadRelease" style="height: 42px; padding: 0 24px; font-size: 13.5px;">
+              🚀 Upload &amp; Publish Release
+            </button>
+            <span id="uploadFeedback" style="font-size: 13px;"></span>
+          </div>
+        </form>
+      </div>
+
+      <!-- Downloadable Releases Files Table -->
+      <div class="table-card">
+        <div style="padding: 20px 24px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center;">
+          <div>
+            <h3 style="font-size: 16px; font-weight: 700; color: #0f172a;">Available Installer Packages on Server</h3>
+            <p style="font-size: 12.5px; color: var(--muted); margin-top: 2px;">Stored in <code>server/public/downloads</code></p>
+          </div>
+          <button type="button" class="btn-action btn-secondary" onclick="loadReleases()" style="padding: 6px 14px; font-size: 12.5px;">
+            🔄 Refresh List
+          </button>
+        </div>
+
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>File Name</th>
+              <th>Version</th>
+              <th>Size</th>
+              <th>Last Modified</th>
+              <th style="text-align: right;">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="releasesTableBody">
+            <tr><td colspan="5" style="text-align: center; color: var(--muted); padding: 32px;">Loading release files...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
     <!-- ── TAB 3: SMTP MAIL SETTINGS ───────────────────────────── -->
     <div id="viewSmtp" class="hidden">
       <div class="table-card" style="padding: 28px; max-width: 780px;">
@@ -1255,6 +1356,145 @@
     function escapeHtml(str) {
       return String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
     }
+
+    // ── Releases Management JS ──────────────────────────────────────
+    async function loadReleases() {
+      try {
+        const res = await fetch('/api/v1/admin/releases', {
+          headers: { 'Authorization': 'Bearer ' + adminToken }
+        });
+        const data = await res.json();
+        if (!data.ok) return;
+
+        // Render Active Release
+        const rel = data.activeRelease || {};
+        document.getElementById('activeRelHeading').textContent = 'v' + (rel.version || '1.1.1');
+        document.getElementById('activeRelFileName').textContent = rel.fileName || '-';
+        document.getElementById('activeRelDate').textContent = rel.publishedAt ? new Date(rel.publishedAt).toLocaleString() : '-';
+        document.getElementById('activeRelNotes').textContent = rel.releaseNotes || 'No release notes provided.';
+
+        // Render Files Table
+        const tbody = document.getElementById('releasesTableBody');
+        if (!data.files || data.files.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: var(--muted); padding: 32px;">No installer files found. Upload a new build above.</td></tr>';
+          return;
+        }
+
+        tbody.innerHTML = data.files.map(f => `
+          <tr>
+            <td><strong>${escapeHtml(f.name)}</strong></td>
+            <td><span class="badge" style="background:#e0f2fe; color:#0369a1; font-weight:700;">v${escapeHtml(f.version)}</span></td>
+            <td>${escapeHtml(f.sizeMb)}</td>
+            <td>${new Date(f.updatedAt).toLocaleDateString()} ${new Date(f.updatedAt).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}</td>
+            <td style="text-align: right;">
+              <a href="/download?file=${encodeURIComponent(f.name)}" class="btn-action btn-secondary" style="text-decoration:none; display:inline-block; margin-right:8px; padding:4px 10px; font-size:12px;">⬇ Download</a>
+              <button type="button" class="btn-action btn-danger" style="padding:4px 10px; font-size:12px;" onclick="deleteReleaseFile('${escapeHtml(f.name)}')">Delete</button>
+            </td>
+          </tr>
+        `).join('');
+      } catch (err) {
+        console.error('Failed to load releases:', err);
+      }
+    }
+
+    function handleUploadRelease(e) {
+      e.preventDefault();
+      const version = document.getElementById('newRelVersion').value.trim();
+      const notes = document.getElementById('newRelNotes').value.trim();
+      const fileInput = document.getElementById('newRelFile');
+      const file = fileInput.files[0];
+
+      if (!file) {
+        alert('Please select an installer .exe file to upload.');
+        return;
+      }
+      if (!version) {
+        alert('Please specify a version number (e.g. 1.1.2).');
+        return;
+      }
+
+      const progressWrap = document.getElementById('uploadProgressWrap');
+      const progressBar = document.getElementById('uploadProgressBar');
+      const percentText = document.getElementById('uploadPercentText');
+      const statusText = document.getElementById('uploadStatusText');
+      const feedback = document.getElementById('uploadFeedback');
+      const uploadBtn = document.getElementById('btnUploadRelease');
+
+      progressWrap.style.display = 'block';
+      progressBar.style.width = '0%';
+      percentText.textContent = '0%';
+      statusText.textContent = 'Uploading ' + file.name + ' (' + (file.size / (1024*1024)).toFixed(1) + ' MB)...';
+      feedback.textContent = '';
+      uploadBtn.disabled = true;
+
+      const xhr = new XMLHttpRequest();
+      const url = '/api/v1/admin/releases/upload?version=' + encodeURIComponent(version) + '&notes=' + encodeURIComponent(notes) + '&filename=' + encodeURIComponent(file.name);
+      xhr.open('POST', url, true);
+      xhr.setRequestHeader('Authorization', 'Bearer ' + adminToken);
+      xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+
+      xhr.upload.onprogress = (event) => {
+        if (event.lengthComputable) {
+          const percent = Math.round((event.loaded / event.total) * 100);
+          progressBar.style.width = percent + '%';
+          percentText.textContent = percent + '%';
+          statusText.textContent = 'Uploaded ' + (event.loaded / (1024*1024)).toFixed(1) + ' MB / ' + (event.total / (1024*1024)).toFixed(1) + ' MB';
+        }
+      };
+
+      xhr.onload = () => {
+        uploadBtn.disabled = false;
+        if (xhr.status === 200) {
+          try {
+            const resp = JSON.parse(xhr.responseText);
+            progressBar.style.width = '100%';
+            percentText.textContent = '100%';
+            statusText.textContent = '✓ Upload complete and published!';
+            feedback.style.color = '#15803d';
+            feedback.textContent = '✓ Version ' + version + ' published successfully!';
+            document.getElementById('uploadReleaseForm').reset();
+            loadReleases();
+          } catch (_) {
+            feedback.textContent = 'Upload finished.';
+          }
+        } else {
+          statusText.textContent = '❌ Upload failed';
+          feedback.style.color = '#b91c1c';
+          feedback.textContent = 'Upload failed: ' + xhr.responseText;
+        }
+      };
+
+      xhr.onerror = () => {
+        uploadBtn.disabled = false;
+        statusText.textContent = '❌ Network error';
+        feedback.style.color = '#b91c1c';
+        feedback.textContent = 'Network error occurred during file upload.';
+      };
+
+      xhr.send(file);
+    }
+
+    async function deleteReleaseFile(filename) {
+      if (!confirm('Are you sure you want to delete ' + filename + ' from the server? This cannot be undone.')) {
+        return;
+      }
+      try {
+        const res = await fetch('/api/v1/admin/releases/file?filename=' + encodeURIComponent(filename), {
+          method: 'DELETE',
+          headers: { 'Authorization': 'Bearer ' + adminToken }
+        });
+        const data = await res.json();
+        if (data.ok) {
+          alert('File removed successfully.');
+          loadReleases();
+        } else {
+          alert(data.error || 'Failed to delete file.');
+        }
+      } catch (err) {
+        alert(err.message);
+      }
+    }
+
   </script>
 </body>
 </html>

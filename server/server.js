@@ -1009,6 +1009,112 @@ const server = http.createServer(async (req, res) => {
     return sendJson(res, testResult.ok ? 200 : 400, testResult);
   }
 
+  // ── App Release & Version Management Endpoints (Super Admin) ─────────
+
+  // 1. Get Releases Info & Downloadable Files List
+  if (req.method === 'GET' && pathname === '/api/v1/admin/releases') {
+    if (!verifyAdmin(req, res)) return;
+
+    const downloadsDir = path.join(__dirname, 'public', 'downloads');
+    const files = [];
+
+    if (fs.existsSync(downloadsDir)) {
+      const dirFiles = fs.readdirSync(downloadsDir);
+      for (const f of dirFiles) {
+        if (!f.endsWith('.exe')) continue;
+        const filePath = path.join(downloadsDir, f);
+        try {
+          const stat = fs.statSync(filePath);
+          const match = f.match(/(\d+\.\d+\.\d+)/);
+          files.push({
+            name: f,
+            version: match ? match[1] : '1.0.0',
+            size: stat.size,
+            sizeMb: (stat.size / (1024 * 1024)).toFixed(1) + ' MB',
+            updatedAt: stat.mtime.toISOString(),
+            downloadUrl: `/api/v1/download/app?file=${encodeURIComponent(f)}`
+          });
+        } catch (_) {}
+      }
+      files.sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
+    }
+
+    const activeVersion = db.getSetting('latest_version', files.length > 0 ? files[0].version : '1.1.1');
+    const activeFileName = db.getSetting('release_filename', files.length > 0 ? files[0].name : 'ZynBill Setup 1.1.1.exe');
+    const releaseNotes = db.getSetting('release_notes', 'General performance and security enhancements.');
+    const publishedAt = db.getSetting('published_at', new Date().toISOString());
+
+    return sendJson(res, 200, {
+      ok: true,
+      activeRelease: {
+        version: activeVersion,
+        fileName: activeFileName,
+        releaseNotes,
+        publishedAt
+      },
+      files
+    });
+  }
+
+  // 2. Stream Upload New Release Installer (.exe)
+  if (req.method === 'POST' && pathname === '/api/v1/admin/releases/upload') {
+    if (!verifyAdmin(req, res)) return;
+
+    const version = String(query.version || '1.1.2').trim().replace(/[^0-9.]/g, '');
+    const notes = String(query.notes || 'Bug fixes and performance improvements').trim();
+    const cleanFilename = `ZynBill Setup ${version}.exe`;
+
+    const downloadsDir = path.join(__dirname, 'public', 'downloads');
+    if (!fs.existsSync(downloadsDir)) fs.mkdirSync(downloadsDir, { recursive: true });
+
+    const targetPath = path.join(downloadsDir, cleanFilename);
+    const writeStream = fs.createWriteStream(targetPath);
+
+    req.pipe(writeStream);
+
+    writeStream.on('finish', () => {
+      db.setSetting('latest_version', version);
+      db.setSetting('release_filename', cleanFilename);
+      db.setSetting('release_notes', notes);
+      db.setSetting('published_at', new Date().toISOString());
+
+      return sendJson(res, 200, {
+        ok: true,
+        message: `Version ${version} published successfully!`,
+        version,
+        fileName: cleanFilename
+      });
+    });
+
+    writeStream.on('error', (err) => {
+      try { if (fs.existsSync(targetPath)) fs.unlinkSync(targetPath); } catch (_) {}
+      return sendJson(res, 500, { ok: false, error: 'File upload failed: ' + err.message });
+    });
+    return;
+  }
+
+  // 3. Delete Stored Release File
+  if (req.method === 'DELETE' && pathname === '/api/v1/admin/releases/file') {
+    if (!verifyAdmin(req, res)) return;
+    const filename = path.basename(String(query.filename || ''));
+    if (!filename || !filename.endsWith('.exe')) {
+      return sendJson(res, 400, { ok: false, error: 'Invalid file name.' });
+    }
+
+    const downloadsDir = path.join(__dirname, 'public', 'downloads');
+    const targetPath = path.join(downloadsDir, filename);
+
+    if (fs.existsSync(targetPath)) {
+      try {
+        fs.unlinkSync(targetPath);
+        return sendJson(res, 200, { ok: true, message: `File ${filename} removed.` });
+      } catch (err) {
+        return sendJson(res, 500, { ok: false, error: err.message });
+      }
+    }
+    return sendJson(res, 404, { ok: false, error: 'File not found.' });
+  }
+
   // ── Customer Web Portal Endpoints ─────────────────────────────────
 
   // 1. Customer Login
