@@ -1,0 +1,49 @@
+version: '3.8'
+
+services:
+  server:
+    build: .
+    restart: always
+    ports:
+      - "${PORT:-4000}:4000"
+    environment:
+      - PORT=4000
+      - NODE_ENV=production
+      - PUBLIC_URL=${PUBLIC_URL:-http://localhost:4000}
+      - SUPER_ADMIN_NAME=${SUPER_ADMIN_NAME:-Corezyn}
+      - SUPER_ADMIN_EMAIL=${SUPER_ADMIN_EMAIL:-admin@yourdomain.in}
+      - SUPER_ADMIN_PASSWORD=${SUPER_ADMIN_PASSWORD:-Admin@123456}
+      - DB_TYPE=${DB_TYPE:-postgres}
+      - PG_HOST=postgres
+      - PG_PORT=5432
+      - PG_DATABASE=${PG_DATABASE:-zynbill}
+      - PG_USER=${PG_USER:-postgres}
+      - PG_PASSWORD=${PG_PASSWORD:-secretpassword}
+      - SMTP_HOST=${SMTP_HOST:-smtp.hostinger.com}
+      - SMTP_PORT=${SMTP_PORT:-465}
+      - SMTP_SECURE=${SMTP_SECURE:-true}
+      - SMTP_USER=${SMTP_USER}
+      - SMTP_PASS=${SMTP_PASS}
+      - SMTP_FROM=${SMTP_FROM:-Corezyn <noreplay@anasrawuthar.in>}
+    volumes:
+      - server_data:/app/server/data
+      - server_downloads:/app/server/public/downloads
+    depends_on:
+      - postgres
+
+  postgres:
+    image: postgres:16-alpine
+    restart: always
+    environment:
+      POSTGRES_DB: ${PG_DATABASE:-zynbill}
+      POSTGRES_USER: ${PG_USER:-postgres}
+      POSTGRES_PASSWORD: ${PG_PASSWORD:-secretpassword}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+volumes:
+  pgdata:
+  server_data:
+  server_downloads:

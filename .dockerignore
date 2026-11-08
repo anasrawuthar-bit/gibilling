@@ -1,0 +1,12 @@
+node_modules
+dist
+migration-backups
+*.sqlite
+*.log
+*.err
+.git
+.gitignore
+.env
+tests
+server/.env
+server/data/*.sqlite
