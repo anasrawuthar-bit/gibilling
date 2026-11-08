@@ -5647,8 +5647,6 @@ function openInvoicePreviewModal(previewData = null, options = {}) {
   }
 
   document.getElementById("invoicePreviewModal")?.remove();
-
-  const business = preview.business || state.businessSettings || defaultBusinessSettings();
   let currentFormat = options.printerType || business.printerType || "a4";
   if (currentFormat === "regular") currentFormat = "a4";
   let currentA4Template = options.a4Template || business.a4Template || "modern";
@@ -29711,7 +29709,6 @@ function autoSendBillViaSystemWhatsApp(transaction, preview = null) {
     if (phone.length === 10) phone = "91" + phone;
     else if (phone.startsWith("0") && phone.length === 11) phone = "91" + phone.slice(1);
 
-    const business = state.businessSettings || defaultBusinessSettings();
     const docNo = transaction.invoiceNo || preview?.invoiceNo || "Invoice";
     const partyName = transaction.party || preview?.party || "Customer";
     const total = typeof transaction.total === "number" ? transaction.total : (typeof transaction.amount === "number" ? transaction.amount : (preview?.grandTotal || 0));
