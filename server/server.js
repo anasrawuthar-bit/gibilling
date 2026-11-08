@@ -1009,7 +1009,19 @@ const server = http.createServer(async (req, res) => {
     return sendJson(res, testResult.ok ? 200 : 400, testResult);
   }
 
-  // ── App Release & Version Management Endpoints (Super Admin) ─────────
+  function compareSemver(v1, v2) {
+  const p1 = String(v1 || '').split('.').map(n => parseInt(n, 10) || 0);
+  const p2 = String(v2 || '').split('.').map(n => parseInt(n, 10) || 0);
+  for (let i = 0; i < Math.max(p1.length, p2.length); i++) {
+    const a = p1[i] || 0;
+    const b = p2[i] || 0;
+    if (a > b) return 1;
+    if (a < b) return -1;
+  }
+  return 0;
+}
+
+// ── App Release & Version Management Endpoints (Super Admin) ─────────
 
   // 1. Get Releases Info & Downloadable Files List
   if (req.method === 'GET' && pathname === '/api/v1/admin/releases') {
@@ -1060,7 +1072,27 @@ const server = http.createServer(async (req, res) => {
   if (req.method === 'POST' && pathname === '/api/v1/admin/releases/upload') {
     if (!verifyAdmin(req, res)) return;
 
-    const version = String(query.version || '1.1.2').trim().replace(/[^0-9.]/g, '');
+    const version = String(query.version || '').trim();
+    if (!/^\d+(\.\d+){1,3}$/.test(version)) {
+      req.resume();
+      return sendJson(res, 400, {
+        ok: false,
+        error: 'Invalid version format. Please enter a valid semantic version (e.g., 1.1.2).'
+      });
+    }
+
+    const activeVersion = getSetting('latest_version', '1.1.1');
+    const allowDowngrade = String(query.allowDowngrade || '').toLowerCase() === 'true';
+    const cmp = compareSemver(version, activeVersion);
+
+    if (cmp <= 0 && !allowDowngrade) {
+      req.resume();
+      return sendJson(res, 400, {
+        ok: false,
+        error: `Version Conflict: Uploaded version v${version} is not newer than current active version v${activeVersion}. Updates must be strictly newer to prevent client downgrade loops.`
+      });
+    }
+
     const notes = String(query.notes || 'Bug fixes and performance improvements').trim();
     const cleanFilename = `ZynBill Setup ${version}.exe`;
 
