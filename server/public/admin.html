@@ -322,6 +322,278 @@
       border: 1px solid var(--border);
       box-shadow: 0 12px 32px rgba(0, 0, 0, 0.06);
     }
+
+    /* ── Professional Artifact Uploader & Dropzone Components ── */
+    .artifact-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 16px;
+      margin-bottom: 20px;
+    }
+    .artifact-slot {
+      background: #ffffff;
+      border: 1.5px dashed #cbd5e1;
+      border-radius: 12px;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+      position: relative;
+      cursor: pointer;
+      min-height: 195px;
+    }
+    .artifact-slot:hover {
+      border-color: #0284c7;
+      background: #f8fafc;
+      box-shadow: 0 4px 14px rgba(2, 132, 199, 0.06);
+      transform: translateY(-1px);
+    }
+    .artifact-slot.drag-over {
+      border-color: #0284c7;
+      border-style: solid;
+      background: #f0f9ff;
+      box-shadow: 0 0 0 4px rgba(2, 132, 199, 0.15);
+    }
+    .artifact-slot.has-file {
+      border-style: solid;
+      border-color: #0284c7;
+      background: #ffffff;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.03);
+    }
+    .artifact-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 12px;
+    }
+    .artifact-tag {
+      font-size: 11px;
+      font-weight: 700;
+      color: #64748b;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .artifact-ext-badge {
+      font-size: 10px;
+      font-weight: 700;
+      padding: 2px 7px;
+      border-radius: 4px;
+      background: #f1f5f9;
+      color: #475569;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    }
+    .artifact-body {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+      padding: 8px 0;
+    }
+    .artifact-icon-wrap {
+      width: 44px;
+      height: 44px;
+      border-radius: 10px;
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #0284c7;
+      margin-bottom: 10px;
+      transition: all 0.2s ease;
+    }
+    .artifact-slot:hover .artifact-icon-wrap {
+      background: #e0f2fe;
+      border-color: #bae6fd;
+      color: #0369a1;
+    }
+    .artifact-title {
+      font-size: 13.5px;
+      font-weight: 700;
+      color: #0f172a;
+      margin-bottom: 4px;
+    }
+    .artifact-hint {
+      font-size: 11.5px;
+      color: #64748b;
+      line-height: 1.4;
+      max-width: 230px;
+    }
+    .btn-choose-file {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      margin-top: 14px;
+      padding: 6px 14px;
+      background: #f1f5f9;
+      border: 1px solid #e2e8f0;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 600;
+      color: #334155;
+      pointer-events: none;
+      transition: all 0.15s ease;
+    }
+    .artifact-slot:hover .btn-choose-file {
+      background: #0284c7;
+      color: #ffffff;
+      border-color: #0284c7;
+    }
+    
+    .file-loaded-view {
+      display: none;
+      width: 100%;
+      text-align: left;
+    }
+    .artifact-slot.has-file .file-loaded-view {
+      display: block;
+    }
+    .artifact-slot.has-file .artifact-body {
+      display: none;
+    }
+    .loaded-file-card {
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      padding: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+    .loaded-file-meta {
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .loaded-file-name {
+      font-size: 12.5px;
+      font-weight: 700;
+      color: #0f172a;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    }
+    .loaded-file-sub {
+      font-size: 11.5px;
+      color: #64748b;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .loaded-change-link {
+      font-size: 11.5px;
+      font-weight: 600;
+      color: #0284c7;
+      text-decoration: none;
+      white-space: nowrap;
+    }
+    .loaded-change-link:hover {
+      text-decoration: underline;
+    }
+
+    .manifest-spec-card {
+      background: #ffffff;
+      border: 1px solid #e2e8f0;
+      border-radius: 12px;
+      padding: 18px 22px;
+      margin-bottom: 20px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.02);
+    }
+    .manifest-spec-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding-bottom: 12px;
+      border-bottom: 1px solid #f1f5f9;
+      margin-bottom: 12px;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+    .spec-item {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+    .spec-label {
+      font-size: 10.5px;
+      font-weight: 700;
+      color: #64748b;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .spec-val {
+      font-size: 12.5px;
+      font-weight: 600;
+      color: #0f172a;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    }
+    .spec-chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      padding-top: 12px;
+      border-top: 1px solid #f1f5f9;
+      margin-top: 12px;
+    }
+    .spec-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11.5px;
+      font-weight: 600;
+      color: #475569;
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      padding: 4px 10px;
+      border-radius: 6px;
+    }
+    .spec-chip.ready {
+      color: #15803d;
+      background: #f0fdf4;
+      border-color: #bbf7d0;
+    }
+    .spec-chip.waiting {
+      color: #b45309;
+      background: #fffbeb;
+      border-color: #fde68a;
+    }
+
+    .btn-publish-main {
+      height: 42px;
+      padding: 0 24px;
+      border-radius: 8px;
+      border: none;
+      background: #0284c7;
+      color: #ffffff;
+      font-family: inherit;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      transition: all 0.15s ease;
+      box-shadow: 0 1px 2px rgba(2, 132, 199, 0.2);
+    }
+    .btn-publish-main:hover:not(:disabled) {
+      background: #0369a1;
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(2, 132, 199, 0.25);
+    }
+    .btn-publish-main:disabled {
+      background: #cbd5e1;
+      color: #64748b;
+      cursor: not-allowed;
+      box-shadow: none;
+      transform: none;
+    }
   </style>
 </head>
 <body>
@@ -367,19 +639,24 @@
     <!-- Top Navigation Tabs -->
     <div class="admin-nav-tabs">
       <button class="main-tab-btn active" id="tabBtnCustomers" onclick="switchMainTab('customers')">
-        👥 Customer Management
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+        <span>Customers</span>
       </button>
       <button class="main-tab-btn" id="tabBtnPlans" onclick="switchMainTab('plans')">
-        📦 Subscription Plans
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>
+        <span>Plans</span>
       </button>
       <button class="main-tab-btn" id="tabBtnSmtp" onclick="switchMainTab('smtp')">
-        ⚙️ SMTP Mail Settings
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+        <span>SMTP Settings</span>
       </button>
       <button class="main-tab-btn" id="tabBtnReleases" onclick="switchMainTab('releases')">
-        🚀 App Releases & Updates
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
+        <span>App Releases</span>
       </button>
       <button class="main-tab-btn" id="tabBtnLogs" onclick="switchMainTab('logs')">
-        🛡️ Error Monitoring
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+        <span>Monitoring &amp; Telemetry</span>
       </button>
     </div>
 
@@ -475,120 +752,221 @@
     <!-- ── TAB 4: APP RELEASES & UPDATES ───────────────────────── -->
     <div id="viewReleases" class="hidden">
 
-      <!-- Upload New Release Form Card (3-File Electron Release Package) -->
-      <div class="table-card" style="padding: 28px; max-width: 920px; margin-bottom: 24px;">
-        <div style="margin-bottom: 20px;">
-          <div style="display: flex; align-items: center; gap: 10px;">
-            <span style="font-size: 22px;">📦</span>
-            <h3 style="font-size: 18px; font-weight: 700; color: #0f172a; margin: 0;">Upload &amp; Publish Electron Release Package</h3>
+      <!-- Upload New Release Form Card (Interactive 3-Artifact Modern Dropzone) -->
+      <div class="table-card" style="padding: 28px 32px; max-width: 960px; margin-bottom: 24px;">
+        <div style="margin-bottom: 24px;">
+          <div style="display: flex; align-items: center; gap: 12px;">
+            <div style="width: 36px; height: 36px; border-radius: 8px; background: #0284c7; color: #ffffff; display: flex; align-items: center; justify-content: center;">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
+            </div>
+            <div>
+              <h3 style="font-size: 18px; font-weight: 800; color: #0f172a; margin: 0; letter-spacing: -0.01em;">Deploy Electron Release Package</h3>
+              <p style="font-size: 13px; color: var(--muted); margin-top: 3px;">
+                Adheres strictly to official Electron auto-updater standards. Select or drop the 3 artifacts from <code>electron-builder</code>.
+              </p>
+            </div>
           </div>
-          <p style="font-size: 13px; color: var(--muted); margin-top: 6px; line-height: 1.5;">
-            Deploy an update adhering strictly to official Electron auto-updater standards. Select the 3 deployment artifacts produced by <code>electron-builder</code>: 
-            <strong><code>latest.yml</code></strong> (manifest), <strong><code>.exe</code></strong> (setup installer), and <strong><code>.blockmap</code></strong> (differential update map).
-            <span style="color: #0369a1; font-weight: 600;">The release version is automatically detected and parsed from <code>latest.yml</code>—no manual typing required.</span>
-          </p>
         </div>
 
         <form id="uploadReleaseForm" onsubmit="handleUploadPackage(event)">
-          <!-- 3 File Selection Cards -->
-          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 16px; margin-bottom: 18px;">
-            <!-- Slot 1: latest.yml -->
-            <div style="background: #f8fafc; border: 1px solid var(--border); border-radius: 8px; padding: 14px 16px;">
-              <div style="font-weight: 700; font-size: 13px; color: #0f172a; display: flex; align-items: center; gap: 6px; margin-bottom: 6px;">
-                <span>📄</span> <span>1. Release Manifest</span>
-                <span class="badge" style="background: #e0f2fe; color: #0284c7; font-size: 10px;">REQUIRED</span>
+          <!-- 3 Interactive Artifact Dropzone Cards -->
+          <div class="artifact-grid">
+            <!-- Hidden native file inputs -->
+            <input type="file" id="newRelManifest" accept=".yml,.yaml" style="display: none;" onchange="handleManifestFileSelect(this)">
+            <input type="file" id="newRelExe" accept=".exe" style="display: none;" onchange="handleExeFileSelect(this)">
+            <input type="file" id="newRelBlockmap" accept=".blockmap" style="display: none;" onchange="handleBlockmapFileSelect(this)">
+
+            <!-- Slot 1: latest.yml Card -->
+            <div id="slotManifest" class="artifact-slot" onclick="document.getElementById('newRelManifest').click()" ondragover="handleDragOver(event, this)" ondragleave="handleDragLeave(event, this)" ondrop="handleDropFile(event, 'manifest')">
+              <div>
+                <div class="artifact-header">
+                  <span class="artifact-tag">01. Manifest</span>
+                  <span class="artifact-ext-badge">latest.yml</span>
+                </div>
+                <div class="artifact-body">
+                  <div class="artifact-icon-wrap">
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+                  </div>
+                  <div class="artifact-title">Release Manifest</div>
+                  <div class="artifact-hint">Version &amp; SHA-512 hashes auto-extracted from file</div>
+                  <div class="btn-choose-file">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                    <span>Choose File</span>
+                  </div>
+                </div>
               </div>
-              <input type="file" id="newRelManifest" class="text-control" accept=".yml,.yaml" required style="padding: 6px 10px; font-size: 12px; background: #fff;" onchange="handleManifestFileSelect(this)">
-              <div id="manifestFileInfo" style="font-size: 11.5px; color: var(--muted); margin-top: 6px; line-height: 1.4;">
-                Select <code>latest.yml</code> to auto-extract version &amp; hash checksums.
+
+              <!-- Loaded state -->
+              <div class="file-loaded-view">
+                <div class="loaded-file-card">
+                  <div class="loaded-file-meta">
+                    <span id="loadedNameManifest" class="loaded-file-name">latest.yml</span>
+                    <span class="loaded-file-sub">
+                      <span id="loadedSizeManifest">-</span>
+                      &bull;
+                      <span style="color: #16a34a; font-weight: 700;">Verified</span>
+                    </span>
+                  </div>
+                  <a href="javascript:void(0)" class="loaded-change-link" onclick="event.stopPropagation(); document.getElementById('newRelManifest').click();">Change</a>
+                </div>
               </div>
             </div>
 
-            <!-- Slot 2: .exe Installer -->
-            <div style="background: #f8fafc; border: 1px solid var(--border); border-radius: 8px; padding: 14px 16px;">
-              <div style="font-weight: 700; font-size: 13px; color: #0f172a; display: flex; align-items: center; gap: 6px; margin-bottom: 6px;">
-                <span>📦</span> <span>2. Setup Installer (.exe)</span>
-                <span class="badge" style="background: #e0f2fe; color: #0284c7; font-size: 10px;">REQUIRED</span>
+            <!-- Slot 2: .exe Installer Card -->
+            <div id="slotExe" class="artifact-slot" onclick="document.getElementById('newRelExe').click()" ondragover="handleDragOver(event, this)" ondragleave="handleDragLeave(event, this)" ondrop="handleDropFile(event, 'installer')">
+              <div>
+                <div class="artifact-header">
+                  <span class="artifact-tag">02. Installer</span>
+                  <span class="artifact-ext-badge">.EXE</span>
+                </div>
+                <div class="artifact-body">
+                  <div class="artifact-icon-wrap">
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M12 8v8"/><path d="M8 12h8"/></svg>
+                  </div>
+                  <div class="artifact-title">Setup Binary</div>
+                  <div class="artifact-hint">Compiled NSIS Windows setup installer binary</div>
+                  <div class="btn-choose-file">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                    <span>Choose .exe</span>
+                  </div>
+                </div>
               </div>
-              <input type="file" id="newRelExe" class="text-control" accept=".exe" required style="padding: 6px 10px; font-size: 12px; background: #fff;" onchange="handleExeFileSelect(this)">
-              <div id="exeFileInfo" style="font-size: 11.5px; color: var(--muted); margin-top: 6px; line-height: 1.4;">
-                Windows setup binary (e.g. <code>ZynBill Setup 1.1.2.exe</code>).
+
+              <!-- Loaded state -->
+              <div class="file-loaded-view">
+                <div class="loaded-file-card">
+                  <div class="loaded-file-meta">
+                    <span id="loadedNameExe" class="loaded-file-name">ZynBill Setup.exe</span>
+                    <span class="loaded-file-sub">
+                      <span id="loadedSizeExe">-</span>
+                      &bull;
+                      <span style="color: #16a34a; font-weight: 700;">Ready</span>
+                    </span>
+                  </div>
+                  <a href="javascript:void(0)" class="loaded-change-link" onclick="event.stopPropagation(); document.getElementById('newRelExe').click();">Change</a>
+                </div>
               </div>
             </div>
 
-            <!-- Slot 3: .blockmap -->
-            <div style="background: #f8fafc; border: 1px solid var(--border); border-radius: 8px; padding: 14px 16px;">
-              <div style="font-weight: 700; font-size: 13px; color: #0f172a; display: flex; align-items: center; gap: 6px; margin-bottom: 6px;">
-                <span>🧩</span> <span>3. Differential Blockmap</span>
-                <span class="badge" style="background: #e0f2fe; color: #0284c7; font-size: 10px;">REQUIRED</span>
+            <!-- Slot 3: .blockmap Card -->
+            <div id="slotBlockmap" class="artifact-slot" onclick="document.getElementById('newRelBlockmap').click()" ondragover="handleDragOver(event, this)" ondragleave="handleDragLeave(event, this)" ondrop="handleDropFile(event, 'blockmap')">
+              <div>
+                <div class="artifact-header">
+                  <span class="artifact-tag">03. Differential</span>
+                  <span class="artifact-ext-badge">.BLOCKMAP</span>
+                </div>
+                <div class="artifact-body">
+                  <div class="artifact-icon-wrap">
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+                  </div>
+                  <div class="artifact-title">Delta Blockmap</div>
+                  <div class="artifact-hint">Enables fast 64KB block updates without 350MB re-download</div>
+                  <div class="btn-choose-file">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                    <span>Choose .blockmap</span>
+                  </div>
+                </div>
               </div>
-              <input type="file" id="newRelBlockmap" class="text-control" accept=".blockmap" required style="padding: 6px 10px; font-size: 12px; background: #fff;" onchange="handleBlockmapFileSelect(this)">
-              <div id="blockmapFileInfo" style="font-size: 11.5px; color: var(--muted); margin-top: 6px; line-height: 1.4;">
-                Differential map (e.g. <code>.exe.blockmap</code>) for fast 64KB block downloads.
+
+              <!-- Loaded state -->
+              <div class="file-loaded-view">
+                <div class="loaded-file-card">
+                  <div class="loaded-file-meta">
+                    <span id="loadedNameBlockmap" class="loaded-file-name">Setup.exe.blockmap</span>
+                    <span class="loaded-file-sub">
+                      <span id="loadedSizeBlockmap">-</span>
+                      &bull;
+                      <span style="color: #16a34a; font-weight: 700;">Ready</span>
+                    </span>
+                  </div>
+                  <a href="javascript:void(0)" class="loaded-change-link" onclick="event.stopPropagation(); document.getElementById('newRelBlockmap').click();">Change</a>
+                </div>
               </div>
             </div>
           </div>
 
-          <!-- Auto-Detected Manifest Summary Box -->
-          <div id="manifestSummaryBox" style="display: none; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 14px 18px; margin-bottom: 18px;">
-            <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-bottom: 8px;">
+          <!-- Auto-Detected Manifest Specification Card -->
+          <div id="manifestSummaryBox" class="manifest-spec-card" style="display: none;">
+            <div class="manifest-spec-header">
               <div style="display: flex; align-items: center; gap: 10px;">
-                <span style="font-size: 16px;">✓</span>
-                <span style="font-size: 13px; font-weight: 700; color: #166534;">Auto-Detected Release Details from <code>latest.yml</code>:</span>
-                <span id="detectedVersionBadge" class="badge" style="background: #0284c7; color: #ffffff; font-weight: 800; font-size: 13px;">-</span>
+                <span style="display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 50%; background: #dcfce7; color: #16a34a;">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+                </span>
+                <span style="font-size: 13.5px; font-weight: 700; color: #0f172a;">Auto-Detected Release Details</span>
+                <span id="detectedVersionBadge" class="spec-val" style="background: #0f172a; color: #38bdf8; padding: 2px 8px; border-radius: 5px;">-</span>
               </div>
-              <span id="detectedSemverStatus" class="badge" style="font-size: 11px; font-weight: 700;"></span>
+              <span id="detectedSemverStatus" class="spec-chip"></span>
             </div>
-            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; font-size: 12px; color: #1e293b;">
-              <div><strong>Target File:</strong> <span id="detectedTargetBinary" style="font-family: monospace;">-</span></div>
-              <div><strong>Release Date:</strong> <span id="detectedReleaseDate">-</span></div>
-              <div style="grid-column: 1 / -1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-                <strong>SHA-512 Checksum:</strong> <span id="detectedSha512" style="font-family: monospace; font-size: 11px; color: #475569;">-</span>
+
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 14px;">
+              <div class="spec-item">
+                <span class="spec-label">Target Installer</span>
+                <span id="detectedTargetBinary" class="spec-val">-</span>
+              </div>
+              <div class="spec-item">
+                <span class="spec-label">Release Timestamp</span>
+                <span id="detectedReleaseDate" class="spec-val">-</span>
+              </div>
+              <div class="spec-item" style="grid-column: 1 / -1;">
+                <span class="spec-label">SHA-512 Fingerprint</span>
+                <span id="detectedSha512" class="spec-val" style="font-size: 11px; word-break: break-all; color: #64748b;">-</span>
               </div>
             </div>
-            <div style="border-top: 1px solid #dcfce7; margin-top: 10px; padding-top: 8px; display: flex; flex-wrap: wrap; gap: 18px; font-size: 12px;">
-              <div><span>📦 EXE File:</span> <strong id="chkExeStatus">⏳ Awaiting selection</strong></div>
-              <div><span>🧩 Blockmap:</span> <strong id="chkBlockmapStatus">⏳ Awaiting selection</strong></div>
+
+            <div class="spec-chips">
+              <div class="spec-chip ready">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>
+                <span>latest.yml Parsed</span>
+              </div>
+              <div id="chkExeStatus" class="spec-chip waiting">
+                <span>Awaiting .exe</span>
+              </div>
+              <div id="chkBlockmapStatus" class="spec-chip waiting">
+                <span>Awaiting .blockmap</span>
+              </div>
             </div>
           </div>
 
           <!-- Downgrade / Conflict Warning Box -->
-          <div id="downgradeWarningBox" style="display: none; background: #fffbeb; border: 1px solid #fde68a; border-radius: 8px; padding: 12px 16px; margin-bottom: 16px;">
+          <div id="downgradeWarningBox" style="display: none; background: #fffbeb; border: 1px solid #fde68a; border-radius: 8px; padding: 14px 18px; margin-bottom: 18px;">
             <div style="display: flex; align-items: center; gap: 8px; color: #92400e; font-weight: 700; font-size: 13px;">
-              <span>⚠️</span> <span>Version Conflict / Downgrade Warning</span>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+              <span>Version Notice</span>
             </div>
-            <div id="downgradeWarningText" style="font-size: 12px; color: #78350f; margin-top: 4px; line-height: 1.5;">
+            <div id="downgradeWarningText" style="font-size: 12.5px; color: #78350f; margin-top: 5px; line-height: 1.5;">
               The auto-detected version is older than or identical to the currently active live release.
             </div>
-            <label style="display: inline-flex; align-items: center; gap: 8px; font-size: 12.5px; color: #92400e; margin-top: 8px; cursor: pointer; font-weight: 600;">
+            <label style="display: inline-flex; align-items: center; gap: 8px; font-size: 12.5px; color: #92400e; margin-top: 10px; cursor: pointer; font-weight: 600;">
               <input type="checkbox" id="allowDowngradeCheckbox" onchange="checkUploadReadiness()">
-              Allow re-upload / force override of this version
+              Allow re-upload / overwrite of this version
             </label>
           </div>
 
-          <!-- Release Notes -->
-          <div class="field-group" style="margin-bottom: 16px;">
+          <!-- Optional Notes -->
+          <div class="field-group" style="margin-bottom: 20px;">
             <label class="field-label">Release Notes / Changelog (Optional)</label>
-            <textarea id="newRelNotes" class="text-control" rows="2" placeholder="Key updates, bug fixes, or enhancements in this release..." style="resize: vertical;"></textarea>
+            <textarea id="newRelNotes" class="text-control" rows="2" placeholder="Key updates, bug fixes, or enhancements in this release..." style="resize: vertical; height: auto; padding: 10px 12px;"></textarea>
           </div>
 
-          <!-- Upload Progress Bar -->
-          <div id="uploadProgressWrap" style="display: none; margin: 18px 0; background: #f8fafc; padding: 14px 18px; border-radius: 8px; border: 1px solid var(--border);">
+          <!-- Upload Progress -->
+          <div id="uploadProgressWrap" style="display: none; margin: 20px 0; background: #f8fafc; padding: 16px 20px; border-radius: 10px; border: 1px solid var(--border);">
             <div style="display: flex; justify-content: space-between; font-size: 12.5px; margin-bottom: 8px;">
               <span id="uploadStatusText" style="font-weight: 700; color: #0284c7;">Uploading deployment files...</span>
-              <span id="uploadPercentText" style="font-weight: 800; color: #0f172a;">0%</span>
+              <span id="uploadPercentText" style="font-weight: 800; color: #0f172a; font-family: ui-monospace, monospace;">0%</span>
             </div>
-            <div style="width: 100%; height: 9px; background: #e2e8f0; border-radius: 5px; overflow: hidden;">
-              <div id="uploadProgressBar" style="width: 0%; height: 100%; background: linear-gradient(90deg, #0284c7 0%, #10b981 100%); transition: width 0.2s ease;"></div>
+            <div style="width: 100%; height: 8px; background: #e2e8f0; border-radius: 4px; overflow: hidden;">
+              <div id="uploadProgressBar" style="width: 0%; height: 100%; background: #0284c7; transition: width 0.2s ease;"></div>
             </div>
           </div>
 
-          <div style="display: flex; gap: 12px; align-items: center; margin-top: 14px;">
-            <button type="submit" class="btn-action btn-approve" id="btnUploadRelease" disabled style="height: 42px; padding: 0 24px; font-size: 13.5px;">
-              🚀 Upload &amp; Publish Release Package
+          <!-- Action Buttons -->
+          <div style="display: flex; gap: 12px; align-items: center; margin-top: 16px; flex-wrap: wrap;">
+            <button type="submit" class="btn-publish-main" id="btnUploadRelease" disabled>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+              <span>Publish Release Package</span>
             </button>
-            <button type="button" class="btn-action btn-secondary" onclick="resetUploadForm()" style="height: 42px; padding: 0 16px; font-size: 13px;">
-              Reset
+            <button type="button" class="btn-action btn-secondary" onclick="resetUploadForm()" style="height: 42px; padding: 0 18px; font-size: 13px;">
+              Reset Form
             </button>
             <span id="uploadFeedback" style="font-size: 13px; font-weight: 600;"></span>
           </div>
@@ -597,27 +975,28 @@
 
       <!-- Downloadable Releases Files Table -->
       <div class="table-card">
-        <div style="padding: 20px 24px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+        <div style="padding: 18px 24px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; background: #ffffff;">
           <div>
-            <h3 style="font-size: 16px; font-weight: 700; color: #0f172a; margin: 0;">Uploaded App Releases &amp; Deployment Packages</h3>
-            <p style="font-size: 12.5px; color: var(--muted); margin-top: 3px;">
+            <h3 style="font-size: 15px; font-weight: 700; color: #0f172a; margin: 0;">Deployment Repository</h3>
+            <p style="font-size: 12px; color: var(--muted); margin-top: 3px;">
               Serving <code>.exe</code>, <code>.blockmap</code>, and <code>latest.yml</code> with HTTP Range Request (RFC 7233) support for differential updates.
             </p>
           </div>
-          <button type="button" class="btn-action btn-secondary" onclick="loadReleases()" style="padding: 6px 14px; font-size: 12.5px;">
-            🔄 Refresh List
+          <button type="button" class="btn-action btn-secondary" onclick="loadReleases()" style="display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; font-size: 12px;">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+            <span>Refresh List</span>
           </button>
         </div>
 
         <table class="data-table">
           <thead>
             <tr>
-              <th style="min-width: 110px;">Version</th>
-              <th>Windows Setup (.exe)</th>
-              <th>Differential Blockmap</th>
-              <th>Manifest (latest.yml)</th>
-              <th>Published Date</th>
-              <th style="text-align: right; min-width: 170px;">Actions</th>
+              <th style="min-width: 110px;">VERSION</th>
+              <th>WINDOWS SETUP (.EXE)</th>
+              <th>DIFFERENTIAL BLOCKMAP</th>
+              <th>MANIFEST</th>
+              <th>PUBLISHED DATE</th>
+              <th style="text-align: right; min-width: 170px;">ACTIONS</th>
             </tr>
           </thead>
           <tbody id="releasesTableBody">
@@ -1560,15 +1939,70 @@
       return 0;
     }
 
+    // Drag and drop helpers
+    function handleDragOver(e, el) {
+      e.preventDefault();
+      e.stopPropagation();
+      el.classList.add('drag-over');
+    }
+
+    function handleDragLeave(e, el) {
+      e.preventDefault();
+      e.stopPropagation();
+      el.classList.remove('drag-over');
+    }
+
+    function handleDropFile(e, preferredType) {
+      e.preventDefault();
+      e.stopPropagation();
+      const slotEl = e.currentTarget;
+      if (slotEl) slotEl.classList.remove('drag-over');
+
+      const files = e.dataTransfer?.files;
+      if (!files || files.length === 0) return;
+
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        const name = file.name.toLowerCase();
+        if (name.endsWith('.yml') || name.endsWith('.yaml')) {
+          assignFileToInput('newRelManifest', file);
+          handleManifestFileSelect(document.getElementById('newRelManifest'));
+        } else if (name.endsWith('.blockmap')) {
+          assignFileToInput('newRelBlockmap', file);
+          handleBlockmapFileSelect(document.getElementById('newRelBlockmap'));
+        } else if (name.endsWith('.exe')) {
+          assignFileToInput('newRelExe', file);
+          handleExeFileSelect(document.getElementById('newRelExe'));
+        }
+      }
+    }
+
+    function assignFileToInput(inputId, file) {
+      const input = document.getElementById(inputId);
+      if (!input) return;
+      try {
+        const dt = new DataTransfer();
+        dt.items.add(file);
+        input.files = dt.files;
+      } catch (_) {}
+    }
+
     // 1. Auto-Parse latest.yml Manifest (No manual version typing)
     function handleManifestFileSelect(input) {
       const file = input.files[0];
-      const infoEl = document.getElementById('manifestFileInfo');
+      const slot = document.getElementById('slotManifest');
       if (!file) {
         parsedManifestData = null;
+        if (slot) slot.classList.remove('has-file');
         document.getElementById('manifestSummaryBox').style.display = 'none';
         checkUploadReadiness();
         return;
+      }
+
+      if (slot) {
+        slot.classList.add('has-file');
+        document.getElementById('loadedNameManifest').textContent = file.name;
+        document.getElementById('loadedSizeManifest').textContent = (file.size / 1024).toFixed(1) + ' KB';
       }
 
       const reader = new FileReader();
@@ -1582,6 +2016,7 @@
         if (!verMatch) {
           alert('Could not parse "version" from latest.yml. Please make sure this is an authentic electron-builder manifest.');
           input.value = '';
+          if (slot) slot.classList.remove('has-file');
           parsedManifestData = null;
           document.getElementById('manifestSummaryBox').style.display = 'none';
           checkUploadReadiness();
@@ -1608,10 +2043,6 @@
         document.getElementById('detectedReleaseDate').textContent = new Date(releaseDate).toLocaleString();
         document.getElementById('manifestSummaryBox').style.display = 'block';
 
-        if (infoEl) {
-          infoEl.innerHTML = `<span style="color:#15803d; font-weight:600;">✓ Auto-Detected v${escapeHtml(version)} &bull; ${escapeHtml(targetFile)}</span>`;
-        }
-
         checkUploadReadiness();
       };
       reader.readAsText(file);
@@ -1620,15 +2051,16 @@
     // 2. Setup Installer (.exe) Select Handler
     function handleExeFileSelect(input) {
       const file = input.files[0];
-      const infoEl = document.getElementById('exeFileInfo');
+      const slot = document.getElementById('slotExe');
       if (!file) {
-        if (infoEl) infoEl.textContent = 'Windows setup executable.';
+        if (slot) slot.classList.remove('has-file');
         checkUploadReadiness();
         return;
       }
-      const sizeMb = (file.size / (1024 * 1024)).toFixed(1);
-      if (infoEl) {
-        infoEl.innerHTML = `<span style="color:#15803d; font-weight:600;">✓ Selected: ${escapeHtml(file.name)} (${sizeMb} MB)</span>`;
+      if (slot) {
+        slot.classList.add('has-file');
+        document.getElementById('loadedNameExe').textContent = file.name;
+        document.getElementById('loadedSizeExe').textContent = (file.size / (1024 * 1024)).toFixed(1) + ' MB';
       }
       checkUploadReadiness();
     }
@@ -1636,15 +2068,16 @@
     // 3. Differential Blockmap (.blockmap) Select Handler
     function handleBlockmapFileSelect(input) {
       const file = input.files[0];
-      const infoEl = document.getElementById('blockmapFileInfo');
+      const slot = document.getElementById('slotBlockmap');
       if (!file) {
-        if (infoEl) infoEl.textContent = 'Enables fast 64KB block delta updates.';
+        if (slot) slot.classList.remove('has-file');
         checkUploadReadiness();
         return;
       }
-      const sizeKb = (file.size / 1024).toFixed(1);
-      if (infoEl) {
-        infoEl.innerHTML = `<span style="color:#15803d; font-weight:600;">✓ Selected: ${escapeHtml(file.name)} (${sizeKb} KB)</span>`;
+      if (slot) {
+        slot.classList.add('has-file');
+        document.getElementById('loadedNameBlockmap').textContent = file.name;
+        document.getElementById('loadedSizeBlockmap').textContent = (file.size / 1024).toFixed(1) + ' KB';
       }
       checkUploadReadiness();
     }
@@ -1671,18 +2104,22 @@
       if (chkExe) {
         if (exeFile) {
           const sizeMb = (exeFile.size / (1024 * 1024)).toFixed(1);
-          chkExe.innerHTML = `<span style="color:#15803d; font-weight:700;">✓ Ready: ${escapeHtml(exeFile.name)} (${sizeMb} MB)</span>`;
+          chkExe.className = 'spec-chip ready';
+          chkExe.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg> <span>Installer: ${escapeHtml(exeFile.name)} (${sizeMb} MB)</span>`;
         } else {
-          chkExe.innerHTML = `<span style="color:#b45309;">⏳ Awaiting .exe file selection</span>`;
+          chkExe.className = 'spec-chip waiting';
+          chkExe.innerHTML = `<span>Awaiting .exe installer</span>`;
         }
       }
 
       if (chkBlockmap) {
         if (blockmapFile) {
           const sizeKb = (blockmapFile.size / 1024).toFixed(1);
-          chkBlockmap.innerHTML = `<span style="color:#15803d; font-weight:700;">✓ Ready: ${escapeHtml(blockmapFile.name)} (${sizeKb} KB)</span>`;
+          chkBlockmap.className = 'spec-chip ready';
+          chkBlockmap.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg> <span>Blockmap: ${sizeKb} KB</span>`;
         } else {
-          chkBlockmap.innerHTML = `<span style="color:#b45309;">⏳ Awaiting .blockmap file selection</span>`;
+          chkBlockmap.className = 'spec-chip waiting';
+          chkBlockmap.innerHTML = `<span>Awaiting .blockmap</span>`;
         }
       }
 
@@ -1697,17 +2134,15 @@
 
       if (cmp > 0) {
         if (semverStatus) {
-          semverStatus.textContent = `Newer Upgrade (v${currentActiveReleaseVersion} → v${version})`;
-          semverStatus.style.background = '#dcfce7';
-          semverStatus.style.color = '#15803d';
+          semverStatus.className = 'spec-chip ready';
+          semverStatus.innerHTML = `<span>Upgrade: v${currentActiveReleaseVersion} &rarr; v${version}</span>`;
         }
         if (downgradeWarningBox) downgradeWarningBox.style.display = 'none';
       } else {
         const relation = cmp === 0 ? 'IDENTICAL to' : 'OLDER than';
         if (semverStatus) {
-          semverStatus.textContent = `${relation} active (v${currentActiveReleaseVersion})`;
-          semverStatus.style.background = '#fef3c7';
-          semverStatus.style.color = '#92400e';
+          semverStatus.className = 'spec-chip waiting';
+          semverStatus.innerHTML = `<span>${relation} active (v${currentActiveReleaseVersion})</span>`;
         }
         if (downgradeWarningBox) {
           downgradeWarningBox.style.display = 'block';
@@ -1728,12 +2163,9 @@
       document.getElementById('manifestSummaryBox').style.display = 'none';
       document.getElementById('uploadProgressWrap').style.display = 'none';
       document.getElementById('uploadFeedback').textContent = '';
-      const mInfo = document.getElementById('manifestFileInfo');
-      if (mInfo) mInfo.textContent = 'Select latest.yml to auto-extract version & hash checksums.';
-      const eInfo = document.getElementById('exeFileInfo');
-      if (eInfo) eInfo.textContent = 'Windows setup executable (e.g. ZynBill Setup 1.1.2.exe).';
-      const bInfo = document.getElementById('blockmapFileInfo');
-      if (bInfo) bInfo.textContent = 'Differential map (e.g. .exe.blockmap) for fast 64KB block downloads.';
+      document.getElementById('slotManifest')?.classList.remove('has-file');
+      document.getElementById('slotExe')?.classList.remove('has-file');
+      document.getElementById('slotBlockmap')?.classList.remove('has-file');
       checkUploadReadiness();
     }
 
@@ -1825,14 +2257,14 @@
 
         progressBar.style.width = '100%';
         percentText.textContent = '100%';
-        statusText.textContent = '✓ All 3 deployment files uploaded and published!';
+        statusText.textContent = 'All 3 deployment files uploaded and published!';
         feedback.style.color = '#15803d';
-        feedback.textContent = `✓ Release v${version} published successfully!`;
+        feedback.textContent = `Version ${version} published successfully!`;
 
         resetUploadForm();
         loadReleases();
       } catch (err) {
-        statusText.textContent = '❌ Upload failed';
+        statusText.textContent = 'Upload failed';
         feedback.style.color = '#b91c1c';
         feedback.textContent = 'Error: ' + err.message;
       } finally {
@@ -1863,49 +2295,63 @@
         const versions = data.versions || [];
 
         if (versions.length === 0) {
-          tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: var(--muted); padding: 32px;">No releases uploaded yet. Upload a 3-file package above.</td></tr>';
+          tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: var(--muted); padding: 36px;">No releases uploaded yet. Upload a 3-file package above.</td></tr>';
           return;
         }
 
         tbody.innerHTML = versions.map(v => {
           const isActive = v.isActive;
           const exeInfo = v.exe ? `
-            <div style="font-size:12.5px; font-weight:600; color:#0f172a;">${escapeHtml(v.exe.name)}</div>
-            <div style="font-size:11.5px; color:var(--muted);">${escapeHtml(v.exe.sizeMb)} &bull; <a href="${escapeHtml(v.exe.downloadUrl)}" style="color:var(--accent); text-decoration:none;">⬇ Direct Download</a></div>
-          ` : `<span class="badge" style="background:#fee2e2; color:#991b1b;">❌ Missing .exe</span>`;
+            <div style="font-weight: 600; color: #0f172a; font-family: ui-monospace, monospace; font-size: 12px;">${escapeHtml(v.exe.name)}</div>
+            <div style="font-size: 11.5px; color: #64748b; margin-top: 3px; display: flex; align-items: center; gap: 8px;">
+              <span>${escapeHtml(v.exe.sizeMb)}</span>
+              &bull;
+              <a href="${escapeHtml(v.exe.downloadUrl)}" style="color: #0284c7; text-decoration: none; font-weight: 600; display: inline-flex; align-items: center; gap: 3px;">
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                Download
+              </a>
+            </div>
+          ` : `<span class="badge" style="background: #fee2e2; color: #991b1b; font-size: 11px;">Missing .exe</span>`;
 
           const blockmapInfo = v.blockmap ? `
-            <div style="font-size:12px; font-weight:600; color:#334155;">${escapeHtml(v.blockmap.name)}</div>
-            <div style="font-size:11.5px; color:var(--muted);">${escapeHtml(v.blockmap.sizeKb)} &bull; <a href="${escapeHtml(v.blockmap.downloadUrl)}" style="color:var(--accent); text-decoration:none;">⬇ Blockmap</a></div>
-          ` : `<span class="badge" style="background:#fef3c7; color:#92400e;">⚠️ Missing .blockmap</span>`;
+            <div style="font-weight: 600; color: #334155; font-family: ui-monospace, monospace; font-size: 12px;">${escapeHtml(v.blockmap.name)}</div>
+            <div style="font-size: 11.5px; color: #64748b; margin-top: 3px; display: flex; align-items: center; gap: 8px;">
+              <span>${escapeHtml(v.blockmap.sizeKb)}</span>
+              &bull;
+              <a href="${escapeHtml(v.blockmap.downloadUrl)}" style="color: #0284c7; text-decoration: none; font-weight: 600; display: inline-flex; align-items: center; gap: 3px;">
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                Blockmap
+              </a>
+            </div>
+          ` : `<span class="badge" style="background: #fef3c7; color: #92400e; font-size: 11px;">Missing .blockmap</span>`;
 
           const manifestInfo = isActive ?
-            `<span class="badge" style="background:#dcfce7; color:#15803d; font-weight:700;">🟢 Active Live</span>` :
-            (v.hasArchivedManifest ? `<span class="badge" style="background:#f1f5f9; color:#475569;">📄 Archived</span>` : `<span style="color:var(--muted); font-size:12px;">—</span>`);
+            `<span class="badge" style="background: #ecfdf5; color: #047857; border: 1px solid #a7f3d0; font-size: 11px; font-weight: 700;">Active Manifest</span>` :
+            (v.hasArchivedManifest ? `<span class="badge" style="background: #f8fafc; color: #475569; border: 1px solid #e2e8f0; font-size: 11px;">Archived</span>` : `<span style="color: var(--muted); font-size: 12px;">—</span>`);
 
           const dateStr = v.releaseDate || v.updatedAt ? new Date(v.releaseDate || v.updatedAt).toLocaleString() : '—';
 
           const activateBtn = !isActive ? `
-            <button type="button" class="btn-action btn-approve" style="padding:4px 10px; font-size:12px; margin-right:6px;" onclick="activateReleaseVersion('${escapeHtml(v.version)}')">⚡ Set Active</button>
+            <button type="button" class="btn-action btn-secondary" style="padding: 4px 10px; font-size: 11.5px; margin-right: 6px;" onclick="activateReleaseVersion('${escapeHtml(v.version)}')">Set as Active</button>
           ` : '';
 
           const deleteBtn = `
-            <button type="button" class="btn-action btn-danger" style="padding:4px 10px; font-size:12px;" onclick="deleteReleaseVersion('${escapeHtml(v.version)}')">🗑️ Delete</button>
+            <button type="button" class="btn-action btn-reject" style="padding: 4px 10px; font-size: 11.5px;" onclick="deleteReleaseVersion('${escapeHtml(v.version)}')">Delete</button>
           `;
 
           return `
-            <tr style="${isActive ? 'background: #f0fdf4;' : ''}">
+            <tr style="${isActive ? 'background: #f8fafc;' : ''}">
               <td>
-                <div style="display:flex; align-items:center; gap:8px;">
-                  <span class="badge" style="background:${isActive ? '#0284c7' : '#e0f2fe'}; color:${isActive ? '#ffffff' : '#0369a1'}; font-weight:800; font-size:13px;">v${escapeHtml(v.version)}</span>
-                  ${isActive ? '<span class="badge" style="background:#16a34a; color:#fff; font-size:10px; font-weight:700;">ACTIVE LIVE</span>' : ''}
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <span style="background: #0f172a; color: #38bdf8; font-family: ui-monospace, monospace; font-size: 12px; font-weight: 700; padding: 3px 8px; border-radius: 5px;">v${escapeHtml(v.version)}</span>
+                  ${isActive ? '<span class="badge" style="background: #ecfdf5; color: #047857; font-size: 10px; font-weight: 700; border: 1px solid #a7f3d0;"><span style="display:inline-block; width:6px; height:6px; border-radius:50%; background:#10b981; margin-right:4px;"></span>ACTIVE LIVE</span>' : ''}
                 </div>
               </td>
               <td>${exeInfo}</td>
               <td>${blockmapInfo}</td>
               <td>${manifestInfo}</td>
-              <td style="font-size:12px; color:#475569;">${escapeHtml(dateStr)}</td>
-              <td style="text-align: right; white-space:nowrap;">
+              <td style="font-size: 12px; color: #64748b;">${escapeHtml(dateStr)}</td>
+              <td style="text-align: right; white-space: nowrap;">
                 ${activateBtn}
                 ${deleteBtn}
               </td>
