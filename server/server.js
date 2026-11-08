@@ -148,6 +148,36 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
+  // ── App Update Check Endpoint ──────────────────────────────────────
+  if (req.method === 'GET' && (pathname === '/api/v1/updates/check' || pathname === '/api/v1/app/version')) {
+    const downloadsDir = path.join(__dirname, 'public', 'downloads');
+    let latestVersion = '1.1.1';
+    let fileName = 'ZynBill Setup 1.1.1.exe';
+
+    if (fs.existsSync(downloadsDir)) {
+      const files = fs.readdirSync(downloadsDir)
+        .filter(f => f.endsWith('.exe'))
+        .map(f => {
+          const match = f.match(/(\d+\.\d+\.\d+)/);
+          return { name: f, version: match ? match[1] : '1.1.1', time: fs.statSync(path.join(downloadsDir, f)).mtimeMs };
+        })
+        .sort((a, b) => b.time - a.time);
+      if (files.length > 0) {
+        latestVersion = files[0].version;
+        fileName = files[0].name;
+      }
+    }
+
+    return sendJson(res, 200, {
+      ok: true,
+      latestVersion,
+      fileName,
+      downloadUrl: '/api/v1/download/app',
+      releaseNotes: 'Includes Item Creation fixes, Payment deletion with required audit reasoning, Automatic Cloud Sync, and Hostinger SSL Mail connectivity.',
+      publishedAt: new Date().toISOString()
+    });
+  }
+
   // ── Health Check ──────────────────────────────────────────────────
   if (req.method === 'GET' && pathname === '/api/v1/system/health') {
     const customerCount = masterDb.prepare('SELECT COUNT(*) as count FROM customers').get().count;

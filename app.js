@@ -15764,23 +15764,97 @@ function bindFeatureActions() {
       const btnText = elements.featureView.querySelector("#updateBtnText");
       const feedback = elements.featureView.querySelector("#updateCheckFeedback");
       const subtitle = elements.featureView.querySelector("#updateStatusSubtitle");
+      const heading = elements.featureView.querySelector("#updateStatusHeading");
 
       checkUpdatesBtn.disabled = true;
       if (spinner) spinner.style.display = "inline-block";
       if (btnText) btnText.textContent = "Checking...";
       if (feedback) feedback.style.display = "none";
 
-      await new Promise((r) => setTimeout(r, 700));
+      try {
+        const currentVersion = (window.giDB?.getVersion ? await window.giDB.getVersion() : null) || "1.1.1";
+        const cloudSettings = (typeof CloudLicenseManager !== "undefined") ? CloudLicenseManager.getSettings() : {};
+        const serverUrl = cloudSettings.serverUrl || "http://localhost:4000";
 
-      checkUpdatesBtn.disabled = false;
-      if (spinner) spinner.style.display = "none";
-      if (btnText) btnText.textContent = "Check for Updates";
-      const nowStr = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
-      if (subtitle) subtitle.textContent = `Last checked: Today at ${nowStr} (Production build)`;
-      if (feedback) {
-        feedback.style.display = "block";
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 6000);
+        const res = await fetch(`${serverUrl}/api/v1/updates/check`, { signal: controller.signal }).catch(() => null);
+        clearTimeout(timeoutId);
+
+        const nowStr = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+        if (subtitle) subtitle.textContent = `Last checked: Today at ${nowStr}`;
+
+        if (!res || !res.ok) {
+          if (feedback) {
+            feedback.style.display = "block";
+            feedback.style.background = "#fffbeb";
+            feedback.style.borderColor = "#fde68a";
+            feedback.style.color = "#92400e";
+            feedback.innerHTML = `⚠️ Unable to reach cloud update server (${escapeHtml(serverUrl)}). Currently running <strong>v${escapeHtml(currentVersion)}</strong>.`;
+          }
+          showToast(`Running ZynBill v${currentVersion}`);
+          return;
+        }
+
+        const data = await res.json();
+        const latestVersion = data.latestVersion || currentVersion;
+
+        // Compare semver
+        const pLatest = latestVersion.split('.').map(n => parseInt(n, 10) || 0);
+        const pCurrent = currentVersion.split('.').map(n => parseInt(n, 10) || 0);
+        let isNewer = false;
+        for (let i = 0; i < Math.max(pLatest.length, pCurrent.length); i++) {
+          const l = pLatest[i] || 0;
+          const c = pCurrent[i] || 0;
+          if (l > c) { isNewer = true; break; }
+          if (l < c) { break; }
+        }
+
+        if (isNewer) {
+          if (heading) heading.textContent = `🚀 Update Available: ZynBill v${latestVersion}`;
+          if (feedback) {
+            feedback.style.display = "block";
+            feedback.style.background = "#eff6ff";
+            feedback.style.borderColor = "#bfdbfe";
+            feedback.style.color = "#1e40af";
+            feedback.innerHTML = `
+              <div style="font-weight:700;margin-bottom:6px;font-size:13.5px;">A new version of ZynBill is available! (v${escapeHtml(latestVersion)})</div>
+              <div style="font-size:12px;color:#3b82f6;margin-bottom:12px;">${escapeHtml(data.releaseNotes || 'New features and improvements')}</div>
+              <button type="button" class="primary-button" id="btnDownloadUpdateNow" style="background:#0284c7;color:#fff;padding:6px 16px;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;border:none;">
+                ⬇ Download &amp; Install (v${escapeHtml(latestVersion)})
+              </button>
+            `;
+            feedback.querySelector("#btnDownloadUpdateNow")?.addEventListener("click", () => {
+              const downloadUrl = `${serverUrl}${data.downloadUrl || '/api/v1/download/app'}`;
+              if (window.giDB?.openExternal) {
+                window.giDB.openExternal(downloadUrl);
+              } else {
+                window.open(downloadUrl, "_blank");
+              }
+            });
+          }
+          showToast(`New update available: v${latestVersion}!`);
+        } else {
+          if (heading) heading.textContent = `ZynBill v${currentVersion} is up to date`;
+          if (feedback) {
+            feedback.style.display = "block";
+            feedback.style.background = "#f0fdf4";
+            feedback.style.borderColor = "#bbf7d0";
+            feedback.style.color = "#166534";
+            feedback.innerHTML = `✓ You are running the latest version of ZynBill (v${escapeHtml(currentVersion)}). No updates required.`;
+          }
+          showToast(`ZynBill is up to date (v${currentVersion})`);
+        }
+      } catch (err) {
+        if (feedback) {
+          feedback.style.display = "block";
+          feedback.textContent = "Error checking for updates: " + err.message;
+        }
+      } finally {
+        checkUpdatesBtn.disabled = false;
+        if (spinner) spinner.style.display = "none";
+        if (btnText) btnText.textContent = "Check for Updates";
       }
-      showToast("ZynBill is up to date (v1.1.0)");
     });
   }
 
@@ -31887,7 +31961,7 @@ function settingsAboutTemplate() {
               🔄
             </div>
             <div>
-              <div id="updateStatusHeading" style="font-size:14px;font-weight:700;color:#0f172a;">ZynBill v1.1.0 is currently up to date</div>
+              <div id="updateStatusHeading" style="font-size:14px;font-weight:700;color:#0f172a;">ZynBill v1.1.1 is currently up to date</div>
               <div id="updateStatusSubtitle" style="font-size:12px;color:#64748b;margin-top:2px;">Last checked: Just now (Production build)</div>
             </div>
           </div>
@@ -31898,7 +31972,7 @@ function settingsAboutTemplate() {
         </div>
 
         <div id="updateCheckFeedback" style="display:none;margin-top:12px;padding:12px 16px;border-radius:8px;font-size:13px;background:#f0fdf4;border:1px solid #bbf7d0;color:#166534;">
-          ✓ You are running the latest version of ZynBill (v1.1.0). No updates are required.
+          ✓ You are running the latest version of ZynBill (v1.1.1). No updates are required.
         </div>
       </section>
     </div>
