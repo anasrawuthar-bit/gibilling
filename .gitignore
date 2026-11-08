@@ -12,3 +12,4 @@ scratch/
 server/.env
 .DS_Store
 server/public/downloads/*.exe
+server/public/downloads/*.blockmap

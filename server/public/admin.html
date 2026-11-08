@@ -474,97 +474,135 @@
 
     <!-- ── TAB 4: APP RELEASES & UPDATES ───────────────────────── -->
     <div id="viewReleases" class="hidden">
-      <!-- Active Live Release Banner -->
-      <div class="table-card" style="padding: 24px 28px; margin-bottom: 24px; border-left: 4px solid var(--accent); background: linear-gradient(180deg, #ffffff 0%, #f0f9ff 100%);">
-        <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 16px;">
-          <div>
-            <div style="display: flex; align-items: center; gap: 10px;">
-              <span class="badge" style="background: #0284c7; color: #ffffff; font-weight: 700; font-size: 11px;">ACTIVE LIVE RELEASE</span>
-              <h3 style="font-size: 20px; font-weight: 800; color: #0f172a;" id="activeRelHeading">v1.1.1</h3>
-            </div>
-            <div style="font-size: 13px; color: var(--muted); margin-top: 6px;">
-              File: <strong id="activeRelFileName" style="color: #0f172a;">ZynBill Setup 1.1.1.exe</strong> &bull; Published: <span id="activeRelDate">-</span>
-            </div>
-            <div style="font-size: 13px; color: #334155; margin-top: 8px; max-width: 650px;" id="activeRelNotes">
-              Loading release details...
-            </div>
-          </div>
-          <div style="display: flex; gap: 10px;">
-            <a href="/download" class="btn-action btn-approve" style="text-decoration: none; display: inline-flex; align-items: center; gap: 6px; height: 38px;">
-              <span>⬇</span> Download Installer (.exe)
-            </a>
-          </div>
-        </div>
-      </div>
 
-      <!-- Upload New Release Form Card -->
-      <div class="table-card" style="padding: 28px; max-width: 780px; margin-bottom: 24px;">
+      <!-- Upload New Release Form Card (3-File Electron Release Package) -->
+      <div class="table-card" style="padding: 28px; max-width: 920px; margin-bottom: 24px;">
         <div style="margin-bottom: 20px;">
-          <h3 style="font-size: 18px; font-weight: 700; color: #0f172a;">Upload &amp; Publish New Windows Installer</h3>
-          <p style="font-size: 13px; color: var(--muted); margin-top: 4px;">
-            Upload a newly built <code>.exe</code> installer directly from your browser. Once uploaded, desktop clients checking for updates and website visitors will automatically receive this version.
+          <div style="display: flex; align-items: center; gap: 10px;">
+            <span style="font-size: 22px;">📦</span>
+            <h3 style="font-size: 18px; font-weight: 700; color: #0f172a; margin: 0;">Upload &amp; Publish Electron Release Package</h3>
+          </div>
+          <p style="font-size: 13px; color: var(--muted); margin-top: 6px; line-height: 1.5;">
+            Deploy an update adhering strictly to official Electron auto-updater standards. Select the 3 deployment artifacts produced by <code>electron-builder</code>: 
+            <strong><code>latest.yml</code></strong> (manifest), <strong><code>.exe</code></strong> (setup installer), and <strong><code>.blockmap</code></strong> (differential update map).
+            <span style="color: #0369a1; font-weight: 600;">The release version is automatically detected and parsed from <code>latest.yml</code>—no manual typing required.</span>
           </p>
         </div>
 
-        <form id="uploadReleaseForm" onsubmit="handleUploadRelease(event)">
-          <div style="display: grid; grid-template-columns: 1fr 2fr; gap: 16px;">
-            <div class="field-group">
-              <label class="field-label">New Version Number</label>
-              <input type="text" id="newRelVersion" class="text-control" placeholder="e.g. 1.1.2" required oninput="validateVersionInput()">
-              <div id="versionValidationMsg" style="font-size: 12px; margin-top: 6px; min-height: 18px;"></div>
+        <form id="uploadReleaseForm" onsubmit="handleUploadPackage(event)">
+          <!-- 3 File Selection Cards -->
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 16px; margin-bottom: 18px;">
+            <!-- Slot 1: latest.yml -->
+            <div style="background: #f8fafc; border: 1px solid var(--border); border-radius: 8px; padding: 14px 16px;">
+              <div style="font-weight: 700; font-size: 13px; color: #0f172a; display: flex; align-items: center; gap: 6px; margin-bottom: 6px;">
+                <span>📄</span> <span>1. Release Manifest</span>
+                <span class="badge" style="background: #e0f2fe; color: #0284c7; font-size: 10px;">REQUIRED</span>
+              </div>
+              <input type="file" id="newRelManifest" class="text-control" accept=".yml,.yaml" required style="padding: 6px 10px; font-size: 12px; background: #fff;" onchange="handleManifestFileSelect(this)">
+              <div id="manifestFileInfo" style="font-size: 11.5px; color: var(--muted); margin-top: 6px; line-height: 1.4;">
+                Select <code>latest.yml</code> to auto-extract version &amp; hash checksums.
+              </div>
             </div>
-            <div class="field-group">
-              <label class="field-label">Target Installer File (.exe)</label>
-              <input type="file" id="newRelFile" class="text-control" accept=".exe" required style="padding: 7px 12px;" onchange="handleReleaseFileSelect(this)">
-              <div id="fileDetectedMsg" style="font-size: 12px; margin-top: 6px; color: var(--muted); min-height: 18px;"></div>
+
+            <!-- Slot 2: .exe Installer -->
+            <div style="background: #f8fafc; border: 1px solid var(--border); border-radius: 8px; padding: 14px 16px;">
+              <div style="font-weight: 700; font-size: 13px; color: #0f172a; display: flex; align-items: center; gap: 6px; margin-bottom: 6px;">
+                <span>📦</span> <span>2. Setup Installer (.exe)</span>
+                <span class="badge" style="background: #e0f2fe; color: #0284c7; font-size: 10px;">REQUIRED</span>
+              </div>
+              <input type="file" id="newRelExe" class="text-control" accept=".exe" required style="padding: 6px 10px; font-size: 12px; background: #fff;" onchange="handleExeFileSelect(this)">
+              <div id="exeFileInfo" style="font-size: 11.5px; color: var(--muted); margin-top: 6px; line-height: 1.4;">
+                Windows setup binary (e.g. <code>ZynBill Setup 1.1.2.exe</code>).
+              </div>
+            </div>
+
+            <!-- Slot 3: .blockmap -->
+            <div style="background: #f8fafc; border: 1px solid var(--border); border-radius: 8px; padding: 14px 16px;">
+              <div style="font-weight: 700; font-size: 13px; color: #0f172a; display: flex; align-items: center; gap: 6px; margin-bottom: 6px;">
+                <span>🧩</span> <span>3. Differential Blockmap</span>
+                <span class="badge" style="background: #e0f2fe; color: #0284c7; font-size: 10px;">REQUIRED</span>
+              </div>
+              <input type="file" id="newRelBlockmap" class="text-control" accept=".blockmap" required style="padding: 6px 10px; font-size: 12px; background: #fff;" onchange="handleBlockmapFileSelect(this)">
+              <div id="blockmapFileInfo" style="font-size: 11.5px; color: var(--muted); margin-top: 6px; line-height: 1.4;">
+                Differential map (e.g. <code>.exe.blockmap</code>) for fast 64KB block downloads.
+              </div>
+            </div>
+          </div>
+
+          <!-- Auto-Detected Manifest Summary Box -->
+          <div id="manifestSummaryBox" style="display: none; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 14px 18px; margin-bottom: 18px;">
+            <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-bottom: 8px;">
+              <div style="display: flex; align-items: center; gap: 10px;">
+                <span style="font-size: 16px;">✓</span>
+                <span style="font-size: 13px; font-weight: 700; color: #166534;">Auto-Detected Release Details from <code>latest.yml</code>:</span>
+                <span id="detectedVersionBadge" class="badge" style="background: #0284c7; color: #ffffff; font-weight: 800; font-size: 13px;">-</span>
+              </div>
+              <span id="detectedSemverStatus" class="badge" style="font-size: 11px; font-weight: 700;"></span>
+            </div>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; font-size: 12px; color: #1e293b;">
+              <div><strong>Target File:</strong> <span id="detectedTargetBinary" style="font-family: monospace;">-</span></div>
+              <div><strong>Release Date:</strong> <span id="detectedReleaseDate">-</span></div>
+              <div style="grid-column: 1 / -1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                <strong>SHA-512 Checksum:</strong> <span id="detectedSha512" style="font-family: monospace; font-size: 11px; color: #475569;">-</span>
+              </div>
+            </div>
+            <div style="border-top: 1px solid #dcfce7; margin-top: 10px; padding-top: 8px; display: flex; flex-wrap: wrap; gap: 18px; font-size: 12px;">
+              <div><span>📦 EXE File:</span> <strong id="chkExeStatus">⏳ Awaiting selection</strong></div>
+              <div><span>🧩 Blockmap:</span> <strong id="chkBlockmapStatus">⏳ Awaiting selection</strong></div>
             </div>
           </div>
 
           <!-- Downgrade / Conflict Warning Box -->
           <div id="downgradeWarningBox" style="display: none; background: #fffbeb; border: 1px solid #fde68a; border-radius: 8px; padding: 12px 16px; margin-bottom: 16px;">
             <div style="display: flex; align-items: center; gap: 8px; color: #92400e; font-weight: 700; font-size: 13px;">
-              <span>⚠️</span> <span>Version Conflict / Downgrade Detected</span>
+              <span>⚠️</span> <span>Version Conflict / Downgrade Warning</span>
             </div>
             <div id="downgradeWarningText" style="font-size: 12px; color: #78350f; margin-top: 4px; line-height: 1.5;">
-              The entered version is older than or identical to the currently active release.
+              The auto-detected version is older than or identical to the currently active live release.
             </div>
             <label style="display: inline-flex; align-items: center; gap: 8px; font-size: 12.5px; color: #92400e; margin-top: 8px; cursor: pointer; font-weight: 600;">
-              <input type="checkbox" id="allowDowngradeCheckbox" onchange="validateVersionInput()">
+              <input type="checkbox" id="allowDowngradeCheckbox" onchange="checkUploadReadiness()">
               Allow re-upload / force override of this version
             </label>
           </div>
 
-          <div class="field-group">
-            <label class="field-label">Release Notes / Changelog</label>
-            <textarea id="newRelNotes" class="text-control" rows="3" placeholder="Key updates, bug fixes, or enhancements in this version..." style="resize: vertical;"></textarea>
+          <!-- Release Notes -->
+          <div class="field-group" style="margin-bottom: 16px;">
+            <label class="field-label">Release Notes / Changelog (Optional)</label>
+            <textarea id="newRelNotes" class="text-control" rows="2" placeholder="Key updates, bug fixes, or enhancements in this release..." style="resize: vertical;"></textarea>
           </div>
 
           <!-- Upload Progress Bar -->
-          <div id="uploadProgressWrap" style="display: none; margin: 18px 0;">
-            <div style="display: flex; justify-content: space-between; font-size: 12.5px; margin-bottom: 6px;">
-              <span id="uploadStatusText" style="font-weight: 600; color: #0284c7;">Uploading installer...</span>
-              <span id="uploadPercentText" style="font-weight: 700; color: #0f172a;">0%</span>
+          <div id="uploadProgressWrap" style="display: none; margin: 18px 0; background: #f8fafc; padding: 14px 18px; border-radius: 8px; border: 1px solid var(--border);">
+            <div style="display: flex; justify-content: space-between; font-size: 12.5px; margin-bottom: 8px;">
+              <span id="uploadStatusText" style="font-weight: 700; color: #0284c7;">Uploading deployment files...</span>
+              <span id="uploadPercentText" style="font-weight: 800; color: #0f172a;">0%</span>
             </div>
-            <div style="width: 100%; height: 8px; background: #e2e8f0; border-radius: 4px; overflow: hidden;">
-              <div id="uploadProgressBar" style="width: 0%; height: 100%; background: #0284c7; transition: width 0.2s ease;"></div>
+            <div style="width: 100%; height: 9px; background: #e2e8f0; border-radius: 5px; overflow: hidden;">
+              <div id="uploadProgressBar" style="width: 0%; height: 100%; background: linear-gradient(90deg, #0284c7 0%, #10b981 100%); transition: width 0.2s ease;"></div>
             </div>
           </div>
 
-          <div style="display: flex; gap: 12px; align-items: center; margin-top: 20px;">
-            <button type="submit" class="btn-action btn-approve" id="btnUploadRelease" style="height: 42px; padding: 0 24px; font-size: 13.5px;">
-              🚀 Upload &amp; Publish Release
+          <div style="display: flex; gap: 12px; align-items: center; margin-top: 14px;">
+            <button type="submit" class="btn-action btn-approve" id="btnUploadRelease" disabled style="height: 42px; padding: 0 24px; font-size: 13.5px;">
+              🚀 Upload &amp; Publish Release Package
             </button>
-            <span id="uploadFeedback" style="font-size: 13px;"></span>
+            <button type="button" class="btn-action btn-secondary" onclick="resetUploadForm()" style="height: 42px; padding: 0 16px; font-size: 13px;">
+              Reset
+            </button>
+            <span id="uploadFeedback" style="font-size: 13px; font-weight: 600;"></span>
           </div>
         </form>
       </div>
 
       <!-- Downloadable Releases Files Table -->
       <div class="table-card">
-        <div style="padding: 20px 24px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center;">
+        <div style="padding: 20px 24px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
           <div>
-            <h3 style="font-size: 16px; font-weight: 700; color: #0f172a;">Available Installer Packages on Server</h3>
-            <p style="font-size: 12.5px; color: var(--muted); margin-top: 2px;">Stored in <code>server/public/downloads</code></p>
+            <h3 style="font-size: 16px; font-weight: 700; color: #0f172a; margin: 0;">Uploaded App Releases &amp; Deployment Packages</h3>
+            <p style="font-size: 12.5px; color: var(--muted); margin-top: 3px;">
+              Serving <code>.exe</code>, <code>.blockmap</code>, and <code>latest.yml</code> with HTTP Range Request (RFC 7233) support for differential updates.
+            </p>
           </div>
           <button type="button" class="btn-action btn-secondary" onclick="loadReleases()" style="padding: 6px 14px; font-size: 12.5px;">
             🔄 Refresh List
@@ -574,15 +612,16 @@
         <table class="data-table">
           <thead>
             <tr>
-              <th>File Name</th>
-              <th>Version</th>
-              <th>Size</th>
-              <th>Last Modified</th>
-              <th style="text-align: right;">Actions</th>
+              <th style="min-width: 110px;">Version</th>
+              <th>Windows Setup (.exe)</th>
+              <th>Differential Blockmap</th>
+              <th>Manifest (latest.yml)</th>
+              <th>Published Date</th>
+              <th style="text-align: right; min-width: 170px;">Actions</th>
             </tr>
           </thead>
           <tbody id="releasesTableBody">
-            <tr><td colspan="5" style="text-align: center; color: var(--muted); padding: 32px;">Loading release files...</td></tr>
+            <tr><td colspan="6" style="text-align: center; color: var(--muted); padding: 32px;">Loading release files...</td></tr>
           </tbody>
         </table>
       </div>
@@ -1507,6 +1546,7 @@
 
     // ── Releases Management JS ──────────────────────────────────────
     let currentActiveReleaseVersion = '1.1.1';
+    let parsedManifestData = null;
 
     function compareSemver(v1, v2) {
       const p1 = String(v1 || '').split('.').map(n => parseInt(n, 10) || 0);
@@ -1520,73 +1560,287 @@
       return 0;
     }
 
-    function handleReleaseFileSelect(input) {
+    // 1. Auto-Parse latest.yml Manifest (No manual version typing)
+    function handleManifestFileSelect(input) {
       const file = input.files[0];
-      const detectedEl = document.getElementById('fileDetectedMsg');
+      const infoEl = document.getElementById('manifestFileInfo');
       if (!file) {
-        if (detectedEl) detectedEl.textContent = '';
+        parsedManifestData = null;
+        document.getElementById('manifestSummaryBox').style.display = 'none';
+        checkUploadReadiness();
         return;
       }
-      const match = file.name.match(/(\d+\.\d+(\.\d+)?)/);
-      if (match) {
-        const detectedVer = match[1];
-        const verInput = document.getElementById('newRelVersion');
-        if (!verInput.value.trim()) {
-          verInput.value = detectedVer;
+
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const text = e.target.result;
+        const verMatch = text.match(/^\s*version:\s*['"]?([0-9A-Za-z.-]+)['"]?/m);
+        const pathMatch = text.match(/^\s*path:\s*['"]?([^\r\n'"]+)['"]?/m) || text.match(/url:\s*['"]?([^\r\n'"]+)['"]?/m);
+        const shaMatch = text.match(/^\s*sha512:\s*['"]?([^\r\n'"]+)['"]?/m);
+        const dateMatch = text.match(/^\s*releaseDate:\s*['"]?([^\r\n'"]+)['"]?/m);
+
+        if (!verMatch) {
+          alert('Could not parse "version" from latest.yml. Please make sure this is an authentic electron-builder manifest.');
+          input.value = '';
+          parsedManifestData = null;
+          document.getElementById('manifestSummaryBox').style.display = 'none';
+          checkUploadReadiness();
+          return;
         }
-        if (detectedEl) {
-          detectedEl.innerHTML = `📦 Selected: <strong>${escapeHtml(file.name)}</strong> (Detected v${escapeHtml(detectedVer)})`;
+
+        const version = verMatch[1];
+        const targetFile = pathMatch ? pathMatch[1].trim() : `ZynBill Setup ${version}.exe`;
+        const sha512 = shaMatch ? shaMatch[1].trim() : '';
+        const releaseDate = dateMatch ? dateMatch[1].trim() : new Date().toISOString();
+
+        parsedManifestData = {
+          version,
+          targetFile,
+          sha512,
+          releaseDate,
+          fileObj: file
+        };
+
+        // Populate Auto-Detected Display Panel
+        document.getElementById('detectedVersionBadge').textContent = 'v' + version;
+        document.getElementById('detectedTargetBinary').textContent = targetFile;
+        document.getElementById('detectedSha512').textContent = sha512 ? (sha512.substring(0, 36) + '...') : 'Not specified';
+        document.getElementById('detectedReleaseDate').textContent = new Date(releaseDate).toLocaleString();
+        document.getElementById('manifestSummaryBox').style.display = 'block';
+
+        if (infoEl) {
+          infoEl.innerHTML = `<span style="color:#15803d; font-weight:600;">✓ Auto-Detected v${escapeHtml(version)} &bull; ${escapeHtml(targetFile)}</span>`;
         }
-      } else {
-        if (detectedEl) {
-          detectedEl.innerHTML = `📦 Selected: <strong>${escapeHtml(file.name)}</strong>`;
-        }
-      }
-      validateVersionInput();
+
+        checkUploadReadiness();
+      };
+      reader.readAsText(file);
     }
 
-    function validateVersionInput() {
-      const verInput = document.getElementById('newRelVersion');
-      const version = verInput ? verInput.value.trim() : '';
-      const msgEl = document.getElementById('versionValidationMsg');
-      const warningBox = document.getElementById('downgradeWarningBox');
-      const warningText = document.getElementById('downgradeWarningText');
-      const allowDowngrade = document.getElementById('allowDowngradeCheckbox')?.checked || false;
-      const uploadBtn = document.getElementById('btnUploadRelease');
-
-      if (!msgEl || !warningBox || !uploadBtn) return;
-
-      if (!version) {
-        msgEl.innerHTML = '';
-        warningBox.style.display = 'none';
-        uploadBtn.disabled = false;
+    // 2. Setup Installer (.exe) Select Handler
+    function handleExeFileSelect(input) {
+      const file = input.files[0];
+      const infoEl = document.getElementById('exeFileInfo');
+      if (!file) {
+        if (infoEl) infoEl.textContent = 'Windows setup executable.';
+        checkUploadReadiness();
         return;
       }
+      const sizeMb = (file.size / (1024 * 1024)).toFixed(1);
+      if (infoEl) {
+        infoEl.innerHTML = `<span style="color:#15803d; font-weight:600;">✓ Selected: ${escapeHtml(file.name)} (${sizeMb} MB)</span>`;
+      }
+      checkUploadReadiness();
+    }
 
-      const isValidFormat = /^\d+(\.\d+){1,3}$/.test(version);
-      if (!isValidFormat) {
-        msgEl.innerHTML = '<span style="color:#b91c1c; font-weight:600;">⚠️ Invalid format. Must be Semantic Versioning (e.g. 1.1.2)</span>';
-        warningBox.style.display = 'none';
+    // 3. Differential Blockmap (.blockmap) Select Handler
+    function handleBlockmapFileSelect(input) {
+      const file = input.files[0];
+      const infoEl = document.getElementById('blockmapFileInfo');
+      if (!file) {
+        if (infoEl) infoEl.textContent = 'Enables fast 64KB block delta updates.';
+        checkUploadReadiness();
+        return;
+      }
+      const sizeKb = (file.size / 1024).toFixed(1);
+      if (infoEl) {
+        infoEl.innerHTML = `<span style="color:#15803d; font-weight:600;">✓ Selected: ${escapeHtml(file.name)} (${sizeKb} KB)</span>`;
+      }
+      checkUploadReadiness();
+    }
+
+    // Check All 3 Artifacts for Deployment Readiness
+    function checkUploadReadiness() {
+      const uploadBtn = document.getElementById('btnUploadRelease');
+      const exeInput = document.getElementById('newRelExe');
+      const blockmapInput = document.getElementById('newRelBlockmap');
+      const downgradeWarningBox = document.getElementById('downgradeWarningBox');
+      const downgradeWarningText = document.getElementById('downgradeWarningText');
+      const allowDowngrade = document.getElementById('allowDowngradeCheckbox')?.checked || false;
+
+      const chkExe = document.getElementById('chkExeStatus');
+      const chkBlockmap = document.getElementById('chkBlockmapStatus');
+      const semverStatus = document.getElementById('detectedSemverStatus');
+
+      if (!uploadBtn) return;
+
+      const hasManifest = !!parsedManifestData;
+      const exeFile = exeInput?.files[0];
+      const blockmapFile = blockmapInput?.files[0];
+
+      if (chkExe) {
+        if (exeFile) {
+          const sizeMb = (exeFile.size / (1024 * 1024)).toFixed(1);
+          chkExe.innerHTML = `<span style="color:#15803d; font-weight:700;">✓ Ready: ${escapeHtml(exeFile.name)} (${sizeMb} MB)</span>`;
+        } else {
+          chkExe.innerHTML = `<span style="color:#b45309;">⏳ Awaiting .exe file selection</span>`;
+        }
+      }
+
+      if (chkBlockmap) {
+        if (blockmapFile) {
+          const sizeKb = (blockmapFile.size / 1024).toFixed(1);
+          chkBlockmap.innerHTML = `<span style="color:#15803d; font-weight:700;">✓ Ready: ${escapeHtml(blockmapFile.name)} (${sizeKb} KB)</span>`;
+        } else {
+          chkBlockmap.innerHTML = `<span style="color:#b45309;">⏳ Awaiting .blockmap file selection</span>`;
+        }
+      }
+
+      if (!hasManifest) {
+        if (downgradeWarningBox) downgradeWarningBox.style.display = 'none';
         uploadBtn.disabled = true;
         return;
       }
 
+      const version = parsedManifestData.version;
       const cmp = compareSemver(version, currentActiveReleaseVersion);
+
       if (cmp > 0) {
-        msgEl.innerHTML = `<span style="color:#15803d; font-weight:600;">✓ Valid Upgrade: v${escapeHtml(version)} is newer than active v${escapeHtml(currentActiveReleaseVersion)}</span>`;
-        warningBox.style.display = 'none';
-        uploadBtn.disabled = false;
-      } else {
-        const relation = cmp === 0 ? 'the same as' : 'OLDER than';
-        msgEl.innerHTML = `<span style="color:#b45309; font-weight:600;">⚠️ Version Conflict: v${escapeHtml(version)} is ${relation} active v${escapeHtml(currentActiveReleaseVersion)}</span>`;
-        warningBox.style.display = 'block';
-        if (warningText) {
-          warningText.innerHTML = `Active live release is <strong>v${escapeHtml(currentActiveReleaseVersion)}</strong>. Publishing v${escapeHtml(version)} may cause desktop apps not to update or cause client downgrade confusion.`;
+        if (semverStatus) {
+          semverStatus.textContent = `Newer Upgrade (v${currentActiveReleaseVersion} → v${version})`;
+          semverStatus.style.background = '#dcfce7';
+          semverStatus.style.color = '#15803d';
         }
-        uploadBtn.disabled = !allowDowngrade;
+        if (downgradeWarningBox) downgradeWarningBox.style.display = 'none';
+      } else {
+        const relation = cmp === 0 ? 'IDENTICAL to' : 'OLDER than';
+        if (semverStatus) {
+          semverStatus.textContent = `${relation} active (v${currentActiveReleaseVersion})`;
+          semverStatus.style.background = '#fef3c7';
+          semverStatus.style.color = '#92400e';
+        }
+        if (downgradeWarningBox) {
+          downgradeWarningBox.style.display = 'block';
+          if (downgradeWarningText) {
+            downgradeWarningText.innerHTML = `Auto-detected version <strong>v${escapeHtml(version)}</strong> is ${relation} active live release <strong>v${escapeHtml(currentActiveReleaseVersion)}</strong>.`;
+          }
+        }
+      }
+
+      const isBlockedByDowngrade = cmp <= 0 && !allowDowngrade;
+      const isReady = hasManifest && !!exeFile && !!blockmapFile && !isBlockedByDowngrade;
+      uploadBtn.disabled = !isReady;
+    }
+
+    function resetUploadForm() {
+      document.getElementById('uploadReleaseForm').reset();
+      parsedManifestData = null;
+      document.getElementById('manifestSummaryBox').style.display = 'none';
+      document.getElementById('uploadProgressWrap').style.display = 'none';
+      document.getElementById('uploadFeedback').textContent = '';
+      const mInfo = document.getElementById('manifestFileInfo');
+      if (mInfo) mInfo.textContent = 'Select latest.yml to auto-extract version & hash checksums.';
+      const eInfo = document.getElementById('exeFileInfo');
+      if (eInfo) eInfo.textContent = 'Windows setup executable (e.g. ZynBill Setup 1.1.2.exe).';
+      const bInfo = document.getElementById('blockmapFileInfo');
+      if (bInfo) bInfo.textContent = 'Differential map (e.g. .exe.blockmap) for fast 64KB block downloads.';
+      checkUploadReadiness();
+    }
+
+    // 4. Sequential 3-File Upload Pipeline
+    async function handleUploadPackage(e) {
+      e.preventDefault();
+      if (!parsedManifestData) {
+        alert('Please select latest.yml to auto-detect release metadata.');
+        return;
+      }
+
+      const exeInput = document.getElementById('newRelExe');
+      const blockmapInput = document.getElementById('newRelBlockmap');
+      const exeFile = exeInput?.files[0];
+      const blockmapFile = blockmapInput?.files[0];
+      const manifestFile = parsedManifestData.fileObj;
+      const allowDowngrade = document.getElementById('allowDowngradeCheckbox')?.checked || false;
+      const notes = document.getElementById('newRelNotes')?.value.trim() || '';
+
+      if (!exeFile) {
+        alert('Please select the .exe setup installer file.');
+        return;
+      }
+      if (!blockmapFile) {
+        alert('Please select the .blockmap differential update file.');
+        return;
+      }
+
+      const version = parsedManifestData.version;
+      const uploadBtn = document.getElementById('btnUploadRelease');
+      const progressWrap = document.getElementById('uploadProgressWrap');
+      const progressBar = document.getElementById('uploadProgressBar');
+      const percentText = document.getElementById('uploadPercentText');
+      const statusText = document.getElementById('uploadStatusText');
+      const feedback = document.getElementById('uploadFeedback');
+
+      uploadBtn.disabled = true;
+      progressWrap.style.display = 'block';
+      feedback.textContent = '';
+
+      function uploadSingleFile(file, fileType, stepNum, totalSteps) {
+        return new Promise((resolve, reject) => {
+          const xhr = new XMLHttpRequest();
+          const url = `/api/v1/admin/releases/upload?version=${encodeURIComponent(version)}&filename=${encodeURIComponent(file.name)}&fileType=${fileType}&allowDowngrade=${allowDowngrade}&notes=${encodeURIComponent(notes)}`;
+          xhr.open('POST', url, true);
+          xhr.timeout = 30 * 60 * 1000;
+          xhr.setRequestHeader('Authorization', 'Bearer ' + adminToken);
+          xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+
+          xhr.upload.onprogress = (ev) => {
+            if (ev.lengthComputable) {
+              const filePct = Math.round((ev.loaded / ev.total) * 100);
+              const overallPct = Math.round(((stepNum - 1) / totalSteps) * 100 + (filePct / totalSteps));
+              progressBar.style.width = overallPct + '%';
+              percentText.textContent = overallPct + '%';
+              statusText.textContent = `[${stepNum}/${totalSteps}] Uploading ${file.name} (${(ev.loaded/(1024*1024)).toFixed(1)} MB / ${(ev.total/(1024*1024)).toFixed(1)} MB)...`;
+            }
+          };
+
+          xhr.onload = () => {
+            let resp = {};
+            try { resp = JSON.parse(xhr.responseText); } catch (_) {}
+            if (xhr.status === 200 && resp.ok) {
+              resolve(resp);
+            } else {
+              reject(new Error(resp.error || xhr.statusText || `Upload failed with status ${xhr.status}`));
+            }
+          };
+
+          xhr.onerror = () => reject(new Error('Network error during file upload. Check server connectivity.'));
+          xhr.ontimeout = () => reject(new Error('Upload timed out after 30 minutes.'));
+
+          xhr.send(file);
+        });
+      }
+
+      try {
+        // Step 1: Upload latest.yml
+        statusText.textContent = '[1/3] Uploading latest.yml manifest...';
+        await uploadSingleFile(manifestFile, 'manifest', 1, 3);
+
+        // Step 2: Upload .exe installer
+        statusText.textContent = `[2/3] Uploading ${exeFile.name}...`;
+        await uploadSingleFile(exeFile, 'installer', 2, 3);
+
+        // Step 3: Upload .blockmap
+        statusText.textContent = `[3/3] Uploading ${blockmapFile.name}...`;
+        await uploadSingleFile(blockmapFile, 'blockmap', 3, 3);
+
+        progressBar.style.width = '100%';
+        percentText.textContent = '100%';
+        statusText.textContent = '✓ All 3 deployment files uploaded and published!';
+        feedback.style.color = '#15803d';
+        feedback.textContent = `✓ Release v${version} published successfully!`;
+
+        resetUploadForm();
+        loadReleases();
+      } catch (err) {
+        statusText.textContent = '❌ Upload failed';
+        feedback.style.color = '#b91c1c';
+        feedback.textContent = 'Error: ' + err.message;
+      } finally {
+        uploadBtn.disabled = false;
       }
     }
 
+    // 5. Load and Display All Uploaded Releases Grouped by Version
     async function loadReleases() {
       try {
         const res = await fetch('/api/v1/admin/releases', {
@@ -1602,183 +1856,110 @@
           return;
         }
 
-        // Render Active Release
-        const rel = data.activeRelease || {};
-        currentActiveReleaseVersion = rel.version || '1.1.1';
-        document.getElementById('activeRelHeading').textContent = 'v' + currentActiveReleaseVersion;
-        document.getElementById('activeRelFileName').textContent = rel.fileName || '-';
-        document.getElementById('activeRelDate').textContent = rel.publishedAt ? new Date(rel.publishedAt).toLocaleString() : '-';
-        document.getElementById('activeRelNotes').textContent = rel.releaseNotes || 'No release notes provided.';
+        currentActiveReleaseVersion = data.activeVersion || '1.1.1';
+        checkUploadReadiness();
 
-        validateVersionInput();
-
-        // Render Files Table
         const tbody = document.getElementById('releasesTableBody');
-        if (!data.files || data.files.length === 0) {
-          tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: var(--muted); padding: 32px;">No installer files found. Upload a new build above.</td></tr>';
+        const versions = data.versions || [];
+
+        if (versions.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: var(--muted); padding: 32px;">No releases uploaded yet. Upload a 3-file package above.</td></tr>';
           return;
         }
 
-        tbody.innerHTML = data.files.map(f => `
-          <tr>
-            <td><strong>${escapeHtml(f.name)}</strong></td>
-            <td><span class="badge" style="background:#e0f2fe; color:#0369a1; font-weight:700;">v${escapeHtml(f.version)}</span></td>
-            <td>${escapeHtml(f.sizeMb)}</td>
-            <td>${new Date(f.updatedAt).toLocaleDateString()} ${new Date(f.updatedAt).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}</td>
-            <td style="text-align: right;">
-              <a href="/download?file=${encodeURIComponent(f.name)}" class="btn-action btn-secondary" style="text-decoration:none; display:inline-block; margin-right:8px; padding:4px 10px; font-size:12px;">⬇ Download</a>
-              <button type="button" class="btn-action btn-danger" style="padding:4px 10px; font-size:12px;" onclick="deleteReleaseFile('${escapeHtml(f.name)}')">Delete</button>
-            </td>
-          </tr>
-        `).join('');
+        tbody.innerHTML = versions.map(v => {
+          const isActive = v.isActive;
+          const exeInfo = v.exe ? `
+            <div style="font-size:12.5px; font-weight:600; color:#0f172a;">${escapeHtml(v.exe.name)}</div>
+            <div style="font-size:11.5px; color:var(--muted);">${escapeHtml(v.exe.sizeMb)} &bull; <a href="${escapeHtml(v.exe.downloadUrl)}" style="color:var(--accent); text-decoration:none;">⬇ Direct Download</a></div>
+          ` : `<span class="badge" style="background:#fee2e2; color:#991b1b;">❌ Missing .exe</span>`;
+
+          const blockmapInfo = v.blockmap ? `
+            <div style="font-size:12px; font-weight:600; color:#334155;">${escapeHtml(v.blockmap.name)}</div>
+            <div style="font-size:11.5px; color:var(--muted);">${escapeHtml(v.blockmap.sizeKb)} &bull; <a href="${escapeHtml(v.blockmap.downloadUrl)}" style="color:var(--accent); text-decoration:none;">⬇ Blockmap</a></div>
+          ` : `<span class="badge" style="background:#fef3c7; color:#92400e;">⚠️ Missing .blockmap</span>`;
+
+          const manifestInfo = isActive ?
+            `<span class="badge" style="background:#dcfce7; color:#15803d; font-weight:700;">🟢 Active Live</span>` :
+            (v.hasArchivedManifest ? `<span class="badge" style="background:#f1f5f9; color:#475569;">📄 Archived</span>` : `<span style="color:var(--muted); font-size:12px;">—</span>`);
+
+          const dateStr = v.releaseDate || v.updatedAt ? new Date(v.releaseDate || v.updatedAt).toLocaleString() : '—';
+
+          const activateBtn = !isActive ? `
+            <button type="button" class="btn-action btn-approve" style="padding:4px 10px; font-size:12px; margin-right:6px;" onclick="activateReleaseVersion('${escapeHtml(v.version)}')">⚡ Set Active</button>
+          ` : '';
+
+          const deleteBtn = `
+            <button type="button" class="btn-action btn-danger" style="padding:4px 10px; font-size:12px;" onclick="deleteReleaseVersion('${escapeHtml(v.version)}')">🗑️ Delete</button>
+          `;
+
+          return `
+            <tr style="${isActive ? 'background: #f0fdf4;' : ''}">
+              <td>
+                <div style="display:flex; align-items:center; gap:8px;">
+                  <span class="badge" style="background:${isActive ? '#0284c7' : '#e0f2fe'}; color:${isActive ? '#ffffff' : '#0369a1'}; font-weight:800; font-size:13px;">v${escapeHtml(v.version)}</span>
+                  ${isActive ? '<span class="badge" style="background:#16a34a; color:#fff; font-size:10px; font-weight:700;">ACTIVE LIVE</span>' : ''}
+                </div>
+              </td>
+              <td>${exeInfo}</td>
+              <td>${blockmapInfo}</td>
+              <td>${manifestInfo}</td>
+              <td style="font-size:12px; color:#475569;">${escapeHtml(dateStr)}</td>
+              <td style="text-align: right; white-space:nowrap;">
+                ${activateBtn}
+                ${deleteBtn}
+              </td>
+            </tr>
+          `;
+        }).join('');
       } catch (err) {
         console.error('Failed to load releases:', err);
       }
     }
 
-    function handleUploadRelease(e) {
-      e.preventDefault();
-      const version = document.getElementById('newRelVersion').value.trim();
-      const notes = document.getElementById('newRelNotes').value.trim();
-      const fileInput = document.getElementById('newRelFile');
-      const file = fileInput.files[0];
-      const allowDowngrade = document.getElementById('allowDowngradeCheckbox')?.checked || false;
-
-      if (!file) {
-        alert('Please select an installer .exe file to upload.');
-        return;
-      }
-
-      if (!file.name.toLowerCase().endsWith('.exe')) {
-        alert('Invalid file format! Please select a Windows executable installer (.exe).');
-        return;
-      }
-
-      if (file.size < 1024 * 1024) {
-        alert(`The selected file is too small (${(file.size / 1024).toFixed(1)} KB). A valid compiled setup installer must be at least 1 MB.`);
-        return;
-      }
-
-      if (!version) {
-        alert('Please specify a version number (e.g. 1.1.2).');
-        return;
-      }
-
-      if (!/^\d+(\.\d+){1,3}$/.test(version)) {
-        alert('Invalid version format! Please enter a valid semantic version like 1.1.2');
-        return;
-      }
-
-      const cmp = compareSemver(version, currentActiveReleaseVersion);
-      if (cmp <= 0 && !allowDowngrade) {
-        alert(`Version Conflict: v${version} is not newer than current active release v${currentActiveReleaseVersion}.\nPlease enter a newer version number, or check "Allow re-upload / force override".`);
-        return;
-      }
-
-      const progressWrap = document.getElementById('uploadProgressWrap');
-      const progressBar = document.getElementById('uploadProgressBar');
-      const percentText = document.getElementById('uploadPercentText');
-      const statusText = document.getElementById('uploadStatusText');
-      const feedback = document.getElementById('uploadFeedback');
-      const uploadBtn = document.getElementById('btnUploadRelease');
-
-      progressWrap.style.display = 'block';
-      progressBar.style.width = '0%';
-      percentText.textContent = '0%';
-      statusText.textContent = 'Uploading ' + file.name + ' (' + (file.size / (1024*1024)).toFixed(1) + ' MB)...';
-      feedback.textContent = '';
-      uploadBtn.disabled = true;
-
-      const xhr = new XMLHttpRequest();
-      const url = '/api/v1/admin/releases/upload?version=' + encodeURIComponent(version) +
-                  '&notes=' + encodeURIComponent(notes) +
-                  '&filename=' + encodeURIComponent(file.name) +
-                  '&allowDowngrade=' + (allowDowngrade ? 'true' : 'false');
-      xhr.open('POST', url, true);
-      xhr.timeout = 30 * 60 * 1000; // 30-minute timeout for large installer binaries
-      xhr.setRequestHeader('Authorization', 'Bearer ' + adminToken);
-      xhr.setRequestHeader('Content-Type', 'application/octet-stream');
-
-      xhr.upload.onprogress = (event) => {
-        if (event.lengthComputable) {
-          const percent = Math.round((event.loaded / event.total) * 100);
-          progressBar.style.width = percent + '%';
-          percentText.textContent = percent + '%';
-          statusText.textContent = 'Uploaded ' + (event.loaded / (1024*1024)).toFixed(1) + ' MB / ' + (event.total / (1024*1024)).toFixed(1) + ' MB';
-        }
-      };
-
-      xhr.onload = () => {
-        uploadBtn.disabled = false;
-        let resp = {};
-        try { resp = JSON.parse(xhr.responseText); } catch (_) {}
-
-        if (xhr.status === 200 && resp.ok) {
-          progressBar.style.width = '100%';
-          percentText.textContent = '100%';
-          statusText.textContent = '✓ Upload complete and published!';
-          feedback.style.color = '#15803d';
-          feedback.textContent = '✓ Version ' + version + ' published successfully!';
-          document.getElementById('uploadReleaseForm').reset();
-          const fileMsg = document.getElementById('fileDetectedMsg');
-          if (fileMsg) fileMsg.textContent = '';
-          const valMsg = document.getElementById('versionValidationMsg');
-          if (valMsg) valMsg.textContent = '';
-          const warnBox = document.getElementById('downgradeWarningBox');
-          if (warnBox) warnBox.style.display = 'none';
-          loadReleases();
-        } else if (xhr.status === 401) {
-          statusText.textContent = '❌ Session expired';
-          feedback.style.color = '#b91c1c';
-          feedback.textContent = 'Your session has expired. Please sign in again.';
-          setTimeout(handleLogout, 1500);
-        } else {
-          statusText.textContent = '❌ Upload rejected';
-          feedback.style.color = '#b91c1c';
-          const errMsg = resp.error || xhr.statusText || ('Upload failed with status ' + xhr.status);
-          feedback.textContent = 'Error: ' + errMsg;
-        }
-      };
-
-      xhr.ontimeout = () => {
-        uploadBtn.disabled = false;
-        statusText.textContent = '❌ Upload timed out';
-        feedback.style.color = '#b91c1c';
-        feedback.textContent = 'Upload timed out after 30 minutes. Please check your network and retry.';
-      };
-
-      xhr.onerror = () => {
-        uploadBtn.disabled = false;
-        statusText.textContent = '❌ Network error';
-        feedback.style.color = '#b91c1c';
-        feedback.textContent = 'Network error occurred during file upload. Check server connectivity.';
-      };
-
-      xhr.send(file);
-    }
-
-    async function deleteReleaseFile(filename) {
-      if (!confirm('Are you sure you want to delete ' + filename + ' from the server? This cannot be undone.')) {
+    async function activateReleaseVersion(version) {
+      if (!confirm(`Are you sure you want to set v${version} as the active live release? Client applications checking for updates will target this version.`)) {
         return;
       }
       try {
-        const res = await fetch('/api/v1/admin/releases/file?filename=' + encodeURIComponent(filename), {
+        const res = await fetch('/api/v1/admin/releases/activate', {
+          method: 'POST',
+          headers: {
+            'Authorization': 'Bearer ' + adminToken,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ version })
+        });
+        const data = await res.json();
+        if (data.ok) {
+          alert(`v${version} is now the active live release!`);
+          loadReleases();
+        } else {
+          alert(data.error || 'Failed to activate release.');
+        }
+      } catch (err) {
+        alert('Network error: ' + err.message);
+      }
+    }
+
+    async function deleteReleaseVersion(version) {
+      if (!confirm(`Are you sure you want to delete all deployment files for version v${version}? This will remove its .exe, .blockmap, and manifest files. This action cannot be undone.`)) {
+        return;
+      }
+      try {
+        const res = await fetch('/api/v1/admin/releases/version?version=' + encodeURIComponent(version), {
           method: 'DELETE',
           headers: { 'Authorization': 'Bearer ' + adminToken }
         });
-        if (res.status === 401) {
-          handleLogout();
-          return;
-        }
         const data = await res.json();
         if (data.ok) {
-          alert('File removed successfully.');
+          alert(`Version v${version} deployment files removed.`);
           loadReleases();
         } else {
-          alert(data.error || 'Failed to delete file.');
+          alert(data.error || 'Failed to delete release.');
         }
       } catch (err) {
-        alert(err.message);
+        alert('Network error: ' + err.message);
       }
     }
 

@@ -93,6 +93,119 @@ function getBearerToken(req) {
   return null;
 }
 
+function compareSemver(v1, v2) {
+  const p1 = String(v1 || '').split('.').map(n => parseInt(n, 10) || 0);
+  const p2 = String(v2 || '').split('.').map(n => parseInt(n, 10) || 0);
+  for (let i = 0; i < Math.max(p1.length, p2.length); i++) {
+    const a = p1[i] || 0;
+    const b = p2[i] || 0;
+    if (a > b) return 1;
+    if (a < b) return -1;
+  }
+  return 0;
+}
+
+// ── HTTP Range-Request Enabled Streaming Helper (RFC 7233) ────────────
+// Required by electron-updater DifferentialDownloader for fast 64KB blockmap delta updates
+function streamFileWithRange(req, res, filePath, customMimeType, customFilename) {
+  let stat;
+  try {
+    stat = fs.statSync(filePath);
+  } catch (err) {
+    return sendJson(res, 404, { ok: false, error: 'File not found on server.' });
+  }
+
+  const fileSize = stat.size;
+  const filename = customFilename || path.basename(filePath);
+  const ext = path.extname(filename).toLowerCase();
+
+  let mimeType = customMimeType;
+  if (!mimeType) {
+    if (ext === '.yml' || ext === '.yaml') mimeType = 'text/yaml; charset=utf-8';
+    else if (ext === '.blockmap') mimeType = 'application/octet-stream';
+    else if (ext === '.exe') mimeType = 'application/octet-stream';
+    else if (ext === '.json') mimeType = 'application/json; charset=utf-8';
+    else mimeType = 'application/octet-stream';
+  }
+
+  const baseHeaders = {
+    'Accept-Ranges': 'bytes',
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'GET, HEAD, OPTIONS',
+    'Access-Control-Allow-Headers': 'Range, Content-Type, Authorization',
+    'Access-Control-Expose-Headers': 'Content-Range, Content-Length, Accept-Ranges',
+    'Content-Type': mimeType
+  };
+
+  if (req.method === 'OPTIONS') {
+    res.writeHead(204, baseHeaders);
+    return res.end();
+  }
+
+  const range = req.headers.range;
+  if (range && range.startsWith('bytes=')) {
+    const parts = range.replace(/bytes=/, '').split('-');
+    let start = parts[0] ? parseInt(parts[0], 10) : NaN;
+    let end = parts[1] ? parseInt(parts[1], 10) : NaN;
+
+    if (isNaN(start) && !isNaN(end)) {
+      start = Math.max(0, fileSize - end);
+      end = fileSize - 1;
+    } else if (!isNaN(start) && isNaN(end)) {
+      end = fileSize - 1;
+    }
+
+    if (isNaN(start) || isNaN(end) || start > end || start >= fileSize) {
+      res.writeHead(416, {
+        ...baseHeaders,
+        'Content-Range': `bytes */${fileSize}`
+      });
+      return res.end();
+    }
+
+    if (end >= fileSize) {
+      end = fileSize - 1;
+    }
+
+    const chunkSize = (end - start) + 1;
+    res.writeHead(206, {
+      ...baseHeaders,
+      'Content-Range': `bytes ${start}-${end}/${fileSize}`,
+      'Content-Length': chunkSize,
+      'Content-Disposition': `inline; filename="${filename}"`
+    });
+
+    if (req.method === 'HEAD') return res.end();
+
+    const stream = fs.createReadStream(filePath, { start, end });
+    stream.on('error', (err) => {
+      console.error('[Range Stream Error]:', err);
+      if (!res.headersSent) sendJson(res, 500, { ok: false, error: 'Streaming error' });
+      else res.destroy();
+    });
+    req.on('close', () => stream.destroy());
+    return stream.pipe(res);
+  }
+
+  // Full file request (200 OK)
+  res.writeHead(200, {
+    ...baseHeaders,
+    'Content-Length': fileSize,
+    'Content-Disposition': ext === '.exe' ? `attachment; filename="${filename}"` : `inline; filename="${filename}"`
+  });
+
+  if (req.method === 'HEAD') return res.end();
+
+  const stream = fs.createReadStream(filePath);
+  stream.on('error', (err) => {
+    console.error('[Download Stream Error]:', err);
+    if (!res.headersSent) sendJson(res, 500, { ok: false, error: 'Streaming error' });
+    else res.destroy();
+  });
+  req.on('close', () => stream.destroy());
+  return stream.pipe(res);
+}
+
 // ── Request Handler ───────────────────────────────────────────────────
 const server = http.createServer(async (req, res) => {
   try {
@@ -128,23 +241,50 @@ const server = http.createServer(async (req, res) => {
   }
 
   // ── Electron autoUpdater standard manifest (latest.yml) ────────────
-  if (req.method === 'GET' && (pathname === '/latest.yml' || pathname === '/downloads/latest.yml' || pathname === '/api/v1/downloads/latest.yml')) {
+  if ((req.method === 'GET' || req.method === 'HEAD') && (pathname === '/latest.yml' || pathname === '/downloads/latest.yml' || pathname === '/api/v1/downloads/latest.yml')) {
     const ymlPath = path.join(__dirname, 'public', 'downloads', 'latest.yml');
     if (fs.existsSync(ymlPath)) {
-      res.writeHead(200, {
-        'Content-Type': 'text/yaml; charset=utf-8',
-        'Access-Control-Allow-Origin': '*'
-      });
-      return fs.createReadStream(ymlPath).pipe(res);
+      return streamFileWithRange(req, res, ymlPath, 'text/yaml; charset=utf-8', 'latest.yml');
     }
   }
 
-  // ── Application Installer Download ─────────────────────────────────
-  if ((req.method === 'GET' || req.method === 'HEAD') && (pathname === '/api/v1/download/app' || pathname === '/download' || pathname.startsWith('/downloads/'))) {
+  // ── Direct /downloads/:filename routing (for electron-updater differential blockmaps & installers) ─
+  if ((req.method === 'GET' || req.method === 'HEAD') && pathname.startsWith('/downloads/')) {
+    const rawName = decodeURIComponent(pathname.replace(/^\/downloads\//, ''));
+    const safeName = path.basename(rawName);
+    const downloadsDir = path.join(__dirname, 'public', 'downloads');
+    const targetPath = path.join(downloadsDir, safeName);
+
+    if (safeName && fs.existsSync(targetPath)) {
+      return streamFileWithRange(req, res, targetPath, null, safeName);
+    }
+    return sendJson(res, 404, { ok: false, error: `File '${safeName}' not found in server downloads repository.` });
+  }
+
+  // ── Application Installer Download (/download or /api/v1/download/app) ──────────────
+  if ((req.method === 'GET' || req.method === 'HEAD') && (pathname === '/api/v1/download/app' || pathname === '/download')) {
     const downloadsDir = path.join(__dirname, 'public', 'downloads');
     let targetFile = null;
 
-    if (fs.existsSync(downloadsDir)) {
+    // 1. Honor explicit file query e.g. /download?file=ZynBill%20Setup%201.1.1.exe
+    if (query.file) {
+      const requestedName = path.basename(String(query.file));
+      const specificPath = path.join(downloadsDir, requestedName);
+      if (fs.existsSync(specificPath)) {
+        targetFile = specificPath;
+      }
+    }
+
+    // 2. Otherwise serve the active release configured in DB settings
+    if (!targetFile && fs.existsSync(downloadsDir)) {
+      const activeFile = getSetting('release_filename', '');
+      if (activeFile && fs.existsSync(path.join(downloadsDir, activeFile))) {
+        targetFile = path.join(downloadsDir, activeFile);
+      }
+    }
+
+    // 3. Fallback to newest .exe in downloadsDir
+    if (!targetFile && fs.existsSync(downloadsDir)) {
       const files = fs.readdirSync(downloadsDir)
         .filter(f => f.endsWith('.exe'))
         .map(f => ({ name: f, time: fs.statSync(path.join(downloadsDir, f)).mtimeMs }))
@@ -154,6 +294,7 @@ const server = http.createServer(async (req, res) => {
       }
     }
 
+    // 4. Fallback to build artifacts in dist/
     if (!targetFile) {
       const candidates = [
         path.join(__dirname, '..', 'dist', 'ZynBill Setup 1.1.1.exe'),
@@ -165,39 +306,11 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (targetFile) {
-      const filename = path.basename(targetFile);
-      let stat;
-      try {
-        stat = fs.statSync(targetFile);
-      } catch (statErr) {
-        return sendJson(res, 500, { ok: false, error: 'Could not access setup file: ' + statErr.message });
-      }
-
-      res.writeHead(200, {
-        'Content-Type': 'application/octet-stream',
-        'Content-Length': stat.size,
-        'Content-Disposition': `attachment; filename="${filename}"`,
-        'Access-Control-Allow-Origin': '*'
-      });
-      if (req.method === 'HEAD') return res.end();
-
-      const readStream = fs.createReadStream(targetFile);
-      readStream.on('error', (streamErr) => {
-        console.error('[Download Stream Error]:', streamErr);
-        if (!res.headersSent) {
-          sendJson(res, 500, { ok: false, error: 'Streaming error occurred.' });
-        } else {
-          res.destroy();
-        }
-      });
-      req.on('close', () => {
-        readStream.destroy();
-      });
-      return readStream.pipe(res);
+      return streamFileWithRange(req, res, targetFile, 'application/octet-stream', path.basename(targetFile));
     } else {
       return sendJson(res, 404, {
         ok: false,
-        error: 'Windows setup installer not found. Please build the distribution package.'
+        error: 'Windows setup installer not found. Please upload a release package from the admin dashboard.'
       });
     }
   }
@@ -1063,95 +1176,137 @@ const server = http.createServer(async (req, res) => {
     return sendJson(res, testResult.ok ? 200 : 400, testResult);
   }
 
-  function compareSemver(v1, v2) {
-  const p1 = String(v1 || '').split('.').map(n => parseInt(n, 10) || 0);
-  const p2 = String(v2 || '').split('.').map(n => parseInt(n, 10) || 0);
-  for (let i = 0; i < Math.max(p1.length, p2.length); i++) {
-    const a = p1[i] || 0;
-    const b = p2[i] || 0;
-    if (a > b) return 1;
-    if (a < b) return -1;
-  }
-  return 0;
-}
+  // ── App Release & Version Management Endpoints (Super Admin) ─────────
 
-// ── App Release & Version Management Endpoints (Super Admin) ─────────
-
-  // 1. Get Releases Info & Downloadable Files List
+  // 1. Get Releases Info & Downloadable Files List (Grouped by Version)
   if (req.method === 'GET' && pathname === '/api/v1/admin/releases') {
     if (!verifyAdmin(req, res)) return;
 
     const downloadsDir = path.join(__dirname, 'public', 'downloads');
-    const files = [];
+    const versionMap = new Map();
+
+    // Determine current active version from latest.yml or DB setting
+    let activeVersion = getSetting('latest_version', '1.1.1');
+    let activeReleaseDate = getSetting('published_at', new Date().toISOString());
+    const ymlPath = path.join(downloadsDir, 'latest.yml');
+    if (fs.existsSync(ymlPath)) {
+      try {
+        const ymlContent = fs.readFileSync(ymlPath, 'utf8');
+        const verMatch = ymlContent.match(/^\s*version:\s*['"]?([0-9A-Za-z.-]+)['"]?/m);
+        if (verMatch) activeVersion = verMatch[1];
+        const dateMatch = ymlContent.match(/^\s*releaseDate:\s*['"]?([^\r\n'"]+)['"]?/m);
+        if (dateMatch) activeReleaseDate = dateMatch[1];
+      } catch (_) {}
+    }
+
+    function getOrCreateVersion(ver) {
+      if (!versionMap.has(ver)) {
+        versionMap.set(ver, {
+          version: ver,
+          isActive: ver === activeVersion,
+          exe: null,
+          blockmap: null,
+          hasManifest: false,
+          releaseDate: ver === activeVersion ? activeReleaseDate : null,
+          updatedAt: null
+        });
+      }
+      return versionMap.get(ver);
+    }
 
     if (fs.existsSync(downloadsDir)) {
       const dirFiles = fs.readdirSync(downloadsDir);
       for (const f of dirFiles) {
-        if (!f.endsWith('.exe')) continue;
+        if (f.startsWith('.') || f === '.gitkeep') continue;
         const filePath = path.join(downloadsDir, f);
-        try {
-          const stat = fs.statSync(filePath);
+        let stat;
+        try { stat = fs.statSync(filePath); } catch (_) { continue; }
+
+        if (f === 'latest.yml') {
+          const vObj = getOrCreateVersion(activeVersion);
+          vObj.hasManifest = true;
+          vObj.isActive = true;
+          continue;
+        }
+
+        if (f.endsWith('.exe')) {
           const match = f.match(/(\d+\.\d+\.\d+)/);
-          files.push({
+          const ver = match ? match[1] : '1.0.0';
+          const vObj = getOrCreateVersion(ver);
+          vObj.exe = {
             name: f,
-            version: match ? match[1] : '1.0.0',
             size: stat.size,
             sizeMb: (stat.size / (1024 * 1024)).toFixed(1) + ' MB',
             updatedAt: stat.mtime.toISOString(),
-            downloadUrl: `/api/v1/download/app?file=${encodeURIComponent(f)}`
-          });
-        } catch (_) {}
+            downloadUrl: `/downloads/${encodeURIComponent(f)}`
+          };
+          if (!vObj.updatedAt || new Date(stat.mtime) > new Date(vObj.updatedAt)) {
+            vObj.updatedAt = stat.mtime.toISOString();
+          }
+        } else if (f.endsWith('.blockmap')) {
+          const match = f.match(/(\d+\.\d+\.\d+)/);
+          const ver = match ? match[1] : '1.0.0';
+          const vObj = getOrCreateVersion(ver);
+          vObj.blockmap = {
+            name: f,
+            size: stat.size,
+            sizeKb: (stat.size / 1024).toFixed(1) + ' KB',
+            updatedAt: stat.mtime.toISOString(),
+            downloadUrl: `/downloads/${encodeURIComponent(f)}`
+          };
+        } else if (f.startsWith('latest-') && f.endsWith('.yml')) {
+          const match = f.match(/latest-(\d+\.\d+\.\d+)\.yml/);
+          if (match) {
+            const ver = match[1];
+            const vObj = getOrCreateVersion(ver);
+            vObj.hasArchivedManifest = true;
+          }
+        }
       }
-      files.sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
     }
 
-    const activeVersion = getSetting('latest_version', files.length > 0 ? files[0].version : '1.1.1');
-    const activeFileName = getSetting('release_filename', files.length > 0 ? files[0].name : 'ZynBill Setup 1.1.1.exe');
-    const releaseNotes = getSetting('release_notes', 'General performance and security enhancements.');
-    const publishedAt = getSetting('published_at', new Date().toISOString());
+    const versions = Array.from(versionMap.values()).sort((a, b) => compareSemver(b.version, a.version));
 
     return sendJson(res, 200, {
       ok: true,
-      activeRelease: {
-        version: activeVersion,
-        fileName: activeFileName,
-        releaseNotes,
-        publishedAt
-      },
-      files
+      activeVersion,
+      activeReleaseDate,
+      versions,
+      totalVersions: versions.length
     });
   }
 
-  // 2. Stream Upload New Release Installer (.exe)
+  // 2. Stream Upload Deployment Files (.exe, .blockmap, latest.yml)
   if (req.method === 'POST' && pathname === '/api/v1/admin/releases/upload') {
     if (!verifyAdmin(req, res)) return;
 
-    const version = String(query.version || '').trim();
-    if (!/^\d+(\.\d+){1,3}$/.test(version)) {
-      req.resume();
-      return sendJson(res, 400, {
-        ok: false,
-        error: 'Invalid version format. Please enter a valid semantic version (e.g., 1.1.2).'
-      });
-    }
-
-    const activeVersion = getSetting('latest_version', '1.1.1');
+    const rawFilename = path.basename(String(query.filename || ''));
+    const fileType = String(query.fileType || '').toLowerCase(); // 'manifest' | 'installer' | 'blockmap'
+    let version = String(query.version || '').trim();
+    const notes = String(query.notes || '').trim();
     const allowDowngrade = String(query.allowDowngrade || '').toLowerCase() === 'true';
-    const cmp = compareSemver(version, activeVersion);
-
-    if (cmp <= 0 && !allowDowngrade) {
-      req.resume();
-      return sendJson(res, 400, {
-        ok: false,
-        error: `Version Conflict: Uploaded version v${version} is not newer than current active version v${activeVersion}. Updates must be strictly newer to prevent client downgrade loops.`
-      });
-    }
-
-    const notes = String(query.notes || 'Bug fixes and performance improvements').trim();
-    const cleanFilename = `ZynBill Setup ${version}.exe`;
 
     const downloadsDir = path.join(__dirname, 'public', 'downloads');
     if (!fs.existsSync(downloadsDir)) fs.mkdirSync(downloadsDir, { recursive: true });
+
+    let cleanFilename = rawFilename;
+    const isManifest = fileType === 'manifest' || rawFilename.toLowerCase() === 'latest.yml';
+    const isBlockmap = fileType === 'blockmap' || rawFilename.toLowerCase().endsWith('.blockmap');
+    const isInstaller = fileType === 'installer' || rawFilename.toLowerCase().endsWith('.exe');
+
+    if (!isManifest && !isBlockmap && !isInstaller) {
+      req.resume();
+      return sendJson(res, 400, {
+        ok: false,
+        error: 'Invalid file type. Only .exe installer, .blockmap, and latest.yml files are accepted.'
+      });
+    }
+
+    if (!cleanFilename) {
+      if (isManifest) cleanFilename = 'latest.yml';
+      else if (isInstaller) cleanFilename = `ZynBill Setup ${version || '1.0.0'}.exe`;
+      else if (isBlockmap) cleanFilename = `ZynBill Setup ${version || '1.0.0'}.exe.blockmap`;
+    }
 
     const targetPath = path.join(downloadsDir, cleanFilename);
     const tempPath = path.join(downloadsDir, `.tmp_${Date.now()}_${cleanFilename}`);
@@ -1186,12 +1341,25 @@ const server = http.createServer(async (req, res) => {
     writeStream.on('finish', () => {
       if (aborted) return;
 
-      // Validate installer size (must be at least 1 MB to avoid empty or truncated uploads)
-      if (bytesReceived < 1024 * 1024) {
+      if (isInstaller && bytesReceived < 1024 * 1024) {
         cleanupTemp();
         return sendJson(res, 400, {
           ok: false,
-          error: `Uploaded file is corrupt or too small (${(bytesReceived / 1024).toFixed(1)} KB). A valid Windows installer must be greater than 1 MB.`
+          error: `Uploaded installer file is corrupt or too small (${(bytesReceived / 1024).toFixed(1)} KB). Compiled installers must be at least 1 MB.`
+        });
+      }
+      if (isBlockmap && bytesReceived < 100) {
+        cleanupTemp();
+        return sendJson(res, 400, {
+          ok: false,
+          error: 'Uploaded blockmap is empty or invalid.'
+        });
+      }
+      if (isManifest && bytesReceived < 10) {
+        cleanupTemp();
+        return sendJson(res, 400, {
+          ok: false,
+          error: 'Uploaded latest.yml is empty.'
         });
       }
 
@@ -1209,43 +1377,32 @@ const server = http.createServer(async (req, res) => {
         });
       }
 
-      // Persist active settings in DB
-      try {
-        setSetting('latest_version', version);
-        setSetting('release_filename', cleanFilename);
-        setSetting('release_notes', notes);
-        setSetting('published_at', new Date().toISOString());
-      } catch (dbErr) {
-        console.error('[Settings Save Error]:', dbErr);
-      }
+      // If manifest (latest.yml), parse version and update DB settings
+      if (isManifest) {
+        try {
+          const ymlText = fs.readFileSync(targetPath, 'utf8');
+          const verMatch = ymlText.match(/^\s*version:\s*['"]?([0-9A-Za-z.-]+)['"]?/m);
+          if (verMatch) version = verMatch[1];
+          const pathMatch = ymlText.match(/^\s*path:\s*['"]?([^\r\n'"]+)['"]?/m) || ymlText.match(/url:\s*['"]?([^\r\n'"]+)['"]?/m);
+          const exeName = pathMatch ? pathMatch[1] : `ZynBill Setup ${version}.exe`;
 
-      // Compute SHA512 and generate Electron latest.yml manifest
-      try {
-        const hash = crypto.createHash('sha512');
-        const fileStream = fs.createReadStream(targetPath);
-        fileStream.on('data', (c) => hash.update(c));
-        fileStream.on('end', () => {
-          const sha512 = hash.digest('base64');
-          const ymlContent = [
-            `version: ${version}`,
-            `files:`,
-            `  - url: ${cleanFilename}`,
-            `    sha512: ${sha512}`,
-            `    size: ${bytesReceived}`,
-            `path: ${cleanFilename}`,
-            `sha512: ${sha512}`,
-            `releaseDate: '${new Date().toISOString()}'`,
-            ``
-          ].join('\n');
-          fs.writeFileSync(path.join(downloadsDir, 'latest.yml'), ymlContent, 'utf8');
-        });
-      } catch (ymlErr) {
-        console.error('[latest.yml Generation Error]:', ymlErr);
+          setSetting('latest_version', version);
+          setSetting('release_filename', exeName);
+          if (notes) setSetting('release_notes', notes);
+          setSetting('published_at', new Date().toISOString());
+
+          // Also save a versioned copy of the manifest
+          if (version) {
+            fs.copyFileSync(targetPath, path.join(downloadsDir, `latest-${version}.yml`));
+          }
+        } catch (manifestErr) {
+          console.error('[Manifest Parsing Error]:', manifestErr);
+        }
       }
 
       return sendJson(res, 200, {
         ok: true,
-        message: `Version ${version} published successfully!`,
+        message: `${cleanFilename} uploaded successfully!`,
         version,
         fileName: cleanFilename,
         sizeBytes: bytesReceived,
@@ -1262,11 +1419,89 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  // 3. Delete Stored Release File
+  // 3. Set a specific version as the active live release
+  if (req.method === 'POST' && pathname === '/api/v1/admin/releases/activate') {
+    if (!verifyAdmin(req, res)) return;
+    const body = await parseJsonBody(req);
+    const targetVer = String(body.version || '').trim();
+    if (!targetVer) {
+      return sendJson(res, 400, { ok: false, error: 'Version is required.' });
+    }
+
+    const downloadsDir = path.join(__dirname, 'public', 'downloads');
+    const archivedYml = path.join(downloadsDir, `latest-${targetVer}.yml`);
+    const liveYml = path.join(downloadsDir, 'latest.yml');
+
+    if (fs.existsSync(archivedYml)) {
+      try {
+        fs.copyFileSync(archivedYml, liveYml);
+      } catch (err) {
+        return sendJson(res, 500, { ok: false, error: 'Failed to activate manifest: ' + err.message });
+      }
+    }
+
+    setSetting('latest_version', targetVer);
+    setSetting('release_filename', `ZynBill Setup ${targetVer}.exe`);
+    setSetting('published_at', new Date().toISOString());
+
+    return sendJson(res, 200, {
+      ok: true,
+      message: `Version v${targetVer} is now the active live release.`,
+      activeVersion: targetVer
+    });
+  }
+
+  // 4. Delete an entire version package (all files matching version)
+  if (req.method === 'DELETE' && pathname === '/api/v1/admin/releases/version') {
+    if (!verifyAdmin(req, res)) return;
+    const targetVer = String(query.version || '').trim();
+    if (!targetVer) {
+      return sendJson(res, 400, { ok: false, error: 'Version parameter is required.' });
+    }
+
+    const downloadsDir = path.join(__dirname, 'public', 'downloads');
+    const deletedFiles = [];
+
+    if (fs.existsSync(downloadsDir)) {
+      const files = fs.readdirSync(downloadsDir);
+      for (const f of files) {
+        if (f.startsWith('.') || f === '.gitkeep') continue;
+        if (f.includes(targetVer)) {
+          try {
+            fs.unlinkSync(path.join(downloadsDir, f));
+            deletedFiles.push(f);
+          } catch (_) {}
+        }
+      }
+    }
+
+    // If active release was deleted, update active release to remaining highest version
+    const activeVersion = getSetting('latest_version', '');
+    if (activeVersion === targetVer) {
+      const remainingFiles = fs.existsSync(downloadsDir) ? fs.readdirSync(downloadsDir).filter(f => f.endsWith('.exe')) : [];
+      if (remainingFiles.length > 0) {
+        const nextVer = (remainingFiles[0].match(/(\d+\.\d+\.\d+)/) || [null, '1.1.1'])[1];
+        setSetting('latest_version', nextVer);
+        setSetting('release_filename', remainingFiles[0]);
+        const archYml = path.join(downloadsDir, `latest-${nextVer}.yml`);
+        if (fs.existsSync(archYml)) {
+          fs.copyFileSync(archYml, path.join(downloadsDir, 'latest.yml'));
+        }
+      }
+    }
+
+    return sendJson(res, 200, {
+      ok: true,
+      message: `Version v${targetVer} files removed.`,
+      deletedFiles
+    });
+  }
+
+  // 5. Delete individual file
   if (req.method === 'DELETE' && pathname === '/api/v1/admin/releases/file') {
     if (!verifyAdmin(req, res)) return;
     const filename = path.basename(String(query.filename || ''));
-    if (!filename || !filename.endsWith('.exe')) {
+    if (!filename) {
       return sendJson(res, 400, { ok: false, error: 'Invalid file name.' });
     }
 
