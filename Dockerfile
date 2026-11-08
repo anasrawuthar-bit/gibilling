@@ -1,5 +1,5 @@
 # ZynBill / Corezyn Cloud Ecosystem Server Dockerfile
-FROM node:20-bookworm-slim
+FROM node:22-bookworm-slim
 
 # Install system dependencies (curl for healthchecks, ca-certificates for SSL/TLS)
 RUN apt-get update && apt-get install -y --no-install-recommends \

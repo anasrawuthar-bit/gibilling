@@ -1,0 +1,8 @@
+version: 1.1.1
+files:
+  - url: ZynBill-Setup-1.1.1.exe
+    sha512: jSdWA/AJHU5vOd0+b90/TMqBgZno7lZZHFhzZyCADSIGg0Uqp5V+vsol94LqeEqX4ILW0I9mq5mlpBY3jLH4Kg==
+    size: 358943974
+path: ZynBill-Setup-1.1.1.exe
+sha512: jSdWA/AJHU5vOd0+b90/TMqBgZno7lZZHFhzZyCADSIGg0Uqp5V+vsol94LqeEqX4ILW0I9mq5mlpBY3jLH4Kg==
+releaseDate: '2026-11-08T06:57:07.301Z'
