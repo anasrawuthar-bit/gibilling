@@ -11,3 +11,4 @@ scratch/
 .env
 server/.env
 .DS_Store
+server/public/downloads/*.exe

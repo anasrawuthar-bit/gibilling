@@ -105,24 +105,41 @@ const server = http.createServer(async (req, res) => {
   }
 
   // ── Application Installer Download ─────────────────────────────────
-  if (req.method === 'GET' && (pathname === '/api/v1/download/app' || pathname === '/download')) {
-    const candidates = [
-      path.join(__dirname, '..', 'dist', 'ZynBill Setup 1.1.0.exe'),
-      path.join(__dirname, '..', 'dist', 'GI Billing Setup 1.1.0.exe'),
-      path.join(__dirname, '..', 'dist', 'win-unpacked', 'ZynBill.exe')
-    ];
+  if ((req.method === 'GET' || req.method === 'HEAD') && (pathname === '/api/v1/download/app' || pathname === '/download' || pathname.startsWith('/downloads/'))) {
+    const downloadsDir = path.join(__dirname, 'public', 'downloads');
+    let targetFile = null;
 
-    const exePath = candidates.find(p => fs.existsSync(p));
-    if (exePath) {
-      const filename = path.basename(exePath);
-      const stat = fs.statSync(exePath);
+    if (fs.existsSync(downloadsDir)) {
+      const files = fs.readdirSync(downloadsDir)
+        .filter(f => f.endsWith('.exe'))
+        .map(f => ({ name: f, time: fs.statSync(path.join(downloadsDir, f)).mtimeMs }))
+        .sort((a, b) => b.time - a.time);
+      if (files.length > 0) {
+        targetFile = path.join(downloadsDir, files[0].name);
+      }
+    }
+
+    if (!targetFile) {
+      const candidates = [
+        path.join(__dirname, '..', 'dist', 'ZynBill Setup 1.1.1.exe'),
+        path.join(__dirname, '..', 'dist', 'ZynBill Setup 1.1.0.exe'),
+        path.join(__dirname, '..', 'dist', 'GI Billing Setup 1.1.0.exe'),
+        path.join(__dirname, '..', 'dist', 'win-unpacked', 'ZynBill.exe')
+      ];
+      targetFile = candidates.find(p => fs.existsSync(p));
+    }
+
+    if (targetFile) {
+      const filename = path.basename(targetFile);
+      const stat = fs.statSync(targetFile);
       res.writeHead(200, {
         'Content-Type': 'application/octet-stream',
         'Content-Length': stat.size,
         'Content-Disposition': `attachment; filename="${filename}"`,
         'Access-Control-Allow-Origin': '*'
       });
-      return fs.createReadStream(exePath).pipe(res);
+      if (req.method === 'HEAD') return res.end();
+      return fs.createReadStream(targetFile).pipe(res);
     } else {
       return sendJson(res, 404, {
         ok: false,
