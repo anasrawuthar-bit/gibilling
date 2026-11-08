@@ -857,7 +857,24 @@
       }
     });
 
-    function switchMainTab(tab) {
+    window.addEventListener('hashchange', () => {
+      const hash = (window.location.hash || '').replace('#', '');
+      if (['customers', 'plans', 'smtp', 'releases'].includes(hash)) {
+        switchMainTab(hash, false);
+      }
+    });
+
+    function switchMainTab(tab, updateHash = true) {
+      const validTabs = ['customers', 'plans', 'smtp', 'releases'];
+      if (!validTabs.includes(tab)) tab = 'customers';
+
+      try {
+        localStorage.setItem('zynbill_admin_tab', tab);
+        if (updateHash && window.location.hash !== '#' + tab) {
+          history.replaceState(null, '', '#' + tab);
+        }
+      } catch (_) {}
+
       document.getElementById('tabBtnCustomers').classList.toggle('active', tab === 'customers');
       document.getElementById('tabBtnPlans').classList.toggle('active', tab === 'plans');
       document.getElementById('tabBtnSmtp').classList.toggle('active', tab === 'smtp');
@@ -868,6 +885,7 @@
       document.getElementById('viewSmtp').classList.toggle('hidden', tab !== 'smtp');
       document.getElementById('viewReleases').classList.toggle('hidden', tab !== 'releases');
 
+      if (tab === 'customers') loadCustomers();
       if (tab === 'plans') loadPlans();
       if (tab === 'smtp') loadSmtp();
       if (tab === 'releases') loadReleases();
@@ -912,8 +930,19 @@
       document.getElementById('loginCard').classList.add('hidden');
       document.getElementById('adminDashboard').classList.remove('hidden');
       document.getElementById('adminUserSection').style.display = 'flex';
-      loadCustomers();
-      loadPlans();
+
+      let initialTab = 'customers';
+      try {
+        const hash = (window.location.hash || '').replace('#', '');
+        const stored = localStorage.getItem('zynbill_admin_tab');
+        if (['customers', 'plans', 'smtp', 'releases'].includes(hash)) {
+          initialTab = hash;
+        } else if (['customers', 'plans', 'smtp', 'releases'].includes(stored)) {
+          initialTab = stored;
+        }
+      } catch (_) {}
+
+      switchMainTab(initialTab, true);
     }
 
     async function loadCustomers() {
