@@ -1382,13 +1382,15 @@ const server = http.createServer(async (req, res) => {
 
 // Start Server if run directly
 if (require.main === module) {
+  const publicUrl = (process.env.PUBLIC_URL || `http://localhost:${PORT}`).replace(/\/$/, '');
   server.listen(PORT, '0.0.0.0', () => {
     console.log(`\n======================================================`);
     console.log(`🚀 ZynBill Cloud Ecosystem Server running on http://localhost:${PORT}`);
-    console.log(`📋 Customer Registration Portal: http://localhost:${PORT}/register`);
-    console.log(`👤 Customer Self-Service Portal: http://localhost:${PORT}/portal`);
-    console.log(`👑 Super Admin Dashboard:        http://localhost:${PORT}/admin`);
-    console.log(`⚡ Sync & Auth REST Endpoints:    http://localhost:${PORT}/api/v1/`);
+    console.log(`🌐 Public Domain / URL:          ${publicUrl}`);
+    console.log(`📋 Customer Registration Portal: ${publicUrl}/register`);
+    console.log(`👤 Customer Self-Service Portal: ${publicUrl}/portal`);
+    console.log(`👑 Super Admin Dashboard:        ${publicUrl}/admin`);
+    console.log(`⚡ Sync & Auth REST Endpoints:    ${publicUrl}/api/v1/`);
     console.log(`======================================================\n`);
   });
 }
