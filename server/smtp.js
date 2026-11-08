@@ -119,14 +119,14 @@ async function sendMail({ to, subject, html, text }) {
  */
 function deliverViaSocket(mail, config) {
   return new Promise((resolve, reject) => {
-    const isSecure = config.secure || config.port === 465;
+    const isDirectTls = config.secure || parseInt(config.port, 10) === 465;
     let socket;
 
-    const onConnected = () => {
-      let state = 'INIT';
+    function setupSmtpFlow(s, isEncrypted) {
+      let state = isEncrypted ? 'INIT' : 'PLAIN_INIT';
       let buffer = '';
 
-      socket.on('data', (chunk) => {
+      s.on('data', (chunk) => {
         buffer += chunk.toString();
         const lines = buffer.split('\r\n');
         buffer = lines.pop(); // keep last incomplete line
@@ -135,27 +135,48 @@ function deliverViaSocket(mail, config) {
           const code = parseInt(line.slice(0, 3), 10);
           if (line[3] === '-') continue; // multiline reply
 
-          if (state === 'INIT' && code === 220) {
-            state = 'HELO';
-            socket.write(`EHLO zynbill.cloud\r\n`);
+          if ((state === 'INIT' || state === 'PLAIN_INIT') && code === 220) {
+            if (isDirectTls || isEncrypted) {
+              state = 'HELO';
+              s.write('EHLO zynbill.cloud\r\n');
+            } else {
+              state = 'STARTTLS_EHLO';
+              s.write('EHLO zynbill.cloud\r\n');
+            }
+          } else if (state === 'STARTTLS_EHLO' && code === 250) {
+            state = 'STARTTLS_REQ';
+            s.write('STARTTLS\r\n');
+          } else if (state === 'STARTTLS_REQ' && code === 220) {
+            // Upgrade socket to TLS
+            s.removeAllListeners('data');
+            const tlsSocket = tls.connect({
+              socket: s,
+              host: config.host,
+              rejectUnauthorized: false
+            }, () => {
+              setupSmtpFlow(tlsSocket, true);
+              tlsSocket.write('EHLO zynbill.cloud\r\n');
+            });
+            tlsSocket.on('error', reject);
+            return;
           } else if (state === 'HELO' && code === 250) {
             state = 'AUTH';
-            socket.write('AUTH LOGIN\r\n');
+            s.write('AUTH LOGIN\r\n');
           } else if (state === 'AUTH' && code === 334) {
             state = 'USER';
-            socket.write(Buffer.from(config.user).toString('base64') + '\r\n');
+            s.write(Buffer.from(config.user).toString('base64') + '\r\n');
           } else if (state === 'USER' && code === 334) {
             state = 'PASS';
-            socket.write(Buffer.from(config.pass).toString('base64') + '\r\n');
+            s.write(Buffer.from(config.pass).toString('base64') + '\r\n');
           } else if (state === 'PASS' && code === 235) {
             state = 'MAIL_FROM';
-            socket.write(`MAIL FROM:<${config.user}>\r\n`);
+            s.write(`MAIL FROM:<${config.user}>\r\n`);
           } else if (state === 'MAIL_FROM' && code === 250) {
             state = 'RCPT_TO';
-            socket.write(`RCPT TO:<${mail.to}>\r\n`);
+            s.write(`RCPT TO:<${mail.to}>\r\n`);
           } else if (state === 'RCPT_TO' && code === 250) {
             state = 'DATA';
-            socket.write('DATA\r\n');
+            s.write('DATA\r\n');
           } else if (state === 'DATA' && code === 354) {
             state = 'SEND_BODY';
             const raw = [
@@ -168,24 +189,28 @@ function deliverViaSocket(mail, config) {
               mail.html || mail.text,
               `\r\n.`
             ].join('\r\n') + '\r\n';
-            socket.write(raw);
+            s.write(raw);
           } else if (state === 'SEND_BODY' && code === 250) {
             state = 'QUIT';
-            socket.write('QUIT\r\n');
-            socket.end();
+            s.write('QUIT\r\n');
+            s.end();
             resolve();
           } else if (code >= 400) {
             reject(new Error(`SMTP error (${code}): ${line}`));
-            socket.destroy();
+            s.destroy();
           }
         }
       });
-    };
+    }
 
-    if (isSecure) {
-      socket = tls.connect(config.port, config.host, { rejectUnauthorized: false }, onConnected);
+    if (isDirectTls) {
+      socket = tls.connect(config.port, config.host, { rejectUnauthorized: false }, () => {
+        setupSmtpFlow(socket, true);
+      });
     } else {
-      socket = net.createConnection(config.port, config.host, onConnected);
+      socket = net.createConnection(config.port, config.host, () => {
+        setupSmtpFlow(socket, false);
+      });
     }
 
     socket.on('error', reject);
@@ -221,6 +246,9 @@ async function testSmtpConnection(targetEmail) {
       </div>
     `;
     const res = await sendMail({ to: targetEmail, subject, text, html });
+    if (!res.ok || res.delivered === false) {
+      return { ok: false, error: res.error || 'Failed to deliver email to SMTP server' };
+    }
     return { ok: true, message: `Test email sent successfully to ${targetEmail}`, result: res };
   } catch (err) {
     return { ok: false, error: err.message };
