@@ -1039,10 +1039,10 @@ const server = http.createServer(async (req, res) => {
       files.sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
     }
 
-    const activeVersion = db.getSetting('latest_version', files.length > 0 ? files[0].version : '1.1.1');
-    const activeFileName = db.getSetting('release_filename', files.length > 0 ? files[0].name : 'ZynBill Setup 1.1.1.exe');
-    const releaseNotes = db.getSetting('release_notes', 'General performance and security enhancements.');
-    const publishedAt = db.getSetting('published_at', new Date().toISOString());
+    const activeVersion = getSetting('latest_version', files.length > 0 ? files[0].version : '1.1.1');
+    const activeFileName = getSetting('release_filename', files.length > 0 ? files[0].name : 'ZynBill Setup 1.1.1.exe');
+    const releaseNotes = getSetting('release_notes', 'General performance and security enhancements.');
+    const publishedAt = getSetting('published_at', new Date().toISOString());
 
     return sendJson(res, 200, {
       ok: true,
@@ -1073,10 +1073,10 @@ const server = http.createServer(async (req, res) => {
     req.pipe(writeStream);
 
     writeStream.on('finish', () => {
-      db.setSetting('latest_version', version);
-      db.setSetting('release_filename', cleanFilename);
-      db.setSetting('release_notes', notes);
-      db.setSetting('published_at', new Date().toISOString());
+      setSetting('latest_version', version);
+      setSetting('release_filename', cleanFilename);
+      setSetting('release_notes', notes);
+      setSetting('published_at', new Date().toISOString());
 
       return sendJson(res, 200, {
         ok: true,
