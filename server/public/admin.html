@@ -1466,8 +1466,15 @@
         const res = await fetch('/api/v1/admin/releases', {
           headers: { 'Authorization': 'Bearer ' + adminToken }
         });
+        if (res.status === 401) {
+          handleLogout();
+          return;
+        }
         const data = await res.json();
-        if (!data.ok) return;
+        if (!data.ok) {
+          console.warn('Releases endpoint returned error:', data.error);
+          return;
+        }
 
         // Render Active Release
         const rel = data.activeRelease || {};
@@ -1515,6 +1522,17 @@
         alert('Please select an installer .exe file to upload.');
         return;
       }
+
+      if (!file.name.toLowerCase().endsWith('.exe')) {
+        alert('Invalid file format! Please select a Windows executable installer (.exe).');
+        return;
+      }
+
+      if (file.size < 1024 * 1024) {
+        alert(`The selected file is too small (${(file.size / 1024).toFixed(1)} KB). A valid compiled setup installer must be at least 1 MB.`);
+        return;
+      }
+
       if (!version) {
         alert('Please specify a version number (e.g. 1.1.2).');
         return;
@@ -1551,6 +1569,7 @@
                   '&filename=' + encodeURIComponent(file.name) +
                   '&allowDowngrade=' + (allowDowngrade ? 'true' : 'false');
       xhr.open('POST', url, true);
+      xhr.timeout = 30 * 60 * 1000; // 30-minute timeout for large installer binaries
       xhr.setRequestHeader('Authorization', 'Bearer ' + adminToken);
       xhr.setRequestHeader('Content-Type', 'application/octet-stream');
 
@@ -1582,24 +1601,31 @@
           const warnBox = document.getElementById('downgradeWarningBox');
           if (warnBox) warnBox.style.display = 'none';
           loadReleases();
+        } else if (xhr.status === 401) {
+          statusText.textContent = '❌ Session expired';
+          feedback.style.color = '#b91c1c';
+          feedback.textContent = 'Your session has expired. Please sign in again.';
+          setTimeout(handleLogout, 1500);
         } else {
           statusText.textContent = '❌ Upload rejected';
           feedback.style.color = '#b91c1c';
-          feedback.textContent = 'Error: ' + (resp.error || xhr.responseText || 'Failed to upload release');
+          const errMsg = resp.error || xhr.statusText || ('Upload failed with status ' + xhr.status);
+          feedback.textContent = 'Error: ' + errMsg;
         }
+      };
+
+      xhr.ontimeout = () => {
+        uploadBtn.disabled = false;
+        statusText.textContent = '❌ Upload timed out';
+        feedback.style.color = '#b91c1c';
+        feedback.textContent = 'Upload timed out after 30 minutes. Please check your network and retry.';
       };
 
       xhr.onerror = () => {
         uploadBtn.disabled = false;
         statusText.textContent = '❌ Network error';
         feedback.style.color = '#b91c1c';
-        feedback.textContent = 'Network error occurred during file upload.';
-      };
-
-      xhr.send(file);
-    }
-        feedback.style.color = '#b91c1c';
-        feedback.textContent = 'Network error occurred during file upload.';
+        feedback.textContent = 'Network error occurred during file upload. Check server connectivity.';
       };
 
       xhr.send(file);
@@ -1614,6 +1640,10 @@
           method: 'DELETE',
           headers: { 'Authorization': 'Bearer ' + adminToken }
         });
+        if (res.status === 401) {
+          handleLogout();
+          return;
+        }
         const data = await res.json();
         if (data.ok) {
           alert('File removed successfully.');

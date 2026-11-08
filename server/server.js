@@ -49,16 +49,28 @@ function sendHtml(res, filePath) {
   }
 }
 
-async function parseJsonBody(req) {
-  return new Promise((resolve) => {
+async function parseJsonBody(req, maxBytes = 10 * 1024 * 1024) {
+  return new Promise((resolve, reject) => {
     let body = '';
-    req.on('data', (chunk) => (body += chunk.toString()));
-    req.on('end', () => {
-      try {
-        resolve(body ? JSON.parse(body) : {});
-      } catch (_) {
-        resolve({});
+    let bytes = 0;
+    req.on('data', (chunk) => {
+      bytes += chunk.length;
+      if (bytes > maxBytes) {
+        req.destroy();
+        return reject(new Error('Request payload exceeded maximum size limit (10MB).'));
       }
+      body += chunk.toString();
+    });
+    req.on('end', () => {
+      if (!body) return resolve({});
+      try {
+        resolve(JSON.parse(body));
+      } catch (err) {
+        reject(new Error('Malformed JSON body: ' + err.message));
+      }
+    });
+    req.on('error', (err) => {
+      reject(err);
     });
   });
 }
@@ -73,8 +85,9 @@ function getBearerToken(req) {
 
 // ── Request Handler ───────────────────────────────────────────────────
 const server = http.createServer(async (req, res) => {
-  // CORS Preflight
-  if (req.method === 'OPTIONS') {
+  try {
+    // CORS Preflight
+    if (req.method === 'OPTIONS') {
     res.writeHead(204, {
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
@@ -131,7 +144,13 @@ const server = http.createServer(async (req, res) => {
 
     if (targetFile) {
       const filename = path.basename(targetFile);
-      const stat = fs.statSync(targetFile);
+      let stat;
+      try {
+        stat = fs.statSync(targetFile);
+      } catch (statErr) {
+        return sendJson(res, 500, { ok: false, error: 'Could not access setup file: ' + statErr.message });
+      }
+
       res.writeHead(200, {
         'Content-Type': 'application/octet-stream',
         'Content-Length': stat.size,
@@ -139,7 +158,20 @@ const server = http.createServer(async (req, res) => {
         'Access-Control-Allow-Origin': '*'
       });
       if (req.method === 'HEAD') return res.end();
-      return fs.createReadStream(targetFile).pipe(res);
+
+      const readStream = fs.createReadStream(targetFile);
+      readStream.on('error', (streamErr) => {
+        console.error('[Download Stream Error]:', streamErr);
+        if (!res.headersSent) {
+          sendJson(res, 500, { ok: false, error: 'Streaming error occurred.' });
+        } else {
+          res.destroy();
+        }
+      });
+      req.on('close', () => {
+        readStream.destroy();
+      });
+      return readStream.pipe(res);
     } else {
       return sendJson(res, 404, {
         ok: false,
@@ -1100,27 +1132,86 @@ const server = http.createServer(async (req, res) => {
     if (!fs.existsSync(downloadsDir)) fs.mkdirSync(downloadsDir, { recursive: true });
 
     const targetPath = path.join(downloadsDir, cleanFilename);
-    const writeStream = fs.createWriteStream(targetPath);
+    const tempPath = path.join(downloadsDir, `.tmp_${Date.now()}_${cleanFilename}`);
+    const writeStream = fs.createWriteStream(tempPath);
+
+    let bytesReceived = 0;
+    let aborted = false;
+
+    function cleanupTemp() {
+      try { writeStream.destroy(); } catch (_) {}
+      try { if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath); } catch (_) {}
+    }
+
+    req.on('aborted', () => {
+      aborted = true;
+      cleanupTemp();
+    });
+
+    req.on('close', () => {
+      if (!writeStream.writableEnded && !writeStream.destroyed) {
+        aborted = true;
+        cleanupTemp();
+      }
+    });
+
+    req.on('data', (chunk) => {
+      bytesReceived += chunk.length;
+    });
 
     req.pipe(writeStream);
 
     writeStream.on('finish', () => {
-      setSetting('latest_version', version);
-      setSetting('release_filename', cleanFilename);
-      setSetting('release_notes', notes);
-      setSetting('published_at', new Date().toISOString());
+      if (aborted) return;
+
+      // Validate installer size (must be at least 1 MB to avoid empty or truncated uploads)
+      if (bytesReceived < 1024 * 1024) {
+        cleanupTemp();
+        return sendJson(res, 400, {
+          ok: false,
+          error: `Uploaded file is corrupt or too small (${(bytesReceived / 1024).toFixed(1)} KB). A valid Windows installer must be greater than 1 MB.`
+        });
+      }
+
+      // Atomically move temp file to target release path
+      try {
+        if (fs.existsSync(targetPath)) {
+          fs.unlinkSync(targetPath);
+        }
+        fs.renameSync(tempPath, targetPath);
+      } catch (renameErr) {
+        cleanupTemp();
+        return sendJson(res, 500, {
+          ok: false,
+          error: 'Failed to finalize uploaded package on server storage: ' + renameErr.message
+        });
+      }
+
+      // Persist active settings in DB
+      try {
+        setSetting('latest_version', version);
+        setSetting('release_filename', cleanFilename);
+        setSetting('release_notes', notes);
+        setSetting('published_at', new Date().toISOString());
+      } catch (dbErr) {
+        console.error('[Settings Save Error]:', dbErr);
+      }
 
       return sendJson(res, 200, {
         ok: true,
         message: `Version ${version} published successfully!`,
         version,
-        fileName: cleanFilename
+        fileName: cleanFilename,
+        sizeBytes: bytesReceived,
+        sizeMb: (bytesReceived / (1024 * 1024)).toFixed(1) + ' MB'
       });
     });
 
     writeStream.on('error', (err) => {
-      try { if (fs.existsSync(targetPath)) fs.unlinkSync(targetPath); } catch (_) {}
-      return sendJson(res, 500, { ok: false, error: 'File upload failed: ' + err.message });
+      cleanupTemp();
+      if (!res.headersSent) {
+        return sendJson(res, 500, { ok: false, error: 'Disk write error during upload: ' + err.message });
+      }
     });
     return;
   }
@@ -1516,6 +1607,28 @@ const server = http.createServer(async (req, res) => {
 
   // Fallthrough 404
   return sendJson(res, 404, { ok: false, error: `Route not found: ${req.method} ${pathname}` });
+  } catch (err) {
+    console.error(`[Server Error] [${new Date().toISOString()}] ${req.method} ${req.url}:`, err.stack || err);
+    if (!res.headersSent) {
+      const isClientPayloadError = err.message && (err.message.includes('Malformed JSON') || err.message.includes('exceeded'));
+      const statusCode = isClientPayloadError ? 400 : 500;
+      return sendJson(res, statusCode, {
+        ok: false,
+        error: isClientPayloadError ? err.message : 'An unexpected server error occurred.'
+      });
+    } else {
+      res.end();
+    }
+  }
+});
+
+// Global process error management to prevent server crashes
+process.on('uncaughtException', (err) => {
+  console.error(`[CRITICAL] [${new Date().toISOString()}] Uncaught Exception:`, err.stack || err);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error(`[CRITICAL] [${new Date().toISOString()}] Unhandled Promise Rejection:`, reason);
 });
 
 // Start Server if run directly
