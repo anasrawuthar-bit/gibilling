@@ -10,7 +10,17 @@ const path = require('node:path');
 const url = require('node:url');
 const crypto = require('node:crypto');
 
-const { masterDb, hashPassword, verifyPassword, getTenantDb, getSetting, setSetting } = require('./db');
+const {
+  masterDb,
+  hashPassword,
+  verifyPassword,
+  getTenantDb,
+  getSetting,
+  setSetting,
+  logSystemError,
+  getErrorLogs,
+  clearErrorLogs
+} = require('./db');
 const smtp = require('./smtp');
 
 const PORT = parseInt(process.env.PORT || '4000', 10);
@@ -1274,6 +1284,50 @@ const server = http.createServer(async (req, res) => {
     return sendJson(res, 404, { ok: false, error: 'File not found.' });
   }
 
+  // ── Error Monitoring & Telemetry Endpoints (Super Admin & Clients) ─
+
+  // 1. Get System & Error Logs with Filters and KPI Stats
+  if (req.method === 'GET' && pathname === '/api/v1/admin/logs') {
+    if (!verifyAdmin(req, res)) return;
+    const { level = '', source = '', limit = 100 } = query;
+    const result = getErrorLogs({ level, source, limit });
+    return sendJson(res, 200, { ok: true, ...result });
+  }
+
+  // 2. Clear All Error Logs
+  if (req.method === 'DELETE' && pathname === '/api/v1/admin/logs') {
+    if (!verifyAdmin(req, res)) return;
+    const success = clearErrorLogs();
+    return sendJson(res, 200, { ok: success, message: 'Logs cleared successfully' });
+  }
+
+  // 3. Ingest Error Telemetry from Desktop App or Client Portal
+  if (req.method === 'POST' && pathname === '/api/v1/telemetry/report-error') {
+    const body = await parseJsonBody(req).catch(() => ({}));
+    const {
+      source = 'desktop_client',
+      level = 'ERROR',
+      message,
+      stack = '',
+      clientVersion = '',
+      customerId = ''
+    } = body;
+
+    if (message) {
+      logSystemError({
+        source,
+        level,
+        message,
+        stack,
+        clientVersion,
+        customerId,
+        endpoint: 'client_telemetry',
+        ipAddress: req.socket?.remoteAddress || ''
+      });
+    }
+    return sendJson(res, 200, { ok: true, message: 'Telemetry logged' });
+  }
+
   // ── Customer Web Portal Endpoints ─────────────────────────────────
 
   // 1. Customer Login
@@ -1645,8 +1699,21 @@ const server = http.createServer(async (req, res) => {
   return sendJson(res, 404, { ok: false, error: `Route not found: ${req.method} ${pathname}` });
   } catch (err) {
     console.error(`[Server Error] [${new Date().toISOString()}] ${req.method} ${req.url}:`, err.stack || err);
+    const isClientPayloadError = err.message && (err.message.includes('Malformed JSON') || err.message.includes('exceeded'));
+    
+    // Log into master database for admin error monitoring
+    try {
+      logSystemError({
+        source: 'server',
+        level: isClientPayloadError ? 'WARN' : 'ERROR',
+        message: err.message || 'Server Request Error',
+        stack: err.stack || '',
+        endpoint: `${req.method} ${req.url}`,
+        ipAddress: req.socket?.remoteAddress || ''
+      });
+    } catch (_) {}
+
     if (!res.headersSent) {
-      const isClientPayloadError = err.message && (err.message.includes('Malformed JSON') || err.message.includes('exceeded'));
       const statusCode = isClientPayloadError ? 400 : 500;
       return sendJson(res, statusCode, {
         ok: false,
@@ -1661,10 +1728,26 @@ const server = http.createServer(async (req, res) => {
 // Global process error management to prevent server crashes
 process.on('uncaughtException', (err) => {
   console.error(`[CRITICAL] [${new Date().toISOString()}] Uncaught Exception:`, err.stack || err);
+  try {
+    logSystemError({
+      source: 'server',
+      level: 'CRITICAL',
+      message: err.message || 'Uncaught Process Exception',
+      stack: err.stack || ''
+    });
+  } catch (_) {}
 });
 
 process.on('unhandledRejection', (reason, promise) => {
   console.error(`[CRITICAL] [${new Date().toISOString()}] Unhandled Promise Rejection:`, reason);
+  try {
+    logSystemError({
+      source: 'server',
+      level: 'ERROR',
+      message: String(reason?.message || reason || 'Unhandled Promise Rejection'),
+      stack: reason?.stack || ''
+    });
+  } catch (_) {}
 });
 
 // Start Server if run directly

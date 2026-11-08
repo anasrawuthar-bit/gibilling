@@ -129,6 +129,20 @@ masterDb.exec(`
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
   );
+
+  CREATE TABLE IF NOT EXISTS error_logs (
+    id TEXT PRIMARY KEY,
+    source TEXT NOT NULL,         -- 'server', 'desktop_client', 'sync_engine', 'auth', 'database'
+    level TEXT NOT NULL,          -- 'CRITICAL', 'ERROR', 'WARN', 'INFO'
+    message TEXT NOT NULL,
+    stack TEXT,
+    endpoint TEXT,
+    customer_id TEXT,
+    client_version TEXT,
+    ip_address TEXT,
+    created_at TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_error_logs_created ON error_logs (created_at DESC);
 `);
 
 // Add pin columns to customers if not present
@@ -156,6 +170,85 @@ function setSetting(key, value) {
     VALUES (?, ?, ?)
     ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
   `).run(key, String(value), now);
+}
+
+// Error Logging Helpers
+function logSystemError({
+  source = 'server',
+  level = 'ERROR',
+  message,
+  stack = '',
+  endpoint = '',
+  customerId = '',
+  clientVersion = '',
+  ipAddress = ''
+}) {
+  try {
+    const id = 'err_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+    const stmt = masterDb.prepare(`
+      INSERT INTO error_logs (id, source, level, message, stack, endpoint, customer_id, client_version, ip_address, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    stmt.run(
+      id,
+      String(source).slice(0, 32),
+      String(level).toUpperCase().slice(0, 16),
+      String(message || 'Unknown error').slice(0, 1000),
+      String(stack || '').slice(0, 5000),
+      String(endpoint || '').slice(0, 255),
+      String(customerId || '').slice(0, 64),
+      String(clientVersion || '').slice(0, 32),
+      String(ipAddress || '').slice(0, 64),
+      new Date().toISOString()
+    );
+    return id;
+  } catch (err) {
+    console.error('[Failed to insert error log]:', err);
+    return null;
+  }
+}
+
+function getErrorLogs({ limit = 100, level = '', source = '' } = {}) {
+  try {
+    let query = 'SELECT * FROM error_logs WHERE 1=1';
+    const params = [];
+    if (level) {
+      query += ' AND level = ?';
+      params.push(level.toUpperCase());
+    }
+    if (source) {
+      query += ' AND source = ?';
+      params.push(source);
+    }
+    query += ' ORDER BY created_at DESC LIMIT ?';
+    params.push(Math.min(parseInt(limit, 10) || 100, 500));
+
+    const rows = masterDb.prepare(query).all(...params);
+
+    const today = new Date().toISOString().slice(0, 10);
+    const totalToday = masterDb.prepare("SELECT COUNT(*) as c FROM error_logs WHERE created_at LIKE ?").get(`${today}%`)?.c || 0;
+    const criticalCount = masterDb.prepare("SELECT COUNT(*) as c FROM error_logs WHERE level = 'CRITICAL'").get()?.c || 0;
+    const clientCount = masterDb.prepare("SELECT COUNT(*) as c FROM error_logs WHERE source = 'desktop_client'").get()?.c || 0;
+    const serverCount = masterDb.prepare("SELECT COUNT(*) as c FROM error_logs WHERE source = 'server'").get()?.c || 0;
+
+    return {
+      logs: rows,
+      stats: { totalToday, criticalCount, clientCount, serverCount }
+    };
+  } catch (err) {
+    console.error('[Failed to retrieve error logs]:', err);
+    return { logs: [], stats: { totalToday: 0, criticalCount: 0, clientCount: 0, serverCount: 0 } };
+  }
+}
+
+function clearErrorLogs() {
+  try {
+    masterDb.prepare('DELETE FROM error_logs').run();
+    return true;
+  } catch (err) {
+    console.error('[Failed to clear error logs]:', err);
+    return false;
+  }
 }
 
 // Seed default plans if empty
@@ -326,5 +419,8 @@ module.exports = {
   getTenantDb,
   getTenantDbPath,
   getSetting,
-  setSetting
+  setSetting,
+  logSystemError,
+  getErrorLogs,
+  clearErrorLogs
 };

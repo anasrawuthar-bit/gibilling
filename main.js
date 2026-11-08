@@ -34,6 +34,57 @@ if (!singleInstanceLock) {
   app.exit(0);
 }
 
+// Global Electron Process Crash & Telemetry Logging
+process.on('uncaughtException', (err) => {
+  console.error('[CRITICAL] Uncaught Exception in Electron Main:', err);
+  try {
+    const http = require('node:http');
+    const payload = JSON.stringify({
+      source: 'desktop_client',
+      level: 'CRITICAL',
+      message: err.message || 'Electron Main Process Exception',
+      stack: err.stack || '',
+      clientVersion: app.getVersion()
+    });
+    const req = http.request('http://localhost:4000/api/v1/telemetry/report-error', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(payload)
+      },
+      timeout: 3000
+    });
+    req.on('error', () => {});
+    req.write(payload);
+    req.end();
+  } catch (_) {}
+});
+
+process.on('unhandledRejection', (reason) => {
+  console.error('[ERROR] Unhandled Rejection in Electron Main:', reason);
+  try {
+    const http = require('node:http');
+    const payload = JSON.stringify({
+      source: 'desktop_client',
+      level: 'ERROR',
+      message: String(reason?.message || reason || 'Unhandled Rejection'),
+      stack: reason?.stack || '',
+      clientVersion: app.getVersion()
+    });
+    const req = http.request('http://localhost:4000/api/v1/telemetry/report-error', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(payload)
+      },
+      timeout: 3000
+    });
+    req.on('error', () => {});
+    req.write(payload);
+    req.end();
+  } catch (_) {}
+});
+
 function focusWindowForInput(window = mainWindow, options = {}) {
   if (!window || window.isDestroyed()) return;
 

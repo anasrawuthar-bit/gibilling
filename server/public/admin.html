@@ -378,6 +378,9 @@
       <button class="main-tab-btn" id="tabBtnReleases" onclick="switchMainTab('releases')">
         🚀 App Releases & Updates
       </button>
+      <button class="main-tab-btn" id="tabBtnLogs" onclick="switchMainTab('logs')">
+        🛡️ Error Monitoring
+      </button>
     </div>
 
     <!-- ── TAB 1: CUSTOMERS ────────────────────────────────────── -->
@@ -647,6 +650,76 @@
       </div>
     </div>
 
+    <!-- ── TAB 5: SYSTEM & ERROR MONITORING ─────────────────────── -->
+    <div id="viewLogs" class="hidden">
+      <!-- KPI Overview Cards -->
+      <div class="kpi-grid">
+        <div class="kpi-card">
+          <div class="kpi-label">Errors Today</div>
+          <div class="kpi-value" id="kpiErrorsToday">0</div>
+          <div class="kpi-sub">Total logged issues across services</div>
+        </div>
+        <div class="kpi-card" style="border-left: 4px solid var(--danger);">
+          <div class="kpi-label">Critical Failures</div>
+          <div class="kpi-value" id="kpiCriticalCount" style="color: #b91c1c;">0</div>
+          <div class="kpi-sub">Uncaught process exceptions &amp; crash events</div>
+        </div>
+        <div class="kpi-card" style="border-left: 4px solid #0284c7;">
+          <div class="kpi-label">Desktop App Issues</div>
+          <div class="kpi-value" id="kpiClientCount" style="color: #0284c7;">0</div>
+          <div class="kpi-sub">Client-side telemetry from Windows PCs</div>
+        </div>
+        <div class="kpi-card" style="border-left: 4px solid var(--warning);">
+          <div class="kpi-label">Server &amp; Sync Issues</div>
+          <div class="kpi-value" id="kpiServerCount" style="color: #b45309;">0</div>
+          <div class="kpi-sub">Cloud API &amp; tenant database events</div>
+        </div>
+      </div>
+
+      <!-- Error Logs Table Card -->
+      <div class="table-card">
+        <div class="table-toolbar">
+          <div style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap;">
+            <div class="filter-tabs">
+              <button class="filter-btn active" id="logFilterAll" onclick="setLogFilter('level', '', this)">All Levels</button>
+              <button class="filter-btn" id="logFilterCritical" onclick="setLogFilter('level', 'CRITICAL', this)">Critical</button>
+              <button class="filter-btn" id="logFilterError" onclick="setLogFilter('level', 'ERROR', this)">Errors</button>
+              <button class="filter-btn" id="logFilterWarn" onclick="setLogFilter('level', 'WARN', this)">Warnings</button>
+            </div>
+            <select class="select-control" style="width: 170px; height: 34px; padding: 4px 10px; font-size: 12px;" id="logSourceSelect" onchange="setLogFilter('source', this.value)">
+              <option value="">All Sources</option>
+              <option value="server">Cloud Server</option>
+              <option value="desktop_client">Desktop App</option>
+              <option value="sync_engine">Sync Engine</option>
+            </select>
+          </div>
+          <div style="display: flex; gap: 10px; align-items: center;">
+            <label style="display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--muted); cursor: pointer; user-select: none;">
+              <input type="checkbox" id="logAutoRefreshCheckbox" onchange="toggleLogAutoRefresh(this.checked)"> Auto-Refresh (10s)
+            </label>
+            <button type="button" class="btn-action btn-secondary" onclick="loadLogs()" style="padding: 6px 14px; font-size: 12.5px;">🔄 Refresh</button>
+            <button type="button" class="btn-action btn-danger" onclick="handleClearLogs()" style="padding: 6px 14px; font-size: 12.5px;">🗑️ Clear Logs</button>
+          </div>
+        </div>
+
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th style="width: 150px;">Timestamp</th>
+              <th style="width: 95px;">Level</th>
+              <th style="width: 130px;">Source</th>
+              <th>Message</th>
+              <th>Origin / Version</th>
+              <th style="text-align: right; width: 100px;">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="logsTableBody">
+            <tr><td colspan="6" style="text-align: center; color: var(--muted); padding: 36px;">Loading system error logs...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
   </div>
 
   <!-- Review & Approve Modal -->
@@ -743,6 +816,27 @@
 
       <div class="modal-actions">
         <button type="button" class="btn-action btn-secondary" onclick="closeDevicesModal()">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Error Log Details Modal -->
+  <div class="modal-backdrop hidden" id="logDetailsModal">
+    <div class="modal-card" style="max-width: 680px;">
+      <div class="modal-head">
+        <h3 id="modalLogTitle">Error Details</h3>
+        <p id="modalLogMeta" style="font-family: monospace; font-size: 12px; margin-top: 4px; color: var(--muted);"></p>
+      </div>
+      <div style="margin-bottom: 14px;">
+        <label class="field-label">Error Message</label>
+        <div id="modalLogMessage" style="background:#f8fafc; border:1px solid var(--border); border-radius:6px; padding:10px 14px; font-size:13px; font-weight:600; color:#0f172a; word-break:break-all;"></div>
+      </div>
+      <div style="margin-bottom: 14px;">
+        <label class="field-label">Stack Trace &amp; Details</label>
+        <pre id="modalLogStack" style="background:#0f172a; color:#f8fafc; border-radius:6px; padding:12px 14px; font-size:11.5px; font-family:Consolas,monospace; max-height:260px; overflow-y:auto; white-space:pre-wrap; word-break:break-all;"></pre>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn-action btn-secondary" onclick="closeLogModal()">Close</button>
       </div>
     </div>
   </div>
@@ -859,13 +953,13 @@
 
     window.addEventListener('hashchange', () => {
       const hash = (window.location.hash || '').replace('#', '');
-      if (['customers', 'plans', 'smtp', 'releases'].includes(hash)) {
+      if (['customers', 'plans', 'smtp', 'releases', 'logs'].includes(hash)) {
         switchMainTab(hash, false);
       }
     });
 
     function switchMainTab(tab, updateHash = true) {
-      const validTabs = ['customers', 'plans', 'smtp', 'releases'];
+      const validTabs = ['customers', 'plans', 'smtp', 'releases', 'logs'];
       if (!validTabs.includes(tab)) tab = 'customers';
 
       try {
@@ -879,16 +973,19 @@
       document.getElementById('tabBtnPlans').classList.toggle('active', tab === 'plans');
       document.getElementById('tabBtnSmtp').classList.toggle('active', tab === 'smtp');
       document.getElementById('tabBtnReleases').classList.toggle('active', tab === 'releases');
+      document.getElementById('tabBtnLogs').classList.toggle('active', tab === 'logs');
 
       document.getElementById('viewCustomers').classList.toggle('hidden', tab !== 'customers');
       document.getElementById('viewPlans').classList.toggle('hidden', tab !== 'plans');
       document.getElementById('viewSmtp').classList.toggle('hidden', tab !== 'smtp');
       document.getElementById('viewReleases').classList.toggle('hidden', tab !== 'releases');
+      document.getElementById('viewLogs').classList.toggle('hidden', tab !== 'logs');
 
       if (tab === 'customers') loadCustomers();
       if (tab === 'plans') loadPlans();
       if (tab === 'smtp') loadSmtp();
       if (tab === 'releases') loadReleases();
+      if (tab === 'logs') loadLogs();
     }
 
     async function handleLogin(e) {
@@ -935,9 +1032,9 @@
       try {
         const hash = (window.location.hash || '').replace('#', '');
         const stored = localStorage.getItem('zynbill_admin_tab');
-        if (['customers', 'plans', 'smtp', 'releases'].includes(hash)) {
+        if (['customers', 'plans', 'smtp', 'releases', 'logs'].includes(hash)) {
           initialTab = hash;
-        } else if (['customers', 'plans', 'smtp', 'releases'].includes(stored)) {
+        } else if (['customers', 'plans', 'smtp', 'releases', 'logs'].includes(stored)) {
           initialTab = stored;
         }
       } catch (_) {}
@@ -1679,6 +1776,144 @@
           loadReleases();
         } else {
           alert(data.error || 'Failed to delete file.');
+        }
+      } catch (err) {
+        alert(err.message);
+      }
+    }
+
+    // ── Error Monitoring JS ──────────────────────────────────────────
+    let currentLogs = [];
+    let logFilterLevel = '';
+    let logFilterSource = '';
+    let logAutoRefreshInterval = null;
+
+    function setLogFilter(type, value, btnEl) {
+      if (type === 'level') {
+        logFilterLevel = value;
+        document.querySelectorAll('#viewLogs .filter-btn').forEach(b => b.classList.remove('active'));
+        if (btnEl) btnEl.classList.add('active');
+      } else if (type === 'source') {
+        logFilterSource = value;
+      }
+      loadLogs();
+    }
+
+    function toggleLogAutoRefresh(enabled) {
+      if (logAutoRefreshInterval) {
+        clearInterval(logAutoRefreshInterval);
+        logAutoRefreshInterval = null;
+      }
+      if (enabled) {
+        logAutoRefreshInterval = setInterval(() => {
+          const viewLogs = document.getElementById('viewLogs');
+          if (viewLogs && !viewLogs.classList.contains('hidden')) {
+            loadLogs(true);
+          }
+        }, 10000);
+      }
+    }
+
+    async function loadLogs(isSilent = false) {
+      try {
+        const params = new URLSearchParams();
+        if (logFilterLevel) params.append('level', logFilterLevel);
+        if (logFilterSource) params.append('source', logFilterSource);
+        params.append('limit', '150');
+
+        const res = await fetch('/api/v1/admin/logs?' + params.toString(), {
+          headers: { 'Authorization': 'Bearer ' + adminToken }
+        });
+        if (res.status === 401) {
+          handleLogout();
+          return;
+        }
+        const data = await res.json();
+        if (!data.ok) return;
+
+        currentLogs = data.logs || [];
+        const stats = data.stats || {};
+
+        // Render KPI Counters
+        document.getElementById('kpiErrorsToday').textContent = stats.totalToday || 0;
+        document.getElementById('kpiCriticalCount').textContent = stats.criticalCount || 0;
+        document.getElementById('kpiClientCount').textContent = stats.clientCount || 0;
+        document.getElementById('kpiServerCount').textContent = stats.serverCount || 0;
+
+        // Render Table Body
+        const tbody = document.getElementById('logsTableBody');
+        if (currentLogs.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: var(--muted); padding: 36px;">✓ No error logs found for current filters. System running cleanly.</td></tr>';
+          return;
+        }
+
+        tbody.innerHTML = currentLogs.map(l => {
+          let badgeBg = '#f1f5f9';
+          let badgeColor = '#475569';
+          if (l.level === 'CRITICAL') { badgeBg = '#fee2e2'; badgeColor = '#991b1b'; }
+          else if (l.level === 'ERROR') { badgeBg = '#fef2f2'; badgeColor = '#dc2626'; }
+          else if (l.level === 'WARN') { badgeBg = '#fef3c7'; badgeColor = '#b45309'; }
+          else if (l.level === 'INFO') { badgeBg = '#e0f2fe'; badgeColor = '#0369a1'; }
+
+          let sourceLabel = l.source;
+          if (l.source === 'desktop_client') sourceLabel = '🖥️ Desktop App';
+          else if (l.source === 'server') sourceLabel = '☁️ Cloud Server';
+          else if (l.source === 'sync_engine') sourceLabel = '🔄 Sync Engine';
+
+          const timeStr = new Date(l.created_at).toLocaleTimeString([], { hour:'2-digit', minute:'2-digit', second:'2-digit' });
+          const dateStr = new Date(l.created_at).toLocaleDateString();
+
+          const originInfo = l.client_version ? ('v' + l.client_version) : (l.endpoint || '-');
+
+          return `
+            <tr>
+              <td style="font-size:12px; color:var(--muted);">${dateStr} ${timeStr}</td>
+              <td><span class="badge" style="background:${badgeBg}; color:${badgeColor}; font-weight:700; font-size:11px;">${escapeHtml(l.level)}</span></td>
+              <td><span style="font-weight:600; font-size:12.5px;">${escapeHtml(sourceLabel)}</span></td>
+              <td style="max-width:340px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:500;" title="${escapeHtml(l.message)}">
+                ${escapeHtml(l.message)}
+              </td>
+              <td style="font-size:12px; color:var(--muted); font-family:monospace;">${escapeHtml(originInfo)}</td>
+              <td style="text-align: right;">
+                <button type="button" class="btn-action btn-secondary" style="padding:4px 10px; font-size:12px;" onclick="openLogDetails('${escapeHtml(l.id)}')">View Details</button>
+              </td>
+            </tr>
+          `;
+        }).join('');
+      } catch (err) {
+        console.error('Failed to load error logs:', err);
+      }
+    }
+
+    function openLogDetails(logId) {
+      const log = currentLogs.find(l => l.id === logId);
+      if (!log) return;
+
+      document.getElementById('modalLogTitle').textContent = `Log Entry: ${log.level} (${log.source})`;
+      document.getElementById('modalLogMeta').textContent = `ID: ${log.id} • ${new Date(log.created_at).toLocaleString()} • Origin: ${log.endpoint || '-'} • Version: ${log.client_version || '-'}`;
+      document.getElementById('modalLogMessage').textContent = log.message;
+      document.getElementById('modalLogStack').textContent = log.stack || 'No stack trace captured.';
+
+      document.getElementById('logDetailsModal').classList.remove('hidden');
+    }
+
+    function closeLogModal() {
+      document.getElementById('logDetailsModal').classList.add('hidden');
+    }
+
+    async function handleClearLogs() {
+      if (!confirm('Are you sure you want to clear all error logs? This cannot be undone.')) return;
+      try {
+        const res = await fetch('/api/v1/admin/logs', {
+          method: 'DELETE',
+          headers: { 'Authorization': 'Bearer ' + adminToken }
+        });
+        if (res.status === 401) { handleLogout(); return; }
+        const data = await res.json();
+        if (data.ok) {
+          loadLogs();
+        } else {
+          alert('Failed to clear logs.');
         }
       } catch (err) {
         alert(err.message);
