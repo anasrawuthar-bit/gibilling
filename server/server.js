@@ -117,6 +117,18 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
+  // ── Electron autoUpdater standard manifest (latest.yml) ────────────
+  if (req.method === 'GET' && (pathname === '/latest.yml' || pathname === '/downloads/latest.yml' || pathname === '/api/v1/downloads/latest.yml')) {
+    const ymlPath = path.join(__dirname, 'public', 'downloads', 'latest.yml');
+    if (fs.existsSync(ymlPath)) {
+      res.writeHead(200, {
+        'Content-Type': 'text/yaml; charset=utf-8',
+        'Access-Control-Allow-Origin': '*'
+      });
+      return fs.createReadStream(ymlPath).pipe(res);
+    }
+  }
+
   // ── Application Installer Download ─────────────────────────────────
   if ((req.method === 'GET' || req.method === 'HEAD') && (pathname === '/api/v1/download/app' || pathname === '/download' || pathname.startsWith('/downloads/'))) {
     const downloadsDir = path.join(__dirname, 'public', 'downloads');
@@ -1195,6 +1207,30 @@ const server = http.createServer(async (req, res) => {
         setSetting('published_at', new Date().toISOString());
       } catch (dbErr) {
         console.error('[Settings Save Error]:', dbErr);
+      }
+
+      // Compute SHA512 and generate Electron latest.yml manifest
+      try {
+        const hash = crypto.createHash('sha512');
+        const fileStream = fs.createReadStream(targetPath);
+        fileStream.on('data', (c) => hash.update(c));
+        fileStream.on('end', () => {
+          const sha512 = hash.digest('base64');
+          const ymlContent = [
+            `version: ${version}`,
+            `files:`,
+            `  - url: ${cleanFilename}`,
+            `    sha512: ${sha512}`,
+            `    size: ${bytesReceived}`,
+            `path: ${cleanFilename}`,
+            `sha512: ${sha512}`,
+            `releaseDate: '${new Date().toISOString()}'`,
+            ``
+          ].join('\n');
+          fs.writeFileSync(path.join(downloadsDir, 'latest.yml'), ymlContent, 'utf8');
+        });
+      } catch (ymlErr) {
+        console.error('[latest.yml Generation Error]:', ymlErr);
       }
 
       return sendJson(res, 200, {
