@@ -398,6 +398,12 @@ async function run() {
     // 5. Verify IPC input validation regexes
     assert.ok(mainJs.includes("const EMAIL_REGEX ="), "main.js must validate email format for cloud IPC handlers");
     assert.ok(mainJs.includes("const SIX_DIGIT_REGEX ="), "main.js must enforce 6-digit format for device and PIN OTPs");
+
+    // 6. Verify AUD-009 SSRF protections: IP classification, redirect prevention, and DNS rebinding checks
+    assert.ok(mainJs.includes("classifyIpAddress"), "main.js must classify IP addresses for private and link-local ranges");
+    assert.ok(mainJs.includes('redirect: "error"'), "main.js fetch must reject redirects to prevent redirect-based SSRF");
+    assert.ok(mainJs.includes("dns.promises.lookup"), "main.js must verify DNS host resolution to prevent DNS rebinding");
+    assert.ok(mainJs.includes("DNS rebinding rejected"), "main.js must reject domains that resolve to internal/private IPs in production");
     console.log("✓ Cloud IPC security, SSRF prevention, and HTTPS enforcement verified.");
 
     console.log("\n=======================================================");

@@ -2,6 +2,8 @@ const { app, BrowserWindow, Menu, Tray, dialog, ipcMain, nativeImage, shell } = 
 const path = require("path");
 const fs = require("fs");
 const os = require("os");
+const dns = require("node:dns");
+const net = require("node:net");
 const database = require("./database");
 const { SyncService, DisabledSyncAdapter, HttpSyncAdapter } = require("./sync-service");
 const { whatsappService } = require("./whatsapp-service");
@@ -823,6 +825,49 @@ function isLocalOrLoopbackHost(hostname) {
   return host === "localhost" || host === "127.0.0.1" || host === "::1" || host === "[::1]";
 }
 
+function classifyIpAddress(ip) {
+  if (!net.isIP(ip)) return { isIp: false };
+  const isV4 = net.isIPv4(ip);
+  if (isV4) {
+    const parts = ip.split(".").map(Number);
+    const [o1, o2, o3, o4] = parts;
+    const isLoopback = o1 === 127;
+    const isLinkLocal = o1 === 169 && o2 === 254; // AWS/GCP/Azure metadata (169.254.169.254) & APIPA
+    const isPrivate =
+      o1 === 10 ||
+      (o1 === 172 && o2 >= 16 && o2 <= 31) ||
+      (o1 === 192 && o2 === 168);
+    const isUnspecified = o1 === 0 || ip === "255.255.255.255";
+    const isCarrierNat = o1 === 100 && o2 >= 64 && o2 <= 127;
+    return {
+      isIp: true,
+      version: 4,
+      isLoopback,
+      isLinkLocal,
+      isPrivate,
+      isUnspecified,
+      isCarrierNat,
+      isDisallowed: isLinkLocal || isUnspecified
+    };
+  } else {
+    // IPv6
+    const clean = ip.toLowerCase();
+    const isLoopback = clean === "::1";
+    const isLinkLocal = clean.startsWith("fe80:");
+    const isUniqueLocal = clean.startsWith("fc") || clean.startsWith("fd");
+    const isUnspecified = clean === "::";
+    return {
+      isIp: true,
+      version: 6,
+      isLoopback,
+      isLinkLocal,
+      isPrivate: isUniqueLocal,
+      isUnspecified,
+      isDisallowed: isLinkLocal || isUnspecified
+    };
+  }
+}
+
 function isDisallowedCloudHost(hostname) {
   const host = (hostname || "").toLowerCase().trim();
   // Block AWS / GCP / Azure / OpenStack metadata services and link-local ranges (SSRF protection)
@@ -834,6 +879,10 @@ function isDisallowedCloudHost(hostname) {
     host === "255.255.255.255" ||
     host.startsWith("169.254.")
   ) {
+    return true;
+  }
+  const ipInfo = classifyIpAddress(host);
+  if (ipInfo.isIp && ipInfo.isDisallowed) {
     return true;
   }
   return false;
@@ -892,6 +941,42 @@ async function safeCloudFetch(endpoint, options = {}, candidateUrl) {
     return { ok: false, status: 400, error: "Malformed target URL construction." };
   }
 
+  // DNS Resolution & DNS Rebinding Verification
+  try {
+    const hostname = targetUrlObj.hostname;
+    const ipInfo = classifyIpAddress(hostname);
+    if (ipInfo.isIp) {
+      if (ipInfo.isDisallowed) {
+        return { ok: false, status: 400, error: "SSRF Protection: Disallowed IP target." };
+      }
+    } else if (!isLocalOrLoopbackHost(hostname)) {
+      // Non-loopback hostname: perform DNS check to prevent DNS rebinding attacks
+      const addresses = await dns.promises.lookup(hostname, { all: true });
+      for (const addr of addresses) {
+        const resolvedIp = classifyIpAddress(addr.address);
+        if (resolvedIp.isDisallowed) {
+          return {
+            ok: false,
+            status: 400,
+            error: `SSRF Protection: Hostname ${hostname} resolves to prohibited address ${addr.address}.`
+          };
+        }
+        // If in production without private network override, block domain resolving to loopback or private ranges
+        const isProduction = (typeof app !== "undefined" && app.isPackaged) || process.env.NODE_ENV === "production";
+        const allowPrivate = process.env.ALLOW_PRIVATE_NETWORK_CLOUD === "true";
+        if (isProduction && !allowPrivate && (resolvedIp.isLoopback || resolvedIp.isPrivate)) {
+          return {
+            ok: false,
+            status: 400,
+            error: `SSRF Protection: DNS rebinding rejected. Hostname ${hostname} resolved to internal/private IP ${addr.address}.`
+          };
+        }
+      }
+    }
+  } catch (dnsErr) {
+    return { ok: false, status: 0, error: `DNS resolution failed for cloud host: ${dnsErr.message}` };
+  }
+
   const targetUrl = targetUrlObj.toString();
   const ctrl = new AbortController();
   const timeoutMs = Math.min(Math.max(Number(options.timeoutMs) || 8000, 1000), 30000);
@@ -909,7 +994,8 @@ async function safeCloudFetch(endpoint, options = {}, candidateUrl) {
       method: options.method || "GET",
       headers,
       body: options.body ? JSON.stringify(options.body) : undefined,
-      signal: ctrl.signal
+      signal: ctrl.signal,
+      redirect: "error"
     });
 
     let data = null;
