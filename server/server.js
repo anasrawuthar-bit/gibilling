@@ -454,6 +454,18 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 400, { ok: false, error: 'Company Name, Owner Name, Email, and Password are required.' });
     }
 
+    const clientIp = getClientIp(req);
+    const regRateCheck = checkRateLimit(`auth_reg_${clientIp}`, 10, 15 * 60 * 1000);
+    if (!regRateCheck.allowed) {
+      if (regRateCheck.isDbError) {
+        return sendJson(res, 503, { ok: false, error: 'Security verification service temporarily unavailable. Please retry shortly.' });
+      }
+      return sendJson(res, 429, {
+        ok: false,
+        error: `Too many registration attempts from this IP. Please wait ${regRateCheck.retryAfterSec} seconds before retrying.`
+      });
+    }
+
     const cleanEmail = String(email).trim().toLowerCase();
     const existing = masterDb.prepare('SELECT id, status FROM customers WHERE email = ?').get(cleanEmail);
 
@@ -526,6 +538,9 @@ const server = http.createServer(async (req, res) => {
     // IP-level rate limit
     const ipRateCheck = checkRateLimit(`otp_verify_reg_${clientIp}`, 10, 15 * 60 * 1000);
     if (!ipRateCheck.allowed) {
+      if (ipRateCheck.isDbError) {
+        return sendJson(res, 503, { ok: false, error: 'Security verification service temporarily unavailable. Please retry shortly.' });
+      }
       return sendJson(res, 429, {
         ok: false,
         error: `Too many verification attempts from this IP. Please wait ${ipRateCheck.retryAfterSec} seconds before retrying.`
@@ -611,6 +626,9 @@ const server = http.createServer(async (req, res) => {
     const rateKey = `desktop_init_${clientIp}_${cleanEmail}`;
     const rateCheck = checkRateLimit(rateKey, 5, 15 * 60 * 1000);
     if (!rateCheck.allowed) {
+      if (rateCheck.isDbError) {
+        return sendJson(res, 503, { ok: false, error: 'Security verification service temporarily unavailable. Please retry shortly.' });
+      }
       return sendJson(res, 429, {
         ok: false,
         error: `Too many login attempts. Please wait ${rateCheck.retryAfterSec} seconds before trying again.`
@@ -964,6 +982,18 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 400, { ok: false, error: 'Email address is required.' });
     }
 
+    const clientIp = getClientIp(req);
+    const pinReqCheck = checkRateLimit(`pin_reset_req_${clientIp}`, 5, 15 * 60 * 1000);
+    if (!pinReqCheck.allowed) {
+      if (pinReqCheck.isDbError) {
+        return sendJson(res, 503, { ok: false, error: 'Security verification service temporarily unavailable. Please retry shortly.' });
+      }
+      return sendJson(res, 429, {
+        ok: false,
+        error: `Too many PIN reset requests from this IP. Please wait ${pinReqCheck.retryAfterSec} seconds before retrying.`
+      });
+    }
+
     const customer = masterDb.prepare('SELECT * FROM customers WHERE email = ?').get(cleanEmail);
     if (!customer) {
       return sendJson(res, 404, { ok: false, error: 'Customer account not found.' });
@@ -1004,6 +1034,9 @@ const server = http.createServer(async (req, res) => {
     // IP-level rate limiting
     const ipRateCheck = checkRateLimit(`pin_reset_verify_${clientIp}`, 10, 15 * 60 * 1000);
     if (!ipRateCheck.allowed) {
+      if (ipRateCheck.isDbError) {
+        return sendJson(res, 503, { ok: false, error: 'Security verification service temporarily unavailable. Please retry shortly.' });
+      }
       return sendJson(res, 429, {
         ok: false,
         error: `Too many verification attempts from this IP. Please wait ${ipRateCheck.retryAfterSec} seconds before retrying.`
@@ -1050,6 +1083,9 @@ const server = http.createServer(async (req, res) => {
     const rateCheck = checkRateLimit(rateKey, 5, 15 * 60 * 1000);
 
     if (!rateCheck.allowed) {
+      if (rateCheck.isDbError) {
+        return sendJson(res, 503, { ok: false, error: 'Security verification service temporarily unavailable. Please retry shortly.' });
+      }
       return sendJson(res, 429, {
         ok: false,
         error: `Too many failed admin login attempts from this IP. Please wait ${rateCheck.retryAfterSec} seconds before trying again.`
@@ -1743,61 +1779,73 @@ const server = http.createServer(async (req, res) => {
     if (!fs.existsSync(versionedRelDir)) fs.mkdirSync(versionedRelDir, { recursive: true });
 
     // 1. Archive current active latest.yml if present
+    let backupActiveYml = null;
     const currentActiveVer = getSetting('latest_version', '');
     const activeYmlPath = path.join(downloadsDir, 'latest.yml');
     if (currentActiveVer && fs.existsSync(activeYmlPath)) {
       try {
-        fs.copyFileSync(activeYmlPath, path.join(downloadsDir, `latest-${currentActiveVer}.yml`));
+        backupActiveYml = path.join(downloadsDir, `latest-${currentActiveVer}.yml`);
+        fs.copyFileSync(activeYmlPath, backupActiveYml);
       } catch (_) {}
     }
 
-    // 2. Copy staged files into versioned release folder AND live downloads directory
-    for (const file of stagedFiles) {
-      const src = path.join(stagedVerDir, file);
-      fs.copyFileSync(src, path.join(versionedRelDir, file));
-      fs.copyFileSync(src, path.join(downloadsDir, file));
-    }
-
-    // 3. Dual-name normalization: Ensure both hyphenated and spaced names exist for .exe and .blockmap
-    const spacedExe = exeFile.replace(/-/g, ' ');
-    const hyphenExe = exeFile.replace(/ /g, '-');
-    if (fs.existsSync(path.join(downloadsDir, exeFile))) {
-      if (!fs.existsSync(path.join(downloadsDir, spacedExe))) {
-        try { fs.copyFileSync(path.join(downloadsDir, exeFile), path.join(downloadsDir, spacedExe)); } catch (_) {}
-      }
-      if (!fs.existsSync(path.join(downloadsDir, hyphenExe))) {
-        try { fs.copyFileSync(path.join(downloadsDir, exeFile), path.join(downloadsDir, hyphenExe)); } catch (_) {}
-      }
-    }
-
-    const spacedBm = blockmapFile.replace(/-/g, ' ');
-    const hyphenBm = blockmapFile.replace(/ /g, '-');
-    if (fs.existsSync(path.join(downloadsDir, blockmapFile))) {
-      if (!fs.existsSync(path.join(downloadsDir, spacedBm))) {
-        try { fs.copyFileSync(path.join(downloadsDir, blockmapFile), path.join(downloadsDir, spacedBm)); } catch (_) {}
-      }
-      if (!fs.existsSync(path.join(downloadsDir, hyphenBm))) {
-        try { fs.copyFileSync(path.join(downloadsDir, blockmapFile), path.join(downloadsDir, hyphenBm)); } catch (_) {}
-      }
-    }
-
-    // 4. Save versioned archive of manifest
-    fs.copyFileSync(path.join(downloadsDir, 'latest.yml'), path.join(downloadsDir, `latest-${declaredVer}.yml`));
-
-    // 5. Update DB Settings
-    setSetting('active_release_version', declaredVer);
-    setSetting('latest_version', declaredVer);
-    setSetting('release_filename', exeFile);
-    if (notes) setSetting('release_notes', notes);
-    setSetting('published_at', new Date().toISOString());
-
-    // 6. Clean up staging directory
     try {
+      // 2. Copy staged files into versioned release folder AND live downloads directory
       for (const file of stagedFiles) {
-        fs.unlinkSync(path.join(stagedVerDir, file));
+        const src = path.join(stagedVerDir, file);
+        fs.copyFileSync(src, path.join(versionedRelDir, file));
+        fs.copyFileSync(src, path.join(downloadsDir, file));
       }
-      fs.rmdirSync(stagedVerDir);
-    } catch (_) {}
+
+      // 3. Dual-name normalization: Ensure both hyphenated and spaced names exist for .exe and .blockmap
+      const spacedExe = exeFile.replace(/-/g, ' ');
+      const hyphenExe = exeFile.replace(/ /g, '-');
+      if (fs.existsSync(path.join(downloadsDir, exeFile))) {
+        if (!fs.existsSync(path.join(downloadsDir, spacedExe))) {
+          try { fs.copyFileSync(path.join(downloadsDir, exeFile), path.join(downloadsDir, spacedExe)); } catch (_) {}
+        }
+        if (!fs.existsSync(path.join(downloadsDir, hyphenExe))) {
+          try { fs.copyFileSync(path.join(downloadsDir, exeFile), path.join(downloadsDir, hyphenExe)); } catch (_) {}
+        }
+      }
+
+      const spacedBm = blockmapFile.replace(/-/g, ' ');
+      const hyphenBm = blockmapFile.replace(/ /g, '-');
+      if (fs.existsSync(path.join(downloadsDir, blockmapFile))) {
+        if (!fs.existsSync(path.join(downloadsDir, spacedBm))) {
+          try { fs.copyFileSync(path.join(downloadsDir, blockmapFile), path.join(downloadsDir, spacedBm)); } catch (_) {}
+        }
+        if (!fs.existsSync(path.join(downloadsDir, hyphenBm))) {
+          try { fs.copyFileSync(path.join(downloadsDir, blockmapFile), path.join(downloadsDir, hyphenBm)); } catch (_) {}
+        }
+      }
+
+      // 4. Save versioned archive of manifest
+      fs.copyFileSync(path.join(downloadsDir, 'latest.yml'), path.join(downloadsDir, `latest-${declaredVer}.yml`));
+
+      // 5. Update DB Settings
+      setSetting('active_release_version', declaredVer);
+      setSetting('latest_version', declaredVer);
+      setSetting('release_filename', exeFile);
+      if (notes) setSetting('release_notes', notes);
+      setSetting('published_at', new Date().toISOString());
+
+      // 6. Clean up staging directory only after successful publication
+      try {
+        for (const file of stagedFiles) {
+          fs.unlinkSync(path.join(stagedVerDir, file));
+        }
+        fs.rmdirSync(stagedVerDir);
+      } catch (_) {}
+    } catch (pubErr) {
+      if (backupActiveYml && fs.existsSync(backupActiveYml)) {
+        try { fs.copyFileSync(backupActiveYml, activeYmlPath); } catch (_) {}
+      }
+      return sendJson(res, 500, {
+        ok: false,
+        error: `Publishing failed and was safely rolled back: ${pubErr.message}`
+      });
+    }
 
     return sendJson(res, 200, {
       ok: true,
@@ -2035,6 +2083,9 @@ const server = http.createServer(async (req, res) => {
     const rateCheck = checkRateLimit(rateKey, 5, 15 * 60 * 1000);
 
     if (!rateCheck.allowed) {
+      if (rateCheck.isDbError) {
+        return sendJson(res, 503, { ok: false, error: 'Security verification service temporarily unavailable. Please retry shortly.' });
+      }
       return sendJson(res, 429, {
         ok: false,
         error: `Too many failed login attempts. Please wait ${rateCheck.retryAfterSec} seconds before trying again.`
@@ -2160,6 +2211,18 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 400, { ok: false, error: 'Registered email address is required.' });
     }
 
+    const clientIp = getClientIp(req);
+    const forgotRateCheck = checkRateLimit(`portal_forgot_${clientIp}`, 5, 15 * 60 * 1000);
+    if (!forgotRateCheck.allowed) {
+      if (forgotRateCheck.isDbError) {
+        return sendJson(res, 503, { ok: false, error: 'Security verification service temporarily unavailable. Please retry shortly.' });
+      }
+      return sendJson(res, 429, {
+        ok: false,
+        error: `Too many password reset requests from this IP. Please wait ${forgotRateCheck.retryAfterSec} seconds before retrying.`
+      });
+    }
+
     const customer = masterDb.prepare('SELECT * FROM customers WHERE email = ?').get(cleanEmail);
     if (!customer) {
       return sendJson(res, 404, { ok: false, error: 'No account registered with this email address.' });
@@ -2200,6 +2263,9 @@ const server = http.createServer(async (req, res) => {
     // IP-level rate limiting
     const ipRateCheck = checkRateLimit(`portal_pwd_reset_${clientIp}`, 10, 15 * 60 * 1000);
     if (!ipRateCheck.allowed) {
+      if (ipRateCheck.isDbError) {
+        return sendJson(res, 503, { ok: false, error: 'Security verification service temporarily unavailable. Please retry shortly.' });
+      }
       return sendJson(res, 429, {
         ok: false,
         error: `Too many password reset attempts from this IP. Please wait ${ipRateCheck.retryAfterSec} seconds before retrying.`

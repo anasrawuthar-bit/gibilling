@@ -289,20 +289,26 @@ function checkRateLimit(key, maxAttempts = 5, windowMs = 15 * 60 * 1000) {
         INSERT INTO rate_limits (key, count, reset_at) VALUES (?, 1, ?)
         ON CONFLICT(key) DO UPDATE SET count = 1, reset_at = excluded.reset_at
       `).run(key, resetAt);
-      return { allowed: true, remaining: maxAttempts - 1, retryAfterSec: 0 };
+      return { allowed: true, remaining: maxAttempts - 1, retryAfterSec: 0, isDbError: false };
     }
 
     if (row.count >= maxAttempts) {
       const retryAfterSec = Math.ceil((row.reset_at - now) / 1000);
-      return { allowed: false, remaining: 0, retryAfterSec };
+      return { allowed: false, remaining: 0, retryAfterSec, isDbError: false };
     }
 
     const newCount = row.count + 1;
     masterDb.prepare('UPDATE rate_limits SET count = ? WHERE key = ?').run(newCount, key);
-    return { allowed: true, remaining: maxAttempts - newCount, retryAfterSec: 0 };
+    return { allowed: true, remaining: maxAttempts - newCount, retryAfterSec: 0, isDbError: false };
   } catch (err) {
-    console.warn('[RateLimit DB Warning]:', err.message);
-    return { allowed: true, remaining: 1, retryAfterSec: 0 };
+    console.error('[RateLimit DB Error - Failing Closed]:', err.message);
+    return {
+      allowed: false,
+      isDbError: true,
+      error: 'Security verification service temporarily unavailable.',
+      remaining: 0,
+      retryAfterSec: 60
+    };
   }
 }
 
@@ -502,23 +508,35 @@ function checkPasswordNeedsRehash(salt) {
 
 // Seed or synchronize Super Admin from .env credentials
 const targetAdminEmail = String(process.env.SUPER_ADMIN_EMAIL || 'admin@zynbill.com').trim().toLowerCase();
-const targetAdminPass = String(process.env.SUPER_ADMIN_PASSWORD || 'admin123');
+const envAdminPass = process.env.SUPER_ADMIN_PASSWORD ? String(process.env.SUPER_ADMIN_PASSWORD).trim() : '';
 const targetAdminName = String(process.env.SUPER_ADMIN_NAME || 'Super Administrator');
 
-const existingAdmin = masterDb.prepare('SELECT id FROM admins WHERE id = ? OR email = ?').get('admin_master', targetAdminEmail);
+const existingAdmin = masterDb.prepare('SELECT id, email, password_salt FROM admins WHERE id = ? OR email = ?').get('admin_master', targetAdminEmail);
 if (!existingAdmin) {
-  const { hash, salt } = hashPassword(targetAdminPass);
+  if (!envAdminPass || envAdminPass.length < 8) {
+    throw new Error(
+      '[Security Exception] Super Admin account does not exist and SUPER_ADMIN_PASSWORD environment variable is missing or shorter than 8 characters. Administrator initialization refused.'
+    );
+  }
+  const { hash, salt } = hashPassword(envAdminPass);
   masterDb.prepare(`
     INSERT INTO admins (id, email, password_hash, password_salt, name, created_at)
     VALUES (?, ?, ?, ?, ?, ?)
   `).run('admin_master', targetAdminEmail, hash, salt, targetAdminName, new Date().toISOString());
   console.log(`[MasterDB] Initialized Super Admin (${targetAdminEmail}) with OWASP 600k PBKDF2 hashing`);
 } else {
-  const { hash, salt } = hashPassword(targetAdminPass);
-  masterDb.prepare(`
-    UPDATE admins SET email = ?, password_hash = ?, password_salt = ?, name = ? WHERE id = ?
-  `).run(targetAdminEmail, hash, salt, targetAdminName, existingAdmin.id);
-  console.log(`[MasterDB] Synchronized Super Admin (${targetAdminEmail}) with OWASP 600k PBKDF2 hashing`);
+  // Existing administrator found: preserve credentials unless explicitly configured with valid strong password
+  if (envAdminPass && envAdminPass.length >= 8) {
+    const { hash, salt } = hashPassword(envAdminPass);
+    masterDb.prepare(`
+      UPDATE admins SET email = ?, password_hash = ?, password_salt = ?, name = ? WHERE id = ?
+    `).run(targetAdminEmail, hash, salt, targetAdminName, existingAdmin.id);
+    console.log(`[MasterDB] Synchronized Super Admin (${targetAdminEmail}) credentials with OWASP 600k PBKDF2 hashing`);
+  } else if (envAdminPass && envAdminPass.length < 8) {
+    console.warn(`[MasterDB Security Warning] Provided SUPER_ADMIN_PASSWORD is shorter than 8 characters. Preserved existing credentials for (${existingAdmin.email || targetAdminEmail}).`);
+  } else {
+    console.log(`[MasterDB] Preserved existing Super Admin account (${existingAdmin.email || targetAdminEmail}).`);
+  }
 }
 
 // ── Multi-Tenant Database Helper ────────────────────────────────────────
@@ -733,6 +751,18 @@ function restoreBackupToSandbox(backupFilePath, targetSandboxPath) {
   if (!fs.existsSync(backupFilePath)) {
     return { ok: false, error: 'Backup file not found.' };
   }
+
+  // Prevent accidental overwrite of production databases
+  const resolvedTarget = path.resolve(targetSandboxPath);
+  const resolvedMaster = path.resolve(MASTER_DB_PATH);
+  const resolvedTenantsDir = path.resolve(TENANTS_DIR);
+  if (resolvedTarget === resolvedMaster || resolvedTarget.startsWith(resolvedTenantsDir)) {
+    return {
+      ok: false,
+      error: 'Security Exception: Cannot restore backup directly over active live database. Restore target must be an isolated sandbox directory.'
+    };
+  }
+
   const inspection = verifyAndInspectBackup(backupFilePath);
   if (!inspection.ok) {
     return { ok: false, error: 'Cannot restore corrupted backup: ' + inspection.integrity };
