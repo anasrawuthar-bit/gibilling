@@ -4,6 +4,7 @@ const fs = require("fs");
 const os = require("os");
 const dns = require("node:dns");
 const net = require("node:net");
+const { Agent } = require("undici");
 const database = require("./database");
 const { SyncService, DisabledSyncAdapter, HttpSyncAdapter } = require("./sync-service");
 const { whatsappService } = require("./whatsapp-service");
@@ -30,7 +31,9 @@ const syncService = new SyncService({
   intervalMs: 15000
 });
 
-const singleInstanceLock = app.requestSingleInstanceLock();
+const singleInstanceLock = (app && typeof app.requestSingleInstanceLock === "function")
+  ? app.requestSingleInstanceLock()
+  : true;
 if (!singleInstanceLock) {
   console.log("ZynBill is already running. Focusing the existing instance...");
   app.exit(0);
@@ -826,44 +829,84 @@ function isLocalOrLoopbackHost(hostname) {
 }
 
 function classifyIpAddress(ip) {
-  if (!net.isIP(ip)) return { isIp: false };
-  const isV4 = net.isIPv4(ip);
+  if (!ip || typeof ip !== "string") return { isIp: false };
+  let raw = ip.trim().toLowerCase();
+  if (raw.startsWith("[") && raw.endsWith("]")) raw = raw.slice(1, -1);
+  if (!net.isIP(raw)) return { isIp: false };
+
+  // Handle IPv4-mapped IPv6 addresses (e.g. ::ffff:192.168.1.1 or ::ffff:169.254.169.254)
+  if (raw.startsWith("::ffff:")) {
+    const embedded = raw.slice(7);
+    if (net.isIPv4(embedded)) {
+      const v4Class = classifyIpAddress(embedded);
+      return {
+        ...v4Class,
+        isIpv4Mapped: true,
+        version: 6,
+        originalIp: raw
+      };
+    }
+  }
+
+  const isV4 = net.isIPv4(raw);
   if (isV4) {
-    const parts = ip.split(".").map(Number);
-    const [o1, o2, o3, o4] = parts;
+    const [o1, o2, o3, o4] = raw.split(".").map(Number);
     const isLoopback = o1 === 127;
-    const isLinkLocal = o1 === 169 && o2 === 254; // AWS/GCP/Azure metadata (169.254.169.254) & APIPA
+    const isLinkLocal = o1 === 169 && o2 === 254; // Link-local & cloud metadata (169.254.169.254)
     const isPrivate =
       o1 === 10 ||
       (o1 === 172 && o2 >= 16 && o2 <= 31) ||
       (o1 === 192 && o2 === 168);
-    const isUnspecified = o1 === 0 || ip === "255.255.255.255";
     const isCarrierNat = o1 === 100 && o2 >= 64 && o2 <= 127;
+    const isMulticast = o1 >= 224 && o1 <= 239;
+    const isReserved = o1 >= 240;
+    const isUnspecified = o1 === 0 || raw === "255.255.255.255";
+    const isDocumentation =
+      (o1 === 192 && o2 === 0 && o3 === 2) ||
+      (o1 === 198 && o2 === 51 && o3 === 100) ||
+      (o1 === 203 && o2 === 0 && o3 === 113);
+    const isBenchmark = o1 === 198 && (o2 === 18 || o2 === 19);
+
+    const isNonPublic = isPrivate || isCarrierNat || isLoopback || isLinkLocal || isDocumentation || isBenchmark || isReserved || isUnspecified;
+    const isDisallowed = isLinkLocal || isMulticast || isReserved || isUnspecified || isDocumentation || isBenchmark;
+
     return {
       isIp: true,
       version: 4,
       isLoopback,
       isLinkLocal,
-      isPrivate,
-      isUnspecified,
+      isPrivate: isPrivate || isCarrierNat,
       isCarrierNat,
-      isDisallowed: isLinkLocal || isUnspecified
+      isMulticast,
+      isReserved,
+      isUnspecified,
+      isNonPublic,
+      isDisallowed
     };
   } else {
     // IPv6
-    const clean = ip.toLowerCase();
-    const isLoopback = clean === "::1";
-    const isLinkLocal = clean.startsWith("fe80:");
-    const isUniqueLocal = clean.startsWith("fc") || clean.startsWith("fd");
-    const isUnspecified = clean === "::";
+    const isLoopback = raw === "::1";
+    const isUnspecified = raw === "::";
+    const isLinkLocal = raw.startsWith("fe8") || raw.startsWith("fe9") || raw.startsWith("fea") || raw.startsWith("feb");
+    const isUniqueLocal = raw.startsWith("fc") || raw.startsWith("fd");
+    const isMulticast = raw.startsWith("ff");
+    const isDocumentation = raw.startsWith("2001:db8:");
+
+    const isNonPublic = isUniqueLocal || isLoopback || isLinkLocal || isDocumentation || isMulticast || isUnspecified;
+    const isDisallowed = isLinkLocal || isMulticast || isUnspecified || isDocumentation;
+
     return {
       isIp: true,
       version: 6,
       isLoopback,
       isLinkLocal,
       isPrivate: isUniqueLocal,
+      isCarrierNat: false,
+      isMulticast,
+      isReserved: false,
       isUnspecified,
-      isDisallowed: isLinkLocal || isUnspecified
+      isNonPublic,
+      isDisallowed
     };
   }
 }
@@ -888,6 +931,40 @@ function isDisallowedCloudHost(hostname) {
   return false;
 }
 
+function isAuthorizedHost(hostname, ip) {
+  const normHost = (hostname || "").toLowerCase().trim();
+  const isLoopbackHost = normHost === "localhost" || normHost === "127.0.0.1" || normHost === "::1" || normHost === "[::1]";
+
+  const isProduction = (typeof app !== "undefined" && app && app.isPackaged) || process.env.NODE_ENV === "production";
+
+  // In non-production (dev/test): localhost and loopback are authorized
+  if (!isProduction && isLoopbackHost) {
+    return true;
+  }
+
+  // Parse TRUSTED_LAN_HOSTS from env or config (comma-separated list of approved hostnames or IPs)
+  const trustedRaw = process.env.TRUSTED_LAN_HOSTS || (typeof syncConfig !== "undefined" ? syncConfig.trustedLanHosts : "") || "";
+  const trustedList = trustedRaw.split(",").map(s => s.trim().toLowerCase()).filter(Boolean);
+
+  // If in production and connecting to loopback: requires explicit authorization
+  if (isLoopbackHost) {
+    if (process.env.ALLOW_LOOPBACK_IN_PRODUCTION === "true" || trustedList.includes("localhost") || trustedList.includes("127.0.0.1") || trustedList.includes("::1")) {
+      return true;
+    }
+    return false;
+  }
+
+  // Check if hostname or IP is explicitly present in TRUSTED_LAN_HOSTS
+  if (trustedList.includes(normHost)) {
+    return true;
+  }
+  if (ip && trustedList.includes(ip.toLowerCase().trim())) {
+    return true;
+  }
+
+  return false;
+}
+
 function resolveCloudServerUrl(candidate) {
   const defaultUrl = syncConfig.serverUrl || process.env.CLOUD_SERVER_URL || "http://localhost:4000";
   const raw = (candidate && typeof candidate === "string" && candidate.trim())
@@ -904,7 +981,7 @@ function resolveCloudServerUrl(candidate) {
       return resolveCloudServerUrl(defaultUrl);
     }
     // Enforce HTTPS in production for remote (non-loopback) hosts
-    const isProduction = (typeof app !== "undefined" && app.isPackaged) || process.env.NODE_ENV === "production";
+    const isProduction = (typeof app !== "undefined" && app && app.isPackaged) || process.env.NODE_ENV === "production";
     const allowInsecure = process.env.ALLOW_INSECURE_HTTP === "true";
     if (isProduction && !allowInsecure && parsed.protocol === "http:" && !isLocalOrLoopbackHost(parsed.hostname)) {
       console.warn(`[SECURITY] Insecure HTTP rejected for remote host ${parsed.hostname} in production. Upgraded to https://`);
@@ -916,6 +993,85 @@ function resolveCloudServerUrl(candidate) {
   }
 }
 
+// Connection pinning replaces separate pre-flight dns.promises.lookup with undici Agent custom lookup
+function createSecureLookup() {
+  return function secureLookup(hostname, options, callback) {
+    const isProduction = (typeof app !== "undefined" && app && app.isPackaged) || process.env.NODE_ENV === "production";
+    const normHost = (hostname || "").toLowerCase().trim();
+
+    // 1. Direct IP target
+    const ipInfo = classifyIpAddress(normHost);
+    if (ipInfo.isIp) {
+      if (ipInfo.isDisallowed) {
+        return callback(new Error(`SSRF Protection: Prohibited IP target (${normHost}).`));
+      }
+      if (ipInfo.isLoopback) {
+        if (isProduction && !isAuthorizedHost(normHost, normHost)) {
+          return callback(new Error(`SSRF Protection: Direct loopback destination (${normHost}) blocked in production.`));
+        }
+      } else if (ipInfo.isPrivate || ipInfo.isNonPublic) {
+        if (isProduction && !isAuthorizedHost(normHost, normHost)) {
+          return callback(new Error(`SSRF Protection: Direct private/LAN destination (${normHost}) blocked without explicit authorization.`));
+        }
+      }
+      const resItem = { address: normHost, family: ipInfo.version };
+      return callback(null, options?.all ? [resItem] : normHost, ipInfo.version);
+    }
+
+    // 2. Hostname resolution
+    dns.lookup(hostname, { all: true }, (err, addresses) => {
+      if (err) return callback(err);
+      if (!addresses || addresses.length === 0) {
+        return callback(new Error(`SSRF Protection: DNS returned no addresses for host ${hostname}.`));
+      }
+
+      let hasPublic = false;
+      let hasPrivateOrLoopback = false;
+
+      // Validate every returned IP address
+      for (const entry of addresses) {
+        const info = classifyIpAddress(entry.address);
+        if (info.isDisallowed) {
+          return callback(new Error(`SSRF Protection: Hostname ${hostname} resolves to prohibited address ${entry.address}.`));
+        }
+        if (info.isLoopback || info.isPrivate || info.isNonPublic) {
+          hasPrivateOrLoopback = true;
+        } else {
+          hasPublic = true;
+        }
+      }
+
+      // Mixed public/private DNS response check (Requirement 10)
+      if (hasPublic && hasPrivateOrLoopback) {
+        return callback(new Error(`SSRF Protection: Mixed public/private DNS response for host ${hostname} rejected.`));
+      }
+
+      // If resolving to private/loopback, verify authorization (Requirement 9)
+      if (hasPrivateOrLoopback) {
+        if (isProduction && !isAuthorizedHost(hostname, addresses[0].address)) {
+          return callback(new Error(`SSRF Protection: DNS rebinding rejected. Public hostname ${hostname} resolved to internal/private IP (${addresses[0].address}).`));
+        }
+      }
+
+      // Pin connection to the first validated address (Requirement 3: no second lookup)
+      const chosen = addresses[0];
+      return callback(null, options?.all ? [chosen] : chosen.address, chosen.family);
+    });
+  };
+}
+
+let secureCloudAgentInstance = null;
+function getSecureCloudAgent() {
+  if (!secureCloudAgentInstance) {
+    secureCloudAgentInstance = new Agent({
+      connect: {
+        lookup: createSecureLookup()
+      }
+    });
+  }
+  return secureCloudAgentInstance;
+}
+
 async function safeCloudFetch(endpoint, options = {}, candidateUrl) {
   if (typeof endpoint !== "string" || !endpoint.startsWith("/api/v1/")) {
     return {
@@ -923,6 +1079,23 @@ async function safeCloudFetch(endpoint, options = {}, candidateUrl) {
       status: 400,
       error: "Invalid cloud API endpoint. Only relative paths under /api/v1/ are permitted."
     };
+  }
+
+  // Pre-validate candidateUrl if explicitly provided
+  if (candidateUrl && typeof candidateUrl === "string") {
+    try {
+      const candObj = new URL(candidateUrl);
+      const candHost = candObj.hostname;
+      const candIp = classifyIpAddress(candHost);
+      if (candIp.isIp && candIp.isDisallowed) {
+        return { ok: false, status: 400, error: `SSRF Protection: Prohibited IP target (${candHost}).` };
+      }
+      if (isDisallowedCloudHost(candHost)) {
+        return { ok: false, status: 400, error: `SSRF Protection: Prohibited target host (${candHost}).` };
+      }
+    } catch (_) {
+      // Ignored here; resolveCloudServerUrl handles malformed URLs
+    }
   }
 
   const baseUrl = resolveCloudServerUrl(candidateUrl);
@@ -941,40 +1114,24 @@ async function safeCloudFetch(endpoint, options = {}, candidateUrl) {
     return { ok: false, status: 400, error: "Malformed target URL construction." };
   }
 
-  // DNS Resolution & DNS Rebinding Verification
-  try {
-    const hostname = targetUrlObj.hostname;
-    const ipInfo = classifyIpAddress(hostname);
-    if (ipInfo.isIp) {
-      if (ipInfo.isDisallowed) {
-        return { ok: false, status: 400, error: "SSRF Protection: Disallowed IP target." };
+  const hostname = targetUrlObj.hostname;
+  const isProduction = (typeof app !== "undefined" && app && app.isPackaged) || process.env.NODE_ENV === "production";
+
+  // Pre-fetch validation for direct IP destinations
+  const ipInfo = classifyIpAddress(hostname);
+  if (ipInfo.isIp) {
+    if (ipInfo.isDisallowed) {
+      return { ok: false, status: 400, error: `SSRF Protection: Prohibited IP target (${hostname}).` };
+    }
+    if (ipInfo.isLoopback) {
+      if (isProduction && !isAuthorizedHost(hostname, hostname)) {
+        return { ok: false, status: 400, error: `SSRF Protection: Direct loopback destination (${hostname}) blocked in production.` };
       }
-    } else if (!isLocalOrLoopbackHost(hostname)) {
-      // Non-loopback hostname: perform DNS check to prevent DNS rebinding attacks
-      const addresses = await dns.promises.lookup(hostname, { all: true });
-      for (const addr of addresses) {
-        const resolvedIp = classifyIpAddress(addr.address);
-        if (resolvedIp.isDisallowed) {
-          return {
-            ok: false,
-            status: 400,
-            error: `SSRF Protection: Hostname ${hostname} resolves to prohibited address ${addr.address}.`
-          };
-        }
-        // If in production without private network override, block domain resolving to loopback or private ranges
-        const isProduction = (typeof app !== "undefined" && app.isPackaged) || process.env.NODE_ENV === "production";
-        const allowPrivate = process.env.ALLOW_PRIVATE_NETWORK_CLOUD === "true";
-        if (isProduction && !allowPrivate && (resolvedIp.isLoopback || resolvedIp.isPrivate)) {
-          return {
-            ok: false,
-            status: 400,
-            error: `SSRF Protection: DNS rebinding rejected. Hostname ${hostname} resolved to internal/private IP ${addr.address}.`
-          };
-        }
+    } else if (ipInfo.isPrivate || ipInfo.isNonPublic) {
+      if (isProduction && !isAuthorizedHost(hostname, hostname)) {
+        return { ok: false, status: 400, error: `SSRF Protection: Direct private/LAN destination (${hostname}) blocked without explicit authorization.` };
       }
     }
-  } catch (dnsErr) {
-    return { ok: false, status: 0, error: `DNS resolution failed for cloud host: ${dnsErr.message}` };
   }
 
   const targetUrl = targetUrlObj.toString();
@@ -990,12 +1147,16 @@ async function safeCloudFetch(endpoint, options = {}, candidateUrl) {
     if (options.body) {
       headers["Content-Type"] = "application/json";
     }
+
+    const dispatcher = options.dispatcher || getSecureCloudAgent();
+
     const res = await fetch(targetUrl, {
       method: options.method || "GET",
       headers,
       body: options.body ? JSON.stringify(options.body) : undefined,
       signal: ctrl.signal,
-      redirect: "error"
+      redirect: "error",
+      dispatcher
     });
 
     let data = null;
@@ -1013,10 +1174,13 @@ async function safeCloudFetch(endpoint, options = {}, candidateUrl) {
       data
     };
   } catch (err) {
+    const errorMsg = err.name === "AbortError"
+      ? "Cloud server request timed out."
+      : (err.cause?.message || err.message || "Network error communicating with cloud server.");
     return {
       ok: false,
       status: 0,
-      error: err.name === "AbortError" ? "Cloud server request timed out." : (err.message || "Network error communicating with cloud server.")
+      error: errorMsg
     };
   } finally {
     clearTimeout(timer);
@@ -1232,7 +1396,7 @@ function startScheduledBackupService() {
   if (typeof autoBackupInterval.unref === "function") autoBackupInterval.unref();
 }
 
-if (singleInstanceLock) {
+if (singleInstanceLock && app && typeof app.whenReady === "function") {
   app.on("second-instance", () => {
     showMainWindow();
   });
@@ -1286,3 +1450,14 @@ if (singleInstanceLock) {
     app.quit();
   });
 }
+
+module.exports = {
+  classifyIpAddress,
+  isDisallowedCloudHost,
+  isLocalOrLoopbackHost,
+  isAuthorizedHost,
+  resolveCloudServerUrl,
+  safeCloudFetch,
+  createSecureLookup,
+  getSecureCloudAgent
+};
