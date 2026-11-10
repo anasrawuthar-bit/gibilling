@@ -665,9 +665,15 @@ function getTenantDb(customerId) {
       payload TEXT,
       idempotency_key TEXT UNIQUE,
       client_timestamp TEXT,
-      server_timestamp TEXT NOT NULL
+      server_timestamp TEXT NOT NULL,
+      server_version INTEGER DEFAULT 1,
+      device_id TEXT
     );
   `);
+
+  // Safe backward-compatible column upgrades for existing tenant DBs
+  try { tenantDb.exec("ALTER TABLE sync_events ADD COLUMN server_version INTEGER DEFAULT 1;"); } catch (_) {}
+  try { tenantDb.exec("ALTER TABLE sync_events ADD COLUMN device_id TEXT;"); } catch (_) {}
 
   tenantDbCache.set(customerId, tenantDb);
   return tenantDb;

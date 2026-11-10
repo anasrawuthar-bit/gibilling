@@ -527,7 +527,8 @@ const server = http.createServer(async (req, res) => {
   // 2. OTP Verification (Step 2)
   if (req.method === 'POST' && pathname === '/api/v1/auth/verify-otp') {
     const body = await parseJsonBody(req);
-    const { email, otp } = body;
+    const email = body.email;
+    const otp = body.otp || body.code;
 
     if (!email || !otp) {
       return sendJson(res, 400, { ok: false, error: 'Email and OTP are required.' });
@@ -2649,30 +2650,57 @@ const server = http.createServer(async (req, res) => {
     const tenantDb = getTenantDb(customer.id);
 
     const acknowledgedIds = [];
+    const results = [];
     const nowIso = new Date().toISOString();
 
     for (const ev of events) {
-      const eventId = ev.id || generateToken('ev_');
-      const idemKey = ev.idempotency_key || eventId;
+      const eventId = ev.id || ev.eventId || generateToken('ev_');
+      const entityType = ev.entityType || ev.entity_type || 'generic';
+      const entityId = String(ev.entityId !== undefined ? ev.entityId : (ev.entity_id !== undefined ? ev.entity_id : '0'));
+      const operation = ev.operation || 'upsert';
+      const rawPayload = ev.payload || {};
+      const payloadJson = typeof rawPayload === 'string' ? rawPayload : JSON.stringify(rawPayload);
+      let parsedPayload = {};
+      try {
+        parsedPayload = typeof rawPayload === 'string' ? JSON.parse(rawPayload || '{}') : rawPayload;
+      } catch (_) {
+        parsedPayload = {};
+      }
+      const idemKey = ev.idempotencyKey || ev.idempotency_key || eventId;
+      const clientTimestamp = ev.clientTimestamp || ev.client_timestamp || nowIso;
+      const eventDeviceId = ev.deviceId || ev.device_id || body.deviceId || device?.id || '';
 
       try {
+        // Idempotency check:
+        const existing = tenantDb.prepare('SELECT id, server_version FROM sync_events WHERE idempotency_key = ?').get(idemKey);
+        if (existing) {
+          acknowledgedIds.push(eventId);
+          results.push({ id: eventId, status: 'already_applied', serverVersion: Number(existing.server_version || 1) });
+          continue;
+        }
+
+        // Calculate next server version for this entity in tenant DB
+        const lastVerRow = tenantDb.prepare('SELECT MAX(server_version) as max_ver FROM sync_events WHERE entity_type = ? AND entity_id = ?').get(entityType, entityId);
+        const serverVersion = Math.max(1, (Number(lastVerRow?.max_ver || 0) + 1));
+
         tenantDb.prepare(`
-          INSERT INTO sync_events (id, entity_type, entity_id, operation, payload, idempotency_key, client_timestamp, server_timestamp)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-          ON CONFLICT(idempotency_key) DO NOTHING
+          INSERT INTO sync_events (id, entity_type, entity_id, operation, payload, idempotency_key, client_timestamp, server_timestamp, server_version, device_id)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).run(
           eventId,
-          ev.entity_type || 'generic',
-          ev.entity_id || '0',
-          ev.operation || 'upsert',
-          JSON.stringify(ev.payload || {}),
+          entityType,
+          entityId,
+          operation,
+          payloadJson,
           idemKey,
-          ev.client_timestamp || nowIso,
-          nowIso
+          clientTimestamp,
+          nowIso,
+          serverVersion,
+          eventDeviceId
         );
 
-        if (ev.entity_type === 'parties' && ev.payload) {
-          const p = ev.payload;
+        if (entityType === 'parties' && parsedPayload) {
+          const p = parsedPayload;
           tenantDb.prepare(`
             INSERT INTO parties (id, name, phone, email, party_type, gstin, state, balance, updated_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -2682,9 +2710,9 @@ const server = http.createServer(async (req, res) => {
               email = excluded.email,
               balance = excluded.balance,
               updated_at = excluded.updated_at
-          `).run(p.id, p.name || 'Unnamed', p.phone || '', p.email || '', p.party_type || 'Customer', p.gstin || '', p.state || '', p.balance || 0, nowIso);
-        } else if (ev.entity_type === 'items' && ev.payload) {
-          const item = ev.payload;
+          `).run(p.id || entityId, p.name || 'Unnamed', p.phone || '', p.email || '', p.party_type || p.type || 'Customer', p.gstin || '', p.state || '', p.balance || 0, nowIso);
+        } else if (entityType === 'items' && parsedPayload) {
+          const item = parsedPayload;
           tenantDb.prepare(`
             INSERT INTO items (id, name, sku, category, sale_price, purchase_price, tax_rate, stock_qty, updated_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -2694,13 +2722,15 @@ const server = http.createServer(async (req, res) => {
               purchase_price = excluded.purchase_price,
               stock_qty = excluded.stock_qty,
               updated_at = excluded.updated_at
-          `).run(item.id, item.name || 'Item', item.sku || '', item.category || '', item.sale_price || 0, item.purchase_price || 0, item.tax_rate || 0, item.stock_qty || 0, nowIso);
+          `).run(item.id || entityId, item.name || 'Item', item.sku || '', item.category || '', item.sale_price || item.salePrice || 0, item.purchase_price || item.purchasePrice || 0, item.tax_rate || item.taxRate || 0, item.stock_qty || item.stockQty || 0, nowIso);
         }
 
-        acknowledgedIds.push(ev.id);
+        acknowledgedIds.push(eventId);
+        results.push({ id: eventId, status: 'accepted', serverVersion });
       } catch (err) {
-        console.warn('[SyncPush] Event skipped or already applied:', err.message);
-        acknowledgedIds.push(ev.id);
+        console.warn('[SyncPush] Event failed:', err.message);
+        acknowledgedIds.push(eventId);
+        results.push({ id: eventId, status: 'retry', errorCode: 'SERVER_ERROR', error: err.message });
       }
     }
 
@@ -2713,7 +2743,8 @@ const server = http.createServer(async (req, res) => {
 
     return sendJson(res, 200, {
       ok: true,
-      processedCount: acknowledgedIds.length,
+      processedCount: results.filter(r => r.status === 'accepted' || r.status === 'already_applied').length,
+      results,
       acknowledgedIds,
       serverTimestamp: nowIso
     });
@@ -2728,15 +2759,46 @@ const server = http.createServer(async (req, res) => {
     const { customer, device } = auth;
     const tenantDb = getTenantDb(customer.id);
     const sinceTimestamp = query.since || '1970-01-01T00:00:00.000Z';
+    const limit = Math.max(1, Math.min(500, parseInt(query.limit || '100', 10)));
 
     const events = tenantDb.prepare(`
-      SELECT * FROM sync_events WHERE server_timestamp > ? ORDER BY server_timestamp ASC LIMIT 500
-    `).all(sinceTimestamp);
+      SELECT * FROM sync_events WHERE server_timestamp > ? ORDER BY server_timestamp ASC LIMIT ?
+    `).all(sinceTimestamp, limit);
+
+    const normalizedEvents = events.map(row => {
+      let parsed = {};
+      try {
+        parsed = typeof row.payload === 'string' ? JSON.parse(row.payload) : (row.payload || {});
+      } catch (_) {
+        parsed = {};
+      }
+
+      return {
+        id: row.id,
+        eventId: row.id,
+        entityType: row.entity_type,
+        entity_type: row.entity_type,
+        entityId: row.entity_id,
+        entity_id: row.entity_id,
+        operation: row.operation,
+        serverVersion: Number(row.server_version || 1),
+        server_version: Number(row.server_version || 1),
+        payload: parsed,
+        idempotencyKey: row.idempotency_key,
+        idempotency_key: row.idempotency_key,
+        clientTimestamp: row.client_timestamp,
+        serverTimestamp: row.server_timestamp,
+        deviceId: row.device_id || ''
+      };
+    });
+
+    const newCursor = events.length > 0 ? events[events.length - 1].server_timestamp : sinceTimestamp;
 
     return sendJson(res, 200, {
       ok: true,
-      events,
-      cursor: events.length > 0 ? events[events.length - 1].server_timestamp : sinceTimestamp
+      events: normalizedEvents,
+      changes: normalizedEvents,
+      cursor: newCursor
     });
   }
 

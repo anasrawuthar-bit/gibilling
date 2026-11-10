@@ -137,11 +137,12 @@ class CloudLicenseManager {
     if (!navigator.onLine || !license.token) return license;
 
     try {
-      const res = await fetch(`${sUrl}/api/v1/system/health`, {
-        headers: { 'Authorization': 'Bearer ' + license.token }
-      });
-      const data = await res.json();
-      if (res.ok && data.ok && data.license) {
+      let data = null;
+      if (window.giCloud?.checkHealth) {
+        const result = await window.giCloud.checkHealth({ serverUrl: sUrl, token: license.token });
+        if (result && result.ok && result.data) data = result.data;
+      }
+      if (data && data.ok && data.license) {
         this.saveLicense({
           plan: data.license.plan,
           validUntil: data.license.validUntil,
@@ -313,15 +314,11 @@ class CloudSyncWidget {
     if (!navigator.onLine) return false;
     try {
       const sUrl = CloudLicenseManager.getServerUrl();
-      const ctrl = new AbortController();
-      const tid = setTimeout(() => ctrl.abort(), 2000);
-      const res = await fetch(`${sUrl}/api/v1/auth/plans`, {
-        method: "GET",
-        signal: ctrl.signal,
-        cache: "no-store"
-      });
-      clearTimeout(tid);
-      return res.ok;
+      if (window.giCloud?.checkHealth) {
+        const result = await window.giCloud.checkHealth({ serverUrl: sUrl });
+        return Boolean(result && result.ok);
+      }
+      return false;
     } catch (_) {
       return false;
     }
@@ -611,13 +608,14 @@ class PinResetInAppController {
     sendBtn.textContent = "Sending Code...";
 
     try {
-      const res = await fetch(`${sUrl}/api/v1/auth/pin-reset-request`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: license.email })
-      });
-      const data = await res.json();
-      if (!res.ok || !data.ok) throw new Error(data.error || "Failed to dispatch reset code.");
+      let data = null;
+      if (window.giCloud?.requestPinReset) {
+        const result = await window.giCloud.requestPinReset({ email: license.email, serverUrl: sUrl });
+        if (!result || !result.ok) throw new Error(result?.error || result?.data?.error || "Failed to dispatch reset code.");
+        data = result.data || {};
+      } else {
+        throw new Error("Cloud IPC service unavailable.");
+      }
 
       document.getElementById("pinResetStep1")?.classList.add("hidden");
       document.getElementById("pinResetStep2")?.classList.remove("hidden");
@@ -656,13 +654,14 @@ class PinResetInAppController {
     verifyBtn.textContent = "Verifying...";
 
     try {
-      const res = await fetch(`${sUrl}/api/v1/auth/pin-reset-verify`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: license.email, code })
-      });
-      const data = await res.json();
-      if (!res.ok || !data.ok) throw new Error(data.error || "Incorrect verification code.");
+      let data = null;
+      if (window.giCloud?.verifyPinReset) {
+        const result = await window.giCloud.verifyPinReset({ email: license.email, code, serverUrl: sUrl });
+        if (!result || !result.ok) throw new Error(result?.error || result?.data?.error || "Incorrect verification code.");
+        data = result.data || {};
+      } else {
+        throw new Error("Cloud IPC service unavailable.");
+      }
 
       // Success: Clear old PIN and prompt for new PIN
       PinSecurityManager.disablePin();
@@ -895,16 +894,16 @@ class ActivationUiController {
         CloudLicenseManager.setServerUrl(serverUrl);
         this.pendingEmail = email;
 
-        // Call initiate login to request 6-digit Device Verification OTP
-        const res = await fetch(`${serverUrl.replace(/\/$/, "")}/api/v1/auth/desktop-initiate-login`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email, password, machineName: await this.getMachineName() })
-        });
-
-        const data = await res.json();
-        if (!res.ok || !data.ok) {
-          throw new Error(data.error || "Login failed. Check credentials or account approval status.");
+        // Call initiate login via secure IPC to request 6-digit Device Verification OTP
+        let data = null;
+        if (window.giCloud?.initiateLogin) {
+          const result = await window.giCloud.initiateLogin({ email, password, machineName: await this.getMachineName(), serverUrl });
+          if (!result || !result.ok) {
+            throw new Error(result?.error || result?.data?.error || "Login failed. Check credentials or account approval status.");
+          }
+          data = result.data || {};
+        } else {
+          throw new Error("Cloud IPC service unavailable.");
         }
 
         if (data.requiresVerification) {
@@ -954,15 +953,15 @@ class ActivationUiController {
       verifyOtpBtn.textContent = "Verifying PC...";
 
       try {
-        const res = await fetch(`${serverUrl}/api/v1/auth/desktop-verify-device`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email: this.pendingEmail, code, machineName: await this.getMachineName() })
-        });
-
-        const data = await res.json();
-        if (!res.ok || !data.ok) {
-          throw new Error(data.error || "Invalid or expired verification code.");
+        let data = null;
+        if (window.giCloud?.verifyDevice) {
+          const result = await window.giCloud.verifyDevice({ email: this.pendingEmail, code, machineName: await this.getMachineName(), serverUrl });
+          if (!result || !result.ok) {
+            throw new Error(result?.error || result?.data?.error || "Invalid or expired verification code.");
+          }
+          data = result.data || {};
+        } else {
+          throw new Error("Cloud IPC service unavailable.");
         }
 
         CloudLicenseManager.saveLicense({
@@ -1010,13 +1009,12 @@ class ActivationUiController {
       if (!this.pendingEmail || !password) return;
 
       try {
-        const res = await fetch(`${serverUrl}/api/v1/auth/desktop-initiate-login`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email: this.pendingEmail, password, machineName: await this.getMachineName() })
-        });
-        const data = await res.json();
-        if (data.ok && data.devOtp) {
+        let data = null;
+        if (window.giCloud?.initiateLogin) {
+          const result = await window.giCloud.initiateLogin({ email: this.pendingEmail, password, machineName: await this.getMachineName(), serverUrl });
+          if (result && result.ok && result.data) data = result.data;
+        }
+        if (data && data.ok && data.devOtp) {
           const codeInput = document.getElementById("activationOtpCode");
           if (codeInput) codeInput.value = data.devOtp;
         }

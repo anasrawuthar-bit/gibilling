@@ -99,3 +99,13 @@ contextBridge.exposeInMainWorld("giApp", {
     return () => ipcRenderer.removeListener("whatsapp:status-update", handler);
   },
 });
+
+contextBridge.exposeInMainWorld("giCloud", {
+  checkHealth: (options) => ipcRenderer.invoke("cloud:check-health", options),
+  initiateLogin: (payload) => ipcRenderer.invoke("cloud:desktop-initiate-login", payload),
+  verifyDevice: (payload) => ipcRenderer.invoke("cloud:desktop-verify-device", payload),
+  requestPinReset: (payload) => ipcRenderer.invoke("cloud:pin-reset-request", payload),
+  verifyPinReset: (payload) => ipcRenderer.invoke("cloud:pin-reset-verify", payload),
+  checkUpdates: (options) => ipcRenderer.invoke("cloud:check-updates", options),
+  validateLicense: (options) => ipcRenderer.invoke("cloud:validate-license", options),
+});

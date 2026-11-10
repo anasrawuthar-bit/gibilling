@@ -15774,15 +15774,20 @@ function bindFeatureActions() {
         const cloudSettings = (typeof CloudLicenseManager !== "undefined") ? CloudLicenseManager.getSettings() : {};
         const serverUrl = cloudSettings.serverUrl || "http://localhost:4000";
 
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 6000);
-        const res = await fetch(`${serverUrl}/api/v1/updates/check`, { signal: controller.signal }).catch(() => null);
-        clearTimeout(timeoutId);
+        let data = null;
+        let isOk = false;
+        if (window.giCloud?.checkUpdates) {
+          const checkRes = await window.giCloud.checkUpdates({ serverUrl });
+          if (checkRes && checkRes.ok && checkRes.data) {
+            isOk = true;
+            data = checkRes.data;
+          }
+        }
 
         const nowStr = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
         if (subtitle) subtitle.textContent = `Last checked: Today at ${nowStr}`;
 
-        if (!res || !res.ok) {
+        if (!isOk || !data) {
           if (feedback) {
             feedback.style.display = "block";
             feedback.style.background = "#fffbeb";
@@ -15794,7 +15799,6 @@ function bindFeatureActions() {
           return;
         }
 
-        const data = await res.json();
         const latestVersion = data.latestVersion || currentVersion;
 
         // Compare semver

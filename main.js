@@ -818,6 +818,227 @@ function registerDatabaseHandlers() {
   });
 }
 
+function isLocalOrLoopbackHost(hostname) {
+  const host = (hostname || "").toLowerCase().trim();
+  return host === "localhost" || host === "127.0.0.1" || host === "::1" || host === "[::1]";
+}
+
+function isDisallowedCloudHost(hostname) {
+  const host = (hostname || "").toLowerCase().trim();
+  // Block AWS / GCP / Azure / OpenStack metadata services and link-local ranges (SSRF protection)
+  if (
+    host === "169.254.169.254" ||
+    host === "metadata.google.internal" ||
+    host === "instance-data" ||
+    host === "0.0.0.0" ||
+    host === "255.255.255.255" ||
+    host.startsWith("169.254.")
+  ) {
+    return true;
+  }
+  return false;
+}
+
+function resolveCloudServerUrl(candidate) {
+  const defaultUrl = syncConfig.serverUrl || process.env.CLOUD_SERVER_URL || "http://localhost:4000";
+  const raw = (candidate && typeof candidate === "string" && candidate.trim())
+    ? candidate.trim()
+    : defaultUrl;
+  try {
+    const parsed = new URL(raw);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      return resolveCloudServerUrl(defaultUrl);
+    }
+    // Block metadata services / SSRF targets
+    if (isDisallowedCloudHost(parsed.hostname)) {
+      console.warn(`[SECURITY] Blocked SSRF/metadata host candidate: ${parsed.hostname}`);
+      return resolveCloudServerUrl(defaultUrl);
+    }
+    // Enforce HTTPS in production for remote (non-loopback) hosts
+    const isProduction = (typeof app !== "undefined" && app.isPackaged) || process.env.NODE_ENV === "production";
+    const allowInsecure = process.env.ALLOW_INSECURE_HTTP === "true";
+    if (isProduction && !allowInsecure && parsed.protocol === "http:" && !isLocalOrLoopbackHost(parsed.hostname)) {
+      console.warn(`[SECURITY] Insecure HTTP rejected for remote host ${parsed.hostname} in production. Upgraded to https://`);
+      parsed.protocol = "https:";
+    }
+    return parsed.origin;
+  } catch (_) {
+    return "http://localhost:4000";
+  }
+}
+
+async function safeCloudFetch(endpoint, options = {}, candidateUrl) {
+  if (typeof endpoint !== "string" || !endpoint.startsWith("/api/v1/")) {
+    return {
+      ok: false,
+      status: 400,
+      error: "Invalid cloud API endpoint. Only relative paths under /api/v1/ are permitted."
+    };
+  }
+
+  const baseUrl = resolveCloudServerUrl(candidateUrl);
+  let targetUrlObj;
+  try {
+    targetUrlObj = new URL(endpoint, baseUrl);
+    // Ensure the constructed URL does not divert away from the resolved cloud server origin
+    if (targetUrlObj.origin !== new URL(baseUrl).origin) {
+      return {
+        ok: false,
+        status: 400,
+        error: "SSRF Protection: Endpoint origin does not match cloud server origin."
+      };
+    }
+  } catch (_) {
+    return { ok: false, status: 400, error: "Malformed target URL construction." };
+  }
+
+  const targetUrl = targetUrlObj.toString();
+  const ctrl = new AbortController();
+  const timeoutMs = Math.min(Math.max(Number(options.timeoutMs) || 8000, 1000), 30000);
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+
+  try {
+    const headers = {
+      "Accept": "application/json",
+      ...(options.headers || {})
+    };
+    if (options.body) {
+      headers["Content-Type"] = "application/json";
+    }
+    const res = await fetch(targetUrl, {
+      method: options.method || "GET",
+      headers,
+      body: options.body ? JSON.stringify(options.body) : undefined,
+      signal: ctrl.signal
+    });
+
+    let data = null;
+    const contentType = res.headers.get("content-type") || "";
+    if (contentType.includes("application/json")) {
+      try { data = await res.json(); } catch (_) {}
+    } else {
+      const text = await res.text();
+      try { data = JSON.parse(text); } catch (_) { data = { raw: text }; }
+    }
+
+    return {
+      ok: res.ok,
+      status: res.status,
+      data
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      status: 0,
+      error: err.name === "AbortError" ? "Cloud server request timed out." : (err.message || "Network error communicating with cloud server.")
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function registerCloudHandlers() {
+  const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  const SIX_DIGIT_REGEX = /^\d{6}$/;
+
+  ipcMain.handle("cloud:check-health", async (_event, options = {}) => {
+    const token = typeof options.token === "string" && options.token.trim().length <= 2048 ? options.token.trim() : null;
+    const headers = token ? { "Authorization": `Bearer ${token}` } : {};
+    return safeCloudFetch("/api/v1/system/health", { method: "GET", headers, timeoutMs: 3500 }, options.serverUrl);
+  });
+
+  ipcMain.handle("cloud:desktop-initiate-login", async (_event, payload = {}) => {
+    if (!payload || typeof payload.email !== "string" || !EMAIL_REGEX.test(payload.email.trim()) || payload.email.trim().length > 255) {
+      return { ok: false, error: "Valid email address is required (max 255 characters)." };
+    }
+    if (!payload.password || typeof payload.password !== "string" || payload.password.length > 255) {
+      return { ok: false, error: "Password is required (max 255 characters)." };
+    }
+    const serverUrl = resolveCloudServerUrl(payload.serverUrl);
+    syncConfig.serverUrl = serverUrl;
+    httpSyncAdapter.setBaseUrl(serverUrl);
+
+    return safeCloudFetch("/api/v1/auth/desktop-initiate-login", {
+      method: "POST",
+      body: {
+        email: payload.email.trim(),
+        password: payload.password,
+        machineName: String(payload.machineName || os.hostname() || "ZynBill PC").trim().slice(0, 128)
+      },
+      timeoutMs: 8000
+    }, serverUrl);
+  });
+
+  ipcMain.handle("cloud:desktop-verify-device", async (_event, payload = {}) => {
+    if (!payload || typeof payload.email !== "string" || !EMAIL_REGEX.test(payload.email.trim()) || payload.email.trim().length > 255) {
+      return { ok: false, error: "Valid email address is required." };
+    }
+    const code = typeof payload.code === "string" ? payload.code.trim() : "";
+    if (!SIX_DIGIT_REGEX.test(code)) {
+      return { ok: false, error: "6-digit verification code is required." };
+    }
+    const serverUrl = resolveCloudServerUrl(payload.serverUrl);
+    const result = await safeCloudFetch("/api/v1/auth/desktop-verify-device", {
+      method: "POST",
+      body: {
+        email: payload.email.trim(),
+        code,
+        machineName: String(payload.machineName || os.hostname() || "ZynBill PC").trim().slice(0, 128)
+      },
+      timeoutMs: 8000
+    }, serverUrl);
+
+    if (result.ok && result.data?.token) {
+      syncConfig.token = result.data.token;
+      syncConfig.enabled = true;
+      syncService.enabled = true;
+      syncService.start();
+    }
+    return result;
+  });
+
+  ipcMain.handle("cloud:pin-reset-request", async (_event, payload = {}) => {
+    if (!payload || typeof payload.email !== "string" || !EMAIL_REGEX.test(payload.email.trim()) || payload.email.trim().length > 255) {
+      return { ok: false, error: "Valid email address is required." };
+    }
+    return safeCloudFetch("/api/v1/auth/pin-reset-request", {
+      method: "POST",
+      body: { email: payload.email.trim() },
+      timeoutMs: 6000
+    }, payload.serverUrl);
+  });
+
+  ipcMain.handle("cloud:pin-reset-verify", async (_event, payload = {}) => {
+    if (!payload || typeof payload.email !== "string" || !EMAIL_REGEX.test(payload.email.trim()) || payload.email.trim().length > 255) {
+      return { ok: false, error: "Valid email address is required." };
+    }
+    const code = typeof payload.code === "string" ? payload.code.trim() : "";
+    if (!SIX_DIGIT_REGEX.test(code)) {
+      return { ok: false, error: "6-digit verification code is required." };
+    }
+    return safeCloudFetch("/api/v1/auth/pin-reset-verify", {
+      method: "POST",
+      body: { email: payload.email.trim(), code },
+      timeoutMs: 6000
+    }, payload.serverUrl);
+  });
+
+  ipcMain.handle("cloud:check-updates", async (_event, options = {}) => {
+    return safeCloudFetch("/api/v1/updates/check", { method: "GET", timeoutMs: 5000 }, options.serverUrl);
+  });
+
+  ipcMain.handle("cloud:validate-license", async (_event, options = {}) => {
+    if (!options.token || typeof options.token !== "string" || options.token.trim().length > 2048) {
+      return { ok: false, error: "Valid authentication token is required for license validation." };
+    }
+    return safeCloudFetch("/api/v1/auth/validate-license", {
+      method: "GET",
+      headers: { "Authorization": `Bearer ${options.token.trim()}` },
+      timeoutMs: 5000
+    }, options.serverUrl);
+  });
+}
+
 function createMenu() {
   const template = [
     {
@@ -934,6 +1155,7 @@ if (singleInstanceLock) {
     await database.initDatabase(app.getPath("userData"));
   database.createDailyAutomatedBackup?.(app.getPath("userData"));
     registerDatabaseHandlers();
+    registerCloudHandlers();
     createMenu();
     createTray();
     createMainWindow();

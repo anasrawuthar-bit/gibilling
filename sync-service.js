@@ -105,11 +105,13 @@ class HttpSyncAdapter {
       throw Object.assign(new Error(data.error || "Sync push failed."), { code: data.code || "SERVER_ERROR" });
     }
     const acknowledgedIds = new Set(data.acknowledgedIds || []);
-    const results = (events || []).map((ev) => ({
-      id: ev.id,
-      status: acknowledgedIds.has(ev.id) ? "accepted" : "rejected"
-    }));
-    return { results, serverTimestamp: data.serverTimestamp };
+    const results = Array.isArray(data.results)
+      ? data.results
+      : (events || []).map((ev) => ({
+          id: ev.id,
+          status: acknowledgedIds.has(ev.id) ? "accepted" : "rejected"
+        }));
+    return { results, serverTimestamp: data.serverTimestamp || new Date().toISOString() };
   }
 
   async pull({ companyId, deviceId, cursor, limit = 100 }) {
@@ -131,8 +133,30 @@ class HttpSyncAdapter {
     if (!data.ok) {
       throw Object.assign(new Error(data.error || "Sync pull failed."), { code: data.code || "SERVER_ERROR" });
     }
+    const rawEvents = Array.isArray(data.changes) ? data.changes : (Array.isArray(data.events) ? data.events : []);
+    const supportedEntities = new Set(["unit", "item_category"]);
+    const changes = rawEvents.map((ev) => {
+      let payload = ev.payload;
+      if (typeof payload === "string") {
+        try { payload = JSON.parse(payload); } catch (_) { payload = {}; }
+      }
+      return {
+        eventId: ev.eventId || ev.id,
+        id: ev.id || ev.eventId,
+        entityType: ev.entityType || ev.entity_type,
+        entityId: ev.entityId || ev.entity_id,
+        operation: ev.operation || "upsert",
+        serverVersion: Number(ev.serverVersion || ev.server_version || 1),
+        payload: payload || {},
+        deviceId: ev.deviceId || ev.device_id || null,
+        companyId: ev.companyId || ev.company_id || companyId,
+        idempotencyKey: ev.idempotencyKey || ev.idempotency_key,
+        serverTimestamp: ev.serverTimestamp || ev.server_timestamp
+      };
+    }).filter((c) => supportedEntities.has(c.entityType));
+
     return {
-      changes: Array.isArray(data.events) ? data.events : [],
+      changes,
       cursor: data.cursor || cursor || new Date().toISOString()
     };
   }
