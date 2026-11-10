@@ -1,6 +1,7 @@
 const assert = require("assert");
 const http = require("node:http");
 const dns = require("node:dns");
+const { Agent: UndiciAgent } = require("undici");
 const {
   parseIpv6ToWords,
   ipMatchesCidr,
@@ -18,7 +19,9 @@ const TEST_PORT_PRIMARY = 4199;
 const TEST_PORT_SECONDARY = 4201;
 
 function createTestServer(port, serverId, redirectTarget = null) {
-  return http.createServer((req, res) => {
+  const requests = [];
+  const srv = http.createServer((req, res) => {
+    requests.push({ method: req.method, url: req.url, headers: req.headers });
     if (req.url === "/api/v1/redirect-to-metadata" && redirectTarget) {
       res.writeHead(302, { Location: redirectTarget });
       res.end();
@@ -32,6 +35,9 @@ function createTestServer(port, serverId, redirectTarget = null) {
     res.writeHead(404, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ error: "not_found", server: serverId }));
   });
+  srv.getRequests = () => requests;
+  srv.clearRequests = () => { requests.length = 0; };
+  return srv;
 }
 
 async function run() {
@@ -124,22 +130,89 @@ async function run() {
     console.log("✓ Carrier-grade NAT verified as private and blocked in production.");
 
     // ─────────────────────────────────────────────────────────────────
-    // Test 7: IPv6 loopback, link-local, and unique-local are handled correctly
+    // Test 7: IANA Special-Use IPv6 & Special-Purpose IPv4 Classification
     // ─────────────────────────────────────────────────────────────────
-    console.log("\n[Test 7] IPv6 loopback, link-local and unique-local classification...");
+    console.log("\n[Test 7] IANA Special-Use IPv6 & Special-Purpose IPv4 classification...");
+    // 1. Loopback (::1/128, RFC 4291)
     const cIpv6Loop = classifyIpAddress("::1");
     assert.strictEqual(cIpv6Loop.isLoopback, true);
     assert.strictEqual(cIpv6Loop.isDisallowed, false);
 
+    // 2. Link-Local (fe80::/10, RFC 4291)
     const cIpv6Link = classifyIpAddress("fe80::1");
     assert.strictEqual(cIpv6Link.isLinkLocal, true);
     assert.strictEqual(cIpv6Link.isDisallowed, true);
 
+    // 3. Unique-Local ULA (fc00::/7, RFC 4193)
     const cIpv6Ula1 = classifyIpAddress("fc00::1");
     const cIpv6Ula2 = classifyIpAddress("fd12:3456::1");
     assert.strictEqual(cIpv6Ula1.isPrivate, true);
     assert.strictEqual(cIpv6Ula2.isPrivate, true);
-    console.log("✓ IPv6 classification verified.");
+
+    // 4. Discard-Only (100::/64, RFC 6666)
+    const cIpv6Discard = classifyIpAddress("100::1");
+    assert.strictEqual(cIpv6Discard.isReserved, true);
+    assert.strictEqual(cIpv6Discard.isDisallowed, true);
+
+    // 5. Documentation (2001:db8::/32, RFC 3849)
+    const cIpv6Doc = classifyIpAddress("2001:db8::1");
+    assert.strictEqual(cIpv6Doc.isDocumentation, true);
+    assert.strictEqual(cIpv6Doc.isDisallowed, true);
+
+    // 6. Benchmarking (2001:2::/48, RFC 5180)
+    const cIpv6Bench = classifyIpAddress("2001:2::1");
+    assert.strictEqual(cIpv6Bench.isBenchmark, true);
+    assert.strictEqual(cIpv6Bench.isDisallowed, true);
+
+    // 7. ORCHIDv2 (2001:20::/28, RFC 7343)
+    const cIpv6Orchid = classifyIpAddress("2001:20::1");
+    assert.strictEqual(cIpv6Orchid.isReserved, true);
+    assert.strictEqual(cIpv6Orchid.isDisallowed, true);
+
+    // 8. Deprecated Site-Local (fec0::/10, RFC 3879)
+    const cIpv6SiteLocal = classifyIpAddress("fec0::1");
+    assert.strictEqual(cIpv6SiteLocal.isReserved, true);
+    assert.strictEqual(cIpv6SiteLocal.isPrivate, true);
+    assert.strictEqual(cIpv6SiteLocal.isDisallowed, true);
+
+    // 9. Non-GUA Reserved Space outside 2000::/3 (e.g. 4000::/3)
+    const cIpv6Reserved = classifyIpAddress("4000::1");
+    assert.strictEqual(cIpv6Reserved.isReserved, true);
+    assert.strictEqual(cIpv6Reserved.isDisallowed, true);
+
+    // 10. Legitimate Global Unicast Addresses (GUA) MUST NOT be blocked
+    const cIpv6GoogleGua = classifyIpAddress("2607:f8b0:4005:805::200e");
+    assert.strictEqual(cIpv6GoogleGua.isReserved, false);
+    assert.strictEqual(cIpv6GoogleGua.isDisallowed, false);
+    assert.strictEqual(cIpv6GoogleGua.isNonPublic, false);
+
+    const cIpv6CloudflareGua = classifyIpAddress("2606:4700::6810:84e5");
+    assert.strictEqual(cIpv6CloudflareGua.isReserved, false);
+    assert.strictEqual(cIpv6CloudflareGua.isDisallowed, false);
+    assert.strictEqual(cIpv6CloudflareGua.isNonPublic, false);
+
+    // 11. 6to4 Anycast (2002::/16, RFC 3056, deprecated by RFC 7526)
+    const cIpv66to4Meta = classifyIpAddress("2002:a9fe:a9fe::1");
+    assert.strictEqual(cIpv66to4Meta.is6to4, true);
+    assert.strictEqual(cIpv66to4Meta.isDisallowed, true);
+    assert.strictEqual(cIpv66to4Meta.embeddedIpv4, "169.254.169.254");
+
+    const cIpv66to4Priv = classifyIpAddress("2002:c0a8:0101::1");
+    assert.strictEqual(cIpv66to4Priv.is6to4, true);
+    assert.strictEqual(cIpv66to4Priv.isPrivate, true);
+    assert.strictEqual(cIpv66to4Priv.embeddedIpv4, "192.168.1.1");
+
+    // 12. IPv4 Special-Purpose: IETF protocol assignments (192.0.0.0/24, RFC 6890)
+    const cIpv4Ietf = classifyIpAddress("192.0.0.1");
+    assert.strictEqual(cIpv4Ietf.isReserved, true);
+    assert.strictEqual(cIpv4Ietf.isDisallowed, true);
+
+    // 13. IPv4 Special-Purpose: 6to4 relay anycast (192.88.99.0/24, RFC 7526)
+    const cIpv46to4Relay = classifyIpAddress("192.88.99.1");
+    assert.strictEqual(cIpv46to4Relay.isReserved, true);
+    assert.strictEqual(cIpv46to4Relay.isDisallowed, true);
+
+    console.log("✓ Full IANA Special-Use IPv6 & IPv4 classification verified.");
 
     // ─────────────────────────────────────────────────────────────────
     // Test 8: Comprehensive IPv4-Mapped IPv6 Normalization & Classification
@@ -272,16 +345,18 @@ async function run() {
     delete process.env.NODE_ENV; // dev mode
     process.env.TRUSTED_LAN_HOSTS = "rebind.zynbill.test,127.0.0.1";
 
+    primaryServer.clearRequests();
+    secondaryServer.clearRequests();
+
     const originalDnsLookup = dns.lookup;
     let dnsQueryCount = 0;
     let simulatedDnsAddress = "127.0.0.1";
 
-    // Intercept dns.lookup to simulate dynamic DNS record switching
     dns.lookup = (hostname, options, callback) => {
       if (hostname === "rebind.zynbill.test") {
         dnsQueryCount++;
         const currentAddr = simulatedDnsAddress;
-        // Immediately mutate DNS response for subsequent queries
+        // Mutate DNS response for subsequent queries to unauthorized IP
         simulatedDnsAddress = "192.168.99.99";
         return callback(null, [{ address: currentAddr, family: 4 }]);
       }
@@ -289,6 +364,9 @@ async function run() {
     };
 
     try {
+      assert.strictEqual(dnsQueryCount, 0, "Initial DNS query count must be 0");
+      assert.strictEqual(secondaryServer.getRequests().length, 0, "Secondary server must have 0 requests initially");
+
       // 1. First request: Hostname resolves to 127.0.0.1 (Primary Approved Server)
       const res12A = await safeCloudFetch(
         "/api/v1/system/health",
@@ -299,6 +377,15 @@ async function run() {
       assert.strictEqual(res12A.status, 200);
       assert.strictEqual(res12A.data.server, "primary_approved");
       assert.strictEqual(res12A.data.port, TEST_PORT_PRIMARY);
+
+      // Verify that dnsQueryCount is exactly 1 for the first successful HTTP request
+      assert.strictEqual(dnsQueryCount, 1, "DNS lookup must be called exactly once during initial connection establishment");
+
+      // Verify actual HTTP socket connected to the validated IP (primary server)
+      assert.strictEqual(primaryServer.getRequests().length, 1, "Primary server must have received exactly 1 request");
+
+      // Verify secondary server received zero requests
+      assert.strictEqual(secondaryServer.getRequests().length, 0, "Secondary server must receive zero requests");
 
       // 2. Second request in production: DNS now returns 192.168.99.99 (Unauthorized IP)
       process.env.NODE_ENV = "production";
@@ -313,6 +400,10 @@ async function run() {
         res12B.error.includes("unauthorized internal IP") ||
         res12B.error.includes("fetch failed")
       );
+
+      // Verify secondary server STILL received zero requests (rejected before any socket connection!)
+      assert.strictEqual(secondaryServer.getRequests().length, 0, "Secondary server must still have zero requests after rejected rebind");
+      assert.strictEqual(primaryServer.getRequests().length, 1, "Primary server must not have received any new request");
     } finally {
       dns.lookup = originalDnsLookup;
     }
@@ -399,8 +490,34 @@ async function run() {
     assert.strictEqual(res16.data.status, "operational");
     console.log("✓ Local development workflow operational.");
 
+    // ─────────────────────────────────────────────────────────────────
+    // Test 17: Defensive Dispatcher Validation
+    // (Caller-Supplied Dispatcher Cannot Bypass Secure Cloud Agent)
+    // ─────────────────────────────────────────────────────────────────
+    console.log("\n[Test 17] Defensive dispatcher validation...");
+    delete process.env.NODE_ENV;
+    const fakeUnsafeAgent = new UndiciAgent(); // Agent without secure lookup
+
+    // Attempt to pass an unvalidated dispatcher in options
+    const res17 = await safeCloudFetch(
+      "/api/v1/system/health",
+      { dispatcher: fakeUnsafeAgent },
+      `http://127.0.0.1:${TEST_PORT_PRIMARY}`
+    );
+    assert.strictEqual(res17.ok, true);
+
+    // Verify that passing a disallowed target with fakeUnsafeAgent is STILL blocked
+    const res17Blocked = await safeCloudFetch(
+      "/api/v1/system/health",
+      { dispatcher: fakeUnsafeAgent },
+      "http://169.254.169.254"
+    );
+    assert.strictEqual(res17Blocked.ok, false);
+    assert.ok(res17Blocked.error.includes("Prohibited IP target"));
+    console.log("✓ Defensive dispatcher enforcement verified: caller-supplied dispatcher cannot bypass security.");
+
     console.log("\n=======================================================");
-    console.log("🎉 ALL 16 AUD-009 SSRF HARDENING BEHAVIORAL TESTS PASSED!");
+    console.log("🎉 ALL 17 AUD-009 SSRF HARDENING BEHAVIORAL TESTS PASSED!");
     console.log("=======================================================\n");
   } finally {
     restoreEnv();

@@ -905,27 +905,55 @@ function classifyIpAddress(ip) {
       };
     }
 
-    // Pure IPv6 classification via word inspection
-    const isLoopback = words[0] === 0 && words[1] === 0 && words[2] === 0 && words[3] === 0 && words[4] === 0 && words[5] === 0 && words[6] === 0 && words[7] === 1;
-    const isUnspecified = words.every(w => w === 0);
-    const isLinkLocal = (words[0] & 0xffc0) === 0xfe80; // fe80::/10
-    const isUniqueLocal = (words[0] & 0xfe00) === 0xfc00; // fc00::/7 (fc00 - fdff)
-    const isMulticast = (words[0] & 0xff00) === 0xff00; // ff00::/8
-    const isDocumentation = (words[0] === 0x2001 && words[1] === 0x0db8); // 2001:db8::/32
-    const isBenchmark = (words[0] === 0x2001 && (words[1] & 0xfff0) === 0x0020); // 2001:20::/28
+    // 5. 6to4 Anycast prefix (2002::/16, RFC 3056, deprecated by RFC 7526)
+    if (words[0] === 0x2002) {
+      const b1 = (words[1] >> 8) & 0xff;
+      const b2 = words[1] & 0xff;
+      const b3 = (words[2] >> 8) & 0xff;
+      const b4 = words[2] & 0xff;
+      const embeddedIpv4 = `${b1}.${b2}.${b3}.${b4}`;
+      const v4Class = classifyIpAddress(embeddedIpv4);
+      return {
+        ...v4Class,
+        is6to4: true,
+        isReserved: true,
+        version: 6,
+        originalIp: raw,
+        embeddedIpv4,
+        isDisallowed: true
+      };
+    }
 
-    const isNonPublic = isUniqueLocal || isLoopback || isLinkLocal || isDocumentation || isBenchmark || isMulticast || isUnspecified;
-    const isDisallowed = isLinkLocal || isMulticast || isUnspecified || isDocumentation || isBenchmark;
+    // Pure IPv6 classification via word inspection against IANA Special-Purpose Registry
+    const isLoopback = words[0] === 0 && words[1] === 0 && words[2] === 0 && words[3] === 0 && words[4] === 0 && words[5] === 0 && words[6] === 0 && words[7] === 1; // ::1/128
+    const isUnspecified = words.every(w => w === 0); // ::/128
+    const isLinkLocal = (words[0] & 0xffc0) === 0xfe80; // fe80::/10 (RFC 4291)
+    const isSiteLocal = (words[0] & 0xffc0) === 0xfec0; // fec0::/10 (deprecated RFC 3879)
+    const isUniqueLocal = (words[0] & 0xfe00) === 0xfc00; // fc00::/7 (RFC 4193 ULA, fc00-fdff)
+    const isMulticast = (words[0] & 0xff00) === 0xff00; // ff00::/8 (RFC 4291)
+    const isDocumentation = (words[0] === 0x2001 && words[1] === 0x0db8); // 2001:db8::/32 (RFC 3849)
+    const isBenchmark = (words[0] === 0x2001 && words[1] === 0x0002); // 2001:2::/48 (RFC 5180)
+    const isDiscard = (words[0] === 0x0100 && words[1] === 0 && words[2] === 0 && words[3] === 0); // 100::/64 (RFC 6666)
+    const isOrchid = (words[0] === 0x2001 && ((words[1] & 0xfff0) === 0x0010 || (words[1] & 0xfff0) === 0x0020)); // 2001:10::/28 & 2001:20::/28 (RFC 4843 & RFC 7343)
+    const isLocalNat64 = (words[0] === 0x0064 && words[1] === 0xff9b && words[2] === 0x0001); // 64:ff9b:1::/48 (RFC 8215)
+    // Non-GUA addresses outside 2000::/3 that are not ULA, link-local, multicast, loopback, or unspecified
+    const isNonGuaReserved = (words[0] & 0xe000) !== 0x2000 && !isUniqueLocal && !isLinkLocal && !isMulticast && !isLoopback && !isUnspecified;
+
+    const isReserved = isDiscard || isOrchid || isLocalNat64 || isSiteLocal || isNonGuaReserved;
+    const isNonPublic = isUniqueLocal || isLoopback || isLinkLocal || isSiteLocal || isDocumentation || isBenchmark || isMulticast || isUnspecified || isReserved;
+    const isDisallowed = isLinkLocal || isMulticast || isUnspecified || isDocumentation || isBenchmark || isReserved;
 
     return {
       isIp: true,
       version: 6,
       isLoopback,
       isLinkLocal,
-      isPrivate: isUniqueLocal,
+      isPrivate: isUniqueLocal || isSiteLocal,
       isCarrierNat: false,
       isMulticast,
-      isReserved: false,
+      isDocumentation,
+      isBenchmark,
+      isReserved,
       isUnspecified,
       isNonPublic,
       isDisallowed
@@ -935,20 +963,22 @@ function classifyIpAddress(ip) {
   // IPv4
   const [o1, o2, o3, o4] = raw.split(".").map(Number);
   const isLoopback = o1 === 127;
-  const isLinkLocal = o1 === 169 && o2 === 254; // Link-local & cloud metadata (169.254.169.254)
+  const isLinkLocal = o1 === 169 && o2 === 254; // Link-local & cloud metadata (169.254.169.254, RFC 3927)
   const isPrivate =
     o1 === 10 ||
     (o1 === 172 && o2 >= 16 && o2 <= 31) ||
     (o1 === 192 && o2 === 168);
   const isCarrierNat = o1 === 100 && o2 >= 64 && o2 <= 127;
   const isMulticast = o1 >= 224 && o1 <= 239;
-  const isReserved = o1 >= 240;
+  const isIetfProtocol = o1 === 192 && o2 === 0 && o3 === 0; // 192.0.0.0/24 (RFC 6890)
+  const is6to4Relay = o1 === 192 && o2 === 88 && o3 === 99; // 192.88.99.0/24 (RFC 7526, deprecated)
+  const isReserved = (o1 >= 240 && o1 <= 255 && raw !== "255.255.255.255") || isIetfProtocol || is6to4Relay;
   const isUnspecified = o1 === 0 || raw === "255.255.255.255";
   const isDocumentation =
-    (o1 === 192 && o2 === 0 && o3 === 2) ||
-    (o1 === 198 && o2 === 51 && o3 === 100) ||
-    (o1 === 203 && o2 === 0 && o3 === 113);
-  const isBenchmark = o1 === 198 && (o2 === 18 || o2 === 19);
+    (o1 === 192 && o2 === 0 && o3 === 2) || // TEST-NET-1 (192.0.2.0/24, RFC 5737)
+    (o1 === 198 && o2 === 51 && o3 === 100) || // TEST-NET-2 (198.51.100.0/24, RFC 5737)
+    (o1 === 203 && o2 === 0 && o3 === 113); // TEST-NET-3 (203.0.113.0/24, RFC 5737)
+  const isBenchmark = o1 === 198 && (o2 === 18 || o2 === 19); // 198.18.0.0/15 (RFC 2544)
 
   const isNonPublic = isPrivate || isCarrierNat || isLoopback || isLinkLocal || isDocumentation || isBenchmark || isReserved || isUnspecified;
   const isDisallowed = isLinkLocal || isMulticast || isReserved || isUnspecified || isDocumentation || isBenchmark;
@@ -961,6 +991,8 @@ function classifyIpAddress(ip) {
     isPrivate: isPrivate || isCarrierNat,
     isCarrierNat,
     isMulticast,
+    isDocumentation,
+    isBenchmark,
     isReserved,
     isUnspecified,
     isNonPublic,
@@ -1288,7 +1320,9 @@ async function safeCloudFetch(endpoint, options = {}, candidateUrl) {
       headers["Content-Type"] = "application/json";
     }
 
-    const dispatcher = options.dispatcher || getSecureCloudAgent();
+    // Defensive Dispatcher Validation: Always enforce the secure connection-pinned agent
+    // to prevent callers from supplying an unvalidated dispatcher and bypassing SSRF security controls.
+    const dispatcher = getSecureCloudAgent();
 
     const res = await fetch(targetUrl, {
       method: options.method || "GET",
