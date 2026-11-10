@@ -174,20 +174,71 @@ async function run() {
     assert.strictEqual(cIpv6Doc2Boundary.isDocumentation, true);
     assert.strictEqual(cIpv6Doc2Boundary.isDisallowed, true);
 
-    // 8. Benchmarking (2001:2::/48, RFC 5180) - Non-global
+    // 8. Benchmarking (2001:2::/48, RFC 5180) - Non-global (IANA Reachability: False)
     const cIpv6Bench = classifyIpAddress("2001:2::1");
     assert.strictEqual(cIpv6Bench.isBenchmark, true);
     assert.strictEqual(cIpv6Bench.isDisallowed, true);
 
-    // 9. ORCHIDv2 (2001:20::/28, RFC 7343) - Non-global
+    // 9. ORCHIDv2 (2001:20::/28, RFC 7343) - IANA Globally Reachable: True; Disallowed by application policy
     const cIpv6Orchid = classifyIpAddress("2001:20::1");
     assert.strictEqual(cIpv6Orchid.isReserved, true);
     assert.strictEqual(cIpv6Orchid.isDisallowed, true);
 
-    // 10. AS112-v6 Anycast (2001:4:112::/48, RFC 7535) - Non-global
+    // 10. AS112-v6 Anycast (2001:4:112::/48, RFC 7535) - IANA Globally Reachable: True; Disallowed by application policy
     const cIpv6As112 = classifyIpAddress("2001:4:112::1");
     assert.strictEqual(cIpv6As112.isReserved, true);
     assert.strictEqual(cIpv6As112.isDisallowed, true);
+
+    // 10b. Segment Routing SRv6 SIDs (5f00::/16, RFC 9602) - IANA Globally Reachable: False
+    const cIpv6Srv6 = classifyIpAddress("5f00::1");
+    assert.strictEqual(cIpv6Srv6.isSrv6Sid, true);
+    assert.strictEqual(cIpv6Srv6.isReserved, true);
+    assert.strictEqual(cIpv6Srv6.isDisallowed, true);
+    assert.strictEqual(cIpv6Srv6.isNonPublic, true);
+
+    const cIpv6Srv6Boundary = classifyIpAddress("5f00:ffff:ffff::1");
+    assert.strictEqual(cIpv6Srv6Boundary.isSrv6Sid, true);
+    assert.strictEqual(cIpv6Srv6Boundary.isDisallowed, true);
+
+    // 10c. IETF Protocol Assignments (2001::/23, RFC 2928) - IANA Globally Reachable: False
+    const cIpv6Ietf23 = classifyIpAddress("2001:5::1");
+    assert.strictEqual(cIpv6Ietf23.isIetfProtocolAssignment, true);
+    assert.strictEqual(cIpv6Ietf23.isReserved, true);
+    assert.strictEqual(cIpv6Ietf23.isDisallowed, true);
+    assert.strictEqual(cIpv6Ietf23.isNonPublic, true);
+
+    const cIpv6IetfBoundaryInside = classifyIpAddress("2001:01ff:ffff::1");
+    assert.strictEqual(cIpv6IetfBoundaryInside.isIetfProtocolAssignment, true);
+    assert.strictEqual(cIpv6IetfBoundaryInside.isDisallowed, true);
+
+    // Boundary check outside 2001::/23: 2001:0200::1 is normal public GUA
+    const cIpv6IetfBoundaryOutside = classifyIpAddress("2001:0200::1");
+    assert.strictEqual(cIpv6IetfBoundaryOutside.isIetfProtocolAssignment, false);
+    assert.strictEqual(cIpv6IetfBoundaryOutside.isReserved, false);
+    assert.strictEqual(cIpv6IetfBoundaryOutside.isDisallowed, false);
+
+    // 10d. Longest Prefix Match (LPM) Globally Reachable Exceptions within 2001::/23
+    // DNS-SD Service Registration Protocol Anycast (2001:1::3/128, RFC 9543/9545) - IANA Globally Reachable: True
+    const cIpv6DnsSd = classifyIpAddress("2001:1::3");
+    assert.strictEqual(cIpv6DnsSd.isIetfProtocolAssignment, false, "2001:1::3 must not be classified as general IETF protocol assignment");
+    assert.strictEqual(cIpv6DnsSd.isReserved, false, "2001:1::3 is a globally reachable exception");
+    assert.strictEqual(cIpv6DnsSd.isDisallowed, false, "2001:1::3 must not be disallowed");
+    assert.strictEqual(cIpv6DnsSd.isNonPublic, false);
+
+    // Port Control Protocol Anycast (2001:1::1/128, RFC 7723) - IANA Globally Reachable: True
+    const cIpv6Pcp = classifyIpAddress("2001:1::1");
+    assert.strictEqual(cIpv6Pcp.isIetfProtocolAssignment, false);
+    assert.strictEqual(cIpv6Pcp.isDisallowed, false);
+
+    // TURN Anycast (2001:1::2/128, RFC 8155) - IANA Globally Reachable: True
+    const cIpv6Turn = classifyIpAddress("2001:1::2");
+    assert.strictEqual(cIpv6Turn.isIetfProtocolAssignment, false);
+    assert.strictEqual(cIpv6Turn.isDisallowed, false);
+
+    // AMT Anycast (2001:3::/32, RFC 7450) - IANA Globally Reachable: True
+    const cIpv6Amt = classifyIpAddress("2001:3::1");
+    assert.strictEqual(cIpv6Amt.isIetfProtocolAssignment, false);
+    assert.strictEqual(cIpv6Amt.isDisallowed, false);
 
     // 11. Deprecated Site-Local (fec0::/10, RFC 3879) - Non-global
     const cIpv6SiteLocal = classifyIpAddress("fec0::1");
@@ -216,7 +267,7 @@ async function run() {
     assert.strictEqual(cIpv6GoogleEurope.isDisallowed, false);
     assert.strictEqual(cIpv6GoogleEurope.isNonPublic, false);
 
-    // 14. 6to4 Anycast (2002::/16, RFC 3056, deprecated by RFC 7526)
+    // 14. 6to4 Anycast (2002::/16, RFC 3056, deprecated by RFC 7526) - IANA Reachability: N/A; Disallowed by application policy to prevent IPv4-embedded bypasses
     const cIpv66to4Meta = classifyIpAddress("2002:a9fe:a9fe::1");
     assert.strictEqual(cIpv66to4Meta.is6to4, true);
     assert.strictEqual(cIpv66to4Meta.isDisallowed, true);
@@ -237,7 +288,16 @@ async function run() {
     assert.strictEqual(cIpv46to4Relay.isReserved, true);
     assert.strictEqual(cIpv46to4Relay.isDisallowed, true);
 
-    console.log("✓ Full IANA Special-Use IPv6 (3fff::/20, 100:0:0:1::/64) & IPv4 classification verified.");
+    // 17. End-to-end safeCloudFetch rejection for disallowed IPv6 targets
+    const resSrv6 = await safeCloudFetch("/api/v1/system/health", {}, "http://[5f00::1]");
+    assert.strictEqual(resSrv6.ok, false);
+    assert.ok(resSrv6.error.includes("Prohibited IP target"));
+
+    const resIetf = await safeCloudFetch("/api/v1/system/health", {}, "http://[2001:5::1]");
+    assert.strictEqual(resIetf.ok, false);
+    assert.ok(resIetf.error.includes("Prohibited IP target"));
+
+    console.log("✓ Full IANA Special-Use IPv6 (3fff::/20, 100:0:0:1::/64, 5f00::/16, 2001::/23) & IPv4 classification verified.");
 
     // ─────────────────────────────────────────────────────────────────
     // Test 8: Comprehensive IPv4-Mapped IPv6 Normalization & Classification

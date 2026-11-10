@@ -934,18 +934,40 @@ function classifyIpAddress(ip) {
     const isDocumentation =
       (words[0] === 0x2001 && words[1] === 0x0db8) || // 2001:db8::/32 (RFC 3849)
       (words[0] === 0x3fff && (words[1] & 0xf000) === 0x0000); // 3fff::/20 (RFC 9637)
-    const isBenchmark = (words[0] === 0x2001 && words[1] === 0x0002); // 2001:2::/48 (RFC 5180)
-    const isDiscardOrDummy = (words[0] === 0x0100 && words[1] === 0 && words[2] === 0 && (words[3] === 0 || words[3] === 1)); // 100::/64 (RFC 6666) & 100:0:0:1::/64 (Dummy Prefix)
-    const isOrchid = (words[0] === 0x2001 && ((words[1] & 0xfff0) === 0x0010 || (words[1] & 0xfff0) === 0x0020)); // 2001:10::/28 & 2001:20::/28 (RFC 4843 & RFC 7343)
+    const isDiscardOrDummy = (words[0] === 0x0100 && words[1] === 0 && words[2] === 0 && (words[3] === 0 || words[3] === 1)); // 100::/64 (RFC 6666) & 100:0:0:1::/64 (Dummy Prefix, RFC 9637)
     const isLocalNat64 = (words[0] === 0x0064 && words[1] === 0xff9b && words[2] === 0x0001); // 64:ff9b:1::/48 (RFC 8215)
-    const isAs112 = (words[0] === 0x2001 && words[1] === 0x0004 && words[2] === 0x0112); // 2001:4:112::/48 (RFC 7535)
     const is6to4 = words[0] === 0x2002; // 2002::/16 (RFC 3056, deprecated RFC 7526)
-    // Non-GUA addresses outside 2000::/3 that are not ULA, link-local, multicast, loopback, or unspecified
-    const isNonGuaReserved = (words[0] & 0xe000) !== 0x2000 && !isUniqueLocal && !isLinkLocal && !isMulticast && !isLoopback && !isUnspecified;
+    const isSrv6Sid = words[0] === 0x5f00; // 5f00::/16 (Segment Routing SRv6 SIDs, RFC 9602) - IANA Globally Reachable: False
 
-    const isReserved = isDiscardOrDummy || isOrchid || isLocalNat64 || isAs112 || is6to4 || isSiteLocal || isNonGuaReserved;
-    const isNonPublic = isUniqueLocal || isLoopback || isLinkLocal || isSiteLocal || isDocumentation || isBenchmark || isMulticast || isUnspecified || isReserved;
-    const isDisallowed = isLinkLocal || isMulticast || isUnspecified || isDocumentation || isBenchmark || isReserved;
+    // 2001::/23 (IETF Protocol Assignments, RFC 2928) - Longest Prefix Matching (LPM) for sub-allocations
+    const isWithinIetf23 = words[0] === 0x2001 && (words[1] & 0xfe00) === 0x0000; // Top 7 bits of word 1 are 0 (0x0000-0x01ff)
+
+    // Globally Reachable Exceptions within 2001::/23 (IANA Globally Reachable: True):
+    const is2001_1_3 = isWithinIetf23 && words[1] === 0x0001 &&
+      words[2] === 0 && words[3] === 0 && words[4] === 0 && words[5] === 0 && words[6] === 0 && words[7] === 3; // 2001:1::3/128 (DNS-SD SRP Anycast, RFC 9543/9545)
+    const is2001_1_1 = isWithinIetf23 && words[1] === 0x0001 &&
+      words[2] === 0 && words[3] === 0 && words[4] === 0 && words[5] === 0 && words[6] === 0 && words[7] === 1; // 2001:1::1/128 (PCP Anycast, RFC 7723)
+    const is2001_1_2 = isWithinIetf23 && words[1] === 0x0001 &&
+      words[2] === 0 && words[3] === 0 && words[4] === 0 && words[5] === 0 && words[6] === 0 && words[7] === 2; // 2001:1::2/128 (TURN Anycast, RFC 8155)
+    const isAmt = isWithinIetf23 && words[1] === 0x0003; // 2001:3::/32 (AMT, RFC 7450)
+    const isDroneId = isWithinIetf23 && (words[1] & 0xfff0) === 0x0030; // 2001:30::/28 (Drone Remote ID, RFC 9153)
+    const isGloballyReachableIetfException = is2001_1_3 || is2001_1_1 || is2001_1_2 || isAmt || isDroneId;
+
+    // Sub-allocations within 2001::/23 with specific special purposes / non-reachable / disallowed:
+    const isBenchmark = isWithinIetf23 && words[1] === 0x0002; // 2001:2::/48 (RFC 5180) - IANA Globally Reachable: False
+    const isOrchid = isWithinIetf23 && ((words[1] & 0xfff0) === 0x0010 || (words[1] & 0xfff0) === 0x0020); // 2001:10::/28 & 2001:20::/28 (RFC 4843 & RFC 7343)
+    const isAs112 = isWithinIetf23 && words[1] === 0x0004 && words[2] === 0x0112; // 2001:4:112::/48 (RFC 7535 Anycast)
+    const isTeredo = isWithinIetf23 && words[1] === 0x0000; // 2001::/32 (RFC 4380 / RFC 8190)
+
+    // Unallocated space in 2001::/23 falls back to IETF Protocol Assignments (IANA Globally Reachable: False)
+    const isIetfProtocolAssignment = isWithinIetf23 && !isGloballyReachableIetfException;
+
+    // Non-GUA addresses outside 2000::/3 that are not ULA, link-local, multicast, loopback, unspecified, or SRv6
+    const isNonGuaReserved = (words[0] & 0xe000) !== 0x2000 && !isUniqueLocal && !isLinkLocal && !isMulticast && !isLoopback && !isUnspecified && !isSrv6Sid;
+
+    const isReserved = isDiscardOrDummy || isOrchid || isLocalNat64 || isAs112 || is6to4 || isSiteLocal || isSrv6Sid || isIetfProtocolAssignment || isTeredo || isNonGuaReserved;
+    const isNonPublic = isUniqueLocal || isLoopback || isLinkLocal || isSiteLocal || isDocumentation || isBenchmark || isMulticast || isUnspecified || isSrv6Sid || isIetfProtocolAssignment || isReserved;
+    const isDisallowed = isLinkLocal || isMulticast || isUnspecified || isDocumentation || isBenchmark || isSrv6Sid || isIetfProtocolAssignment || isReserved;
 
     return {
       isIp: true,
@@ -960,7 +982,9 @@ function classifyIpAddress(ip) {
       isReserved,
       isUnspecified,
       isNonPublic,
-      isDisallowed
+      isDisallowed,
+      isIetfProtocolAssignment,
+      isSrv6Sid
     };
   }
 
@@ -1000,7 +1024,9 @@ function classifyIpAddress(ip) {
     isReserved,
     isUnspecified,
     isNonPublic,
-    isDisallowed
+    isDisallowed,
+    isIetfProtocolAssignment: isIetfProtocol,
+    isSrv6Sid: false
   };
 }
 
