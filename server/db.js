@@ -794,37 +794,97 @@ function verifyAndInspectBackup(backupFilePath) {
 }
 
 function getCanonicalPath(targetPath) {
-  if (!targetPath || typeof targetPath !== 'string') return '';
-  const resolved = path.resolve(targetPath);
+  if (!targetPath || typeof targetPath !== 'string') {
+    throw new Error('Target path must be a valid non-empty string');
+  }
 
-  // If the target already exists on disk, resolve its real canonical path directly
-  if (fs.existsSync(resolved)) {
+  let current = path.resolve(targetPath);
+  let hops = 0;
+  const maxHops = 40;
+
+  while (hops < maxHops) {
+    hops++;
+    const parsed = path.parse(current);
+    const root = parsed.root;
+    const segments = current.slice(root.length).split(path.sep).filter(Boolean);
+
+    let accumulated = root;
+    let symlinkFound = false;
+
+    for (let i = 0; i < segments.length; i++) {
+      const seg = segments[i];
+      const checkPath = path.join(accumulated, seg);
+
+      let lstat;
+      try {
+        lstat = fs.lstatSync(checkPath);
+      } catch (err) {
+        if (err.code === 'ENOENT') {
+          accumulated = checkPath;
+          continue;
+        }
+        throw new Error(`Canonical path resolution failed at '${checkPath}': ${err.message}`);
+      }
+
+      if (lstat.isSymbolicLink()) {
+        symlinkFound = true;
+        let linkTarget;
+        try {
+          linkTarget = fs.readlinkSync(checkPath);
+        } catch (readErr) {
+          throw new Error(`Failed to read symbolic link at '${checkPath}': ${readErr.message}`);
+        }
+
+        const resolvedLinkTarget = path.isAbsolute(linkTarget)
+          ? path.resolve(linkTarget)
+          : path.resolve(path.dirname(checkPath), linkTarget);
+
+        let targetExists = false;
+        try {
+          fs.statSync(resolvedLinkTarget);
+          targetExists = true;
+        } catch (_) {
+          targetExists = false;
+        }
+
+        const remainingSegments = segments.slice(i + 1);
+        const nextResolved = remainingSegments.length > 0
+          ? path.resolve(resolvedLinkTarget, ...remainingSegments)
+          : resolvedLinkTarget;
+
+        if (!targetExists) {
+          const err = new Error(
+            `Security Exception: Dangling symbolic link detected at '${checkPath}' pointing to non-existent target '${resolvedLinkTarget}'`
+          );
+          err.code = 'EDANGLING_SYMLINK';
+          err.danglingSource = checkPath;
+          err.danglingTarget = nextResolved;
+          throw err;
+        }
+
+        current = nextResolved;
+        break;
+      } else {
+        accumulated = checkPath;
+      }
+    }
+
+    if (!symlinkFound) break;
+  }
+
+  if (hops >= maxHops) {
+    throw new Error('Security Exception: Too many symbolic link levels (circular symlink detected)');
+  }
+
+  if (fs.existsSync(current)) {
     try {
-      return fs.realpathSync.native ? fs.realpathSync.native(resolved) : fs.realpathSync(resolved);
-    } catch (_) {
-      return resolved;
+      current = fs.realpathSync.native ? fs.realpathSync.native(current) : fs.realpathSync(current);
+    } catch (realErr) {
+      throw new Error(`Canonical path resolution failed for '${current}': ${realErr.message}`);
     }
   }
 
-  // Target file doesn't exist yet: find deepest existing ancestor directory and resolve its symlinks
-  let currentDir = path.dirname(resolved);
-  const uncreatedSegments = [path.basename(resolved)];
-
-  while (!fs.existsSync(currentDir)) {
-    const parent = path.dirname(currentDir);
-    if (parent === currentDir) break; // Reached filesystem root
-    uncreatedSegments.unshift(path.basename(currentDir));
-    currentDir = parent;
-  }
-
-  try {
-    const canonicalAncestor = fs.realpathSync.native
-      ? fs.realpathSync.native(currentDir)
-      : fs.realpathSync(currentDir);
-    return path.resolve(canonicalAncestor, ...uncreatedSegments);
-  } catch (_) {
-    return resolved;
-  }
+  return current;
 }
 
 function restoreBackupToSandbox(backupFilePath, targetSandboxPath) {
@@ -832,36 +892,74 @@ function restoreBackupToSandbox(backupFilePath, targetSandboxPath) {
     return { ok: false, error: 'Target sandbox path must be a valid non-empty string.' };
   }
 
+  let canonicalMaster;
+  let canonicalTenantsDir;
+  let canonicalDataDir;
+
+  try {
+    canonicalMaster = getCanonicalPath(MASTER_DB_PATH);
+    canonicalTenantsDir = getCanonicalPath(TENANTS_DIR);
+    canonicalDataDir = getCanonicalPath(DATA_DIR);
+  } catch (initErr) {
+    return { ok: false, error: 'Security Exception: Failed to resolve protected paths: ' + initErr.message };
+  }
+
+  function isProtectedPath(testPath) {
+    if (!testPath || typeof testPath !== 'string') return false;
+    const normP = testPath.toLowerCase();
+    const normMaster = canonicalMaster.toLowerCase();
+    const normTenants = canonicalTenantsDir.toLowerCase();
+    const normData = canonicalDataDir.toLowerCase();
+
+    if (normP === normMaster) return true;
+    if (normP === normTenants || normP.startsWith(normTenants + path.sep.toLowerCase())) return true;
+    if (normP.startsWith(normData + path.sep.toLowerCase())) {
+      const base = path.basename(testPath).toLowerCase();
+      if (base === 'master.sqlite' || base.startsWith('tenant_') || base.includes('master')) return true;
+    }
+    return false;
+  }
+
   // 1. Validate canonical filesystem path and symbolic links BEFORE performing any file operations
-  const canonicalTarget = getCanonicalPath(targetSandboxPath);
-  const canonicalMaster = getCanonicalPath(MASTER_DB_PATH);
-  const canonicalTenantsDir = getCanonicalPath(TENANTS_DIR);
-  const canonicalDataDir = getCanonicalPath(DATA_DIR);
+  let canonicalTarget;
+  try {
+    canonicalTarget = getCanonicalPath(targetSandboxPath);
+  } catch (canonErr) {
+    if (canonErr.danglingTarget && isProtectedPath(canonErr.danglingTarget)) {
+      return {
+        ok: false,
+        error: 'Security Exception: Cannot restore backup directly over active live database. Restore target must be an isolated sandbox directory.'
+      };
+    }
+    return {
+      ok: false,
+      error: 'Security Exception: ' + canonErr.message
+    };
+  }
 
-  const normTarget = canonicalTarget.toLowerCase();
-  const normMaster = canonicalMaster.toLowerCase();
-  const normTenants = canonicalTenantsDir.toLowerCase();
-  const normDataDir = canonicalDataDir.toLowerCase();
-
-  if (normTarget === normMaster || normTarget === normTenants || normTarget.startsWith(normTenants + path.sep.toLowerCase())) {
+  if (isProtectedPath(canonicalTarget)) {
     return {
       ok: false,
       error: 'Security Exception: Cannot restore backup directly over active live database. Restore target must be an isolated sandbox directory.'
     };
   }
 
-  // Ensure target does not resolve to master or tenant databases inside data directory
-  if (normTarget.startsWith(normDataDir + path.sep.toLowerCase())) {
-    const baseName = path.basename(canonicalTarget).toLowerCase();
-    if (baseName === 'master.sqlite' || baseName.startsWith('tenant_')) {
+  // Ensure target destination is not a symbolic link itself (prevent symlink overwrite attacks)
+  try {
+    const lstat = fs.lstatSync(targetSandboxPath);
+    if (lstat.isSymbolicLink()) {
       return {
         ok: false,
-        error: 'Security Exception: Cannot restore backup directly over active live database. Restore target must be an isolated sandbox directory.'
+        error: 'Security Exception: Target sandbox path is a symbolic link. Target must be a regular file path.'
       };
+    }
+  } catch (lstatErr) {
+    if (lstatErr.code !== 'ENOENT') {
+      return { ok: false, error: 'Security Exception: Unable to inspect target path: ' + lstatErr.message };
     }
   }
 
-  // 2. Validate backup file existence and integrity
+  // 2. Validate backup file existence and integrity BEFORE modifying target file
   if (!fs.existsSync(backupFilePath)) {
     return { ok: false, error: 'Backup file not found.' };
   }
@@ -871,16 +969,26 @@ function restoreBackupToSandbox(backupFilePath, targetSandboxPath) {
     return { ok: false, error: 'Cannot restore corrupted backup: ' + inspection.integrity };
   }
 
-  // 3. Perform sandbox restoration in isolated target
+  // 3. Perform sandbox restoration in isolated target using temporary file and atomic rename
+  const targetDir = path.dirname(canonicalTarget);
+  if (!fs.existsSync(targetDir)) {
+    try {
+      fs.mkdirSync(targetDir, { recursive: true });
+    } catch (mkdirErr) {
+      return { ok: false, error: 'Failed to create sandbox directory: ' + mkdirErr.message };
+    }
+  }
+
+  const tempSandboxPath = path.join(
+    targetDir,
+    `.restore_tmp_${Date.now()}_${crypto.randomBytes(6).toString('hex')}.sqlite`
+  );
+
   try {
-    const targetDir = path.dirname(canonicalTarget);
-    if (!fs.existsSync(targetDir)) fs.mkdirSync(targetDir, { recursive: true });
-    if (fs.existsSync(canonicalTarget)) fs.unlinkSync(canonicalTarget);
+    fs.copyFileSync(backupFilePath, tempSandboxPath);
 
-    fs.copyFileSync(backupFilePath, canonicalTarget);
-
-    // Verify restored database can be opened and queried
-    const restoredDb = new DatabaseSync(canonicalTarget);
+    // Verify restored database can be opened and queried in temporary location
+    const restoredDb = new DatabaseSync(tempSandboxPath);
     const tableCounts = {};
     for (const t of inspection.tables) {
       try {
@@ -890,6 +998,14 @@ function restoreBackupToSandbox(backupFilePath, targetSandboxPath) {
     }
     restoredDb.close();
 
+    // Only after verification passes, atomically replace target sandbox file
+    try {
+      fs.renameSync(tempSandboxPath, canonicalTarget);
+    } catch (_) {
+      fs.copyFileSync(tempSandboxPath, canonicalTarget);
+      try { fs.unlinkSync(tempSandboxPath); } catch (_) {}
+    }
+
     return {
       ok: true,
       message: 'Backup successfully restored and verified in sandbox environment.',
@@ -898,6 +1014,9 @@ function restoreBackupToSandbox(backupFilePath, targetSandboxPath) {
       tableCounts
     };
   } catch (err) {
+    if (fs.existsSync(tempSandboxPath)) {
+      try { fs.unlinkSync(tempSandboxPath); } catch (_) {}
+    }
     return { ok: false, error: 'Restore failed: ' + err.message };
   }
 }

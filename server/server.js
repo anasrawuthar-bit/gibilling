@@ -1784,37 +1784,7 @@ const server = http.createServer(async (req, res) => {
       versionedRelDirCreated = true;
     }
 
-    // 1. Archive current active latest.yml if present (do not silently ignore failures)
-    const currentActiveVer = getSetting('latest_version', '');
-    const activeYmlPath = path.join(downloadsDir, 'latest.yml');
-    let previousManifestContent = null;
-
-    if (fs.existsSync(activeYmlPath)) {
-      try {
-        previousManifestContent = fs.readFileSync(activeYmlPath, 'utf8');
-      } catch (readErr) {
-        return sendJson(res, 500, {
-          ok: false,
-          error: `Failed to read current active manifest before publishing: ${readErr.message}`
-        });
-      }
-
-      if (currentActiveVer) {
-        try {
-          if (req.headers['x-test-fail-at'] === 'fail_archive') {
-            throw new Error('Injected failure during active manifest archiving');
-          }
-          fs.copyFileSync(activeYmlPath, path.join(downloadsDir, `latest-${currentActiveVer}.yml`));
-        } catch (archErr) {
-          return sendJson(res, 500, {
-            ok: false,
-            error: `Failed to archive current active manifest: ${archErr.message}. Release publishing aborted.`
-          });
-        }
-      }
-    }
-
-    // 2. Snapshot existing metadata settings to guarantee atomic database rollback
+    // 1. Snapshot existing metadata settings to guarantee atomic database rollback
     const previousSettings = {
       active_release_version: getSetting('active_release_version', null),
       latest_version: getSetting('latest_version', null),
@@ -1823,14 +1793,52 @@ const server = http.createServer(async (req, res) => {
       published_at: getSetting('published_at', null)
     };
 
-    const existingDownloadsFiles = new Set(fs.readdirSync(downloadsDir));
-    const newFilesCopiedToDownloads = [];
+    // Rollback Tracking System:
+    // Preserves original contents of every destination file before overwriting,
+    // and tracks all newly created files so only they are unlinked on failure.
+    const rollbackBackupDir = path.join(
+      DATA_DIR,
+      `.pub_bak_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`
+    );
+    fs.mkdirSync(rollbackBackupDir, { recursive: true });
+
+    const backedUpDestSet = new Set();
+    const overwrittenDestFiles = []; // Array of { destPath, backupPath }
+    const newlyCreatedDestFiles = []; // Array of destPath
+
+    function deployFileWithRollbackTracking(srcPath, destPath) {
+      const normDest = path.resolve(destPath);
+      if (!backedUpDestSet.has(normDest)) {
+        backedUpDestSet.add(normDest);
+        if (fs.existsSync(normDest)) {
+          // Backup existing destination file before touching it
+          const bakName = 'bak_' + crypto.randomBytes(6).toString('hex') + '_' + path.basename(normDest);
+          const bakPath = path.join(rollbackBackupDir, bakName);
+          fs.copyFileSync(normDest, bakPath);
+          overwrittenDestFiles.push({ destPath: normDest, backupPath: bakPath });
+        } else {
+          newlyCreatedDestFiles.push(normDest);
+        }
+      }
+      fs.copyFileSync(srcPath, normDest);
+    }
+
+    const currentActiveVer = getSetting('latest_version', '');
+    const activeYmlPath = path.join(downloadsDir, 'latest.yml');
 
     try {
+      // 2. Archive current active latest.yml if present (do not silently ignore failures)
+      if (fs.existsSync(activeYmlPath) && currentActiveVer) {
+        if (req.headers['x-test-fail-at'] === 'fail_archive') {
+          throw new Error('Injected failure during active manifest archiving');
+        }
+        deployFileWithRollbackTracking(activeYmlPath, path.join(downloadsDir, `latest-${currentActiveVer}.yml`));
+      }
+
       // 3. Copy staged files to versioned archive directory first
       for (const file of stagedFiles) {
         const src = path.join(stagedVerDir, file);
-        fs.copyFileSync(src, path.join(versionedRelDir, file));
+        deployFileWithRollbackTracking(src, path.join(versionedRelDir, file));
       }
 
       // 4. Copy installer (.exe) into downloads directory
@@ -1838,21 +1846,16 @@ const server = http.createServer(async (req, res) => {
         throw new Error('Injected failure during installer copying');
       }
       const destExe = path.join(downloadsDir, exeFile);
-      fs.copyFileSync(path.join(stagedVerDir, exeFile), destExe);
-      if (!existingDownloadsFiles.has(exeFile)) newFilesCopiedToDownloads.push(destExe);
+      deployFileWithRollbackTracking(path.join(stagedVerDir, exeFile), destExe);
 
       // Dual-name normalization: Ensure both hyphenated and spaced names exist for .exe
       const spacedExe = exeFile.replace(/-/g, ' ');
       const hyphenExe = exeFile.replace(/ /g, '-');
       if (spacedExe !== exeFile) {
-        const p = path.join(downloadsDir, spacedExe);
-        fs.copyFileSync(destExe, p);
-        if (!existingDownloadsFiles.has(spacedExe)) newFilesCopiedToDownloads.push(p);
+        deployFileWithRollbackTracking(destExe, path.join(downloadsDir, spacedExe));
       }
       if (hyphenExe !== exeFile) {
-        const p = path.join(downloadsDir, hyphenExe);
-        fs.copyFileSync(destExe, p);
-        if (!existingDownloadsFiles.has(hyphenExe)) newFilesCopiedToDownloads.push(p);
+        deployFileWithRollbackTracking(destExe, path.join(downloadsDir, hyphenExe));
       }
 
       // 5. Copy differential blockmap (.blockmap) into downloads directory
@@ -1860,21 +1863,16 @@ const server = http.createServer(async (req, res) => {
         throw new Error('Injected failure during blockmap copying');
       }
       const destBm = path.join(downloadsDir, blockmapFile);
-      fs.copyFileSync(path.join(stagedVerDir, blockmapFile), destBm);
-      if (!existingDownloadsFiles.has(blockmapFile)) newFilesCopiedToDownloads.push(destBm);
+      deployFileWithRollbackTracking(path.join(stagedVerDir, blockmapFile), destBm);
 
       // Dual-name normalization: Ensure both hyphenated and spaced names exist for .blockmap
       const spacedBm = blockmapFile.replace(/-/g, ' ');
       const hyphenBm = blockmapFile.replace(/ /g, '-');
       if (spacedBm !== blockmapFile) {
-        const p = path.join(downloadsDir, spacedBm);
-        fs.copyFileSync(destBm, p);
-        if (!existingDownloadsFiles.has(spacedBm)) newFilesCopiedToDownloads.push(p);
+        deployFileWithRollbackTracking(destBm, path.join(downloadsDir, spacedBm));
       }
       if (hyphenBm !== blockmapFile) {
-        const p = path.join(downloadsDir, hyphenBm);
-        fs.copyFileSync(destBm, p);
-        if (!existingDownloadsFiles.has(hyphenBm)) newFilesCopiedToDownloads.push(p);
+        deployFileWithRollbackTracking(destBm, path.join(downloadsDir, hyphenBm));
       }
 
       // 6. Save versioned archive of manifest
@@ -1882,8 +1880,7 @@ const server = http.createServer(async (req, res) => {
         throw new Error('Injected failure during manifest copying');
       }
       const destVerYml = path.join(downloadsDir, `latest-${declaredVer}.yml`);
-      fs.copyFileSync(path.join(stagedVerDir, 'latest.yml'), destVerYml);
-      if (!existingDownloadsFiles.has(`latest-${declaredVer}.yml`)) newFilesCopiedToDownloads.push(destVerYml);
+      deployFileWithRollbackTracking(path.join(stagedVerDir, 'latest.yml'), destVerYml);
 
       // 7. Perform database setting updates inside an atomic SQLite transaction
       if (req.headers['x-test-fail-at'] === 'fail_db') {
@@ -1900,7 +1897,11 @@ const server = http.createServer(async (req, res) => {
       // 8. Atomically expose new manifest as active only after all files and database updates succeeded
       const tempActiveYml = path.join(downloadsDir, '.latest.yml.tmp');
       fs.copyFileSync(path.join(stagedVerDir, 'latest.yml'), tempActiveYml);
-      fs.renameSync(tempActiveYml, activeYmlPath);
+      deployFileWithRollbackTracking(tempActiveYml, activeYmlPath);
+      try { fs.unlinkSync(tempActiveYml); } catch (_) {}
+
+      // Clean up rollback backup directory on success
+      try { fs.rmSync(rollbackBackupDir, { recursive: true, force: true }); } catch (_) {}
 
       // 9. Clean up staging directory only after complete atomic success
       try {
@@ -1910,6 +1911,11 @@ const server = http.createServer(async (req, res) => {
         fs.rmdirSync(stagedVerDir);
       } catch (_) {}
     } catch (pubErr) {
+      const tempActiveYml = path.join(downloadsDir, '.latest.yml.tmp');
+      if (fs.existsSync(tempActiveYml)) {
+        try { fs.unlinkSync(tempActiveYml); } catch (_) {}
+      }
+
       // Rollback database settings inside a SQLite transaction
       try {
         restoreSettingsTransaction(previousSettings);
@@ -1917,22 +1923,26 @@ const server = http.createServer(async (req, res) => {
         console.error('[Publish Rollback DB Error]:', dbRollbackErr.message);
       }
 
-      // Restore previous active latest.yml
-      try {
-        if (previousManifestContent !== null) {
-          fs.writeFileSync(activeYmlPath, previousManifestContent, 'utf8');
-        } else if (!existingDownloadsFiles.has('latest.yml') && fs.existsSync(activeYmlPath)) {
-          fs.unlinkSync(activeYmlPath);
+      // Restore overwritten files to their exact previous contents
+      for (const item of overwrittenDestFiles.reverse()) {
+        try {
+          if (fs.existsSync(item.backupPath)) {
+            fs.copyFileSync(item.backupPath, item.destPath);
+          }
+        } catch (err) {
+          console.error('[Rollback Overwrite Error]:', err.message);
         }
-      } catch (manifestRollbackErr) {
-        console.error('[Publish Rollback Manifest Error]:', manifestRollbackErr.message);
       }
 
-      // Clean up newly copied partial files from downloads directory (leaving previous release files intact)
-      for (const filePath of newFilesCopiedToDownloads) {
+      // Clean up only the newly created files from failed publication
+      for (const filePath of newlyCreatedDestFiles.reverse()) {
         try {
-          if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
-        } catch (_) {}
+          if (fs.existsSync(filePath)) {
+            fs.unlinkSync(filePath);
+          }
+        } catch (err) {
+          console.error('[Rollback Cleanup Error]:', err.message);
+        }
       }
 
       // Clean up versioned release directory if newly created
@@ -1941,6 +1951,9 @@ const server = http.createServer(async (req, res) => {
           fs.rmSync(versionedRelDir, { recursive: true, force: true });
         } catch (_) {}
       }
+
+      // Clean up rollback backup directory
+      try { fs.rmSync(rollbackBackupDir, { recursive: true, force: true }); } catch (_) {}
 
       // Staging directory (stagedVerDir) remains preserved for admin re-try
 
