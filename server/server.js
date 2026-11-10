@@ -28,6 +28,8 @@ const {
   tenantDbCache,
   getSetting,
   setSetting,
+  setSettingsTransaction,
+  restoreSettingsTransaction,
   logSystemError,
   getErrorLogs,
   clearErrorLogs,
@@ -1776,61 +1778,131 @@ const server = http.createServer(async (req, res) => {
     if (!fs.existsSync(downloadsDir)) fs.mkdirSync(downloadsDir, { recursive: true });
 
     const versionedRelDir = path.join(downloadsDir, 'releases', declaredVer);
-    if (!fs.existsSync(versionedRelDir)) fs.mkdirSync(versionedRelDir, { recursive: true });
-
-    // 1. Archive current active latest.yml if present
-    let backupActiveYml = null;
-    const currentActiveVer = getSetting('latest_version', '');
-    const activeYmlPath = path.join(downloadsDir, 'latest.yml');
-    if (currentActiveVer && fs.existsSync(activeYmlPath)) {
-      try {
-        backupActiveYml = path.join(downloadsDir, `latest-${currentActiveVer}.yml`);
-        fs.copyFileSync(activeYmlPath, backupActiveYml);
-      } catch (_) {}
+    let versionedRelDirCreated = false;
+    if (!fs.existsSync(versionedRelDir)) {
+      fs.mkdirSync(versionedRelDir, { recursive: true });
+      versionedRelDirCreated = true;
     }
 
+    // 1. Archive current active latest.yml if present (do not silently ignore failures)
+    const currentActiveVer = getSetting('latest_version', '');
+    const activeYmlPath = path.join(downloadsDir, 'latest.yml');
+    let previousManifestContent = null;
+
+    if (fs.existsSync(activeYmlPath)) {
+      try {
+        previousManifestContent = fs.readFileSync(activeYmlPath, 'utf8');
+      } catch (readErr) {
+        return sendJson(res, 500, {
+          ok: false,
+          error: `Failed to read current active manifest before publishing: ${readErr.message}`
+        });
+      }
+
+      if (currentActiveVer) {
+        try {
+          if (req.headers['x-test-fail-at'] === 'fail_archive') {
+            throw new Error('Injected failure during active manifest archiving');
+          }
+          fs.copyFileSync(activeYmlPath, path.join(downloadsDir, `latest-${currentActiveVer}.yml`));
+        } catch (archErr) {
+          return sendJson(res, 500, {
+            ok: false,
+            error: `Failed to archive current active manifest: ${archErr.message}. Release publishing aborted.`
+          });
+        }
+      }
+    }
+
+    // 2. Snapshot existing metadata settings to guarantee atomic database rollback
+    const previousSettings = {
+      active_release_version: getSetting('active_release_version', null),
+      latest_version: getSetting('latest_version', null),
+      release_filename: getSetting('release_filename', null),
+      release_notes: getSetting('release_notes', null),
+      published_at: getSetting('published_at', null)
+    };
+
+    const existingDownloadsFiles = new Set(fs.readdirSync(downloadsDir));
+    const newFilesCopiedToDownloads = [];
+
     try {
-      // 2. Copy staged files into versioned release folder AND live downloads directory
+      // 3. Copy staged files to versioned archive directory first
       for (const file of stagedFiles) {
         const src = path.join(stagedVerDir, file);
         fs.copyFileSync(src, path.join(versionedRelDir, file));
-        fs.copyFileSync(src, path.join(downloadsDir, file));
       }
 
-      // 3. Dual-name normalization: Ensure both hyphenated and spaced names exist for .exe and .blockmap
+      // 4. Copy installer (.exe) into downloads directory
+      if (req.headers['x-test-fail-at'] === 'fail_exe') {
+        throw new Error('Injected failure during installer copying');
+      }
+      const destExe = path.join(downloadsDir, exeFile);
+      fs.copyFileSync(path.join(stagedVerDir, exeFile), destExe);
+      if (!existingDownloadsFiles.has(exeFile)) newFilesCopiedToDownloads.push(destExe);
+
+      // Dual-name normalization: Ensure both hyphenated and spaced names exist for .exe
       const spacedExe = exeFile.replace(/-/g, ' ');
       const hyphenExe = exeFile.replace(/ /g, '-');
-      if (fs.existsSync(path.join(downloadsDir, exeFile))) {
-        if (!fs.existsSync(path.join(downloadsDir, spacedExe))) {
-          try { fs.copyFileSync(path.join(downloadsDir, exeFile), path.join(downloadsDir, spacedExe)); } catch (_) {}
-        }
-        if (!fs.existsSync(path.join(downloadsDir, hyphenExe))) {
-          try { fs.copyFileSync(path.join(downloadsDir, exeFile), path.join(downloadsDir, hyphenExe)); } catch (_) {}
-        }
+      if (spacedExe !== exeFile) {
+        const p = path.join(downloadsDir, spacedExe);
+        fs.copyFileSync(destExe, p);
+        if (!existingDownloadsFiles.has(spacedExe)) newFilesCopiedToDownloads.push(p);
+      }
+      if (hyphenExe !== exeFile) {
+        const p = path.join(downloadsDir, hyphenExe);
+        fs.copyFileSync(destExe, p);
+        if (!existingDownloadsFiles.has(hyphenExe)) newFilesCopiedToDownloads.push(p);
       }
 
+      // 5. Copy differential blockmap (.blockmap) into downloads directory
+      if (req.headers['x-test-fail-at'] === 'fail_blockmap') {
+        throw new Error('Injected failure during blockmap copying');
+      }
+      const destBm = path.join(downloadsDir, blockmapFile);
+      fs.copyFileSync(path.join(stagedVerDir, blockmapFile), destBm);
+      if (!existingDownloadsFiles.has(blockmapFile)) newFilesCopiedToDownloads.push(destBm);
+
+      // Dual-name normalization: Ensure both hyphenated and spaced names exist for .blockmap
       const spacedBm = blockmapFile.replace(/-/g, ' ');
       const hyphenBm = blockmapFile.replace(/ /g, '-');
-      if (fs.existsSync(path.join(downloadsDir, blockmapFile))) {
-        if (!fs.existsSync(path.join(downloadsDir, spacedBm))) {
-          try { fs.copyFileSync(path.join(downloadsDir, blockmapFile), path.join(downloadsDir, spacedBm)); } catch (_) {}
-        }
-        if (!fs.existsSync(path.join(downloadsDir, hyphenBm))) {
-          try { fs.copyFileSync(path.join(downloadsDir, blockmapFile), path.join(downloadsDir, hyphenBm)); } catch (_) {}
-        }
+      if (spacedBm !== blockmapFile) {
+        const p = path.join(downloadsDir, spacedBm);
+        fs.copyFileSync(destBm, p);
+        if (!existingDownloadsFiles.has(spacedBm)) newFilesCopiedToDownloads.push(p);
+      }
+      if (hyphenBm !== blockmapFile) {
+        const p = path.join(downloadsDir, hyphenBm);
+        fs.copyFileSync(destBm, p);
+        if (!existingDownloadsFiles.has(hyphenBm)) newFilesCopiedToDownloads.push(p);
       }
 
-      // 4. Save versioned archive of manifest
-      fs.copyFileSync(path.join(downloadsDir, 'latest.yml'), path.join(downloadsDir, `latest-${declaredVer}.yml`));
+      // 6. Save versioned archive of manifest
+      if (req.headers['x-test-fail-at'] === 'fail_manifest') {
+        throw new Error('Injected failure during manifest copying');
+      }
+      const destVerYml = path.join(downloadsDir, `latest-${declaredVer}.yml`);
+      fs.copyFileSync(path.join(stagedVerDir, 'latest.yml'), destVerYml);
+      if (!existingDownloadsFiles.has(`latest-${declaredVer}.yml`)) newFilesCopiedToDownloads.push(destVerYml);
 
-      // 5. Update DB Settings
-      setSetting('active_release_version', declaredVer);
-      setSetting('latest_version', declaredVer);
-      setSetting('release_filename', exeFile);
-      if (notes) setSetting('release_notes', notes);
-      setSetting('published_at', new Date().toISOString());
+      // 7. Perform database setting updates inside an atomic SQLite transaction
+      if (req.headers['x-test-fail-at'] === 'fail_db') {
+        throw new Error('Injected failure during database settings update');
+      }
+      setSettingsTransaction({
+        active_release_version: declaredVer,
+        latest_version: declaredVer,
+        release_filename: exeFile,
+        release_notes: notes || null,
+        published_at: new Date().toISOString()
+      });
 
-      // 6. Clean up staging directory only after successful publication
+      // 8. Atomically expose new manifest as active only after all files and database updates succeeded
+      const tempActiveYml = path.join(downloadsDir, '.latest.yml.tmp');
+      fs.copyFileSync(path.join(stagedVerDir, 'latest.yml'), tempActiveYml);
+      fs.renameSync(tempActiveYml, activeYmlPath);
+
+      // 9. Clean up staging directory only after complete atomic success
       try {
         for (const file of stagedFiles) {
           fs.unlinkSync(path.join(stagedVerDir, file));
@@ -1838,9 +1910,40 @@ const server = http.createServer(async (req, res) => {
         fs.rmdirSync(stagedVerDir);
       } catch (_) {}
     } catch (pubErr) {
-      if (backupActiveYml && fs.existsSync(backupActiveYml)) {
-        try { fs.copyFileSync(backupActiveYml, activeYmlPath); } catch (_) {}
+      // Rollback database settings inside a SQLite transaction
+      try {
+        restoreSettingsTransaction(previousSettings);
+      } catch (dbRollbackErr) {
+        console.error('[Publish Rollback DB Error]:', dbRollbackErr.message);
       }
+
+      // Restore previous active latest.yml
+      try {
+        if (previousManifestContent !== null) {
+          fs.writeFileSync(activeYmlPath, previousManifestContent, 'utf8');
+        } else if (!existingDownloadsFiles.has('latest.yml') && fs.existsSync(activeYmlPath)) {
+          fs.unlinkSync(activeYmlPath);
+        }
+      } catch (manifestRollbackErr) {
+        console.error('[Publish Rollback Manifest Error]:', manifestRollbackErr.message);
+      }
+
+      // Clean up newly copied partial files from downloads directory (leaving previous release files intact)
+      for (const filePath of newFilesCopiedToDownloads) {
+        try {
+          if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+        } catch (_) {}
+      }
+
+      // Clean up versioned release directory if newly created
+      if (versionedRelDirCreated && fs.existsSync(versionedRelDir)) {
+        try {
+          fs.rmSync(versionedRelDir, { recursive: true, force: true });
+        } catch (_) {}
+      }
+
+      // Staging directory (stagedVerDir) remains preserved for admin re-try
+
       return sendJson(res, 500, {
         ok: false,
         error: `Publishing failed and was safely rolled back: ${pubErr.message}`

@@ -343,6 +343,52 @@ function setSetting(key, value) {
   `).run(key, String(value), now);
 }
 
+function setSettingsTransaction(settingsMap) {
+  const now = new Date().toISOString();
+  masterDb.exec('BEGIN TRANSACTION;');
+  try {
+    const stmt = masterDb.prepare(`
+      INSERT INTO system_settings (key, value, updated_at)
+      VALUES (?, ?, ?)
+      ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+    `);
+    for (const [key, value] of Object.entries(settingsMap)) {
+      if (value !== undefined && value !== null) {
+        stmt.run(key, String(value), now);
+      }
+    }
+    masterDb.exec('COMMIT;');
+  } catch (err) {
+    try { masterDb.exec('ROLLBACK;'); } catch (_) {}
+    throw err;
+  }
+}
+
+function restoreSettingsTransaction(settingsMap) {
+  const now = new Date().toISOString();
+  masterDb.exec('BEGIN TRANSACTION;');
+  try {
+    const upsertStmt = masterDb.prepare(`
+      INSERT INTO system_settings (key, value, updated_at)
+      VALUES (?, ?, ?)
+      ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+    `);
+    const deleteStmt = masterDb.prepare('DELETE FROM system_settings WHERE key = ?');
+
+    for (const [key, value] of Object.entries(settingsMap)) {
+      if (value === null || value === undefined) {
+        deleteStmt.run(key);
+      } else {
+        upsertStmt.run(key, String(value), now);
+      }
+    }
+    masterDb.exec('COMMIT;');
+  } catch (err) {
+    try { masterDb.exec('ROLLBACK;'); } catch (_) {}
+    throw err;
+  }
+}
+
 // Error Logging Helpers
 function logSystemError({
   source = 'server',
@@ -747,20 +793,77 @@ function verifyAndInspectBackup(backupFilePath) {
   }
 }
 
-function restoreBackupToSandbox(backupFilePath, targetSandboxPath) {
-  if (!fs.existsSync(backupFilePath)) {
-    return { ok: false, error: 'Backup file not found.' };
+function getCanonicalPath(targetPath) {
+  if (!targetPath || typeof targetPath !== 'string') return '';
+  const resolved = path.resolve(targetPath);
+
+  // If the target already exists on disk, resolve its real canonical path directly
+  if (fs.existsSync(resolved)) {
+    try {
+      return fs.realpathSync.native ? fs.realpathSync.native(resolved) : fs.realpathSync(resolved);
+    } catch (_) {
+      return resolved;
+    }
   }
 
-  // Prevent accidental overwrite of production databases
-  const resolvedTarget = path.resolve(targetSandboxPath);
-  const resolvedMaster = path.resolve(MASTER_DB_PATH);
-  const resolvedTenantsDir = path.resolve(TENANTS_DIR);
-  if (resolvedTarget === resolvedMaster || resolvedTarget.startsWith(resolvedTenantsDir)) {
+  // Target file doesn't exist yet: find deepest existing ancestor directory and resolve its symlinks
+  let currentDir = path.dirname(resolved);
+  const uncreatedSegments = [path.basename(resolved)];
+
+  while (!fs.existsSync(currentDir)) {
+    const parent = path.dirname(currentDir);
+    if (parent === currentDir) break; // Reached filesystem root
+    uncreatedSegments.unshift(path.basename(currentDir));
+    currentDir = parent;
+  }
+
+  try {
+    const canonicalAncestor = fs.realpathSync.native
+      ? fs.realpathSync.native(currentDir)
+      : fs.realpathSync(currentDir);
+    return path.resolve(canonicalAncestor, ...uncreatedSegments);
+  } catch (_) {
+    return resolved;
+  }
+}
+
+function restoreBackupToSandbox(backupFilePath, targetSandboxPath) {
+  if (!targetSandboxPath || typeof targetSandboxPath !== 'string') {
+    return { ok: false, error: 'Target sandbox path must be a valid non-empty string.' };
+  }
+
+  // 1. Validate canonical filesystem path and symbolic links BEFORE performing any file operations
+  const canonicalTarget = getCanonicalPath(targetSandboxPath);
+  const canonicalMaster = getCanonicalPath(MASTER_DB_PATH);
+  const canonicalTenantsDir = getCanonicalPath(TENANTS_DIR);
+  const canonicalDataDir = getCanonicalPath(DATA_DIR);
+
+  const normTarget = canonicalTarget.toLowerCase();
+  const normMaster = canonicalMaster.toLowerCase();
+  const normTenants = canonicalTenantsDir.toLowerCase();
+  const normDataDir = canonicalDataDir.toLowerCase();
+
+  if (normTarget === normMaster || normTarget === normTenants || normTarget.startsWith(normTenants + path.sep.toLowerCase())) {
     return {
       ok: false,
       error: 'Security Exception: Cannot restore backup directly over active live database. Restore target must be an isolated sandbox directory.'
     };
+  }
+
+  // Ensure target does not resolve to master or tenant databases inside data directory
+  if (normTarget.startsWith(normDataDir + path.sep.toLowerCase())) {
+    const baseName = path.basename(canonicalTarget).toLowerCase();
+    if (baseName === 'master.sqlite' || baseName.startsWith('tenant_')) {
+      return {
+        ok: false,
+        error: 'Security Exception: Cannot restore backup directly over active live database. Restore target must be an isolated sandbox directory.'
+      };
+    }
+  }
+
+  // 2. Validate backup file existence and integrity
+  if (!fs.existsSync(backupFilePath)) {
+    return { ok: false, error: 'Backup file not found.' };
   }
 
   const inspection = verifyAndInspectBackup(backupFilePath);
@@ -768,15 +871,16 @@ function restoreBackupToSandbox(backupFilePath, targetSandboxPath) {
     return { ok: false, error: 'Cannot restore corrupted backup: ' + inspection.integrity };
   }
 
+  // 3. Perform sandbox restoration in isolated target
   try {
-    const targetDir = path.dirname(targetSandboxPath);
+    const targetDir = path.dirname(canonicalTarget);
     if (!fs.existsSync(targetDir)) fs.mkdirSync(targetDir, { recursive: true });
-    if (fs.existsSync(targetSandboxPath)) fs.unlinkSync(targetSandboxPath);
+    if (fs.existsSync(canonicalTarget)) fs.unlinkSync(canonicalTarget);
 
-    fs.copyFileSync(backupFilePath, targetSandboxPath);
+    fs.copyFileSync(backupFilePath, canonicalTarget);
 
     // Verify restored database can be opened and queried
-    const restoredDb = new DatabaseSync(targetSandboxPath);
+    const restoredDb = new DatabaseSync(canonicalTarget);
     const tableCounts = {};
     for (const t of inspection.tables) {
       try {
@@ -789,7 +893,7 @@ function restoreBackupToSandbox(backupFilePath, targetSandboxPath) {
     return {
       ok: true,
       message: 'Backup successfully restored and verified in sandbox environment.',
-      targetSandboxPath,
+      targetSandboxPath: canonicalTarget,
       inspection,
       tableCounts
     };
@@ -816,6 +920,8 @@ module.exports = {
   tenantDbCache,
   getSetting,
   setSetting,
+  setSettingsTransaction,
+  restoreSettingsTransaction,
   logSystemError,
   getErrorLogs,
   clearErrorLogs,
@@ -823,5 +929,6 @@ module.exports = {
   backupAllTenantDbs,
   listCloudBackups,
   verifyAndInspectBackup,
-  restoreBackupToSandbox
+  restoreBackupToSandbox,
+  getCanonicalPath
 };
