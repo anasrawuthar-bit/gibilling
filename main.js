@@ -925,21 +925,25 @@ function classifyIpAddress(ip) {
     }
 
     // Pure IPv6 classification via word inspection against IANA Special-Purpose Registry
-    const isLoopback = words[0] === 0 && words[1] === 0 && words[2] === 0 && words[3] === 0 && words[4] === 0 && words[5] === 0 && words[6] === 0 && words[7] === 1; // ::1/128
-    const isUnspecified = words.every(w => w === 0); // ::/128
+    const isLoopback = words[0] === 0 && words[1] === 0 && words[2] === 0 && words[3] === 0 && words[4] === 0 && words[5] === 0 && words[6] === 0 && words[7] === 1; // ::1/128 (RFC 4291)
+    const isUnspecified = words.every(w => w === 0); // ::/128 (RFC 4291)
     const isLinkLocal = (words[0] & 0xffc0) === 0xfe80; // fe80::/10 (RFC 4291)
     const isSiteLocal = (words[0] & 0xffc0) === 0xfec0; // fec0::/10 (deprecated RFC 3879)
     const isUniqueLocal = (words[0] & 0xfe00) === 0xfc00; // fc00::/7 (RFC 4193 ULA, fc00-fdff)
     const isMulticast = (words[0] & 0xff00) === 0xff00; // ff00::/8 (RFC 4291)
-    const isDocumentation = (words[0] === 0x2001 && words[1] === 0x0db8); // 2001:db8::/32 (RFC 3849)
+    const isDocumentation =
+      (words[0] === 0x2001 && words[1] === 0x0db8) || // 2001:db8::/32 (RFC 3849)
+      (words[0] === 0x3fff && (words[1] & 0xf000) === 0x0000); // 3fff::/20 (RFC 9637)
     const isBenchmark = (words[0] === 0x2001 && words[1] === 0x0002); // 2001:2::/48 (RFC 5180)
-    const isDiscard = (words[0] === 0x0100 && words[1] === 0 && words[2] === 0 && words[3] === 0); // 100::/64 (RFC 6666)
+    const isDiscardOrDummy = (words[0] === 0x0100 && words[1] === 0 && words[2] === 0 && (words[3] === 0 || words[3] === 1)); // 100::/64 (RFC 6666) & 100:0:0:1::/64 (Dummy Prefix)
     const isOrchid = (words[0] === 0x2001 && ((words[1] & 0xfff0) === 0x0010 || (words[1] & 0xfff0) === 0x0020)); // 2001:10::/28 & 2001:20::/28 (RFC 4843 & RFC 7343)
     const isLocalNat64 = (words[0] === 0x0064 && words[1] === 0xff9b && words[2] === 0x0001); // 64:ff9b:1::/48 (RFC 8215)
+    const isAs112 = (words[0] === 0x2001 && words[1] === 0x0004 && words[2] === 0x0112); // 2001:4:112::/48 (RFC 7535)
+    const is6to4 = words[0] === 0x2002; // 2002::/16 (RFC 3056, deprecated RFC 7526)
     // Non-GUA addresses outside 2000::/3 that are not ULA, link-local, multicast, loopback, or unspecified
     const isNonGuaReserved = (words[0] & 0xe000) !== 0x2000 && !isUniqueLocal && !isLinkLocal && !isMulticast && !isLoopback && !isUnspecified;
 
-    const isReserved = isDiscard || isOrchid || isLocalNat64 || isSiteLocal || isNonGuaReserved;
+    const isReserved = isDiscardOrDummy || isOrchid || isLocalNat64 || isAs112 || is6to4 || isSiteLocal || isNonGuaReserved;
     const isNonPublic = isUniqueLocal || isLoopback || isLinkLocal || isSiteLocal || isDocumentation || isBenchmark || isMulticast || isUnspecified || isReserved;
     const isDisallowed = isLinkLocal || isMulticast || isUnspecified || isDocumentation || isBenchmark || isReserved;
 
@@ -1058,11 +1062,8 @@ function isAuthorizedHost(hostname, ip) {
 
   // If in production and connecting to loopback: requires explicit loopback authorization
   const isLoopbackIp = normIp && (normIp === "127.0.0.1" || normIp === "::1" || normIp.startsWith("127."));
-  if (isLoopbackHost || isLoopbackIp) {
-    if (process.env.ALLOW_LOOPBACK_IN_PRODUCTION === "true" || trustedList.includes("localhost") || trustedList.includes("127.0.0.1") || trustedList.includes("::1")) {
-      return true;
-    }
-    return false;
+  if (process.env.ALLOW_LOOPBACK_IN_PRODUCTION === "true" && (isLoopbackHost || isLoopbackIp)) {
+    return true;
   }
 
   if (trustedList.length === 0) {
@@ -1129,6 +1130,9 @@ function isAuthorizedHost(hostname, ip) {
 
   // If only hostnames were defined without explicit IPs, the resolved IP must be a valid private LAN IP
   const destIpInfo = classifyIpAddress(normIp);
+  if (normHost === "localhost" && destIpInfo.isLoopback) {
+    return true;
+  }
   return destIpInfo.isIp && (destIpInfo.isPrivate || destIpInfo.isCarrierNat) && !destIpInfo.isLoopback && !destIpInfo.isDisallowed;
 }
 

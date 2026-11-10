@@ -1,7 +1,6 @@
 const assert = require("assert");
 const http = require("node:http");
 const dns = require("node:dns");
-const { Agent: UndiciAgent } = require("undici");
 const {
   parseIpv6ToWords,
   ipMatchesCidr,
@@ -16,12 +15,11 @@ const {
 } = require("../main");
 
 const TEST_PORT_PRIMARY = 4199;
-const TEST_PORT_SECONDARY = 4201;
 
-function createTestServer(port, serverId, redirectTarget = null) {
+function createTestServer(host, port, serverId, redirectTarget = null) {
   const requests = [];
   const srv = http.createServer((req, res) => {
-    requests.push({ method: req.method, url: req.url, headers: req.headers });
+    requests.push({ method: req.method, url: req.url, headers: req.headers, host });
     if (req.url === "/api/v1/redirect-to-metadata" && redirectTarget) {
       res.writeHead(302, { Location: redirectTarget });
       res.end();
@@ -29,7 +27,7 @@ function createTestServer(port, serverId, redirectTarget = null) {
     }
     if (req.url === "/api/v1/system/health") {
       res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ status: "operational", server: serverId, port }));
+      res.end(JSON.stringify({ status: "operational", server: serverId, host, port }));
       return;
     }
     res.writeHead(404, { "Content-Type": "application/json" });
@@ -53,11 +51,13 @@ async function run() {
     Object.assign(process.env, originalEnv);
   };
 
-  const primaryServer = createTestServer(TEST_PORT_PRIMARY, "primary_approved", "http://169.254.169.254/latest/meta-data");
-  const secondaryServer = createTestServer(TEST_PORT_SECONDARY, "secondary_unauthorized");
+  // Primary server listens on 127.0.0.1:4199 (Approved destination)
+  const primaryServer = createTestServer("127.0.0.1", TEST_PORT_PRIMARY, "primary_approved", "http://169.254.169.254/latest/meta-data");
+  // Secondary server listens on 127.0.0.2:4199 (Mutated DNS rebind target)
+  const secondaryServer = createTestServer("127.0.0.2", TEST_PORT_PRIMARY, "secondary_unauthorized_rebind_target");
 
   await new Promise((resolve) => primaryServer.listen(TEST_PORT_PRIMARY, "127.0.0.1", resolve));
-  await new Promise((resolve) => secondaryServer.listen(TEST_PORT_SECONDARY, "127.0.0.1", resolve));
+  await new Promise((resolve) => secondaryServer.listen(TEST_PORT_PRIMARY, "127.0.0.2", resolve));
 
   try {
     // ─────────────────────────────────────────────────────────────────
@@ -130,57 +130,77 @@ async function run() {
     console.log("✓ Carrier-grade NAT verified as private and blocked in production.");
 
     // ─────────────────────────────────────────────────────────────────
-    // Test 7: IANA Special-Use IPv6 & Special-Purpose IPv4 Classification
+    // Test 7: Authoritative IANA Special-Use IPv6 & Special-Purpose IPv4 Registry
+    // Distinguishing Globally Reachable from Non-Globally-Reachable Entries
     // ─────────────────────────────────────────────────────────────────
-    console.log("\n[Test 7] IANA Special-Use IPv6 & Special-Purpose IPv4 classification...");
-    // 1. Loopback (::1/128, RFC 4291)
+    console.log("\n[Test 7] Authoritative IANA Special-Use IPv6 & IPv4 Registry coverage...");
+    // 1. Loopback (::1/128, RFC 4291) - Non-global
     const cIpv6Loop = classifyIpAddress("::1");
     assert.strictEqual(cIpv6Loop.isLoopback, true);
     assert.strictEqual(cIpv6Loop.isDisallowed, false);
 
-    // 2. Link-Local (fe80::/10, RFC 4291)
+    // 2. Link-Local (fe80::/10, RFC 4291) - Non-global
     const cIpv6Link = classifyIpAddress("fe80::1");
     assert.strictEqual(cIpv6Link.isLinkLocal, true);
     assert.strictEqual(cIpv6Link.isDisallowed, true);
 
-    // 3. Unique-Local ULA (fc00::/7, RFC 4193)
+    // 3. Unique-Local ULA (fc00::/7, RFC 4193) - Non-global
     const cIpv6Ula1 = classifyIpAddress("fc00::1");
     const cIpv6Ula2 = classifyIpAddress("fd12:3456::1");
     assert.strictEqual(cIpv6Ula1.isPrivate, true);
     assert.strictEqual(cIpv6Ula2.isPrivate, true);
 
-    // 4. Discard-Only (100::/64, RFC 6666)
+    // 4. Discard-Only (100::/64, RFC 6666) - Non-global
     const cIpv6Discard = classifyIpAddress("100::1");
     assert.strictEqual(cIpv6Discard.isReserved, true);
     assert.strictEqual(cIpv6Discard.isDisallowed, true);
 
-    // 5. Documentation (2001:db8::/32, RFC 3849)
-    const cIpv6Doc = classifyIpAddress("2001:db8::1");
-    assert.strictEqual(cIpv6Doc.isDocumentation, true);
-    assert.strictEqual(cIpv6Doc.isDisallowed, true);
+    // 5. Dummy IPv6 Prefix (100:0:0:1::/64) - Non-global
+    const cIpv6Dummy = classifyIpAddress("100:0:0:1::1");
+    assert.strictEqual(cIpv6Dummy.isReserved, true);
+    assert.strictEqual(cIpv6Dummy.isDisallowed, true);
 
-    // 6. Benchmarking (2001:2::/48, RFC 5180)
+    // 6. Documentation (2001:db8::/32, RFC 3849) - Non-global
+    const cIpv6Doc1 = classifyIpAddress("2001:db8::1");
+    assert.strictEqual(cIpv6Doc1.isDocumentation, true);
+    assert.strictEqual(cIpv6Doc1.isDisallowed, true);
+
+    // 7. Documentation (3fff::/20, RFC 9637) - Non-global
+    const cIpv6Doc2 = classifyIpAddress("3fff::1");
+    assert.strictEqual(cIpv6Doc2.isDocumentation, true);
+    assert.strictEqual(cIpv6Doc2.isDisallowed, true);
+
+    const cIpv6Doc2Boundary = classifyIpAddress("3fff:0fff:ffff::1");
+    assert.strictEqual(cIpv6Doc2Boundary.isDocumentation, true);
+    assert.strictEqual(cIpv6Doc2Boundary.isDisallowed, true);
+
+    // 8. Benchmarking (2001:2::/48, RFC 5180) - Non-global
     const cIpv6Bench = classifyIpAddress("2001:2::1");
     assert.strictEqual(cIpv6Bench.isBenchmark, true);
     assert.strictEqual(cIpv6Bench.isDisallowed, true);
 
-    // 7. ORCHIDv2 (2001:20::/28, RFC 7343)
+    // 9. ORCHIDv2 (2001:20::/28, RFC 7343) - Non-global
     const cIpv6Orchid = classifyIpAddress("2001:20::1");
     assert.strictEqual(cIpv6Orchid.isReserved, true);
     assert.strictEqual(cIpv6Orchid.isDisallowed, true);
 
-    // 8. Deprecated Site-Local (fec0::/10, RFC 3879)
+    // 10. AS112-v6 Anycast (2001:4:112::/48, RFC 7535) - Non-global
+    const cIpv6As112 = classifyIpAddress("2001:4:112::1");
+    assert.strictEqual(cIpv6As112.isReserved, true);
+    assert.strictEqual(cIpv6As112.isDisallowed, true);
+
+    // 11. Deprecated Site-Local (fec0::/10, RFC 3879) - Non-global
     const cIpv6SiteLocal = classifyIpAddress("fec0::1");
     assert.strictEqual(cIpv6SiteLocal.isReserved, true);
     assert.strictEqual(cIpv6SiteLocal.isPrivate, true);
     assert.strictEqual(cIpv6SiteLocal.isDisallowed, true);
 
-    // 9. Non-GUA Reserved Space outside 2000::/3 (e.g. 4000::/3)
+    // 12. Non-GUA Reserved Space outside 2000::/3 (e.g. 4000::/3) - Non-global
     const cIpv6Reserved = classifyIpAddress("4000::1");
     assert.strictEqual(cIpv6Reserved.isReserved, true);
     assert.strictEqual(cIpv6Reserved.isDisallowed, true);
 
-    // 10. Legitimate Global Unicast Addresses (GUA) MUST NOT be blocked
+    // 13. Legitimate Globally Reachable Global Unicast Addresses (GUA) MUST NOT be blocked
     const cIpv6GoogleGua = classifyIpAddress("2607:f8b0:4005:805::200e");
     assert.strictEqual(cIpv6GoogleGua.isReserved, false);
     assert.strictEqual(cIpv6GoogleGua.isDisallowed, false);
@@ -191,7 +211,12 @@ async function run() {
     assert.strictEqual(cIpv6CloudflareGua.isDisallowed, false);
     assert.strictEqual(cIpv6CloudflareGua.isNonPublic, false);
 
-    // 11. 6to4 Anycast (2002::/16, RFC 3056, deprecated by RFC 7526)
+    const cIpv6GoogleEurope = classifyIpAddress("2a00:1450:4009:815::200e");
+    assert.strictEqual(cIpv6GoogleEurope.isReserved, false);
+    assert.strictEqual(cIpv6GoogleEurope.isDisallowed, false);
+    assert.strictEqual(cIpv6GoogleEurope.isNonPublic, false);
+
+    // 14. 6to4 Anycast (2002::/16, RFC 3056, deprecated by RFC 7526)
     const cIpv66to4Meta = classifyIpAddress("2002:a9fe:a9fe::1");
     assert.strictEqual(cIpv66to4Meta.is6to4, true);
     assert.strictEqual(cIpv66to4Meta.isDisallowed, true);
@@ -202,17 +227,17 @@ async function run() {
     assert.strictEqual(cIpv66to4Priv.isPrivate, true);
     assert.strictEqual(cIpv66to4Priv.embeddedIpv4, "192.168.1.1");
 
-    // 12. IPv4 Special-Purpose: IETF protocol assignments (192.0.0.0/24, RFC 6890)
+    // 15. IPv4 Special-Purpose: IETF protocol assignments (192.0.0.0/24, RFC 6890)
     const cIpv4Ietf = classifyIpAddress("192.0.0.1");
     assert.strictEqual(cIpv4Ietf.isReserved, true);
     assert.strictEqual(cIpv4Ietf.isDisallowed, true);
 
-    // 13. IPv4 Special-Purpose: 6to4 relay anycast (192.88.99.0/24, RFC 7526)
+    // 16. IPv4 Special-Purpose: 6to4 relay anycast (192.88.99.0/24, RFC 7526)
     const cIpv46to4Relay = classifyIpAddress("192.88.99.1");
     assert.strictEqual(cIpv46to4Relay.isReserved, true);
     assert.strictEqual(cIpv46to4Relay.isDisallowed, true);
 
-    console.log("✓ Full IANA Special-Use IPv6 & IPv4 classification verified.");
+    console.log("✓ Full IANA Special-Use IPv6 (3fff::/20, 100:0:0:1::/64) & IPv4 classification verified.");
 
     // ─────────────────────────────────────────────────────────────────
     // Test 8: Comprehensive IPv4-Mapped IPv6 Normalization & Classification
@@ -339,7 +364,7 @@ async function run() {
 
     // ─────────────────────────────────────────────────────────────────
     // Test 12: Real Connection Pinning & DNS Rebinding Socket Integration
-    // (Actual HTTP Socket Connections + DNS Record Mutation)
+    // (Actual HTTP Socket Connections + DNS Mutation to Secondary Server IP)
     // ─────────────────────────────────────────────────────────────────
     console.log("\n[Test 12] Real connection pinning: verified via active HTTP socket connections...");
     delete process.env.NODE_ENV; // dev mode
@@ -350,14 +375,16 @@ async function run() {
 
     const originalDnsLookup = dns.lookup;
     let dnsQueryCount = 0;
+    // Initial DNS returns Primary Server IP (127.0.0.1).
+    // Mutated DNS returns Secondary Server IP (127.0.0.2).
     let simulatedDnsAddress = "127.0.0.1";
 
     dns.lookup = (hostname, options, callback) => {
       if (hostname === "rebind.zynbill.test") {
         dnsQueryCount++;
         const currentAddr = simulatedDnsAddress;
-        // Mutate DNS response for subsequent queries to unauthorized IP
-        simulatedDnsAddress = "192.168.99.99";
+        // Mutate DNS response for subsequent queries directly to the Secondary Server IP
+        simulatedDnsAddress = "127.0.0.2";
         return callback(null, [{ address: currentAddr, family: 4 }]);
       }
       return originalDnsLookup(hostname, options, callback);
@@ -365,6 +392,7 @@ async function run() {
 
     try {
       assert.strictEqual(dnsQueryCount, 0, "Initial DNS query count must be 0");
+      assert.strictEqual(primaryServer.getRequests().length, 0, "Primary server must have 0 requests initially");
       assert.strictEqual(secondaryServer.getRequests().length, 0, "Secondary server must have 0 requests initially");
 
       // 1. First request: Hostname resolves to 127.0.0.1 (Primary Approved Server)
@@ -376,18 +404,19 @@ async function run() {
       assert.strictEqual(res12A.ok, true);
       assert.strictEqual(res12A.status, 200);
       assert.strictEqual(res12A.data.server, "primary_approved");
-      assert.strictEqual(res12A.data.port, TEST_PORT_PRIMARY);
+      assert.strictEqual(res12A.data.host, "127.0.0.1");
 
-      // Verify that dnsQueryCount is exactly 1 for the first successful HTTP request
-      assert.strictEqual(dnsQueryCount, 1, "DNS lookup must be called exactly once during initial connection establishment");
+      // Verify dnsQueryCount is exactly 1 for the first successful request
+      assert.strictEqual(dnsQueryCount, 1, "DNS lookup must be invoked exactly once during initial socket connection");
 
-      // Verify actual HTTP socket connected to the validated IP (primary server)
+      // Verify socket connected to the validated IP (127.0.0.1: primary server)
       assert.strictEqual(primaryServer.getRequests().length, 1, "Primary server must have received exactly 1 request");
 
-      // Verify secondary server received zero requests
-      assert.strictEqual(secondaryServer.getRequests().length, 0, "Secondary server must receive zero requests");
+      // Verify secondary server (127.0.0.2) received zero requests
+      assert.strictEqual(secondaryServer.getRequests().length, 0, "Secondary server must have received zero requests");
 
-      // 2. Second request in production: DNS now returns 192.168.99.99 (Unauthorized IP)
+      // 2. Second request in production: DNS now returns 127.0.0.2 (Secondary Server IP)
+      // Because 127.0.0.2 is unauthorized in production, createSecureLookup must reject it pre-socket!
       process.env.NODE_ENV = "production";
       const res12B = await safeCloudFetch(
         "/api/v1/system/health",
@@ -401,13 +430,13 @@ async function run() {
         res12B.error.includes("fetch failed")
       );
 
-      // Verify secondary server STILL received zero requests (rejected before any socket connection!)
-      assert.strictEqual(secondaryServer.getRequests().length, 0, "Secondary server must still have zero requests after rejected rebind");
-      assert.strictEqual(primaryServer.getRequests().length, 1, "Primary server must not have received any new request");
+      // Verify secondary server (127.0.0.2) STILL received zero requests (rejected before any socket opened!)
+      assert.strictEqual(secondaryServer.getRequests().length, 0, "Secondary server (mutated DNS target) must receive zero requests");
+      assert.strictEqual(primaryServer.getRequests().length, 1, "Primary server must not have received any second request");
     } finally {
       dns.lookup = originalDnsLookup;
     }
-    console.log("✓ Real connection pinning verified: socket connects strictly to validated IP; mutated DNS rejected.");
+    console.log("✓ Real connection pinning verified: socket connects strictly to validated IP; mutated DNS rejected before secondary server.");
 
     // ─────────────────────────────────────────────────────────────────
     // Test 13: HTTP redirects are rejected unconditionally
@@ -492,29 +521,34 @@ async function run() {
 
     // ─────────────────────────────────────────────────────────────────
     // Test 17: Defensive Dispatcher Validation
-    // (Caller-Supplied Dispatcher Cannot Bypass Secure Cloud Agent)
+    // (Demonstrably Proves Caller-Supplied Dispatcher is NEVER Invoked)
     // ─────────────────────────────────────────────────────────────────
     console.log("\n[Test 17] Defensive dispatcher validation...");
     delete process.env.NODE_ENV;
-    const fakeUnsafeAgent = new UndiciAgent(); // Agent without secure lookup
 
-    // Attempt to pass an unvalidated dispatcher in options
+    let callerDispatcherInvoked = false;
+    const trackingSpyDispatcher = {
+      dispatch(options, handler) {
+        callerDispatcherInvoked = true;
+        throw new Error("SECURITY_BREACH: Caller-supplied dispatcher was invoked!");
+      },
+      close() {},
+      destroy() {}
+    };
+
+    // Attempt to pass an untrusted dispatcher in options
     const res17 = await safeCloudFetch(
       "/api/v1/system/health",
-      { dispatcher: fakeUnsafeAgent },
+      { dispatcher: trackingSpyDispatcher },
       `http://127.0.0.1:${TEST_PORT_PRIMARY}`
     );
-    assert.strictEqual(res17.ok, true);
-
-    // Verify that passing a disallowed target with fakeUnsafeAgent is STILL blocked
-    const res17Blocked = await safeCloudFetch(
-      "/api/v1/system/health",
-      { dispatcher: fakeUnsafeAgent },
-      "http://169.254.169.254"
+    assert.strictEqual(res17.ok, true, "safeCloudFetch must succeed using secure Agent");
+    assert.strictEqual(
+      callerDispatcherInvoked,
+      false,
+      "Demonstrable proof: Caller-supplied dispatcher was NEVER invoked! safeCloudFetch unconditionally uses secure Agent."
     );
-    assert.strictEqual(res17Blocked.ok, false);
-    assert.ok(res17Blocked.error.includes("Prohibited IP target"));
-    console.log("✓ Defensive dispatcher enforcement verified: caller-supplied dispatcher cannot bypass security.");
+    console.log("✓ Defensive dispatcher enforcement demonstrably verified: caller-supplied dispatcher is strictly ignored.");
 
     console.log("\n=======================================================");
     console.log("🎉 ALL 17 AUD-009 SSRF HARDENING BEHAVIORAL TESTS PASSED!");
