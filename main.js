@@ -828,72 +828,94 @@ function isLocalOrLoopbackHost(hostname) {
   return host === "localhost" || host === "127.0.0.1" || host === "::1" || host === "[::1]";
 }
 
+function parseIpv6ToWords(ipStr) {
+  if (!ipStr || typeof ipStr !== "string") return null;
+  let s = ipStr.trim().toLowerCase();
+  if (s.startsWith("[") && s.endsWith("]")) s = s.slice(1, -1);
+  if (!net.isIPv6(s)) return null;
+
+  // Handle embedded dotted-decimal IPv4 in IPv6 (e.g. ::ffff:192.168.1.1)
+  const lastColon = s.lastIndexOf(":");
+  const tail = s.slice(lastColon + 1);
+  if (tail.includes(".")) {
+    const parts = tail.split(".").map(Number);
+    if (parts.length === 4 && parts.every(n => Number.isInteger(n) && n >= 0 && n <= 255)) {
+      const w6 = ((parts[0] << 8) | parts[1]).toString(16);
+      const w7 = ((parts[2] << 8) | parts[3]).toString(16);
+      s = s.slice(0, lastColon) + ":" + w6 + ":" + w7;
+    } else {
+      return null;
+    }
+  }
+
+  const halves = s.split("::");
+  if (halves.length > 2) return null;
+
+  let words = [];
+  if (halves.length === 2) {
+    const left = halves[0] ? halves[0].split(":").map(h => parseInt(h, 16)) : [];
+    const right = halves[1] ? halves[1].split(":").map(h => parseInt(h, 16)) : [];
+    const missing = 8 - (left.length + right.length);
+    if (missing < 0) return null;
+    words = [...left, ...new Array(missing).fill(0), ...right];
+  } else {
+    words = s.split(":").map(h => parseInt(h, 16));
+  }
+
+  if (words.length !== 8 || words.some(w => isNaN(w) || w < 0 || w > 0xffff)) {
+    return null;
+  }
+  return words;
+}
+
 function classifyIpAddress(ip) {
   if (!ip || typeof ip !== "string") return { isIp: false };
   let raw = ip.trim().toLowerCase();
   if (raw.startsWith("[") && raw.endsWith("]")) raw = raw.slice(1, -1);
   if (!net.isIP(raw)) return { isIp: false };
 
-  // Handle IPv4-mapped IPv6 addresses (e.g. ::ffff:192.168.1.1 or ::ffff:169.254.169.254)
-  if (raw.startsWith("::ffff:")) {
-    const embedded = raw.slice(7);
-    if (net.isIPv4(embedded)) {
-      const v4Class = classifyIpAddress(embedded);
+  // IPv6 & IPv4-Mapped IPv6 processing
+  if (net.isIPv6(raw)) {
+    const words = parseIpv6ToWords(raw);
+    if (!words) return { isIp: true, version: 6, isDisallowed: true, isNonPublic: true };
+
+    // Detect embedded IPv4 across all standard representations:
+    // 1. Standard IPv4-mapped IPv6 (::ffff:0:0/96, RFC 4291)
+    // 2. Stateless IP/ICMP Translation SIIT (::ffff:0:0:0/96, RFC 2765)
+    // 3. Deprecated IPv4-compatible IPv6 (::0:0/96, RFC 4291)
+    // 4. NAT64 Well-Known Prefix (64:ff9b::/96, RFC 6052)
+    const isStandardMapped = words[0] === 0 && words[1] === 0 && words[2] === 0 && words[3] === 0 && words[4] === 0 && words[5] === 0xffff;
+    const isSiitMapped = words[0] === 0 && words[1] === 0 && words[2] === 0 && words[3] === 0 && words[4] === 0xffff && words[5] === 0;
+    const isNat64Mapped = words[0] === 0x0064 && words[1] === 0xff9b && words[2] === 0 && words[3] === 0 && words[4] === 0 && words[5] === 0;
+    const isCompatible = words[0] === 0 && words[1] === 0 && words[2] === 0 && words[3] === 0 && words[4] === 0 && words[5] === 0 && !(words[6] === 0 && (words[7] === 0 || words[7] === 1));
+
+    if (isStandardMapped || isSiitMapped || isNat64Mapped || isCompatible) {
+      const b1 = (words[6] >> 8) & 0xff;
+      const b2 = words[6] & 0xff;
+      const b3 = (words[7] >> 8) & 0xff;
+      const b4 = words[7] & 0xff;
+      const embeddedIpv4 = `${b1}.${b2}.${b3}.${b4}`;
+      const v4Class = classifyIpAddress(embeddedIpv4);
       return {
         ...v4Class,
         isIpv4Mapped: true,
         version: 6,
-        originalIp: raw
+        originalIp: raw,
+        embeddedIpv4
       };
     }
-  }
 
-  const isV4 = net.isIPv4(raw);
-  if (isV4) {
-    const [o1, o2, o3, o4] = raw.split(".").map(Number);
-    const isLoopback = o1 === 127;
-    const isLinkLocal = o1 === 169 && o2 === 254; // Link-local & cloud metadata (169.254.169.254)
-    const isPrivate =
-      o1 === 10 ||
-      (o1 === 172 && o2 >= 16 && o2 <= 31) ||
-      (o1 === 192 && o2 === 168);
-    const isCarrierNat = o1 === 100 && o2 >= 64 && o2 <= 127;
-    const isMulticast = o1 >= 224 && o1 <= 239;
-    const isReserved = o1 >= 240;
-    const isUnspecified = o1 === 0 || raw === "255.255.255.255";
-    const isDocumentation =
-      (o1 === 192 && o2 === 0 && o3 === 2) ||
-      (o1 === 198 && o2 === 51 && o3 === 100) ||
-      (o1 === 203 && o2 === 0 && o3 === 113);
-    const isBenchmark = o1 === 198 && (o2 === 18 || o2 === 19);
+    // Pure IPv6 classification via word inspection
+    const isLoopback = words[0] === 0 && words[1] === 0 && words[2] === 0 && words[3] === 0 && words[4] === 0 && words[5] === 0 && words[6] === 0 && words[7] === 1;
+    const isUnspecified = words.every(w => w === 0);
+    const isLinkLocal = (words[0] & 0xffc0) === 0xfe80; // fe80::/10
+    const isUniqueLocal = (words[0] & 0xfe00) === 0xfc00; // fc00::/7 (fc00 - fdff)
+    const isMulticast = (words[0] & 0xff00) === 0xff00; // ff00::/8
+    const isDocumentation = (words[0] === 0x2001 && words[1] === 0x0db8); // 2001:db8::/32
+    const isBenchmark = (words[0] === 0x2001 && (words[1] & 0xfff0) === 0x0020); // 2001:20::/28
 
-    const isNonPublic = isPrivate || isCarrierNat || isLoopback || isLinkLocal || isDocumentation || isBenchmark || isReserved || isUnspecified;
-    const isDisallowed = isLinkLocal || isMulticast || isReserved || isUnspecified || isDocumentation || isBenchmark;
-
-    return {
-      isIp: true,
-      version: 4,
-      isLoopback,
-      isLinkLocal,
-      isPrivate: isPrivate || isCarrierNat,
-      isCarrierNat,
-      isMulticast,
-      isReserved,
-      isUnspecified,
-      isNonPublic,
-      isDisallowed
-    };
-  } else {
-    // IPv6
-    const isLoopback = raw === "::1";
-    const isUnspecified = raw === "::";
-    const isLinkLocal = raw.startsWith("fe8") || raw.startsWith("fe9") || raw.startsWith("fea") || raw.startsWith("feb");
-    const isUniqueLocal = raw.startsWith("fc") || raw.startsWith("fd");
-    const isMulticast = raw.startsWith("ff");
-    const isDocumentation = raw.startsWith("2001:db8:");
-
-    const isNonPublic = isUniqueLocal || isLoopback || isLinkLocal || isDocumentation || isMulticast || isUnspecified;
-    const isDisallowed = isLinkLocal || isMulticast || isUnspecified || isDocumentation;
+    const isNonPublic = isUniqueLocal || isLoopback || isLinkLocal || isDocumentation || isBenchmark || isMulticast || isUnspecified;
+    const isDisallowed = isLinkLocal || isMulticast || isUnspecified || isDocumentation || isBenchmark;
 
     return {
       isIp: true,
@@ -909,6 +931,53 @@ function classifyIpAddress(ip) {
       isDisallowed
     };
   }
+
+  // IPv4
+  const [o1, o2, o3, o4] = raw.split(".").map(Number);
+  const isLoopback = o1 === 127;
+  const isLinkLocal = o1 === 169 && o2 === 254; // Link-local & cloud metadata (169.254.169.254)
+  const isPrivate =
+    o1 === 10 ||
+    (o1 === 172 && o2 >= 16 && o2 <= 31) ||
+    (o1 === 192 && o2 === 168);
+  const isCarrierNat = o1 === 100 && o2 >= 64 && o2 <= 127;
+  const isMulticast = o1 >= 224 && o1 <= 239;
+  const isReserved = o1 >= 240;
+  const isUnspecified = o1 === 0 || raw === "255.255.255.255";
+  const isDocumentation =
+    (o1 === 192 && o2 === 0 && o3 === 2) ||
+    (o1 === 198 && o2 === 51 && o3 === 100) ||
+    (o1 === 203 && o2 === 0 && o3 === 113);
+  const isBenchmark = o1 === 198 && (o2 === 18 || o2 === 19);
+
+  const isNonPublic = isPrivate || isCarrierNat || isLoopback || isLinkLocal || isDocumentation || isBenchmark || isReserved || isUnspecified;
+  const isDisallowed = isLinkLocal || isMulticast || isReserved || isUnspecified || isDocumentation || isBenchmark;
+
+  return {
+    isIp: true,
+    version: 4,
+    isLoopback,
+    isLinkLocal,
+    isPrivate: isPrivate || isCarrierNat,
+    isCarrierNat,
+    isMulticast,
+    isReserved,
+    isUnspecified,
+    isNonPublic,
+    isDisallowed
+  };
+}
+
+function ipMatchesCidr(ip, cidr) {
+  if (!ip || !cidr || !cidr.includes("/")) return false;
+  const [rangeIp, prefixLenStr] = cidr.split("/");
+  const prefixLen = parseInt(prefixLenStr, 10);
+  if (isNaN(prefixLen) || prefixLen < 0 || prefixLen > 32) return false;
+  if (!net.isIPv4(ip) || !net.isIPv4(rangeIp)) return false;
+
+  const ipToInt = (addr) => addr.split(".").reduce((acc, oct) => ((acc << 8) | parseInt(oct, 10)) >>> 0, 0);
+  const mask = prefixLen === 0 ? 0 : (~((1 << (32 - prefixLen)) - 1)) >>> 0;
+  return (ipToInt(ip) & mask) === (ipToInt(rangeIp) & mask);
 }
 
 function isDisallowedCloudHost(hostname) {
@@ -933,36 +1002,102 @@ function isDisallowedCloudHost(hostname) {
 
 function isAuthorizedHost(hostname, ip) {
   const normHost = (hostname || "").toLowerCase().trim();
-  const isLoopbackHost = normHost === "localhost" || normHost === "127.0.0.1" || normHost === "::1" || normHost === "[::1]";
-
+  const normIp = (ip || "").toLowerCase().trim();
   const isProduction = (typeof app !== "undefined" && app && app.isPackaged) || process.env.NODE_ENV === "production";
+
+  // Destination IP security validation: metadata, link-local, multicast can NEVER be authorized
+  if (normIp) {
+    const ipClass = classifyIpAddress(normIp);
+    if (ipClass.isIp && ipClass.isDisallowed) {
+      return false;
+    }
+  }
+
+  const isLoopbackHost = normHost === "localhost" || normHost === "127.0.0.1" || normHost === "::1" || normHost === "[::1]";
 
   // In non-production (dev/test): localhost and loopback are authorized
   if (!isProduction && isLoopbackHost) {
     return true;
   }
 
-  // Parse TRUSTED_LAN_HOSTS from env or config (comma-separated list of approved hostnames or IPs)
+  // Parse TRUSTED_LAN_HOSTS from env or config (comma-separated list of approved hostnames, IPs, or host:ip pairs)
   const trustedRaw = process.env.TRUSTED_LAN_HOSTS || (typeof syncConfig !== "undefined" ? syncConfig.trustedLanHosts : "") || "";
   const trustedList = trustedRaw.split(",").map(s => s.trim().toLowerCase()).filter(Boolean);
 
-  // If in production and connecting to loopback: requires explicit authorization
-  if (isLoopbackHost) {
+  // If in production and connecting to loopback: requires explicit loopback authorization
+  const isLoopbackIp = normIp && (normIp === "127.0.0.1" || normIp === "::1" || normIp.startsWith("127."));
+  if (isLoopbackHost || isLoopbackIp) {
     if (process.env.ALLOW_LOOPBACK_IN_PRODUCTION === "true" || trustedList.includes("localhost") || trustedList.includes("127.0.0.1") || trustedList.includes("::1")) {
       return true;
     }
     return false;
   }
 
-  // Check if hostname or IP is explicitly present in TRUSTED_LAN_HOSTS
-  if (trustedList.includes(normHost)) {
-    return true;
+  if (trustedList.length === 0) {
+    return false;
   }
-  if (ip && trustedList.includes(ip.toLowerCase().trim())) {
+
+  // Separate trusted hostnames, trusted IPs/CIDRs, and explicit host:ip bindings
+  const trustedHostnames = new Set();
+  const trustedIps = new Set();
+  const hostBindings = new Map();
+
+  for (const item of trustedList) {
+    if (item.includes("=") || (item.includes(":") && !item.includes("::"))) {
+      const sep = item.includes("=") ? "=" : ":";
+      const [h, i] = item.split(sep).map(x => x.trim());
+      if (h && i) {
+        trustedHostnames.add(h);
+        hostBindings.set(h, i);
+        trustedIps.add(i);
+      }
+    } else {
+      const ipCheck = classifyIpAddress(item);
+      if (ipCheck.isIp || item.includes("/")) {
+        trustedIps.add(item);
+      } else {
+        trustedHostnames.add(item);
+      }
+    }
+  }
+
+  // If target hostname is an IP literal
+  const hostIpCheck = classifyIpAddress(normHost);
+  if (hostIpCheck.isIp) {
+    if (trustedIps.has(normHost)) return true;
+    for (const tIp of trustedIps) {
+      if (tIp.includes("/") && ipMatchesCidr(normHost, tIp)) return true;
+    }
+    return false;
+  }
+
+  // Target is a domain name: verify hostname is in allowlist
+  if (!trustedHostnames.has(normHost)) {
+    return false;
+  }
+
+  // If no resolved IP was passed (pre-DNS check in resolveCloudServerUrl), hostname is an authorized LAN candidate
+  if (!normIp) {
     return true;
   }
 
-  return false;
+  // Post-DNS check: validate the actual resolved destination IP against trusted policy
+  if (hostBindings.has(normHost)) {
+    return hostBindings.get(normHost) === normIp;
+  }
+
+  if (trustedIps.size > 0) {
+    if (trustedIps.has(normIp)) return true;
+    for (const tIp of trustedIps) {
+      if (tIp.includes("/") && ipMatchesCidr(normIp, tIp)) return true;
+    }
+    // Hostname was allowlisted, but resolves to an unauthorized IP!
+    return false;
+  }
+
+  // If only hostnames were defined without explicit IPs, the resolved IP must be a valid private LAN IP
+  const destIpInfo = classifyIpAddress(normIp);
+  return destIpInfo.isIp && (destIpInfo.isPrivate || destIpInfo.isCarrierNat) && !destIpInfo.isLoopback && !destIpInfo.isDisallowed;
 }
 
 function resolveCloudServerUrl(candidate) {
@@ -980,12 +1115,17 @@ function resolveCloudServerUrl(candidate) {
       console.warn(`[SECURITY] Blocked SSRF/metadata host candidate: ${parsed.hostname}`);
       return resolveCloudServerUrl(defaultUrl);
     }
-    // Enforce HTTPS in production for remote (non-loopback) hosts
+    // Enforce HTTPS in production:
+    // In production, remote public hosts MUST use HTTPS unconditionally.
+    // Plain HTTP is ONLY permitted for loopback or explicitly authorized trusted LAN hosts.
+    // ALLOW_INSECURE_HTTP cannot bypass HTTPS for remote public hosts in production.
     const isProduction = (typeof app !== "undefined" && app && app.isPackaged) || process.env.NODE_ENV === "production";
-    const allowInsecure = process.env.ALLOW_INSECURE_HTTP === "true";
-    if (isProduction && !allowInsecure && parsed.protocol === "http:" && !isLocalOrLoopbackHost(parsed.hostname)) {
-      console.warn(`[SECURITY] Insecure HTTP rejected for remote host ${parsed.hostname} in production. Upgraded to https://`);
-      parsed.protocol = "https:";
+    if (isProduction && parsed.protocol === "http:" && !isLocalOrLoopbackHost(parsed.hostname)) {
+      const isAuthorizedLan = isAuthorizedHost(parsed.hostname);
+      if (!isAuthorizedLan) {
+        console.warn(`[SECURITY] Insecure HTTP prohibited for remote host ${parsed.hostname} in production. Upgraded to https://`);
+        parsed.protocol = "https:";
+      }
     }
     return parsed.origin;
   } catch (_) {
@@ -1452,6 +1592,8 @@ if (singleInstanceLock && app && typeof app.whenReady === "function") {
 }
 
 module.exports = {
+  parseIpv6ToWords,
+  ipMatchesCidr,
   classifyIpAddress,
   isDisallowedCloudHost,
   isLocalOrLoopbackHost,
