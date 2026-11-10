@@ -674,6 +674,7 @@ function getTenantDb(customerId) {
   // Safe backward-compatible column upgrades for existing tenant DBs
   try { tenantDb.exec("ALTER TABLE sync_events ADD COLUMN server_version INTEGER DEFAULT 1;"); } catch (_) {}
   try { tenantDb.exec("ALTER TABLE sync_events ADD COLUMN device_id TEXT;"); } catch (_) {}
+  try { tenantDb.exec("CREATE INDEX IF NOT EXISTS idx_sync_events_ts_id ON sync_events(server_timestamp, id);"); } catch (_) {}
 
   tenantDbCache.set(customerId, tenantDb);
   return tenantDb;

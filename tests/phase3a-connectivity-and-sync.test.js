@@ -252,6 +252,82 @@ async function run() {
     console.log("✓ Pull returned normalized camelCase event objects with parsed payload.");
 
     // ─────────────────────────────────────────────────────────────────
+    // Test 7B: Reliable Sync Pagination with Same-Timestamp Events (AUD-010)
+    // ─────────────────────────────────────────────────────────────────
+    console.log("\n[Test 7B] Testing Reliable Sync Pagination with Same-Timestamp Events...");
+    const pagEmail = `pag_${Date.now()}@zynbill-phase3a.test`;
+    await httpRequest("POST", "/api/v1/auth/register", {
+      companyName: "Pagination Corp",
+      ownerName: "Alice Page",
+      email: pagEmail,
+      phone: "9876543299",
+      state: "Tamil Nadu",
+      gstin: "33AAAAA0000A1Z5",
+      password: "Password@123"
+    });
+    const pagOtp = masterDb.prepare("SELECT code FROM otps WHERE email = ? ORDER BY created_at DESC LIMIT 1").get(pagEmail).code;
+    await httpRequest("POST", "/api/v1/auth/verify-otp", { email: pagEmail, otp: pagOtp, code: pagOtp });
+    masterDb.prepare("UPDATE customers SET status = 'active' WHERE email = ?").run(pagEmail);
+    const pagCust = masterDb.prepare("SELECT id FROM customers WHERE email = ?").get(pagEmail);
+    await httpRequest("POST", "/api/v1/auth/desktop-initiate-login", { email: pagEmail, password: "Password@123", machineName: "Pag-PC" });
+    const pagDevOtp = masterDb.prepare("SELECT code FROM otps WHERE email = ? ORDER BY created_at DESC LIMIT 1").get(pagEmail).code;
+    const pagDevRes = await httpRequest("POST", "/api/v1/auth/desktop-verify-device", { email: pagEmail, code: pagDevOtp, machineName: "Pag-PC" });
+    const pagToken = pagDevRes.data.token;
+    const pagTenantDb = getTenantDb(pagCust.id);
+
+    const fixedTimestamp = "2026-11-10T12:00:00.000Z";
+    const sameTimestampEvents = [
+      { id: "evt_same_01", name: "Item 1" },
+      { id: "evt_same_02", name: "Item 2" },
+      { id: "evt_same_03", name: "Item 3" },
+      { id: "evt_same_04", name: "Item 4" },
+      { id: "evt_same_05", name: "Item 5" },
+      { id: "evt_same_06", name: "Item 6" },
+      { id: "evt_same_07", name: "Item 7" }
+    ];
+
+    for (const item of sameTimestampEvents) {
+      pagTenantDb.prepare(`
+        INSERT INTO sync_events (id, entity_type, entity_id, operation, payload, idempotency_key, client_timestamp, server_timestamp, server_version, device_id)
+        VALUES (?, 'unit', ?, 'upsert', ?, ?, ?, ?, 1, 'dev_test_1')
+      `).run(item.id, item.id, JSON.stringify({ name: item.name }), `idem_${item.id}`, fixedTimestamp, fixedTimestamp);
+    }
+
+    // Page 1: limit 3 starting from fixedTimestamp (or before it)
+    const page1Res = await httpRequest("GET", `/api/v1/sync/pull?since=${encodeURIComponent("2026-11-10T11:59:59.000Z")}&limit=3`, null, pagToken);
+    assert.strictEqual(page1Res.status, 200);
+    assert.strictEqual(page1Res.data.changes.length, 3);
+    assert.strictEqual(page1Res.data.changes[0].eventId, "evt_same_01");
+    assert.strictEqual(page1Res.data.changes[1].eventId, "evt_same_02");
+    assert.strictEqual(page1Res.data.changes[2].eventId, "evt_same_03");
+    const cursor1 = page1Res.data.cursor;
+    assert.strictEqual(cursor1, `2026-11-10T12:00:00.000Z|evt_same_03`);
+
+    // Page 2: pass cursor1 with limit 3
+    const page2Res = await httpRequest("GET", `/api/v1/sync/pull?since=${encodeURIComponent(cursor1)}&limit=3`, null, pagToken);
+    assert.strictEqual(page2Res.status, 200);
+    assert.strictEqual(page2Res.data.changes.length, 3);
+    assert.strictEqual(page2Res.data.changes[0].eventId, "evt_same_04");
+    assert.strictEqual(page2Res.data.changes[1].eventId, "evt_same_05");
+    assert.strictEqual(page2Res.data.changes[2].eventId, "evt_same_06");
+    const cursor2 = page2Res.data.cursor;
+    assert.strictEqual(cursor2, `2026-11-10T12:00:00.000Z|evt_same_06`);
+
+    // Page 3: pass cursor2 with limit 3
+    const page3Res = await httpRequest("GET", `/api/v1/sync/pull?since=${encodeURIComponent(cursor2)}&limit=3`, null, pagToken);
+    assert.strictEqual(page3Res.status, 200);
+    assert.strictEqual(page3Res.data.changes.length, 1);
+    assert.strictEqual(page3Res.data.changes[0].eventId, "evt_same_07");
+    const cursor3 = page3Res.data.cursor;
+    assert.strictEqual(cursor3, `2026-11-10T12:00:00.000Z|evt_same_07`);
+
+    // Page 4: pass cursor3, should return 0 remaining
+    const page4Res = await httpRequest("GET", `/api/v1/sync/pull?since=${encodeURIComponent(cursor3)}&limit=3`, null, pagToken);
+    assert.strictEqual(page4Res.status, 200);
+    assert.strictEqual(page4Res.data.changes.length, 0);
+    console.log("✓ Composite cursor pagination verified: all 7 same-timestamp events traversed without loss or duplicates.");
+
+    // ─────────────────────────────────────────────────────────────────
     // Test 8: End-to-End HttpSyncAdapter Integration with Local Database
     // ─────────────────────────────────────────────────────────────────
     console.log("\n[Test 8] Testing End-to-End HttpSyncAdapter & Local Sync Engine...");

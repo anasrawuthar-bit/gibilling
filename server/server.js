@@ -2758,12 +2758,28 @@ const server = http.createServer(async (req, res) => {
 
     const { customer, device } = auth;
     const tenantDb = getTenantDb(customer.id);
-    const sinceTimestamp = query.since || '1970-01-01T00:00:00.000Z';
+    const sinceParam = (query.since || query.cursor || '1970-01-01T00:00:00.000Z').trim();
     const limit = Math.max(1, Math.min(500, parseInt(query.limit || '100', 10)));
 
-    const events = tenantDb.prepare(`
-      SELECT * FROM sync_events WHERE server_timestamp > ? ORDER BY server_timestamp ASC LIMIT ?
-    `).all(sinceTimestamp, limit);
+    let events;
+    if (sinceParam.includes('|')) {
+      const sepIndex = sinceParam.indexOf('|');
+      const sinceTimestamp = sinceParam.slice(0, sepIndex) || '1970-01-01T00:00:00.000Z';
+      const sinceId = sinceParam.slice(sepIndex + 1);
+      events = tenantDb.prepare(`
+        SELECT * FROM sync_events
+        WHERE (server_timestamp > ? OR (server_timestamp = ? AND id > ?))
+        ORDER BY server_timestamp ASC, id ASC
+        LIMIT ?
+      `).all(sinceTimestamp, sinceTimestamp, sinceId, limit);
+    } else {
+      events = tenantDb.prepare(`
+        SELECT * FROM sync_events
+        WHERE server_timestamp > ?
+        ORDER BY server_timestamp ASC, id ASC
+        LIMIT ?
+      `).all(sinceParam, limit);
+    }
 
     const normalizedEvents = events.map(row => {
       let parsed = {};
@@ -2792,13 +2808,18 @@ const server = http.createServer(async (req, res) => {
       };
     });
 
-    const newCursor = events.length > 0 ? events[events.length - 1].server_timestamp : sinceTimestamp;
+    const newCursor = events.length > 0
+      ? `${events[events.length - 1].server_timestamp}|${events[events.length - 1].id}`
+      : sinceParam;
 
     return sendJson(res, 200, {
       ok: true,
       events: normalizedEvents,
       changes: normalizedEvents,
-      cursor: newCursor
+      cursor: newCursor,
+      nextCursor: newCursor,
+      hasMore: events.length === limit,
+      count: normalizedEvents.length
     });
   }
 
