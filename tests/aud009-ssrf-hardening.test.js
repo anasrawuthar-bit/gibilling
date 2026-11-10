@@ -177,17 +177,27 @@ async function run() {
     // 8. Benchmarking (2001:2::/48, RFC 5180) - Non-global (IANA Reachability: False)
     const cIpv6Bench = classifyIpAddress("2001:2::1");
     assert.strictEqual(cIpv6Bench.isBenchmark, true);
+    assert.strictEqual(cIpv6Bench.isIetfProtocolAssignment, false, "Explicit benchmark allocation must not be labeled as unallocated IETF space");
     assert.strictEqual(cIpv6Bench.isDisallowed, true);
 
     // 9. ORCHIDv2 (2001:20::/28, RFC 7343) - IANA Globally Reachable: True; Disallowed by application policy
     const cIpv6Orchid = classifyIpAddress("2001:20::1");
     assert.strictEqual(cIpv6Orchid.isReserved, true);
+    assert.strictEqual(cIpv6Orchid.isIetfProtocolAssignment, false, "Explicit ORCHID allocation must not be labeled as unallocated IETF space");
     assert.strictEqual(cIpv6Orchid.isDisallowed, true);
 
     // 10. AS112-v6 Anycast (2001:4:112::/48, RFC 7535) - IANA Globally Reachable: True; Disallowed by application policy
     const cIpv6As112 = classifyIpAddress("2001:4:112::1");
     assert.strictEqual(cIpv6As112.isReserved, true);
+    assert.strictEqual(cIpv6As112.isIetfProtocolAssignment, false, "Explicit AS112 allocation must not be labeled as unallocated IETF space");
     assert.strictEqual(cIpv6As112.isDisallowed, true);
+
+    // 10a. Teredo (2001::/32, RFC 4380 / RFC 8190) - Explicit allocation within 2001::/23
+    const cIpv6Teredo = classifyIpAddress("2001::1");
+    assert.strictEqual(cIpv6Teredo.isTeredo, true);
+    assert.strictEqual(cIpv6Teredo.isIetfProtocolAssignment, false, "Explicit Teredo allocation must not be labeled as unallocated IETF space");
+    assert.strictEqual(cIpv6Teredo.isReserved, true);
+    assert.strictEqual(cIpv6Teredo.isDisallowed, true);
 
     // 10b. Segment Routing SRv6 SIDs (5f00::/16, RFC 9602) - IANA Globally Reachable: False
     const cIpv6Srv6 = classifyIpAddress("5f00::1");
@@ -200,9 +210,9 @@ async function run() {
     assert.strictEqual(cIpv6Srv6Boundary.isSrv6Sid, true);
     assert.strictEqual(cIpv6Srv6Boundary.isDisallowed, true);
 
-    // 10c. IETF Protocol Assignments (2001::/23, RFC 2928) - IANA Globally Reachable: False
+    // 10c. IETF Protocol Assignments (2001::/23, RFC 2928) - Unallocated Fallback (IANA Globally Reachable: False)
     const cIpv6Ietf23 = classifyIpAddress("2001:5::1");
-    assert.strictEqual(cIpv6Ietf23.isIetfProtocolAssignment, true);
+    assert.strictEqual(cIpv6Ietf23.isIetfProtocolAssignment, true, "Unallocated 2001:5::1 must be labeled as unallocated IETF protocol assignment");
     assert.strictEqual(cIpv6Ietf23.isReserved, true);
     assert.strictEqual(cIpv6Ietf23.isDisallowed, true);
     assert.strictEqual(cIpv6Ietf23.isNonPublic, true);
@@ -218,7 +228,7 @@ async function run() {
     assert.strictEqual(cIpv6IetfBoundaryOutside.isDisallowed, false);
 
     // 10d. Longest Prefix Match (LPM) Globally Reachable Exceptions within 2001::/23
-    // DNS-SD Service Registration Protocol Anycast (2001:1::3/128, RFC 9543/9545) - IANA Globally Reachable: True
+    // DNS-SD Service Registration Protocol Anycast (2001:1::3/128, RFC 9665) - IANA Globally Reachable: True
     const cIpv6DnsSd = classifyIpAddress("2001:1::3");
     assert.strictEqual(cIpv6DnsSd.isIetfProtocolAssignment, false, "2001:1::3 must not be classified as general IETF protocol assignment");
     assert.strictEqual(cIpv6DnsSd.isReserved, false, "2001:1::3 is a globally reachable exception");
@@ -239,6 +249,26 @@ async function run() {
     const cIpv6Amt = classifyIpAddress("2001:3::1");
     assert.strictEqual(cIpv6Amt.isIetfProtocolAssignment, false);
     assert.strictEqual(cIpv6Amt.isDisallowed, false);
+
+    // Drone Remote ID Protocol Entity Tags (2001:30::/28, RFC 9374) - IANA Globally Reachable: True
+    const cIpv6Drone = classifyIpAddress("2001:30::1");
+    assert.strictEqual(cIpv6Drone.isDroneId, true, "2001:30::1 must be recognized as Drone Remote ID");
+    assert.strictEqual(cIpv6Drone.isIetfProtocolAssignment, false, "2001:30::1 must not be classified as generic IETF assignment");
+    assert.strictEqual(cIpv6Drone.isReserved, false, "2001:30::1 is a globally reachable exception");
+    assert.strictEqual(cIpv6Drone.isDisallowed, false, "2001:30::1 must not be blocked by 2001::/23 fallback");
+    assert.strictEqual(cIpv6Drone.isNonPublic, false);
+
+    // Boundary inside 2001:30::/28
+    const cIpv6DroneBoundaryInside = classifyIpAddress("2001:3f:ffff:ffff::1");
+    assert.strictEqual(cIpv6DroneBoundaryInside.isDroneId, true);
+    assert.strictEqual(cIpv6DroneBoundaryInside.isIetfProtocolAssignment, false);
+    assert.strictEqual(cIpv6DroneBoundaryInside.isDisallowed, false);
+
+    // Boundary outside 2001:30::/28 (2001:40::1 is within 2001::/23 but outside /28 -> falls back to unallocated IETF space)
+    const cIpv6DroneBoundaryOutside = classifyIpAddress("2001:40::1");
+    assert.strictEqual(cIpv6DroneBoundaryOutside.isDroneId, false, "2001:40::1 is outside 2001:30::/28");
+    assert.strictEqual(cIpv6DroneBoundaryOutside.isIetfProtocolAssignment, true, "2001:40::1 must fall back to unallocated IETF space");
+    assert.strictEqual(cIpv6DroneBoundaryOutside.isDisallowed, true, "2001:40::1 must be disallowed as unallocated IETF assignment");
 
     // 11. Deprecated Site-Local (fec0::/10, RFC 3879) - Non-global
     const cIpv6SiteLocal = classifyIpAddress("fec0::1");
