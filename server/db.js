@@ -887,7 +887,7 @@ function getCanonicalPath(targetPath) {
   return current;
 }
 
-function restoreBackupToSandbox(backupFilePath, targetSandboxPath) {
+function restoreBackupToSandbox(backupFilePath, targetSandboxPath, options = {}) {
   if (!targetSandboxPath || typeof targetSandboxPath !== 'string') {
     return { ok: false, error: 'Target sandbox path must be a valid non-empty string.' };
   }
@@ -984,6 +984,8 @@ function restoreBackupToSandbox(backupFilePath, targetSandboxPath) {
     `.restore_tmp_${Date.now()}_${crypto.randomBytes(6).toString('hex')}.sqlite`
   );
 
+  let tempVerified = false;
+
   try {
     fs.copyFileSync(backupFilePath, tempSandboxPath);
 
@@ -997,13 +999,129 @@ function restoreBackupToSandbox(backupFilePath, targetSandboxPath) {
       } catch (_) {}
     }
     restoredDb.close();
+    tempVerified = true;
 
-    // Only after verification passes, atomically replace target sandbox file
+    // Optional test hook executed immediately before pre-replacement revalidation
+    if (typeof options._beforeReplaceHook === 'function') {
+      options._beforeReplaceHook();
+    }
+
+    // 4. Revalidate destination and parent immediately before replacement (protect against TOCTOU symlink/junction swap)
+    let revalTarget;
     try {
+      revalTarget = getCanonicalPath(targetSandboxPath);
+    } catch (revalErr) {
+      // Revalidation failed (e.g. dangling symlink or unresolvable path introduced)
+      return {
+        ok: false,
+        error: 'Security Exception: Pre-replacement destination revalidation failed: ' + revalErr.message,
+        preservedTempPath: tempSandboxPath
+      };
+    }
+
+    if (revalTarget.toLowerCase() !== canonicalTarget.toLowerCase() || isProtectedPath(revalTarget)) {
+      return {
+        ok: false,
+        error: 'Security Exception: Destination path changed or was redirected to a protected location before replacement.',
+        preservedTempPath: tempSandboxPath
+      };
+    }
+
+    // Check if target path turned into a symbolic link
+    try {
+      const destLstat = fs.lstatSync(targetSandboxPath);
+      if (destLstat.isSymbolicLink()) {
+        return {
+          ok: false,
+          error: 'Security Exception: Target sandbox path was replaced with a symbolic link before replacement.',
+          preservedTempPath: tempSandboxPath
+        };
+      }
+    } catch (lsErr) {
+      if (lsErr.code !== 'ENOENT') {
+        return {
+          ok: false,
+          error: 'Security Exception: Unable to inspect target path before replacement: ' + lsErr.message,
+          preservedTempPath: tempSandboxPath
+        };
+      }
+    }
+
+    // Check if parent directory was replaced with a symlink/junction to protected location
+    try {
+      const parentDir = path.dirname(targetSandboxPath);
+      const parentLstat = fs.lstatSync(parentDir);
+      if (parentLstat.isSymbolicLink()) {
+        const canonicalParent = getCanonicalPath(parentDir);
+        if (canonicalParent.toLowerCase() !== targetDir.toLowerCase() || isProtectedPath(canonicalParent)) {
+          return {
+            ok: false,
+            error: 'Security Exception: Parent sandbox directory was replaced with a symbolic link pointing to protected location.',
+            preservedTempPath: tempSandboxPath
+          };
+        }
+      }
+    } catch (pErr) {
+      return {
+        ok: false,
+        error: 'Security Exception: Unable to inspect parent sandbox directory: ' + pErr.message,
+        preservedTempPath: tempSandboxPath
+      };
+    }
+
+    // 5. Safe platform-specific destination replacement strategy
+    // If destination exists, snapshot it before replacement so it can be restored if replacement fails
+    let existingBackupPath = null;
+    let existingContentHash = null;
+
+    if (fs.existsSync(canonicalTarget)) {
+      existingBackupPath = path.join(
+        targetDir,
+        `.target_bak_${Date.now()}_${crypto.randomBytes(6).toString('hex')}.sqlite`
+      );
+      try {
+        fs.copyFileSync(canonicalTarget, existingBackupPath);
+        existingContentHash = crypto.createHash('sha256').update(fs.readFileSync(canonicalTarget)).digest('hex');
+      } catch (backupErr) {
+        return {
+          ok: false,
+          error: 'Failed to create safety backup of existing destination before replacement: ' + backupErr.message,
+          preservedTempPath: tempSandboxPath
+        };
+      }
+    }
+
+    // Perform replacement using atomic rename
+    try {
+      if (options && options._testFailReplacement) {
+        throw new Error('Injected failure during destination replacement');
+      }
+
       fs.renameSync(tempSandboxPath, canonicalTarget);
-    } catch (_) {
-      fs.copyFileSync(tempSandboxPath, canonicalTarget);
-      try { fs.unlinkSync(tempSandboxPath); } catch (_) {}
+
+      // Replacement succeeded! Clean up existing file backup
+      if (existingBackupPath && fs.existsSync(existingBackupPath)) {
+        try { fs.unlinkSync(existingBackupPath); } catch (_) {}
+      }
+    } catch (replaceErr) {
+      // Safe replacement could not be completed.
+      // Restore existing destination from backup if it was modified or deleted
+      if (existingBackupPath && fs.existsSync(existingBackupPath)) {
+        try {
+          fs.copyFileSync(existingBackupPath, canonicalTarget);
+          fs.unlinkSync(existingBackupPath);
+        } catch (restoreErr) {
+          console.error('[Sandbox Restore Fallback Error]:', restoreErr.message);
+        }
+      }
+
+      // Preserve verified temporary file for manual recovery and fail closed
+      return {
+        ok: false,
+        error: 'Safe replacement could not be guaranteed: ' + replaceErr.message,
+        preservedTempPath: tempSandboxPath,
+        destinationPreserved: true
+      };
     }
 
     return {
@@ -1014,10 +1132,15 @@ function restoreBackupToSandbox(backupFilePath, targetSandboxPath) {
       tableCounts
     };
   } catch (err) {
-    if (fs.existsSync(tempSandboxPath)) {
+    // Only clean up tempSandboxPath if it was not verified or if it failed before the replacement step
+    if (!tempVerified && fs.existsSync(tempSandboxPath)) {
       try { fs.unlinkSync(tempSandboxPath); } catch (_) {}
     }
-    return { ok: false, error: 'Restore failed: ' + err.message };
+    return {
+      ok: false,
+      error: 'Restore failed: ' + err.message,
+      preservedTempPath: tempVerified ? tempSandboxPath : null
+    };
   }
 }
 

@@ -1911,56 +1911,146 @@ const server = http.createServer(async (req, res) => {
         fs.rmdirSync(stagedVerDir);
       } catch (_) {}
     } catch (pubErr) {
+      console.error(`[Release Publish Error v${declaredVer}]:`, pubErr.message);
+
       const tempActiveYml = path.join(downloadsDir, '.latest.yml.tmp');
       if (fs.existsSync(tempActiveYml)) {
         try { fs.unlinkSync(tempActiveYml); } catch (_) {}
       }
 
-      // Rollback database settings inside a SQLite transaction
+      const rollbackErrors = [];
+      const failedRestorations = [];
+      const failedCleanups = [];
+
+      // 1. Rollback database settings inside a SQLite transaction
+      let dbRollbackSucceeded = false;
       try {
         restoreSettingsTransaction(previousSettings);
+        // Verify database settings were actually restored
+        const verifyActiveVer = getSetting('active_release_version', null);
+        const verifyLatestVer = getSetting('latest_version', null);
+        if (verifyActiveVer === previousSettings.active_release_version &&
+            verifyLatestVer === previousSettings.latest_version) {
+          dbRollbackSucceeded = true;
+        } else {
+          rollbackErrors.push('Database settings verification failed after rollback transaction');
+        }
       } catch (dbRollbackErr) {
+        dbRollbackSucceeded = false;
+        rollbackErrors.push(`Database settings rollback failed: ${dbRollbackErr.message}`);
         console.error('[Publish Rollback DB Error]:', dbRollbackErr.message);
       }
 
-      // Restore overwritten files to their exact previous contents
+      // 2. Restore overwritten files to their exact previous contents & verify
+      const testRollbackFail = req.headers['x-test-rollback-fail'] || '';
+
       for (const item of overwrittenDestFiles.reverse()) {
         try {
+          // Failure injection hooks for rollback testing
+          if (testRollbackFail === 'fail_restore_exe' && item.destPath.endsWith('.exe')) {
+            throw new Error('Injected failure restoring EXE');
+          }
+          if (testRollbackFail === 'fail_restore_blockmap' && item.destPath.endsWith('.blockmap')) {
+            throw new Error('Injected failure restoring blockmap');
+          }
+          if (testRollbackFail === 'fail_restore_manifest' && item.destPath.endsWith('.yml')) {
+            throw new Error('Injected failure restoring manifest');
+          }
+          if (testRollbackFail === 'fail_restore_multiple' && (item.destPath.endsWith('.exe') || item.destPath.endsWith('.blockmap'))) {
+            throw new Error('Injected failure restoring multiple files: ' + path.basename(item.destPath));
+          }
+
           if (fs.existsSync(item.backupPath)) {
             fs.copyFileSync(item.backupPath, item.destPath);
+
+            // Verify restored file contents against the original backup file
+            const bakBuf = fs.readFileSync(item.backupPath);
+            const destBuf = fs.readFileSync(item.destPath);
+            if (!bakBuf.equals(destBuf)) {
+              throw new Error(`Content mismatch after restoration for '${item.destPath}'`);
+            }
+          } else {
+            throw new Error(`Backup copy not found at '${item.backupPath}' for destination '${item.destPath}'`);
           }
         } catch (err) {
-          console.error('[Rollback Overwrite Error]:', err.message);
+          failedRestorations.push(item.destPath);
+          rollbackErrors.push(`Failed to restore '${item.destPath}': ${err.message}`);
+          console.error(`[CRITICAL ROLLBACK FAILURE]: Could not restore file '${item.destPath}'. Original copy preserved in: '${item.backupPath}'. Error: ${err.message}`);
         }
       }
 
-      // Clean up only the newly created files from failed publication
+      // 3. Clean up only the newly created files from failed publication
       for (const filePath of newlyCreatedDestFiles.reverse()) {
         try {
           if (fs.existsSync(filePath)) {
             fs.unlinkSync(filePath);
           }
         } catch (err) {
-          console.error('[Rollback Cleanup Error]:', err.message);
+          failedCleanups.push(filePath);
+          rollbackErrors.push(`Failed to clean up newly created file '${filePath}': ${err.message}`);
+          console.error(`[Rollback Cleanup Error]: Could not unlink newly created file '${filePath}': ${err.message}`);
         }
       }
 
-      // Clean up versioned release directory if newly created
+      // 4. Clean up versioned release directory if newly created
       if (versionedRelDirCreated && fs.existsSync(versionedRelDir)) {
         try {
           fs.rmSync(versionedRelDir, { recursive: true, force: true });
-        } catch (_) {}
+        } catch (dirErr) {
+          failedCleanups.push(versionedRelDir);
+          rollbackErrors.push(`Failed to remove versioned release directory: ${dirErr.message}`);
+        }
       }
 
-      // Clean up rollback backup directory
-      try { fs.rmSync(rollbackBackupDir, { recursive: true, force: true }); } catch (_) {}
+      // 5. Check if rollback was completely verified
+      const allRestorationsSucceeded = failedRestorations.length === 0;
+      const allCleanupsSucceeded = failedCleanups.length === 0;
+      const rollbackFullyVerified = dbRollbackSucceeded && allRestorationsSucceeded;
+
+      // 6. Delete rollback backup directory ONLY IF all restorations succeeded and verified
+      let backupDirCleanedUp = false;
+      if (rollbackFullyVerified) {
+        try {
+          if (testRollbackFail === 'fail_cleanup_backup_dir') {
+            throw new Error('Injected failure during rollback backup directory cleanup');
+          }
+          fs.rmSync(rollbackBackupDir, { recursive: true, force: true });
+          backupDirCleanedUp = true;
+        } catch (rmErr) {
+          backupDirCleanedUp = false;
+          rollbackErrors.push(`Failed to clean up rollback backup directory: ${rmErr.message}`);
+          console.error(`[Rollback Backup Dir Cleanup Error]: ${rmErr.message}`);
+        }
+      } else {
+        console.error(
+          `[CRITICAL NOTICE]: Rollback backup directory preserved for manual administrator recovery at: '${rollbackBackupDir}'. ` +
+          `Failed restorations: [${failedRestorations.join(', ')}]`
+        );
+      }
 
       // Staging directory (stagedVerDir) remains preserved for admin re-try
 
-      return sendJson(res, 500, {
-        ok: false,
-        error: `Publishing failed and was safely rolled back: ${pubErr.message}`
-      });
+      // 7. Formulate response based on complete verification
+      if (rollbackFullyVerified && backupDirCleanedUp && allCleanupsSucceeded) {
+        return sendJson(res, 500, {
+          ok: false,
+          error: `Publishing failed and was safely rolled back: ${pubErr.message}`,
+          rolledBack: true,
+          requiresManualRecovery: false
+        });
+      } else {
+        return sendJson(res, 500, {
+          ok: false,
+          error: `CRITICAL: Publishing failed and automatic rollback was INCOMPLETE. Manual administrator recovery is required: ${pubErr.message}`,
+          rolledBack: false,
+          requiresManualRecovery: true,
+          rollbackErrors,
+          failedRestorations,
+          failedCleanups,
+          backupRecoveryDir: rollbackBackupDir,
+          backupDirectoryPreserved: fs.existsSync(rollbackBackupDir)
+        });
+      }
     }
 
     return sendJson(res, 200, {
