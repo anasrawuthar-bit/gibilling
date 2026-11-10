@@ -53,6 +53,17 @@ if (!fs.existsSync(TENANTS_DIR)) fs.mkdirSync(TENANTS_DIR, { recursive: true });
 const MASTER_DB_PATH = path.join(DATA_DIR, 'master.sqlite');
 const masterDb = new DatabaseSync(MASTER_DB_PATH);
 
+// Enable WAL mode & concurrency timeout
+try {
+  masterDb.exec(`
+    PRAGMA journal_mode = WAL;
+    PRAGMA synchronous = NORMAL;
+    PRAGMA busy_timeout = 5000;
+  `);
+} catch (pragmaErr) {
+  console.warn('[MasterDB Pragma Warning]:', pragmaErr.message);
+}
+
 // Initialize Master Tables
 masterDb.exec(`
   CREATE TABLE IF NOT EXISTS customers (
@@ -90,8 +101,30 @@ masterDb.exec(`
     purpose TEXT NOT NULL,
     expires_at TEXT NOT NULL,
     verified INTEGER NOT NULL DEFAULT 0,
+    attempts INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL
   );
+
+  CREATE TABLE IF NOT EXISTS web_sessions (
+    token_hash TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    user_type TEXT NOT NULL, -- 'admin' or 'customer'
+    email TEXT NOT NULL,
+    name TEXT,
+    data TEXT,
+    expires_at TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    last_active_at TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_sessions_expires ON web_sessions (expires_at);
+  CREATE INDEX IF NOT EXISTS idx_sessions_user ON web_sessions (user_id);
+
+  CREATE TABLE IF NOT EXISTS rate_limits (
+    key TEXT PRIMARY KEY,
+    count INTEGER NOT NULL,
+    reset_at INTEGER NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_rate_limits_reset ON rate_limits (reset_at);
 
   CREATE TABLE IF NOT EXISTS device_tokens (
     token TEXT PRIMARY KEY,
@@ -152,6 +185,138 @@ try {
 try {
   masterDb.exec(`ALTER TABLE customers ADD COLUMN pin_salt TEXT;`);
 } catch (_) {}
+try {
+  masterDb.exec(`ALTER TABLE otps ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0;`);
+} catch (_) {}
+
+// Migration: Safe upgrade of web_sessions from raw tokens to SHA-256 token hashes
+try {
+  const sessionCols = masterDb.prepare("PRAGMA table_info(web_sessions);").all();
+  const hasTokenCol = sessionCols.some(c => c.name === 'token');
+  const hasTokenHashCol = sessionCols.some(c => c.name === 'token_hash');
+
+  if (hasTokenCol && !hasTokenHashCol) {
+    const existingSessions = masterDb.prepare("SELECT * FROM web_sessions;").all();
+    masterDb.exec("ALTER TABLE web_sessions RENAME COLUMN token TO token_hash;");
+    for (const s of existingSessions) {
+      if (s.token && !/^[0-9a-f]{64}$/i.test(s.token)) {
+        const hashed = crypto.createHash('sha256').update(s.token).digest('hex');
+        masterDb.prepare("UPDATE web_sessions SET token_hash = ? WHERE token_hash = ?").run(hashed, s.token);
+      }
+    }
+  }
+} catch (migErr) {
+  console.warn('[Session Migration Note]:', migErr.message);
+}
+
+// ── Persistent Web Session Management (SHA-256 Token Hashing) ─────────
+function hashSessionToken(token) {
+  if (!token || typeof token !== 'string') return '';
+  return crypto.createHash('sha256').update(token.trim()).digest('hex');
+}
+
+function saveSession(rawToken, userType, userId, email, name = '', data = {}, ttlMs = 7 * 24 * 60 * 60 * 1000) {
+  const tokenHash = hashSessionToken(rawToken);
+  const now = new Date();
+  const expiresAt = new Date(now.getTime() + ttlMs).toISOString();
+  const nowIso = now.toISOString();
+  masterDb.prepare(`
+    INSERT INTO web_sessions (token_hash, user_id, user_type, email, name, data, expires_at, created_at, last_active_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(token_hash) DO UPDATE SET last_active_at = excluded.last_active_at, expires_at = excluded.expires_at
+  `).run(tokenHash, userId, userType, email, name || '', JSON.stringify(data), expiresAt, nowIso, nowIso);
+  return { token: rawToken, tokenHash, expiresAt };
+}
+
+function getSession(rawToken) {
+  if (!rawToken) return null;
+  const tokenHash = hashSessionToken(rawToken);
+  try {
+    const row = masterDb.prepare(`
+      SELECT * FROM web_sessions WHERE token_hash = ?
+    `).get(tokenHash);
+    if (!row) return null;
+
+    if (new Date(row.expires_at).getTime() < Date.now()) {
+      masterDb.prepare('DELETE FROM web_sessions WHERE token_hash = ?').run(tokenHash);
+      return null;
+    }
+
+    try {
+      masterDb.prepare('UPDATE web_sessions SET last_active_at = ? WHERE token_hash = ?').run(new Date().toISOString(), tokenHash);
+    } catch (_) {}
+
+    let parsedData = {};
+    try { parsedData = JSON.parse(row.data); } catch (_) {}
+    return {
+      tokenHash: row.token_hash,
+      userId: row.user_id,
+      userType: row.user_type,
+      email: row.email,
+      name: row.name,
+      ...parsedData
+    };
+  } catch (_) {
+    return null;
+  }
+}
+
+function deleteSession(rawToken) {
+  if (!rawToken) return false;
+  const tokenHash = hashSessionToken(rawToken);
+  try {
+    const res = masterDb.prepare('DELETE FROM web_sessions WHERE token_hash = ?').run(tokenHash);
+    return res.changes > 0;
+  } catch (_) {
+    return false;
+  }
+}
+
+function cleanupExpiredSessions() {
+  try {
+    masterDb.prepare('DELETE FROM web_sessions WHERE expires_at < ?').run(new Date().toISOString());
+  } catch (_) {}
+}
+
+// ── Persistent Rate Limiting Engine (SQLite-Backed) ───────────────────
+function checkRateLimit(key, maxAttempts = 5, windowMs = 15 * 60 * 1000) {
+  const now = Date.now();
+  try {
+    const row = masterDb.prepare('SELECT count, reset_at FROM rate_limits WHERE key = ?').get(key);
+    if (!row || now > row.reset_at) {
+      const resetAt = now + windowMs;
+      masterDb.prepare(`
+        INSERT INTO rate_limits (key, count, reset_at) VALUES (?, 1, ?)
+        ON CONFLICT(key) DO UPDATE SET count = 1, reset_at = excluded.reset_at
+      `).run(key, resetAt);
+      return { allowed: true, remaining: maxAttempts - 1, retryAfterSec: 0 };
+    }
+
+    if (row.count >= maxAttempts) {
+      const retryAfterSec = Math.ceil((row.reset_at - now) / 1000);
+      return { allowed: false, remaining: 0, retryAfterSec };
+    }
+
+    const newCount = row.count + 1;
+    masterDb.prepare('UPDATE rate_limits SET count = ? WHERE key = ?').run(newCount, key);
+    return { allowed: true, remaining: maxAttempts - newCount, retryAfterSec: 0 };
+  } catch (err) {
+    console.warn('[RateLimit DB Warning]:', err.message);
+    return { allowed: true, remaining: 1, retryAfterSec: 0 };
+  }
+}
+
+function resetRateLimit(key) {
+  try {
+    masterDb.prepare('DELETE FROM rate_limits WHERE key = ?').run(key);
+  } catch (_) {}
+}
+
+function cleanupRateLimits() {
+  try {
+    masterDb.prepare('DELETE FROM rate_limits WHERE reset_at < ?').run(Date.now());
+  } catch (_) {}
+}
 
 // Helper methods for system settings
 function getSetting(key, defaultValue = '') {
@@ -300,6 +465,41 @@ if (planCount === 0) {
   console.log('[MasterDB] Seeded 3 default subscription plans (Starter, Professional, Enterprise)');
 }
 
+// ── Password Helper Functions (OWASP 600,000 Rounds Migration) ─────────
+const PBKDF2_ROUNDS_MODERN = 600000;
+const PBKDF2_ROUNDS_PHASE1 = 100000;
+const PBKDF2_ROUNDS_LEGACY = 1000;
+
+function hashPassword(password, salt = null) {
+  if (!salt) {
+    salt = 'pbkdf2_600k$' + crypto.randomBytes(16).toString('hex');
+  }
+  let iterations = PBKDF2_ROUNDS_LEGACY;
+  if (salt.startsWith('pbkdf2_600k$')) {
+    iterations = PBKDF2_ROUNDS_MODERN;
+  } else if (salt.startsWith('pbkdf2_100k$')) {
+    iterations = PBKDF2_ROUNDS_PHASE1;
+  }
+  const hash = crypto.pbkdf2Sync(password, salt, iterations, 32, 'sha256').toString('hex');
+  return { hash, salt };
+}
+
+function verifyPassword(password, storedHash, salt) {
+  if (!password || !storedHash || !salt) return false;
+  let iterations = PBKDF2_ROUNDS_LEGACY;
+  if (salt.startsWith('pbkdf2_600k$')) {
+    iterations = PBKDF2_ROUNDS_MODERN;
+  } else if (salt.startsWith('pbkdf2_100k$')) {
+    iterations = PBKDF2_ROUNDS_PHASE1;
+  }
+  const testHash = crypto.pbkdf2Sync(password, salt, iterations, 32, 'sha256').toString('hex');
+  return testHash === storedHash;
+}
+
+function checkPasswordNeedsRehash(salt) {
+  return !String(salt || '').startsWith('pbkdf2_600k$');
+}
+
 // Seed or synchronize Super Admin from .env credentials
 const targetAdminEmail = String(process.env.SUPER_ADMIN_EMAIL || 'admin@zynbill.com').trim().toLowerCase();
 const targetAdminPass = String(process.env.SUPER_ADMIN_PASSWORD || 'admin123');
@@ -307,32 +507,18 @@ const targetAdminName = String(process.env.SUPER_ADMIN_NAME || 'Super Administra
 
 const existingAdmin = masterDb.prepare('SELECT id FROM admins WHERE id = ? OR email = ?').get('admin_master', targetAdminEmail);
 if (!existingAdmin) {
-  const salt = crypto.randomBytes(16).toString('hex');
-  const hash = crypto.pbkdf2Sync(targetAdminPass, salt, 1000, 32, 'sha256').toString('hex');
+  const { hash, salt } = hashPassword(targetAdminPass);
   masterDb.prepare(`
     INSERT INTO admins (id, email, password_hash, password_salt, name, created_at)
     VALUES (?, ?, ?, ?, ?, ?)
   `).run('admin_master', targetAdminEmail, hash, salt, targetAdminName, new Date().toISOString());
-  console.log(`[MasterDB] Initialized Super Admin (${targetAdminEmail}) from .env configuration`);
+  console.log(`[MasterDB] Initialized Super Admin (${targetAdminEmail}) with OWASP 600k PBKDF2 hashing`);
 } else {
-  const salt = crypto.randomBytes(16).toString('hex');
-  const hash = crypto.pbkdf2Sync(targetAdminPass, salt, 1000, 32, 'sha256').toString('hex');
+  const { hash, salt } = hashPassword(targetAdminPass);
   masterDb.prepare(`
     UPDATE admins SET email = ?, password_hash = ?, password_salt = ?, name = ? WHERE id = ?
   `).run(targetAdminEmail, hash, salt, targetAdminName, existingAdmin.id);
-  console.log(`[MasterDB] Synchronized Super Admin (${targetAdminEmail}) from .env`);
-}
-
-// ── Password Helper Functions ──────────────────────────────────────────
-function hashPassword(password, salt = null) {
-  if (!salt) salt = crypto.randomBytes(16).toString('hex');
-  const hash = crypto.pbkdf2Sync(password, salt, 1000, 32, 'sha256').toString('hex');
-  return { hash, salt };
-}
-
-function verifyPassword(password, storedHash, salt) {
-  const testHash = crypto.pbkdf2Sync(password, salt, 1000, 32, 'sha256').toString('hex');
-  return testHash === storedHash;
+  console.log(`[MasterDB] Synchronized Super Admin (${targetAdminEmail}) with OWASP 600k PBKDF2 hashing`);
 }
 
 // ── Multi-Tenant Database Helper ────────────────────────────────────────
@@ -350,6 +536,17 @@ function getTenantDb(customerId) {
 
   const tenantPath = getTenantDbPath(customerId);
   const tenantDb = new DatabaseSync(tenantPath);
+
+  // Enable WAL mode & concurrency timeout for tenant database
+  try {
+    tenantDb.exec(`
+      PRAGMA journal_mode = WAL;
+      PRAGMA synchronous = NORMAL;
+      PRAGMA busy_timeout = 5000;
+    `);
+  } catch (tPragmaErr) {
+    console.warn(`[TenantDB Pragma Warning for ${customerId}]:`, tPragmaErr.message);
+  }
 
   // Initialize tenant tables
   tenantDb.exec(`
@@ -412,15 +609,189 @@ function getTenantDb(customerId) {
   return tenantDb;
 }
 
+// ── Cloud Database Backup Subsystem (WAL-Safe VACUUM INTO) ─────────────
+const BACKUPS_DIR = path.join(DATA_DIR, 'backups');
+if (!fs.existsSync(BACKUPS_DIR)) fs.mkdirSync(BACKUPS_DIR, { recursive: true });
+
+function backupDatabaseHandle(dbHandle, prefix = 'master') {
+  if (!dbHandle) return null;
+  const ts = new Date().toISOString().replace(/[:.]/g, '-');
+  const destName = `${prefix}_backup_${ts}.sqlite`;
+  const destPath = path.join(BACKUPS_DIR, destName);
+  const tempPath = path.join(BACKUPS_DIR, `${destName}.tmp`);
+
+  try {
+    if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath);
+    if (fs.existsSync(destPath)) fs.unlinkSync(destPath);
+
+    // Run SQLite VACUUM INTO for point-in-time, WAL-checkpointed atomic snapshot
+    const escapedTempPath = tempPath.replace(/'/g, "''");
+    dbHandle.exec(`VACUUM INTO '${escapedTempPath}';`);
+
+    // Verify snapshot integrity before finalizing
+    const verifyDb = new DatabaseSync(tempPath, { readOnly: true });
+    const check = verifyDb.prepare('PRAGMA quick_check;').get();
+    verifyDb.close();
+
+    if (!check || check.quick_check !== 'ok') {
+      throw new Error(`Integrity verification failed on snapshot: ${check ? check.quick_check : 'null'}`);
+    }
+
+    // Atomically move verified snapshot to final destination
+    fs.renameSync(tempPath, destPath);
+
+    // Prune backups beyond last 7 for this prefix
+    const backups = fs.readdirSync(BACKUPS_DIR)
+      .filter(f => f.startsWith(`${prefix}_backup_`) && f.endsWith('.sqlite'))
+      .map(f => ({ name: f, time: fs.statSync(path.join(BACKUPS_DIR, f)).mtimeMs }))
+      .sort((a, b) => b.time - a.time);
+
+    if (backups.length > 7) {
+      for (let i = 7; i < backups.length; i++) {
+        try { fs.unlinkSync(path.join(BACKUPS_DIR, backups[i].name)); } catch (_) {}
+      }
+    }
+
+    const stat = fs.statSync(destPath);
+    return {
+      name: destName,
+      path: destPath,
+      size: stat.size,
+      sizeKb: (stat.size / 1024).toFixed(1) + ' KB',
+      createdAt: new Date().toISOString()
+    };
+  } catch (err) {
+    console.error(`[Backup Error for ${prefix}]:`, err.message);
+    try { if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath); } catch (_) {}
+    return null;
+  }
+}
+
+function backupMasterDb() {
+  return backupDatabaseHandle(masterDb, 'master');
+}
+
+function backupAllTenantDbs() {
+  if (!fs.existsSync(TENANTS_DIR)) return [];
+  const files = fs.readdirSync(TENANTS_DIR).filter(f => f.endsWith('.sqlite'));
+  const results = [];
+  for (const f of files) {
+    const customerId = f.replace(/\.sqlite$/, '');
+    try {
+      const tenantDb = getTenantDb(customerId);
+      const b = backupDatabaseHandle(tenantDb, `tenant_${customerId}`);
+      if (b) results.push(b);
+    } catch (tErr) {
+      console.error(`[Tenant Backup Error for ${customerId}]:`, tErr.message);
+    }
+  }
+  return results;
+}
+
+function listCloudBackups() {
+  if (!fs.existsSync(BACKUPS_DIR)) return [];
+  return fs.readdirSync(BACKUPS_DIR)
+    .filter(f => f.endsWith('.sqlite'))
+    .map(f => {
+      const stat = fs.statSync(path.join(BACKUPS_DIR, f));
+      return {
+        filename: f,
+        sizeBytes: stat.size,
+        sizeKb: (stat.size / 1024).toFixed(1) + ' KB',
+        createdAt: stat.mtime.toISOString()
+      };
+    })
+    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+}
+
+// ── Backup Restore & Integrity Verification Helper (Development & Disaster Recovery) ──
+function verifyAndInspectBackup(backupFilePath) {
+  if (!fs.existsSync(backupFilePath)) {
+    return { ok: false, error: 'Backup file does not exist on disk.' };
+  }
+  try {
+    const testDb = new DatabaseSync(backupFilePath, { readOnly: true });
+    const quickCheck = testDb.prepare('PRAGMA quick_check;').get();
+    const fkCheck = testDb.prepare('PRAGMA foreign_key_check;').all();
+    const tables = testDb.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%';").all().map(t => t.name);
+    testDb.close();
+
+    const isHealthy = quickCheck && quickCheck.quick_check === 'ok' && fkCheck.length === 0;
+    return {
+      ok: isHealthy,
+      integrity: quickCheck ? quickCheck.quick_check : 'failed',
+      foreignKeyViolations: fkCheck.length,
+      tables,
+      sizeBytes: fs.statSync(backupFilePath).size
+    };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+}
+
+function restoreBackupToSandbox(backupFilePath, targetSandboxPath) {
+  if (!fs.existsSync(backupFilePath)) {
+    return { ok: false, error: 'Backup file not found.' };
+  }
+  const inspection = verifyAndInspectBackup(backupFilePath);
+  if (!inspection.ok) {
+    return { ok: false, error: 'Cannot restore corrupted backup: ' + inspection.integrity };
+  }
+
+  try {
+    const targetDir = path.dirname(targetSandboxPath);
+    if (!fs.existsSync(targetDir)) fs.mkdirSync(targetDir, { recursive: true });
+    if (fs.existsSync(targetSandboxPath)) fs.unlinkSync(targetSandboxPath);
+
+    fs.copyFileSync(backupFilePath, targetSandboxPath);
+
+    // Verify restored database can be opened and queried
+    const restoredDb = new DatabaseSync(targetSandboxPath);
+    const tableCounts = {};
+    for (const t of inspection.tables) {
+      try {
+        const c = restoredDb.prepare(`SELECT COUNT(*) as count FROM "${t}"`).get();
+        tableCounts[t] = c.count;
+      } catch (_) {}
+    }
+    restoredDb.close();
+
+    return {
+      ok: true,
+      message: 'Backup successfully restored and verified in sandbox environment.',
+      targetSandboxPath,
+      inspection,
+      tableCounts
+    };
+  } catch (err) {
+    return { ok: false, error: 'Restore failed: ' + err.message };
+  }
+}
+
 module.exports = {
   masterDb,
   hashPassword,
   verifyPassword,
+  checkPasswordNeedsRehash,
+  hashSessionToken,
+  saveSession,
+  getSession,
+  deleteSession,
+  cleanupExpiredSessions,
+  checkRateLimit,
+  resetRateLimit,
+  cleanupRateLimits,
   getTenantDb,
   getTenantDbPath,
+  tenantDbCache,
   getSetting,
   setSetting,
   logSystemError,
   getErrorLogs,
-  clearErrorLogs
+  clearErrorLogs,
+  backupMasterDb,
+  backupAllTenantDbs,
+  listCloudBackups,
+  verifyAndInspectBackup,
+  restoreBackupToSandbox
 };

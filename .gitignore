@@ -13,3 +13,7 @@ server/.env
 .DS_Store
 server/public/downloads/*.exe
 server/public/downloads/*.blockmap
+server/public/downloads/releases/
+*_backup/
+server/public/downloads_pre_stabilization_backup/
+server/data_pre_stabilization_backup/

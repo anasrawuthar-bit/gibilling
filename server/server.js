@@ -14,34 +14,98 @@ const {
   masterDb,
   hashPassword,
   verifyPassword,
+  checkPasswordNeedsRehash,
+  hashSessionToken,
+  saveSession,
+  getSession,
+  deleteSession,
+  cleanupExpiredSessions,
+  checkRateLimit,
+  resetRateLimit,
+  cleanupRateLimits,
   getTenantDb,
+  getTenantDbPath,
+  tenantDbCache,
   getSetting,
   setSetting,
   logSystemError,
   getErrorLogs,
-  clearErrorLogs
+  clearErrorLogs,
+  backupMasterDb,
+  backupAllTenantDbs,
+  listCloudBackups,
+  verifyAndInspectBackup,
+  restoreBackupToSandbox
 } = require('./db');
 const smtp = require('./smtp');
 
 const PORT = parseInt(process.env.PORT || '4000', 10);
 const PUBLIC_DIR = path.join(__dirname, 'public');
+const DATA_DIR = path.join(__dirname, 'data');
+const STAGING_DIR = path.join(DATA_DIR, 'staging');
 
-// ── In-Memory Token Sessions ──────────────────────────────────────────
-const adminSessions = new Map();
-const customerSessions = new Map();
+// Ensure persistent directories exist
+if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+if (!fs.existsSync(STAGING_DIR)) fs.mkdirSync(STAGING_DIR, { recursive: true });
+
+function getClientIp(req) {
+  return String(req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown').split(',')[0].trim();
+}
 
 function generateToken(prefix = 'tok_') {
   return prefix + crypto.randomBytes(24).toString('hex');
 }
 
+// ── Origin & CORS Security Engine ─────────────────────────────────────
+function getCorsOrigin(req, isSensitive = false) {
+  const origin = req?.headers?.origin;
+  if (!origin) return null; // Native desktop apps, Electron file://, curl do not send Origin header
+
+  const publicUrl = process.env.PUBLIC_URL ? process.env.PUBLIC_URL.replace(/\/$/, '') : '';
+  const configuredOrigins = (process.env.ALLOWED_ORIGINS || '')
+    .split(',')
+    .map(o => o.trim().toLowerCase())
+    .filter(Boolean);
+
+  const trustedOrigins = new Set([
+    'http://localhost:4000',
+    'http://127.0.0.1:4000',
+    'http://localhost:3000',
+    'http://127.0.0.1:3000',
+    'http://localhost:5173',
+    'http://127.0.0.1:5173',
+    ...configuredOrigins
+  ]);
+  if (publicUrl) trustedOrigins.add(publicUrl.toLowerCase());
+
+  const cleanOrigin = origin.trim().toLowerCase();
+  if (trustedOrigins.has(cleanOrigin)) {
+    return origin; // Exact match on trusted frontend origin
+  }
+
+  // Allow public assets/downloads to load across any origin
+  if (!isSensitive) {
+    return '*';
+  }
+
+  // Untrusted origin attempting sensitive route access -> block
+  return null;
+}
+
 // ── HTTP Helper Functions ─────────────────────────────────────────────
 function sendJson(res, statusCode, data) {
-  res.writeHead(statusCode, {
+  const corsOrigin = res._corsOrigin !== undefined ? res._corsOrigin : '*';
+  const headers = {
     'Content-Type': 'application/json',
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization'
-  });
+    'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS, HEAD',
+    'Access-Control-Allow-Headers': 'Range, Content-Type, Authorization, X-Requested-With',
+    'Access-Control-Expose-Headers': 'Content-Range, Content-Length, Accept-Ranges'
+  };
+  if (corsOrigin) {
+    headers['Access-Control-Allow-Origin'] = corsOrigin;
+    if (corsOrigin !== '*') headers['Vary'] = 'Origin';
+  }
+  res.writeHead(statusCode, headers);
   res.end(JSON.stringify(data));
 }
 
@@ -209,20 +273,28 @@ function streamFileWithRange(req, res, filePath, customMimeType, customFilename)
 // ── Request Handler ───────────────────────────────────────────────────
 const server = http.createServer(async (req, res) => {
   try {
+    const parsedUrl = url.parse(req.url, true);
+    const pathname = parsedUrl.pathname.replace(/\/$/, '') || '/';
+    const query = parsedUrl.query;
+
+    const isSensitive = pathname.startsWith('/api/v1/admin/') || pathname.startsWith('/api/v1/portal/');
+    res._corsOrigin = getCorsOrigin(req, isSensitive);
+
     // CORS Preflight
     if (req.method === 'OPTIONS') {
-    res.writeHead(204, {
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type, Authorization'
-    });
-    res.end();
-    return;
-  }
-
-  const parsedUrl = url.parse(req.url, true);
-  const pathname = parsedUrl.pathname.replace(/\/$/, '') || '/';
-  const query = parsedUrl.query;
+      const headers = {
+        'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS, HEAD',
+        'Access-Control-Allow-Headers': 'Range, Content-Type, Authorization, X-Requested-With',
+        'Access-Control-Expose-Headers': 'Content-Range, Content-Length, Accept-Ranges'
+      };
+      if (res._corsOrigin) {
+        headers['Access-Control-Allow-Origin'] = res._corsOrigin;
+        if (res._corsOrigin !== '*') headers['Vary'] = 'Origin';
+      }
+      res.writeHead(204, headers);
+      res.end();
+      return;
+    }
 
   // ── Static Web Pages ──────────────────────────────────────────────
   if (req.method === 'GET') {
@@ -253,7 +325,18 @@ const server = http.createServer(async (req, res) => {
     const rawName = decodeURIComponent(pathname.replace(/^\/downloads\//, ''));
     const safeName = path.basename(rawName);
     const downloadsDir = path.join(__dirname, 'public', 'downloads');
-    const targetPath = path.join(downloadsDir, safeName);
+    let targetPath = path.join(downloadsDir, safeName);
+
+    // Normalize hyphen <-> space filename variations (e.g. ZynBill-Setup-1.1.1.exe <-> ZynBill Setup 1.1.1.exe)
+    if (!fs.existsSync(targetPath)) {
+      const hyphenToSpace = safeName.replace(/-/g, ' ');
+      const spaceToHyphen = safeName.replace(/ /g, '-');
+      if (fs.existsSync(path.join(downloadsDir, hyphenToSpace))) {
+        targetPath = path.join(downloadsDir, hyphenToSpace);
+      } else if (fs.existsSync(path.join(downloadsDir, spaceToHyphen))) {
+        targetPath = path.join(downloadsDir, spaceToHyphen);
+      }
+    }
 
     if (safeName && fs.existsSync(targetPath)) {
       return streamFileWithRange(req, res, targetPath, null, safeName);
@@ -438,6 +521,16 @@ const server = http.createServer(async (req, res) => {
 
     const cleanEmail = String(email).trim().toLowerCase();
     const cleanOtp = String(otp).trim();
+    const clientIp = getClientIp(req);
+
+    // IP-level rate limit
+    const ipRateCheck = checkRateLimit(`otp_verify_reg_${clientIp}`, 10, 15 * 60 * 1000);
+    if (!ipRateCheck.allowed) {
+      return sendJson(res, 429, {
+        ok: false,
+        error: `Too many verification attempts from this IP. Please wait ${ipRateCheck.retryAfterSec} seconds before retrying.`
+      });
+    }
 
     const otpRecord = masterDb.prepare(`
       SELECT * FROM otps
@@ -454,11 +547,24 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (otpRecord.code !== cleanOtp) {
-      return sendJson(res, 400, { ok: false, error: 'Incorrect verification code. Please check and try again.' });
+      const attempts = (otpRecord.attempts || 0) + 1;
+      if (attempts >= 5) {
+        masterDb.prepare('DELETE FROM otps WHERE id = ?').run(otpRecord.id);
+        return sendJson(res, 429, {
+          ok: false,
+          error: 'Maximum verification attempts exceeded (5/5). This code has been invalidated for security. Please request a new code.'
+        });
+      }
+      masterDb.prepare('UPDATE otps SET attempts = ? WHERE id = ?').run(attempts, otpRecord.id);
+      return sendJson(res, 400, {
+        ok: false,
+        error: `Incorrect verification code (${attempts}/5 attempts used). Please check and try again.`
+      });
     }
 
     // Mark OTP as verified
     masterDb.prepare('UPDATE otps SET verified = 1 WHERE id = ?').run(otpRecord.id);
+    resetRateLimit(`otp_verify_reg_${clientIp}`);
 
     // Update customer status to pending_approval
     masterDb.prepare(`
@@ -501,6 +607,16 @@ const server = http.createServer(async (req, res) => {
     }
 
     const cleanEmail = String(email).trim().toLowerCase();
+    const clientIp = getClientIp(req);
+    const rateKey = `desktop_init_${clientIp}_${cleanEmail}`;
+    const rateCheck = checkRateLimit(rateKey, 5, 15 * 60 * 1000);
+    if (!rateCheck.allowed) {
+      return sendJson(res, 429, {
+        ok: false,
+        error: `Too many login attempts. Please wait ${rateCheck.retryAfterSec} seconds before trying again.`
+      });
+    }
+
     const customer = masterDb.prepare('SELECT * FROM customers WHERE email = ?').get(cleanEmail);
 
     if (!customer) {
@@ -510,6 +626,20 @@ const server = http.createServer(async (req, res) => {
     const isValidPassword = verifyPassword(password, customer.password_hash, customer.password_salt);
     if (!isValidPassword) {
       return sendJson(res, 401, { ok: false, error: 'Invalid password. Please check your credentials.' });
+    }
+
+    resetRateLimit(rateKey);
+
+    // Transparently upgrade legacy password hashes to modern 100k rounds
+    if (checkPasswordNeedsRehash(customer.password_salt)) {
+      try {
+        const upgraded = hashPassword(password);
+        masterDb.prepare('UPDATE customers SET password_hash = ?, password_salt = ? WHERE id = ?')
+          .run(upgraded.hash, upgraded.salt, customer.id);
+        console.log(`[Security] Upgraded password hash for customer ${cleanEmail} to 100,000 PBKDF2 rounds.`);
+      } catch (rehashErr) {
+        console.warn('[Security Rehash Warning]:', rehashErr.message);
+      }
     }
 
     // Check account status
@@ -600,7 +730,19 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (otpRecord.code !== cleanCode) {
-      return sendJson(res, 400, { ok: false, error: 'Incorrect verification code. Please check your email and try again.' });
+      const attempts = (otpRecord.attempts || 0) + 1;
+      if (attempts >= 5) {
+        masterDb.prepare('DELETE FROM otps WHERE id = ?').run(otpRecord.id);
+        return sendJson(res, 429, {
+          ok: false,
+          error: 'Maximum verification attempts exceeded (5/5). This device code has been invalidated. Please log in again.'
+        });
+      }
+      masterDb.prepare('UPDATE otps SET attempts = ? WHERE id = ?').run(attempts, otpRecord.id);
+      return sendJson(res, 400, {
+        ok: false,
+        error: `Incorrect verification code (${attempts}/5 attempts used). Please check your email and try again.`
+      });
     }
 
     masterDb.prepare('UPDATE otps SET verified = 1 WHERE id = ?').run(otpRecord.id);
@@ -710,13 +852,25 @@ const server = http.createServer(async (req, res) => {
       });
     }
 
-    // If code is provided, verify it
+    // If code is provided, verify it with attempt limits
     if (code) {
       const cleanCode = String(code).trim();
       const otpRecord = masterDb.prepare(`
         SELECT * FROM otps WHERE email = ? AND purpose = 'device_activation' AND verified = 0 ORDER BY created_at DESC LIMIT 1
       `).get(cleanEmail);
       if (!otpRecord || otpRecord.code !== cleanCode) {
+        if (otpRecord) {
+          const attempts = (otpRecord.attempts || 0) + 1;
+          if (attempts >= 5) {
+            masterDb.prepare('DELETE FROM otps WHERE id = ?').run(otpRecord.id);
+            return sendJson(res, 429, {
+              ok: false,
+              error: 'Maximum verification attempts exceeded (5/5). This code has been invalidated for security. Please request a new code.'
+            });
+          }
+          masterDb.prepare('UPDATE otps SET attempts = ? WHERE id = ?').run(attempts, otpRecord.id);
+          return sendJson(res, 400, { ok: false, error: `Invalid verification code (${attempts}/5 attempts used).` });
+        }
         return sendJson(res, 400, { ok: false, error: 'Invalid or expired verification code.' });
       }
       masterDb.prepare('UPDATE otps SET verified = 1 WHERE id = ?').run(otpRecord.id);
@@ -845,12 +999,34 @@ const server = http.createServer(async (req, res) => {
 
     const cleanEmail = String(email).trim().toLowerCase();
     const cleanCode = String(code).trim();
+    const clientIp = getClientIp(req);
+
+    // IP-level rate limiting
+    const ipRateCheck = checkRateLimit(`pin_reset_verify_${clientIp}`, 10, 15 * 60 * 1000);
+    if (!ipRateCheck.allowed) {
+      return sendJson(res, 429, {
+        ok: false,
+        error: `Too many verification attempts from this IP. Please wait ${ipRateCheck.retryAfterSec} seconds before retrying.`
+      });
+    }
 
     const otpRecord = masterDb.prepare(`
       SELECT * FROM otps WHERE email = ? AND purpose = 'pin_reset' AND verified = 0 ORDER BY created_at DESC LIMIT 1
     `).get(cleanEmail);
 
     if (!otpRecord || otpRecord.code !== cleanCode) {
+      if (otpRecord) {
+        const attempts = (otpRecord.attempts || 0) + 1;
+        if (attempts >= 5) {
+          masterDb.prepare('DELETE FROM otps WHERE id = ?').run(otpRecord.id);
+          return sendJson(res, 429, {
+            ok: false,
+            error: 'Maximum verification attempts exceeded (5/5). This PIN reset code has been invalidated for security. Please request a new code.'
+          });
+        }
+        masterDb.prepare('UPDATE otps SET attempts = ? WHERE id = ?').run(attempts, otpRecord.id);
+        return sendJson(res, 400, { ok: false, error: `Invalid verification code (${attempts}/5 attempts used).` });
+      }
       return sendJson(res, 400, { ok: false, error: 'Invalid or expired verification code.' });
     }
 
@@ -869,13 +1045,38 @@ const server = http.createServer(async (req, res) => {
     const body = await parseJsonBody(req);
     const { email, password } = body;
 
+    const clientIp = getClientIp(req);
+    const rateKey = `admin_login_${clientIp}`;
+    const rateCheck = checkRateLimit(rateKey, 5, 15 * 60 * 1000);
+
+    if (!rateCheck.allowed) {
+      return sendJson(res, 429, {
+        ok: false,
+        error: `Too many failed admin login attempts from this IP. Please wait ${rateCheck.retryAfterSec} seconds before trying again.`
+      });
+    }
+
     const admin = masterDb.prepare('SELECT * FROM admins WHERE email = ?').get(String(email).trim().toLowerCase());
     if (!admin || !verifyPassword(password, admin.password_hash, admin.password_salt)) {
       return sendJson(res, 401, { ok: false, error: 'Invalid admin credentials.' });
     }
 
+    resetRateLimit(rateKey);
+
+    // Transparently upgrade legacy password hashes to modern 600k rounds
+    if (checkPasswordNeedsRehash(admin.password_salt)) {
+      try {
+        const upgraded = hashPassword(password);
+        masterDb.prepare('UPDATE admins SET password_hash = ?, password_salt = ? WHERE id = ?')
+          .run(upgraded.hash, upgraded.salt, admin.id);
+        console.log(`[Security] Transparently upgraded Super Admin (${admin.email}) to 600,000 PBKDF2 rounds.`);
+      } catch (adminRehashErr) {
+        console.warn('[Admin Rehash Warning]:', adminRehashErr.message);
+      }
+    }
+
     const sessionToken = generateToken('adm_');
-    adminSessions.set(sessionToken, { id: admin.id, email: admin.email, name: admin.name });
+    saveSession(sessionToken, 'admin', admin.id, admin.email, admin.name, {}, 7 * 24 * 60 * 60 * 1000);
 
     return sendJson(res, 200, {
       ok: true,
@@ -887,11 +1088,25 @@ const server = http.createServer(async (req, res) => {
   // Admin Check Session
   function verifyAdmin(req, res) {
     const token = getBearerToken(req);
-    if (!token || !adminSessions.has(token)) {
+    if (!token) {
       sendJson(res, 401, { ok: false, error: 'Unauthorized Super Admin access.' });
       return null;
     }
-    return adminSessions.get(token);
+
+    const session = getSession(token);
+    if (!session || session.userType !== 'admin') {
+      sendJson(res, 401, { ok: false, error: 'Unauthorized Super Admin access or session expired. Please log in.' });
+      return null;
+    }
+    return session;
+  }
+
+  // Super Admin Logout (Server-Side Session Revocation)
+  if (req.method === 'POST' && pathname === '/api/v1/admin/logout') {
+    const token = getBearerToken(req);
+    if (!token) return sendJson(res, 400, { ok: false, error: 'Missing session authorization token.' });
+    deleteSession(token);
+    return sendJson(res, 200, { ok: true, message: 'Super Admin session revoked successfully.' });
   }
 
   // List Customers with Filter & Stats
@@ -1285,6 +1500,7 @@ const server = http.createServer(async (req, res) => {
     let version = String(query.version || '').trim();
     const notes = String(query.notes || '').trim();
     const allowDowngrade = String(query.allowDowngrade || '').toLowerCase() === 'true';
+    const isStaged = query.stage === 'true' || query.staging === 'true';
 
     const downloadsDir = path.join(__dirname, 'public', 'downloads');
     if (!fs.existsSync(downloadsDir)) fs.mkdirSync(downloadsDir, { recursive: true });
@@ -1308,8 +1524,12 @@ const server = http.createServer(async (req, res) => {
       else if (isBlockmap) cleanFilename = `ZynBill Setup ${version || '1.0.0'}.exe.blockmap`;
     }
 
-    const targetPath = path.join(downloadsDir, cleanFilename);
-    const tempPath = path.join(downloadsDir, `.tmp_${Date.now()}_${cleanFilename}`);
+    // Determine target directory: staging folder or downloads folder
+    const targetDir = isStaged ? path.join(STAGING_DIR, version || 'draft') : downloadsDir;
+    if (!fs.existsSync(targetDir)) fs.mkdirSync(targetDir, { recursive: true });
+
+    const targetPath = path.join(targetDir, cleanFilename);
+    const tempPath = path.join(targetDir, `.tmp_${Date.now()}_${cleanFilename}`);
     const writeStream = fs.createWriteStream(tempPath);
 
     let bytesReceived = 0;
@@ -1377,8 +1597,15 @@ const server = http.createServer(async (req, res) => {
         });
       }
 
-      // If manifest (latest.yml), parse version and update DB settings
-      if (isManifest) {
+      // Calculate SHA-512 of uploaded file for verification
+      let computedSha512 = null;
+      try {
+        const fileBytes = fs.readFileSync(targetPath);
+        computedSha512 = crypto.createHash('sha512').update(fileBytes).digest('base64');
+      } catch (_) {}
+
+      // If NOT staged and is manifest: only update settings if not explicitly staged
+      if (!isStaged && isManifest) {
         try {
           const ymlText = fs.readFileSync(targetPath, 'utf8');
           const verMatch = ymlText.match(/^\s*version:\s*['"]?([0-9A-Za-z.-]+)['"]?/m);
@@ -1386,12 +1613,21 @@ const server = http.createServer(async (req, res) => {
           const pathMatch = ymlText.match(/^\s*path:\s*['"]?([^\r\n'"]+)['"]?/m) || ymlText.match(/url:\s*['"]?([^\r\n'"]+)['"]?/m);
           const exeName = pathMatch ? pathMatch[1] : `ZynBill Setup ${version}.exe`;
 
-          setSetting('latest_version', version);
-          setSetting('release_filename', exeName);
-          if (notes) setSetting('release_notes', notes);
-          setSetting('published_at', new Date().toISOString());
+          // Only activate if the installer executable already exists on disk
+          const possibleExePaths = [
+            path.join(downloadsDir, exeName),
+            path.join(downloadsDir, exeName.replace(/-/g, ' ')),
+            path.join(downloadsDir, exeName.replace(/ /g, '-'))
+          ];
+          const exeExists = possibleExePaths.some(p => fs.existsSync(p));
 
-          // Also save a versioned copy of the manifest
+          if (exeExists) {
+            setSetting('latest_version', version);
+            setSetting('release_filename', exeName);
+            if (notes) setSetting('release_notes', notes);
+            setSetting('published_at', new Date().toISOString());
+          }
+
           if (version) {
             fs.copyFileSync(targetPath, path.join(downloadsDir, `latest-${version}.yml`));
           }
@@ -1403,10 +1639,12 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, {
         ok: true,
         message: `${cleanFilename} uploaded successfully!`,
+        staged: isStaged,
         version,
         fileName: cleanFilename,
         sizeBytes: bytesReceived,
-        sizeMb: (bytesReceived / (1024 * 1024)).toFixed(1) + ' MB'
+        sizeMb: (bytesReceived / (1024 * 1024)).toFixed(1) + ' MB',
+        sha512: computedSha512
       });
     });
 
@@ -1419,7 +1657,204 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  // 3. Set a specific version as the active live release
+  // 3. Atomically Validate and Publish Staged Release
+  if (req.method === 'POST' && pathname === '/api/v1/admin/releases/publish') {
+    if (!verifyAdmin(req, res)) return;
+    const body = await parseJsonBody(req);
+    const targetVer = String(body.version || '').trim();
+    const notes = String(body.notes || '').trim();
+
+    if (!targetVer) {
+      return sendJson(res, 400, { ok: false, error: 'Version is required to publish a release.' });
+    }
+
+    const stagedVerDir = path.join(STAGING_DIR, targetVer);
+    if (!fs.existsSync(stagedVerDir)) {
+      return sendJson(res, 400, {
+        ok: false,
+        error: `Staging directory for version v${targetVer} not found. Please upload release files first.`
+      });
+    }
+
+    const stagedYml = path.join(stagedVerDir, 'latest.yml');
+    if (!fs.existsSync(stagedYml)) {
+      return sendJson(res, 400, {
+        ok: false,
+        error: `Manifest 'latest.yml' is missing from staged version v${targetVer}.`
+      });
+    }
+
+    // Parse manifest metadata
+    let manifestText = '';
+    try {
+      manifestText = fs.readFileSync(stagedYml, 'utf8');
+    } catch (e) {
+      return sendJson(res, 500, { ok: false, error: 'Failed to read staged latest.yml: ' + e.message });
+    }
+
+    const verMatch = manifestText.match(/^\s*version:\s*['"]?([0-9A-Za-z.-]+)['"]?/m);
+    const declaredVer = verMatch ? verMatch[1] : targetVer;
+    const shaMatch = manifestText.match(/^\s*sha512:\s*['"]?([A-Za-z0-9+/=]+)['"]?/m) || manifestText.match(/sha512:\s*['"]?([A-Za-z0-9+/=]+)['"]?/m);
+    const declaredSha512 = shaMatch ? shaMatch[1] : null;
+    const pathMatch = manifestText.match(/^\s*path:\s*['"]?([^\r\n'"]+)['"]?/m) || manifestText.match(/url:\s*['"]?([^\r\n'"]+)['"]?/m);
+    const declaredExeName = pathMatch ? pathMatch[1] : `ZynBill Setup ${declaredVer}.exe`;
+
+    // Locate staged executable
+    const stagedFiles = fs.readdirSync(stagedVerDir);
+    const exeFile = stagedFiles.find(f => f.endsWith('.exe'));
+    const blockmapFile = stagedFiles.find(f => f.endsWith('.blockmap'));
+
+    if (!exeFile) {
+      return sendJson(res, 400, {
+        ok: false,
+        error: `Windows installer (.exe) is missing from staged version v${targetVer}.`
+      });
+    }
+
+    if (!blockmapFile) {
+      return sendJson(res, 400, {
+        ok: false,
+        error: `Differential blockmap (.blockmap) is missing from staged version v${targetVer}.`
+      });
+    }
+
+    // Verify SHA-512 checksum of the executable
+    const stagedExePath = path.join(stagedVerDir, exeFile);
+    let computedSha512 = null;
+    try {
+      const exeBuffer = fs.readFileSync(stagedExePath);
+      computedSha512 = crypto.createHash('sha512').update(exeBuffer).digest('base64');
+    } catch (hashErr) {
+      return sendJson(res, 500, { ok: false, error: 'Failed to compute SHA-512 hash: ' + hashErr.message });
+    }
+
+    if (declaredSha512 && computedSha512 !== declaredSha512) {
+      return sendJson(res, 400, {
+        ok: false,
+        error: `SHA-512 checksum mismatch. Manifest declared: ${declaredSha512.slice(0, 16)}..., but calculated binary hash is: ${computedSha512.slice(0, 16)}... Publishing aborted to preserve release integrity.`
+      });
+    }
+
+    // Publishing Phase: Atomically copy staged files into public downloads & versioned release directory
+    const downloadsDir = path.join(__dirname, 'public', 'downloads');
+    if (!fs.existsSync(downloadsDir)) fs.mkdirSync(downloadsDir, { recursive: true });
+
+    const versionedRelDir = path.join(downloadsDir, 'releases', declaredVer);
+    if (!fs.existsSync(versionedRelDir)) fs.mkdirSync(versionedRelDir, { recursive: true });
+
+    // 1. Archive current active latest.yml if present
+    const currentActiveVer = getSetting('latest_version', '');
+    const activeYmlPath = path.join(downloadsDir, 'latest.yml');
+    if (currentActiveVer && fs.existsSync(activeYmlPath)) {
+      try {
+        fs.copyFileSync(activeYmlPath, path.join(downloadsDir, `latest-${currentActiveVer}.yml`));
+      } catch (_) {}
+    }
+
+    // 2. Copy staged files into versioned release folder AND live downloads directory
+    for (const file of stagedFiles) {
+      const src = path.join(stagedVerDir, file);
+      fs.copyFileSync(src, path.join(versionedRelDir, file));
+      fs.copyFileSync(src, path.join(downloadsDir, file));
+    }
+
+    // 3. Dual-name normalization: Ensure both hyphenated and spaced names exist for .exe and .blockmap
+    const spacedExe = exeFile.replace(/-/g, ' ');
+    const hyphenExe = exeFile.replace(/ /g, '-');
+    if (fs.existsSync(path.join(downloadsDir, exeFile))) {
+      if (!fs.existsSync(path.join(downloadsDir, spacedExe))) {
+        try { fs.copyFileSync(path.join(downloadsDir, exeFile), path.join(downloadsDir, spacedExe)); } catch (_) {}
+      }
+      if (!fs.existsSync(path.join(downloadsDir, hyphenExe))) {
+        try { fs.copyFileSync(path.join(downloadsDir, exeFile), path.join(downloadsDir, hyphenExe)); } catch (_) {}
+      }
+    }
+
+    const spacedBm = blockmapFile.replace(/-/g, ' ');
+    const hyphenBm = blockmapFile.replace(/ /g, '-');
+    if (fs.existsSync(path.join(downloadsDir, blockmapFile))) {
+      if (!fs.existsSync(path.join(downloadsDir, spacedBm))) {
+        try { fs.copyFileSync(path.join(downloadsDir, blockmapFile), path.join(downloadsDir, spacedBm)); } catch (_) {}
+      }
+      if (!fs.existsSync(path.join(downloadsDir, hyphenBm))) {
+        try { fs.copyFileSync(path.join(downloadsDir, blockmapFile), path.join(downloadsDir, hyphenBm)); } catch (_) {}
+      }
+    }
+
+    // 4. Save versioned archive of manifest
+    fs.copyFileSync(path.join(downloadsDir, 'latest.yml'), path.join(downloadsDir, `latest-${declaredVer}.yml`));
+
+    // 5. Update DB Settings
+    setSetting('active_release_version', declaredVer);
+    setSetting('latest_version', declaredVer);
+    setSetting('release_filename', exeFile);
+    if (notes) setSetting('release_notes', notes);
+    setSetting('published_at', new Date().toISOString());
+
+    // 6. Clean up staging directory
+    try {
+      for (const file of stagedFiles) {
+        fs.unlinkSync(path.join(stagedVerDir, file));
+      }
+      fs.rmdirSync(stagedVerDir);
+    } catch (_) {}
+
+    return sendJson(res, 200, {
+      ok: true,
+      message: `Version v${declaredVer} successfully validated and published to live production!`,
+      version: declaredVer,
+      activeVersion: declaredVer,
+      sha512: computedSha512
+    });
+  }
+
+  // 4. Inspect Currently Staged Releases
+  if (req.method === 'GET' && pathname === '/api/v1/admin/releases/staged') {
+    if (!verifyAdmin(req, res)) return;
+    const stagedVersions = [];
+    if (fs.existsSync(STAGING_DIR)) {
+      const verDirs = fs.readdirSync(STAGING_DIR);
+      for (const v of verDirs) {
+        const vPath = path.join(STAGING_DIR, v);
+        let stat;
+        try { stat = fs.statSync(vPath); } catch (_) { continue; }
+        if (stat.isDirectory()) {
+          const files = fs.readdirSync(vPath).map(f => {
+            const s = fs.statSync(path.join(vPath, f));
+            return { name: f, sizeBytes: s.size, sizeMb: (s.size / (1024 * 1024)).toFixed(1) + ' MB' };
+          });
+          stagedVersions.push({
+            version: v,
+            files,
+            hasManifest: files.some(f => f.name === 'latest.yml'),
+            hasExe: files.some(f => f.name.endsWith('.exe')),
+            hasBlockmap: files.some(f => f.name.endsWith('.blockmap'))
+          });
+        }
+      }
+    }
+    return sendJson(res, 200, { ok: true, stagedVersions });
+  }
+
+  // 5. Cloud Database Backups List & Run-Now Endpoints
+  if (req.method === 'GET' && pathname === '/api/v1/admin/backups') {
+    if (!verifyAdmin(req, res)) return;
+    return sendJson(res, 200, { ok: true, backups: listCloudBackups() });
+  }
+
+  if (req.method === 'POST' && pathname === '/api/v1/admin/backups/run-now') {
+    if (!verifyAdmin(req, res)) return;
+    const masterBackup = backupMasterDb();
+    const tenantBackups = backupAllTenantDbs();
+    return sendJson(res, 200, {
+      ok: true,
+      message: 'Cloud database snapshot backups created successfully.',
+      masterBackup,
+      tenantBackupsCount: tenantBackups.length
+    });
+  }
+
+  // 6. Set a specific version as the active live release (Rollback / Version Switch)
   if (req.method === 'POST' && pathname === '/api/v1/admin/releases/activate') {
     if (!verifyAdmin(req, res)) return;
     const body = await parseJsonBody(req);
@@ -1430,24 +1865,44 @@ const server = http.createServer(async (req, res) => {
 
     const downloadsDir = path.join(__dirname, 'public', 'downloads');
     const archivedYml = path.join(downloadsDir, `latest-${targetVer}.yml`);
+    const releaseDir = path.join(downloadsDir, 'releases', targetVer);
+    const releaseYml = path.join(releaseDir, 'latest.yml');
     const liveYml = path.join(downloadsDir, 'latest.yml');
 
-    if (fs.existsSync(archivedYml)) {
-      try {
-        fs.copyFileSync(archivedYml, liveYml);
-      } catch (err) {
-        return sendJson(res, 500, { ok: false, error: 'Failed to activate manifest: ' + err.message });
-      }
+    const manifestSource = fs.existsSync(archivedYml) ? archivedYml : (fs.existsSync(releaseYml) ? releaseYml : null);
+
+    const possibleExes = [
+      path.join(downloadsDir, `ZynBill Setup ${targetVer}.exe`),
+      path.join(downloadsDir, `ZynBill-Setup-${targetVer}.exe`),
+      path.join(releaseDir, `ZynBill Setup ${targetVer}.exe`),
+      path.join(releaseDir, `ZynBill-Setup-${targetVer}.exe`)
+    ];
+    const exeSource = possibleExes.find(p => fs.existsSync(p));
+
+    if (!manifestSource || !exeSource) {
+      return sendJson(res, 404, {
+        ok: false,
+        error: `Rollback failed: Version v${targetVer} cannot be activated because release manifest or installer executable is missing from storage.`
+      });
     }
 
+    try {
+      fs.copyFileSync(manifestSource, liveYml);
+    } catch (err) {
+      return sendJson(res, 500, { ok: false, error: 'Failed to restore release manifest: ' + err.message });
+    }
+
+    const exeFilename = path.basename(exeSource);
     setSetting('latest_version', targetVer);
-    setSetting('release_filename', `ZynBill Setup ${targetVer}.exe`);
+    setSetting('release_filename', exeFilename);
+    setSetting('active_release_version', targetVer);
     setSetting('published_at', new Date().toISOString());
 
     return sendJson(res, 200, {
       ok: true,
-      message: `Version v${targetVer} is now the active live release.`,
-      activeVersion: targetVer
+      message: `Version v${targetVer} successfully restored as the active live release.`,
+      activeVersion: targetVer,
+      releaseFilename: exeFilename
     });
   }
 
@@ -1575,14 +2030,39 @@ const server = http.createServer(async (req, res) => {
     }
 
     const cleanEmail = String(email).trim().toLowerCase();
+    const clientIp = getClientIp(req);
+    const rateKey = `portal_login_${clientIp}_${cleanEmail}`;
+    const rateCheck = checkRateLimit(rateKey, 5, 15 * 60 * 1000);
+
+    if (!rateCheck.allowed) {
+      return sendJson(res, 429, {
+        ok: false,
+        error: `Too many failed login attempts. Please wait ${rateCheck.retryAfterSec} seconds before trying again.`
+      });
+    }
+
     const customer = masterDb.prepare('SELECT * FROM customers WHERE email = ?').get(cleanEmail);
 
     if (!customer || !verifyPassword(password, customer.password_hash, customer.password_salt)) {
       return sendJson(res, 401, { ok: false, error: 'Invalid email or password.' });
     }
 
+    resetRateLimit(rateKey);
+
+    // Transparently upgrade legacy password hashes to modern 600k rounds
+    if (checkPasswordNeedsRehash(customer.password_salt)) {
+      try {
+        const upgraded = hashPassword(password);
+        masterDb.prepare('UPDATE customers SET password_hash = ?, password_salt = ? WHERE id = ?')
+          .run(upgraded.hash, upgraded.salt, customer.id);
+        console.log(`[Security] Transparently upgraded customer (${cleanEmail}) to 600,000 PBKDF2 rounds.`);
+      } catch (custRehashErr) {
+        console.warn('[Customer Rehash Warning]:', custRehashErr.message);
+      }
+    }
+
     const sessionToken = generateToken('usr_');
-    customerSessions.set(sessionToken, { id: customer.id, email: customer.email });
+    saveSession(sessionToken, 'customer', customer.id, customer.email, customer.company_name, {}, 7 * 24 * 60 * 60 * 1000);
 
     const now = Date.now();
     const expiry = customer.valid_until ? new Date(customer.valid_until).getTime() : now + 365 * 86400000;
@@ -1610,11 +2090,25 @@ const server = http.createServer(async (req, res) => {
 
   function verifyCustomer(req, res) {
     const token = getBearerToken(req);
-    if (!token || !customerSessions.has(token)) {
+    if (!token) {
       sendJson(res, 401, { ok: false, error: 'Customer session expired. Please log in.' });
       return null;
     }
-    return customerSessions.get(token);
+
+    const session = getSession(token);
+    if (!session || session.userType !== 'customer') {
+      sendJson(res, 401, { ok: false, error: 'Customer session expired. Please log in.' });
+      return null;
+    }
+    return session;
+  }
+
+  // Customer Portal Logout (Server-Side Session Revocation)
+  if (req.method === 'POST' && pathname === '/api/v1/portal/logout') {
+    const token = getBearerToken(req);
+    if (!token) return sendJson(res, 400, { ok: false, error: 'Missing session authorization token.' });
+    deleteSession(token);
+    return sendJson(res, 200, { ok: true, message: 'Customer session revoked successfully.' });
   }
 
   // 2. Customer Profile & Devices
@@ -1701,12 +2195,34 @@ const server = http.createServer(async (req, res) => {
 
     const cleanEmail = String(email).trim().toLowerCase();
     const cleanOtp = String(otp).trim();
+    const clientIp = getClientIp(req);
+
+    // IP-level rate limiting
+    const ipRateCheck = checkRateLimit(`portal_pwd_reset_${clientIp}`, 10, 15 * 60 * 1000);
+    if (!ipRateCheck.allowed) {
+      return sendJson(res, 429, {
+        ok: false,
+        error: `Too many password reset attempts from this IP. Please wait ${ipRateCheck.retryAfterSec} seconds before retrying.`
+      });
+    }
 
     const otpRecord = masterDb.prepare(`
       SELECT * FROM otps WHERE email = ? AND purpose = 'password_reset' AND verified = 0 ORDER BY created_at DESC LIMIT 1
     `).get(cleanEmail);
 
     if (!otpRecord || otpRecord.code !== cleanOtp) {
+      if (otpRecord) {
+        const attempts = (otpRecord.attempts || 0) + 1;
+        if (attempts >= 5) {
+          masterDb.prepare('DELETE FROM otps WHERE id = ?').run(otpRecord.id);
+          return sendJson(res, 429, {
+            ok: false,
+            error: 'Maximum verification attempts exceeded (5/5). This password reset code has been invalidated for security. Please request a new code.'
+          });
+        }
+        masterDb.prepare('UPDATE otps SET attempts = ? WHERE id = ?').run(attempts, otpRecord.id);
+        return sendJson(res, 400, { ok: false, error: `Invalid verification code (${attempts}/5 attempts used).` });
+      }
       return sendJson(res, 400, { ok: false, error: 'Invalid or expired verification code.' });
     }
 
@@ -1820,19 +2336,42 @@ const server = http.createServer(async (req, res) => {
 
   // ── Multi-Tenant Cloud Synchronization Endpoints ──────────────────
 
+  // Centralized Account & Subscription Eligibility Validator for Synchronization
+  function validateTenantSyncEligibility(token) {
+    if (!token) return { ok: false, status: 401, error: 'Missing device authorization token.' };
+
+    const device = masterDb.prepare('SELECT customer_id FROM device_tokens WHERE token = ?').get(token);
+    if (!device) return { ok: false, status: 401, error: 'Unauthorized or revoked device token.' };
+
+    const customer = masterDb.prepare('SELECT id, status, valid_until, plan FROM customers WHERE id = ?').get(device.customer_id);
+    if (!customer) return { ok: false, status: 404, error: 'Tenant customer account not found.' };
+
+    if (customer.status !== 'active') {
+      return { ok: false, status: 403, error: `Account is ${customer.status}. Synchronization is disabled.` };
+    }
+
+    const now = Date.now();
+    const expiry = customer.valid_until ? new Date(customer.valid_until).getTime() : now + 365 * 86400000;
+    const graceMs = 14 * 24 * 60 * 60 * 1000; // 14-day offline grace period
+
+    if (now > expiry + graceMs) {
+      return {
+        ok: false,
+        status: 403,
+        error: 'Subscription license and 14-day offline grace period have expired. Please renew plan to resume sync.'
+      };
+    }
+
+    return { ok: true, customer, device };
+  }
+
   // Push Changes from Desktop Client to Cloud Tenant Database
   if (req.method === 'POST' && pathname === '/api/v1/sync/push') {
     const token = getBearerToken(req);
-    if (!token) return sendJson(res, 401, { ok: false, error: 'Missing device token.' });
+    const auth = validateTenantSyncEligibility(token);
+    if (!auth.ok) return sendJson(res, auth.status, { ok: false, error: auth.error });
 
-    const device = masterDb.prepare('SELECT customer_id FROM device_tokens WHERE token = ?').get(token);
-    if (!device) return sendJson(res, 401, { ok: false, error: 'Unauthorized device token.' });
-
-    const customer = masterDb.prepare('SELECT id, status FROM customers WHERE id = ?').get(device.customer_id);
-    if (!customer || customer.status !== 'active') {
-      return sendJson(res, 403, { ok: false, error: 'Account is not in active status.' });
-    }
-
+    const { customer, device } = auth;
     const body = await parseJsonBody(req);
     const events = Array.isArray(body.events) ? body.events : [];
     const tenantDb = getTenantDb(customer.id);
@@ -1911,12 +2450,11 @@ const server = http.createServer(async (req, res) => {
   // Pull Changes from Cloud Tenant Database
   if (req.method === 'GET' && pathname === '/api/v1/sync/pull') {
     const token = getBearerToken(req);
-    if (!token) return sendJson(res, 401, { ok: false, error: 'Missing device token.' });
+    const auth = validateTenantSyncEligibility(token);
+    if (!auth.ok) return sendJson(res, auth.status, { ok: false, error: auth.error });
 
-    const device = masterDb.prepare('SELECT customer_id FROM device_tokens WHERE token = ?').get(token);
-    if (!device) return sendJson(res, 401, { ok: false, error: 'Unauthorized device token.' });
-
-    const tenantDb = getTenantDb(device.customer_id);
+    const { customer, device } = auth;
+    const tenantDb = getTenantDb(customer.id);
     const sinceTimestamp = query.since || '1970-01-01T00:00:00.000Z';
 
     const events = tenantDb.prepare(`
@@ -1999,5 +2537,40 @@ if (require.main === module) {
     console.log(`======================================================\n`);
   });
 }
+
+// ── Graceful Process Shutdown Handlers ───────────────────────────────
+let isShuttingDown = false;
+function handleGracefulShutdown(signal) {
+  if (isShuttingDown) return;
+  isShuttingDown = true;
+  console.log(`\n[Server] Received ${signal}. Commencing graceful connection drain and database flush...`);
+
+  server.close(() => {
+    console.log('[Server] HTTP connections drained. Closing SQLite databases...');
+    try { masterDb.close(); } catch (_) {}
+    for (const [id, tDb] of tenantDbCache.entries()) {
+      try { tDb.close(); } catch (_) {}
+    }
+    console.log('[Server] All database handles cleanly finalized. Process exiting gracefully.');
+    process.exit(0);
+  });
+
+  setTimeout(() => {
+    console.error('[Server] Graceful shutdown timeout reached (8s). Forcing termination.');
+    process.exit(1);
+  }, 8000).unref();
+}
+
+process.on('SIGTERM', () => handleGracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => handleGracefulShutdown('SIGINT'));
+
+// Periodic background cleanup for expired web sessions and rate limits (every 60 mins)
+const cleanupTimer = setInterval(() => {
+  try {
+    cleanupExpiredSessions();
+    cleanupRateLimits();
+  } catch (_) {}
+}, 60 * 60 * 1000);
+cleanupTimer.unref();
 
 module.exports = { server, PORT };

@@ -73,6 +73,8 @@ contextBridge.exposeInMainWorld("giDB", {
   updateUser: (payload) => ipcRenderer.invoke("db:update-user", payload),
   deleteUser: (payload) => ipcRenderer.invoke("db:delete-user", payload),
   getAuditTrail: (filter) => ipcRenderer.invoke("db:get-audit-trail", filter),
+  getVersion: () => ipcRenderer.invoke("app:get-version"),
+  openExternal: (url) => ipcRenderer.invoke("whatsapp:open-link", url),
 });
 
 contextBridge.exposeInMainWorld("giApp", {

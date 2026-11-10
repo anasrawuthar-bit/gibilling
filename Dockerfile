@@ -18,13 +18,12 @@ RUN npm install --omit=dev
 # Copy application and server source files
 COPY . .
 
-# Ensure server data and public download directories exist
-RUN mkdir -p /app/server/data /app/server/public/downloads
+# Ensure server data and public download directories exist with proper write permissions
+RUN mkdir -p /app/server/data /app/server/public/downloads && chmod -R 755 /app/server/data /app/server/public/downloads
 
 # Default Environment Variables
 ENV PORT=4000
 ENV NODE_ENV=production
-ENV DB_TYPE=postgres
 
 EXPOSE 4000
 

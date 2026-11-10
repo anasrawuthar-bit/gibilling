@@ -13,7 +13,10 @@ RUN npm install --omit=dev
 
 COPY . .
 
-RUN mkdir -p /app/data /app/public/downloads
+# Note: When deploying with this standalone server Dockerfile (context: /server),
+# volume mounts must target /app/data and /app/public/downloads.
+# When deploying with root docker-compose.yml (context: /), mounts target /app/server/data and /app/server/public/downloads.
+RUN mkdir -p /app/data /app/public/downloads && chmod -R 755 /app/data /app/public/downloads
 
 ENV PORT=4000
 ENV NODE_ENV=production

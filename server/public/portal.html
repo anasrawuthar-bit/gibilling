@@ -836,7 +836,15 @@
       }
     }
 
-    function handleLogout() {
+    async function handleLogout() {
+      if (customerToken) {
+        try {
+          await fetch('/api/v1/portal/logout', {
+            method: 'POST',
+            headers: { 'Authorization': 'Bearer ' + customerToken }
+          });
+        } catch (_) {}
+      }
       customerToken = null;
       currentCustomer = null;
       localStorage.removeItem('zynbill_portal_token');

@@ -15770,7 +15770,7 @@ function bindFeatureActions() {
       if (feedback) feedback.style.display = "none";
 
       try {
-        const currentVersion = (window.giDB?.getVersion ? await window.giDB.getVersion() : null) || "1.1.1";
+        const currentVersion = (window.giApp?.getVersion ? await window.giApp.getVersion() : null) || (window.giDB?.getVersion ? await window.giDB.getVersion() : null) || "1.1.1";
         const cloudSettings = (typeof CloudLicenseManager !== "undefined") ? CloudLicenseManager.getSettings() : {};
         const serverUrl = cloudSettings.serverUrl || "http://localhost:4000";
 
@@ -15824,7 +15824,9 @@ function bindFeatureActions() {
             `;
             feedback.querySelector("#btnDownloadUpdateNow")?.addEventListener("click", () => {
               const downloadUrl = `${serverUrl}${data.downloadUrl || '/api/v1/download/app'}`;
-              if (window.giDB?.openExternal) {
+              if (window.giApp?.openExternal) {
+                window.giApp.openExternal(downloadUrl);
+              } else if (window.giDB?.openExternal) {
                 window.giDB.openExternal(downloadUrl);
               } else {
                 window.open(downloadUrl, "_blank");
