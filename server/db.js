@@ -1006,7 +1006,14 @@ function restoreBackupToSandbox(backupFilePath, targetSandboxPath, options = {})
       options._beforeReplaceHook();
     }
 
-    // 4. Revalidate destination and parent immediately before replacement (protect against TOCTOU symlink/junction swap)
+    // 4. TOCTOU Mitigation & Pre-Replacement Revalidation
+    // Note on residual race conditions:
+    // In cross-platform Node.js without native file-descriptor-bound atomic renames
+    // (such as renameat2 with RENAME_NOREPLACE/O_NOFOLLOW), user-space path resolution
+    // has a sub-millisecond gap between pre-replacement inspection and fs.renameSync().
+    // We narrow this window by performing immediate lstat rechecks adjacent to the rename,
+    // verifying that neither the destination nor its parent was swapped into a symlink/junction,
+    // and taking a safety backup of existing data to guarantee rollback if rename fails.
     let revalTarget;
     try {
       revalTarget = getCanonicalPath(targetSandboxPath);
@@ -1070,11 +1077,12 @@ function restoreBackupToSandbox(backupFilePath, targetSandboxPath, options = {})
     }
 
     // 5. Safe platform-specific destination replacement strategy
-    // If destination exists, snapshot it before replacement so it can be restored if replacement fails
+    // If destination exists, snapshot it and verify backup hash before replacement
+    const existingExisted = fs.existsSync(canonicalTarget);
     let existingBackupPath = null;
     let existingContentHash = null;
 
-    if (fs.existsSync(canonicalTarget)) {
+    if (existingExisted) {
       existingBackupPath = path.join(
         targetDir,
         `.target_bak_${Date.now()}_${crypto.randomBytes(6).toString('hex')}.sqlite`
@@ -1082,11 +1090,20 @@ function restoreBackupToSandbox(backupFilePath, targetSandboxPath, options = {})
       try {
         fs.copyFileSync(canonicalTarget, existingBackupPath);
         existingContentHash = crypto.createHash('sha256').update(fs.readFileSync(canonicalTarget)).digest('hex');
+        const backupHash = crypto.createHash('sha256').update(fs.readFileSync(existingBackupPath)).digest('hex');
+        if (backupHash !== existingContentHash) {
+          throw new Error('Safety backup verification failed (SHA-256 hash mismatch)');
+        }
       } catch (backupErr) {
+        if (existingBackupPath && fs.existsSync(existingBackupPath)) {
+          try { fs.unlinkSync(existingBackupPath); } catch (_) {}
+        }
         return {
           ok: false,
-          error: 'Failed to create safety backup of existing destination before replacement: ' + backupErr.message,
-          preservedTempPath: tempSandboxPath
+          error: 'Failed to create verified safety backup of existing destination before replacement: ' + backupErr.message,
+          preservedTempPath: tempSandboxPath,
+          destinationPreserved: true,
+          requiresManualRecovery: false
         };
       }
     }
@@ -1099,28 +1116,91 @@ function restoreBackupToSandbox(backupFilePath, targetSandboxPath, options = {})
 
       fs.renameSync(tempSandboxPath, canonicalTarget);
 
+      // Verify that canonicalTarget now exists
+      if (!fs.existsSync(canonicalTarget)) {
+        throw new Error('Target destination does not exist after renameSync');
+      }
+
       // Replacement succeeded! Clean up existing file backup
       if (existingBackupPath && fs.existsSync(existingBackupPath)) {
-        try { fs.unlinkSync(existingBackupPath); } catch (_) {}
+        try {
+          if (options && options._testFailBackupCleanup) {
+            throw new Error('Injected failure during safety backup cleanup');
+          }
+          fs.unlinkSync(existingBackupPath);
+        } catch (cleanupErr) {
+          console.warn('[Sandbox Restore Notice]: Safety backup cleanup failed: ' + cleanupErr.message);
+          return {
+            ok: true,
+            warning: 'Restore succeeded but safety backup cleanup failed: ' + cleanupErr.message,
+            safetyBackupPath: existingBackupPath,
+            targetSandboxPath: canonicalTarget,
+            inspection,
+            tableCounts
+          };
+        }
       }
     } catch (replaceErr) {
       // Safe replacement could not be completed.
-      // Restore existing destination from backup if it was modified or deleted
-      if (existingBackupPath && fs.existsSync(existingBackupPath)) {
+      let destinationRestored = false;
+      let destinationPreserved = false;
+      let restorationError = null;
+
+      if (existingExisted && existingBackupPath && fs.existsSync(existingBackupPath)) {
         try {
+          if (options && options._testFailDestinationRestore) {
+            throw new Error('Injected failure during destination restoration');
+          }
+
+          // Restore existing destination from safety backup
           fs.copyFileSync(existingBackupPath, canonicalTarget);
-          fs.unlinkSync(existingBackupPath);
+
+          // VERIFY restored content against original SHA-256 hash
+          const restoredHash = crypto.createHash('sha256').update(fs.readFileSync(canonicalTarget)).digest('hex');
+          if (restoredHash === existingContentHash) {
+            destinationRestored = true;
+            destinationPreserved = true;
+          } else {
+            throw new Error(`Restored destination hash mismatch (expected: ${existingContentHash}, got: ${restoredHash})`);
+          }
+
+          // Only delete safety backup if restoration was 100% verified!
+          try {
+            if (options && options._testFailBackupCleanup) {
+              throw new Error('Injected failure during safety backup cleanup');
+            }
+            fs.unlinkSync(existingBackupPath);
+          } catch (cleanErr) {
+            console.warn('[Sandbox Restore Notice]: Safety backup cleanup failed after verified restoration: ' + cleanErr.message);
+          }
         } catch (restoreErr) {
-          console.error('[Sandbox Restore Fallback Error]:', restoreErr.message);
+          destinationRestored = false;
+          destinationPreserved = false;
+          restorationError = restoreErr.message;
+          console.error(`[CRITICAL SANDBOX RESTORE FAILURE]: Could not restore destination '${canonicalTarget}'. Safety backup preserved in: '${existingBackupPath}'. Error: ${restoreErr.message}`);
         }
+      } else if (!existingExisted) {
+        if (fs.existsSync(canonicalTarget)) {
+          try { fs.unlinkSync(canonicalTarget); } catch (_) {}
+        }
+        destinationPreserved = true; // Destination state (non-existent) preserved
       }
 
-      // Preserve verified temporary file for manual recovery and fail closed
+      // If restoration failed, safety backup MUST be preserved on disk for manual recovery!
+      const safetyBackupPreserved = existingBackupPath ? fs.existsSync(existingBackupPath) : false;
+      const requiresManualRecovery = existingExisted && !destinationRestored;
+
       return {
         ok: false,
-        error: 'Safe replacement could not be guaranteed: ' + replaceErr.message,
+        error: requiresManualRecovery
+          ? `CRITICAL: Destination replacement failed and restoration of the original file FAILED: ${restorationError || replaceErr.message}. Manual recovery required.`
+          : `Safe replacement could not be guaranteed: ${replaceErr.message}`,
+        destinationPreserved,
+        destinationRestored,
+        requiresManualRecovery,
+        safetyBackupPath: safetyBackupPreserved ? existingBackupPath : null,
         preservedTempPath: tempSandboxPath,
-        destinationPreserved: true
+        restorationError
       };
     }
 
