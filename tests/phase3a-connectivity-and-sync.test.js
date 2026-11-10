@@ -68,6 +68,9 @@ async function run() {
   await new Promise((resolve) => server.listen(TEST_PORT, "127.0.0.1", resolve));
   console.log(`✓ Test cloud server listening on port ${TEST_PORT}`);
 
+  // Clear rate limits for clean hermetic test execution
+  try { masterDb.prepare("DELETE FROM rate_limits").run(); } catch (_) {}
+
   try {
     // ─────────────────────────────────────────────────────────────────
     // Test 1: Content Security Policy & Zero-Renderer-Fetch Verification
@@ -229,6 +232,100 @@ async function run() {
     const rowCount = tenantDb.prepare("SELECT COUNT(*) as count FROM sync_events WHERE idempotency_key = ?").get(idemKey1);
     assert.strictEqual(rowCount.count, 1, "Duplicate push must not insert duplicate rows in sync_events");
     console.log("✓ Idempotency verified: duplicate push cleanly acknowledged as already_applied.");
+
+    // ─────────────────────────────────────────────────────────────────
+    // Test 6B: Atomic Sync Push Processing & Acknowledgement Semantics (AUD-011, AUD-012)
+    // ─────────────────────────────────────────────────────────────────
+    console.log("\n[Test 6B] Testing Atomic Sync Push Processing & Acknowledgement Semantics...");
+    tenantDb.exec(`
+      CREATE TRIGGER IF NOT EXISTS test_fail_parties_mutation
+      BEFORE INSERT ON parties
+      WHEN NEW.name = 'INJECT_MUTATION_FAILURE'
+      BEGIN
+        SELECT RAISE(ABORT, 'Simulated entity mutation failure for atomicity test');
+      END;
+    `);
+
+    try {
+      const failEventId = randomUUID();
+      const failIdemKey = `idem_fail_${Date.now()}`;
+      const validEventId = randomUUID();
+      const validIdemKey = `idem_valid_${Date.now()}`;
+
+      // Push batch containing: [1. Failing party mutation, 2. Valid party mutation]
+      const batchRes = await httpRequest("POST", "/api/v1/sync/push", {
+        companyId: customer.id,
+        deviceId: "dev_test_1",
+        events: [
+          {
+            id: failEventId,
+            entityType: "parties",
+            entityId: "p_fail_1",
+            operation: "upsert",
+            idempotencyKey: failIdemKey,
+            payload: { name: "INJECT_MUTATION_FAILURE" }
+          },
+          {
+            id: validEventId,
+            entityType: "parties",
+            entityId: "p_valid_1",
+            operation: "upsert",
+            idempotencyKey: validIdemKey,
+            payload: { name: "Valid Atomic Customer" }
+          }
+        ]
+      }, deviceToken);
+
+      assert.strictEqual(batchRes.status, 200);
+      assert.strictEqual(batchRes.data.ok, true);
+
+      // AUD-012: Verify acknowledgedIds contains ONLY successfully applied events
+      assert.ok(!batchRes.data.acknowledgedIds.includes(failEventId), "Failed event must NOT be in acknowledgedIds");
+      assert.ok(batchRes.data.acknowledgedIds.includes(validEventId), "Valid event MUST be in acknowledgedIds");
+      assert.strictEqual(batchRes.data.acknowledgedIds.length, 1);
+
+      // Verify results array reflects correct statuses
+      const failResult = batchRes.data.results.find((r) => r.id === failEventId);
+      const validResult = batchRes.data.results.find((r) => r.id === validEventId);
+      assert.ok(failResult, "Failed event must have result entry");
+      assert.strictEqual(failResult.status, "retry");
+      assert.ok(failResult.error.includes("Simulated entity mutation failure"));
+      assert.strictEqual(validResult.status, "accepted");
+
+      // AUD-011: Verify atomic rollback - failed event's sync_events row must NOT exist
+      const failEventRow = tenantDb.prepare("SELECT * FROM sync_events WHERE id = ?").get(failEventId);
+      assert.strictEqual(failEventRow, undefined, "Failed event record must be rolled back from sync_events");
+
+      const failPartyRow = tenantDb.prepare("SELECT * FROM parties WHERE id = 'p_fail_1'").get();
+      assert.strictEqual(failPartyRow, undefined, "Failed party mutation must not be in parties table");
+
+      // AUD-011: Verify retry behavior - retrying the failed event with corrected payload does NOT trigger false already_applied
+      const retryRes = await httpRequest("POST", "/api/v1/sync/push", {
+        companyId: customer.id,
+        deviceId: "dev_test_1",
+        events: [
+          {
+            id: failEventId,
+            entityType: "parties",
+            entityId: "p_fail_1",
+            operation: "upsert",
+            idempotencyKey: failIdemKey,
+            payload: { name: "Corrected Atomic Customer" }
+          }
+        ]
+      }, deviceToken);
+
+      assert.strictEqual(retryRes.status, 200);
+      assert.strictEqual(retryRes.data.results[0].status, "accepted", "Retried event with corrected payload must be accepted, not already_applied");
+      assert.ok(retryRes.data.acknowledgedIds.includes(failEventId), "Retried event must now be acknowledged");
+
+      const correctedParty = tenantDb.prepare("SELECT * FROM parties WHERE id = 'p_fail_1'").get();
+      assert.ok(correctedParty);
+      assert.strictEqual(correctedParty.name, "Corrected Atomic Customer");
+      console.log("✓ Atomic sync push processing and acknowledgement semantics verified (savepoint rollback & retry safety).");
+    } finally {
+      tenantDb.exec("DROP TRIGGER IF EXISTS test_fail_parties_mutation;");
+    }
 
     // ─────────────────────────────────────────────────────────────────
     // Test 7: Standardized Sync Pull & Casing Normalization

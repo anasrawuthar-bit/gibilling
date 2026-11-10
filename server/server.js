@@ -2670,6 +2670,9 @@ const server = http.createServer(async (req, res) => {
       const clientTimestamp = ev.clientTimestamp || ev.client_timestamp || nowIso;
       const eventDeviceId = ev.deviceId || ev.device_id || body.deviceId || device?.id || '';
 
+      const spName = generateToken('sp_').replace(/[^a-zA-Z0-9_]/g, '_');
+      let spStarted = false;
+
       try {
         // Idempotency check:
         const existing = tenantDb.prepare('SELECT id, server_version FROM sync_events WHERE idempotency_key = ?').get(idemKey);
@@ -2678,6 +2681,10 @@ const server = http.createServer(async (req, res) => {
           results.push({ id: eventId, status: 'already_applied', serverVersion: Number(existing.server_version || 1) });
           continue;
         }
+
+        // Start transaction savepoint for atomic event + entity mutation
+        tenantDb.exec(`SAVEPOINT ${spName}`);
+        spStarted = true;
 
         // Calculate next server version for this entity in tenant DB
         const lastVerRow = tenantDb.prepare('SELECT MAX(server_version) as max_ver FROM sync_events WHERE entity_type = ? AND entity_id = ?').get(entityType, entityId);
@@ -2699,7 +2706,7 @@ const server = http.createServer(async (req, res) => {
           eventDeviceId
         );
 
-        if (entityType === 'parties' && parsedPayload) {
+        if ((entityType === 'parties' || entityType === 'party') && parsedPayload) {
           const p = parsedPayload;
           tenantDb.prepare(`
             INSERT INTO parties (id, name, phone, email, party_type, gstin, state, balance, updated_at)
@@ -2711,7 +2718,7 @@ const server = http.createServer(async (req, res) => {
               balance = excluded.balance,
               updated_at = excluded.updated_at
           `).run(p.id || entityId, p.name || 'Unnamed', p.phone || '', p.email || '', p.party_type || p.type || 'Customer', p.gstin || '', p.state || '', p.balance || 0, nowIso);
-        } else if (entityType === 'items' && parsedPayload) {
+        } else if ((entityType === 'items' || entityType === 'item') && parsedPayload) {
           const item = parsedPayload;
           tenantDb.prepare(`
             INSERT INTO items (id, name, sku, category, sale_price, purchase_price, tax_rate, stock_qty, updated_at)
@@ -2725,12 +2732,33 @@ const server = http.createServer(async (req, res) => {
           `).run(item.id || entityId, item.name || 'Item', item.sku || '', item.category || '', item.sale_price || item.salePrice || 0, item.purchase_price || item.purchasePrice || 0, item.tax_rate || item.taxRate || 0, item.stock_qty || item.stockQty || 0, nowIso);
         }
 
+        // Commit savepoint
+        tenantDb.exec(`RELEASE ${spName}`);
+        spStarted = false;
+
+        // ONLY successful events are acknowledged
         acknowledgedIds.push(eventId);
         results.push({ id: eventId, status: 'accepted', serverVersion });
       } catch (err) {
+        if (spStarted) {
+          try {
+            tenantDb.exec(`ROLLBACK TO ${spName}`);
+            tenantDb.exec(`RELEASE ${spName}`);
+          } catch (rbErr) {
+            console.error(`[SyncPush Savepoint Rollback Error]:`, rbErr.message);
+          }
+        }
         console.warn('[SyncPush] Event failed:', err.message);
-        acknowledgedIds.push(eventId);
-        results.push({ id: eventId, status: 'retry', errorCode: 'SERVER_ERROR', error: err.message });
+        // Do NOT add failed event to acknowledgedIds (AUD-012)
+        const isConstraintOrClientError = err.message && (
+          err.message.includes('NOT NULL') ||
+          err.message.includes('CHECK') ||
+          err.message.includes('datatype mismatch') ||
+          err.message.includes('UNIQUE constraint')
+        );
+        const status = isConstraintOrClientError ? 'rejected' : 'retry';
+        const errorCode = isConstraintOrClientError ? 'VALIDATION_ERROR' : 'SERVER_ERROR';
+        results.push({ id: eventId, status, errorCode, error: err.message });
       }
     }
 
