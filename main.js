@@ -1612,7 +1612,6 @@ if (singleInstanceLock && app && typeof app.whenReady === "function") {
 
   app.whenReady().then(async () => {
     await database.initDatabase(app.getPath("userData"));
-  database.createDailyAutomatedBackup?.(app.getPath("userData"));
     registerDatabaseHandlers();
     registerCloudHandlers();
     createMenu();
@@ -1625,6 +1624,13 @@ if (singleInstanceLock && app && typeof app.whenReady === "function") {
     });
     syncService.start();
     startScheduledBackupService();
+
+    // PERF-006: Asynchronous, atomic daily backup scheduled after main window is interactive
+    mainWindow?.webContents?.once("did-finish-load", () => {
+      database.createDailyAutomatedBackupAsync?.(app.getPath("userData")).catch((err) => {
+        console.warn("Non-critical background daily backup warning:", err.message);
+      });
+    });
 
     app.on("activate", () => {
       showMainWindow();
@@ -1641,13 +1647,26 @@ if (singleInstanceLock && app && typeof app.whenReady === "function") {
     app.exit(1);
   });
 
-  app.on("before-quit", () => {
+  app.on("before-quit", (event) => {
     isQuitting = true;
     if (tray && !tray.isDestroyed()) {
       tray.destroy();
       tray = null;
     }
     syncService.stop();
+    whatsappService.shutdown?.();
+
+    // PERF-006: Ensure in-progress backup is not silently abandoned on exit
+    const backupPromise = database.getActiveBackupPromise?.();
+    if (backupPromise && !event.defaultPrevented) {
+      event.preventDefault();
+      Promise.race([
+        backupPromise,
+        new Promise((resolve) => setTimeout(resolve, 3000)),
+      ]).finally(() => {
+        app.quit();
+      });
+    }
   });
 
   app.on("window-all-closed", () => {
@@ -1656,6 +1675,7 @@ if (singleInstanceLock && app && typeof app.whenReady === "function") {
       tray.destroy();
       tray = null;
     }
+    whatsappService.shutdown?.();
     app.quit();
   });
 }

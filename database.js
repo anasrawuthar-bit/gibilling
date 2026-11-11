@@ -15,7 +15,7 @@ const SCHEMA_VERSION = 9;
 function configureDatabasePerformance(database = db) {
   if (!database) return;
   database.run("PRAGMA foreign_keys = ON;");
-  database.run("PRAGMA cache_size = -64000;"); // 64 MB memory page cache for high-volume transactions
+  database.run("PRAGMA cache_size = -16000;"); // 16 MB page cache (empirically measured sweet spot for sql.js WASM)
   database.run("PRAGMA temp_store = MEMORY;"); // Hold temp tables, joins, and sort hashes in RAM
   database.run("PRAGMA automatic_index = ON;"); // Ephemeral indices for complex ad-hoc queries
   database.run("PRAGMA synchronous = NORMAL;");
@@ -24,11 +24,15 @@ function configureDatabasePerformance(database = db) {
 
 function enforceForeignKeys(database = db) {
   if (!database) return;
-  configureDatabasePerformance(database);
   const rows = queryRows(database, "PRAGMA foreign_keys;");
   const enabled = Number(rows[0]?.foreign_keys ?? Object.values(rows[0] || {})[0] ?? 0);
   if (enabled !== 1) {
-    throw new Error("Unable to enforce PRAGMA foreign_keys = ON; on database connection.");
+    configureDatabasePerformance(database);
+    const verifyRows = queryRows(database, "PRAGMA foreign_keys;");
+    const verifyEnabled = Number(verifyRows[0]?.foreign_keys ?? Object.values(verifyRows[0] || {})[0] ?? 0);
+    if (verifyEnabled !== 1) {
+      throw new Error("Unable to enforce PRAGMA foreign_keys = ON; on database connection.");
+    }
   }
 }
 
@@ -7858,8 +7862,90 @@ function saveJournalVoucher(payload) {
 }
 
 
+let activeBackupPromise = null;
+
+function getActiveBackupPromise() {
+  return activeBackupPromise;
+}
+
+async function pruneRollingBackupsAsync(backupDir) {
+  try {
+    const entries = await fs.promises.readdir(backupDir);
+    const files = entries.filter((f) => f.startsWith("zynbill-backup-") && f.endsWith(".db"));
+    const cutoffDate = new Date();
+    cutoffDate.setDate(cutoffDate.getDate() - 30);
+    const cutoffStr = cutoffDate.toISOString().slice(0, 10);
+    for (const f of files) {
+      const match = f.match(/zynbill-backup-(\d{4}-\d{2}-\d{2})\.db/);
+      if (match && match[1] < cutoffStr) {
+        try {
+          await fs.promises.unlink(path.join(backupDir, f));
+        } catch (_) {}
+      }
+    }
+  } catch (err) {
+    console.warn("Failed to prune rolling backups asynchronously:", err);
+  }
+}
+
+async function createDailyAutomatedBackupAsync(userDataPath, explicitDbPath = null) {
+  if (activeBackupPromise) return activeBackupPromise;
+
+  activeBackupPromise = (async () => {
+    const targetDb = explicitDbPath || dbPath || (userDataPath ? path.join(userDataPath, "gi-billing.sqlite") : null);
+    if (!userDataPath) return null;
+
+    const backupDir = path.join(userDataPath, "daily-backups");
+    await fs.promises.mkdir(backupDir, { recursive: true });
+
+    const today = new Date().toISOString().slice(0, 10);
+    const backupPath = path.join(backupDir, `zynbill-backup-${today}.db`);
+
+    try {
+      await fs.promises.access(backupPath);
+      await pruneRollingBackupsAsync(backupDir);
+      return { backupPath, date: today };
+    } catch (_) {
+      // Backup does not exist yet for today, proceed
+    }
+
+    const tempPath = `${backupPath}.${randomUUID()}.tmp`;
+    try {
+      if (db && typeof db.export === "function" && transactionDepth === 0) {
+        const snapshot = Buffer.from(db.export());
+        await fs.promises.writeFile(tempPath, snapshot);
+      } else {
+        if (!targetDb || !fs.existsSync(targetDb)) return null;
+        await fs.promises.copyFile(targetDb, tempPath);
+      }
+
+      try {
+        await fs.promises.rename(tempPath, backupPath);
+      } catch (_) {
+        await fs.promises.copyFile(tempPath, backupPath);
+        try { await fs.promises.unlink(tempPath); } catch (_) {}
+      }
+    } catch (err) {
+      console.warn("Failed to create daily backup asynchronously:", err);
+      try {
+        if (fs.existsSync(tempPath)) {
+          await fs.promises.unlink(tempPath);
+        }
+      } catch (_) {}
+      return null;
+    }
+
+    await pruneRollingBackupsAsync(backupDir);
+    return { backupPath, date: today };
+  })().finally(() => {
+    activeBackupPromise = null;
+  });
+
+  return activeBackupPromise;
+}
+
 function createDailyAutomatedBackup(userDataPath, explicitDbPath = null) {
-  const targetDb = explicitDbPath || dbPath || (userDataPath ? path.join(userDataPath, "zynbill.sqlite") : null);
+  const targetDb = explicitDbPath || dbPath || (userDataPath ? path.join(userDataPath, "gi-billing.sqlite") : null);
   if (!targetDb || !fs.existsSync(targetDb) || !userDataPath) return null;
   const backupDir = path.join(userDataPath, "daily-backups");
   if (!fs.existsSync(backupDir)) fs.mkdirSync(backupDir, { recursive: true });
@@ -7869,7 +7955,18 @@ function createDailyAutomatedBackup(userDataPath, explicitDbPath = null) {
 
   try {
     if (!fs.existsSync(backupPath)) {
-      fs.copyFileSync(targetDb, backupPath);
+      const tempPath = `${backupPath}.${randomUUID()}.tmp`;
+      if (db && typeof db.export === "function" && transactionDepth === 0) {
+        fs.writeFileSync(tempPath, Buffer.from(db.export()));
+      } else {
+        fs.copyFileSync(targetDb, tempPath);
+      }
+      try {
+        fs.renameSync(tempPath, backupPath);
+      } catch (_) {
+        fs.copyFileSync(tempPath, backupPath);
+        try { fs.unlinkSync(tempPath); } catch (_) {}
+      }
     }
   } catch (err) {
     console.warn("Failed to create daily backup:", err);
@@ -7885,7 +7982,7 @@ function createDailyAutomatedBackup(userDataPath, explicitDbPath = null) {
     for (const f of files) {
       const match = f.match(/zynbill-backup-(\d{4}-\d{2}-\d{2})\.db/);
       if (match && match[1] < cutoffStr) {
-        fs.unlinkSync(path.join(backupDir, f));
+        try { fs.unlinkSync(path.join(backupDir, f)); } catch (_) {}
       }
     }
   } catch (err) {
@@ -8000,5 +8097,7 @@ module.exports = {
   saveJournalVoucher,
   getCurrentCompany,
   createDailyAutomatedBackup,
+  createDailyAutomatedBackupAsync,
+  getActiveBackupPromise,
   getBackupHistory,
 };

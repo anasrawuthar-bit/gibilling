@@ -47,8 +47,29 @@ class WhatsAppService {
 
     this.registerIpcHandlers();
 
-    // If an authenticated session already exists on disk, auto-connect
-    this.checkExistingSessionAndAutoConnect();
+    // PERF-009: WhatsApp is now lazily initialized.
+    // Baileys socket is NOT spawned on application launch.
+    // It connects only when the user accesses WhatsApp functionality or sends a message.
+  }
+
+  shutdown() {
+    this.shouldReconnect = false;
+    if (this.qrTimeoutTimer) {
+      clearTimeout(this.qrTimeoutTimer);
+      this.qrTimeoutTimer = null;
+    }
+    if (this.sock) {
+      try {
+        this.sock.ev.removeAllListeners();
+        this.sock.end(undefined);
+      } catch (_) {}
+      this.sock = null;
+    }
+    this.status = "disconnected";
+    this.isStarting = false;
+    this.currentUser = null;
+    this.currentQrRaw = null;
+    this.currentQrDataUrl = null;
   }
 
   hasSavedSession() {
@@ -261,10 +282,21 @@ class WhatsAppService {
 
   async sendMessage({ phone, message, pdfPath, pdfName }) {
     if (this.status !== "connected" || !this.sock) {
-      return {
-        success: false,
-        error: "WhatsApp is not connected. Please scan the QR code in WhatsApp Connect.",
-      };
+      if (this.hasSavedSession() && !this.isStarting) {
+        console.log("[WhatsAppService] Connecting on-demand for message send...");
+        await this.startSession(false);
+        let attempts = 0;
+        while (this.status === "connecting" && attempts < 20) {
+          await new Promise((r) => setTimeout(r, 250));
+          attempts++;
+        }
+      }
+      if (this.status !== "connected" || !this.sock) {
+        return {
+          success: false,
+          error: "WhatsApp is not connected. Please scan the QR code in WhatsApp Connect.",
+        };
+      }
     }
 
     const jid = this.formatPhoneJid(phone);

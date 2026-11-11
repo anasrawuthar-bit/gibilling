@@ -28,6 +28,20 @@ let barcodePreset = "a4-24";
 let barcodeStartOffset = 1;
 let barcodePrinterType = "regular"; // 'regular' or 'label'
 let barcodeSetupCompleted = false;
+
+let globalSearchDebounceTimer = null;
+let tableSearchDebounceTimer = null;
+
+function cancelPendingSearchDebounce() {
+  if (globalSearchDebounceTimer) {
+    clearTimeout(globalSearchDebounceTimer);
+    globalSearchDebounceTimer = null;
+  }
+  if (tableSearchDebounceTimer) {
+    clearTimeout(tableSearchDebounceTimer);
+    tableSearchDebounceTimer = null;
+  }
+}
 let barcodeLineConfig = {
   header: "company",
   line1: "item_name",
@@ -1851,8 +1865,25 @@ async function refreshCurrentView() {
 function handleGlobalSearchInput() {
   const query = globalSearchQuery();
   openAnythingActiveIndex = 0;
-  renderOpenAnythingResults();
-  applySearchToCurrentView(query);
+
+  if (!query) {
+    if (globalSearchDebounceTimer) {
+      clearTimeout(globalSearchDebounceTimer);
+      globalSearchDebounceTimer = null;
+    }
+    hideOpenAnythingResults();
+    applySearchToCurrentView("");
+    return;
+  }
+
+  if (globalSearchDebounceTimer) {
+    clearTimeout(globalSearchDebounceTimer);
+  }
+  globalSearchDebounceTimer = setTimeout(() => {
+    globalSearchDebounceTimer = null;
+    renderOpenAnythingResults();
+    applySearchToCurrentView(globalSearchQuery());
+  }, 150);
 }
 
 function applySearchToCurrentView(query = globalSearchQuery()) {
@@ -2020,9 +2051,16 @@ function handleOpenAnythingKeydown(event) {
     renderOpenAnythingResults();
   } else if (event.key === "Enter") {
     event.preventDefault();
+    if (globalSearchDebounceTimer) {
+      clearTimeout(globalSearchDebounceTimer);
+      globalSearchDebounceTimer = null;
+      renderOpenAnythingResults();
+      applySearchToCurrentView(globalSearchQuery());
+    }
     executeOpenAnythingResult(openAnythingActiveIndex);
   } else if (event.key === "Escape") {
     event.preventDefault();
+    cancelPendingSearchDebounce();
     elements.searchInput.value = "";
     hideOpenAnythingResults();
     applySearchToCurrentView("");
@@ -2030,6 +2068,7 @@ function handleOpenAnythingKeydown(event) {
 }
 
 function executeOpenAnythingResult(index) {
+  cancelPendingSearchDebounce();
   const result = openAnythingResults[index];
   if (!result) return;
   if (!transactionLeaveBypass && shouldBlockTransactionEditorLeave() && openAnythingResultLeavesEditor(result)) {
@@ -14603,6 +14642,7 @@ function entryMatchesSearch(entry, query) {
 }
 
 function showView(view, title) {
+  cancelPendingSearchDebounce();
   startTopProgress();
   try {
     if (!transactionLeaveBypass && shouldBlockTransactionEditorLeave() && view !== currentView) {
@@ -14799,6 +14839,7 @@ function navigateReport(reportId, options = {}) {
 }
 
 function renderFeatureView(view, context) {
+  cancelPendingSearchDebounce();
   const templates = {
     sales: () => invoiceWorkspaceTemplate("sale"),
     estimate: () => estimateTemplate(),
@@ -15090,11 +15131,43 @@ function bindFeatureActions() {
   const expenseSearchInput = elements.featureView.querySelector("[data-expense-search]");
   expenseSearchInput?.addEventListener("input", () => {
     expenseSearchQuery = expenseSearchInput.value.trim().toLowerCase();
-    elements.featureView.innerHTML = expenseTemplate();
-    bindFeatureActions();
-    const nextSearchInput = elements.featureView.querySelector("[data-expense-search]");
-    nextSearchInput?.focus();
-    nextSearchInput?.setSelectionRange(expenseSearchQuery.length, expenseSearchQuery.length);
+    if (tableSearchDebounceTimer) clearTimeout(tableSearchDebounceTimer);
+    if (!expenseSearchQuery) {
+      elements.featureView.innerHTML = expenseTemplate();
+      bindFeatureActions();
+      const nextSearchInput = elements.featureView.querySelector("[data-expense-search]");
+      nextSearchInput?.focus();
+      return;
+    }
+    tableSearchDebounceTimer = setTimeout(() => {
+      tableSearchDebounceTimer = null;
+      elements.featureView.innerHTML = expenseTemplate();
+      bindFeatureActions();
+      const nextSearchInput = elements.featureView.querySelector("[data-expense-search]");
+      nextSearchInput?.focus();
+      nextSearchInput?.setSelectionRange(expenseSearchQuery.length, expenseSearchQuery.length);
+    }, 150);
+  });
+  expenseSearchInput?.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      if (tableSearchDebounceTimer) {
+        clearTimeout(tableSearchDebounceTimer);
+        tableSearchDebounceTimer = null;
+        elements.featureView.innerHTML = expenseTemplate();
+        bindFeatureActions();
+        const nextSearchInput = elements.featureView.querySelector("[data-expense-search]");
+        nextSearchInput?.focus();
+        nextSearchInput?.setSelectionRange(expenseSearchQuery.length, expenseSearchQuery.length);
+      }
+    } else if (e.key === "Escape") {
+      if (tableSearchDebounceTimer) clearTimeout(tableSearchDebounceTimer);
+      expenseSearchInput.value = "";
+      expenseSearchQuery = "";
+      elements.featureView.innerHTML = expenseTemplate();
+      bindFeatureActions();
+      const nextSearchInput = elements.featureView.querySelector("[data-expense-search]");
+      nextSearchInput?.focus();
+    }
   });
   elements.featureView.querySelectorAll("[data-expense-filter]").forEach((el) => {
     const handler = (val) => {
@@ -15148,11 +15221,43 @@ function bindFeatureActions() {
   const estimateSearchInput = elements.featureView.querySelector("[data-estimate-search]");
   estimateSearchInput?.addEventListener("input", () => {
     estimateSearchQuery = estimateSearchInput.value.trim().toLowerCase();
-    elements.featureView.innerHTML = estimateTemplate();
-    bindFeatureActions();
-    const nextSearchInput = elements.featureView.querySelector("[data-estimate-search]");
-    nextSearchInput?.focus();
-    nextSearchInput?.setSelectionRange(estimateSearchQuery.length, estimateSearchQuery.length);
+    if (tableSearchDebounceTimer) clearTimeout(tableSearchDebounceTimer);
+    if (!estimateSearchQuery) {
+      elements.featureView.innerHTML = estimateTemplate();
+      bindFeatureActions();
+      const nextSearchInput = elements.featureView.querySelector("[data-estimate-search]");
+      nextSearchInput?.focus();
+      return;
+    }
+    tableSearchDebounceTimer = setTimeout(() => {
+      tableSearchDebounceTimer = null;
+      elements.featureView.innerHTML = estimateTemplate();
+      bindFeatureActions();
+      const nextSearchInput = elements.featureView.querySelector("[data-estimate-search]");
+      nextSearchInput?.focus();
+      nextSearchInput?.setSelectionRange(estimateSearchQuery.length, estimateSearchQuery.length);
+    }, 150);
+  });
+  estimateSearchInput?.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      if (tableSearchDebounceTimer) {
+        clearTimeout(tableSearchDebounceTimer);
+        tableSearchDebounceTimer = null;
+        elements.featureView.innerHTML = estimateTemplate();
+        bindFeatureActions();
+        const nextSearchInput = elements.featureView.querySelector("[data-estimate-search]");
+        nextSearchInput?.focus();
+        nextSearchInput?.setSelectionRange(estimateSearchQuery.length, estimateSearchQuery.length);
+      }
+    } else if (e.key === "Escape") {
+      if (tableSearchDebounceTimer) clearTimeout(tableSearchDebounceTimer);
+      estimateSearchInput.value = "";
+      estimateSearchQuery = "";
+      elements.featureView.innerHTML = estimateTemplate();
+      bindFeatureActions();
+      const nextSearchInput = elements.featureView.querySelector("[data-estimate-search]");
+      nextSearchInput?.focus();
+    }
   });
   elements.featureView.querySelectorAll("[data-estimate-filter]").forEach((el) => {
     const handler = (val) => {
@@ -15186,18 +15291,57 @@ function bindFeatureActions() {
   const invoiceSearchInput = elements.featureView.querySelector("[data-invoice-search]");
   invoiceSearchInput?.addEventListener("input", () => {
     const invoiceType = invoiceSearchInput.dataset.invoiceSearch;
+    const val = invoiceSearchInput.value.trim().toLowerCase();
     if (invoiceType === "purchase") {
-      purchaseInvoiceSearchQuery = invoiceSearchInput.value.trim().toLowerCase();
+      purchaseInvoiceSearchQuery = val;
     } else {
-      saleInvoiceSearchQuery = invoiceSearchInput.value.trim().toLowerCase();
+      saleInvoiceSearchQuery = val;
     }
-    if (invoicePagination[invoiceType]) invoicePagination[invoiceType].page = 1;
-    elements.featureView.innerHTML = invoiceWorkspaceTemplate(invoiceType);
-    bindFeatureActions();
-    const nextSearchInput = elements.featureView.querySelector("[data-invoice-search]");
-    const query = invoiceType === "purchase" ? purchaseInvoiceSearchQuery : saleInvoiceSearchQuery;
-    nextSearchInput?.focus();
-    nextSearchInput?.setSelectionRange(query.length, query.length);
+    if (tableSearchDebounceTimer) clearTimeout(tableSearchDebounceTimer);
+    if (!val) {
+      if (invoicePagination[invoiceType]) invoicePagination[invoiceType].page = 1;
+      elements.featureView.innerHTML = invoiceWorkspaceTemplate(invoiceType);
+      bindFeatureActions();
+      const nextSearchInput = elements.featureView.querySelector("[data-invoice-search]");
+      nextSearchInput?.focus();
+      return;
+    }
+    tableSearchDebounceTimer = setTimeout(() => {
+      tableSearchDebounceTimer = null;
+      if (invoicePagination[invoiceType]) invoicePagination[invoiceType].page = 1;
+      elements.featureView.innerHTML = invoiceWorkspaceTemplate(invoiceType);
+      bindFeatureActions();
+      const nextSearchInput = elements.featureView.querySelector("[data-invoice-search]");
+      const query = invoiceType === "purchase" ? purchaseInvoiceSearchQuery : saleInvoiceSearchQuery;
+      nextSearchInput?.focus();
+      nextSearchInput?.setSelectionRange(query.length, query.length);
+    }, 150);
+  });
+  invoiceSearchInput?.addEventListener("keydown", (e) => {
+    const invoiceType = invoiceSearchInput.dataset.invoiceSearch;
+    if (e.key === "Enter") {
+      if (tableSearchDebounceTimer) {
+        clearTimeout(tableSearchDebounceTimer);
+        tableSearchDebounceTimer = null;
+        if (invoicePagination[invoiceType]) invoicePagination[invoiceType].page = 1;
+        elements.featureView.innerHTML = invoiceWorkspaceTemplate(invoiceType);
+        bindFeatureActions();
+        const nextSearchInput = elements.featureView.querySelector("[data-invoice-search]");
+        const query = invoiceType === "purchase" ? purchaseInvoiceSearchQuery : saleInvoiceSearchQuery;
+        nextSearchInput?.focus();
+        nextSearchInput?.setSelectionRange(query.length, query.length);
+      }
+    } else if (e.key === "Escape") {
+      if (tableSearchDebounceTimer) clearTimeout(tableSearchDebounceTimer);
+      invoiceSearchInput.value = "";
+      if (invoiceType === "purchase") purchaseInvoiceSearchQuery = "";
+      else saleInvoiceSearchQuery = "";
+      if (invoicePagination[invoiceType]) invoicePagination[invoiceType].page = 1;
+      elements.featureView.innerHTML = invoiceWorkspaceTemplate(invoiceType);
+      bindFeatureActions();
+      const nextSearchInput = elements.featureView.querySelector("[data-invoice-search]");
+      nextSearchInput?.focus();
+    }
   });
   elements.featureView.querySelectorAll("[data-invoice-filter]").forEach((button) => {
     button.addEventListener("click", () => {
@@ -16599,15 +16743,54 @@ function bindFeatureActions() {
   });
   const partySearchInput = elements.featureView.querySelector("#partySearchInput");
   partySearchInput?.addEventListener("input", () => {
-    const selectedId = elements.featureView.querySelector(".party-list-item.active")?.dataset.partyId;
-    const activeTab = elements.featureView.querySelector(".party-tabs button.active")?.dataset.partyTab || "transactions";
     partySearchQuery = partySearchInput.value;
     elements.searchInput.value = partySearchQuery;
-    elements.featureView.innerHTML = partiesTemplate(selectedId ? Number(selectedId) : null, activeTab, partySearchQuery);
-    bindFeatureActions();
-    const nextSearchInput = elements.featureView.querySelector("#partySearchInput");
-    nextSearchInput?.focus();
-    nextSearchInput?.setSelectionRange(partySearchQuery.length, partySearchQuery.length);
+    if (tableSearchDebounceTimer) clearTimeout(tableSearchDebounceTimer);
+    if (!partySearchQuery) {
+      const selectedId = elements.featureView.querySelector(".party-list-item.active")?.dataset.partyId;
+      const activeTab = elements.featureView.querySelector(".party-tabs button.active")?.dataset.partyTab || "transactions";
+      elements.featureView.innerHTML = partiesTemplate(selectedId ? Number(selectedId) : null, activeTab, "");
+      bindFeatureActions();
+      const nextSearchInput = elements.featureView.querySelector("#partySearchInput");
+      nextSearchInput?.focus();
+      return;
+    }
+    tableSearchDebounceTimer = setTimeout(() => {
+      tableSearchDebounceTimer = null;
+      const selectedId = elements.featureView.querySelector(".party-list-item.active")?.dataset.partyId;
+      const activeTab = elements.featureView.querySelector(".party-tabs button.active")?.dataset.partyTab || "transactions";
+      elements.featureView.innerHTML = partiesTemplate(selectedId ? Number(selectedId) : null, activeTab, partySearchQuery);
+      bindFeatureActions();
+      const nextSearchInput = elements.featureView.querySelector("#partySearchInput");
+      nextSearchInput?.focus();
+      nextSearchInput?.setSelectionRange(partySearchQuery.length, partySearchQuery.length);
+    }, 150);
+  });
+  partySearchInput?.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      if (tableSearchDebounceTimer) {
+        clearTimeout(tableSearchDebounceTimer);
+        tableSearchDebounceTimer = null;
+        const selectedId = elements.featureView.querySelector(".party-list-item.active")?.dataset.partyId;
+        const activeTab = elements.featureView.querySelector(".party-tabs button.active")?.dataset.partyTab || "transactions";
+        elements.featureView.innerHTML = partiesTemplate(selectedId ? Number(selectedId) : null, activeTab, partySearchQuery);
+        bindFeatureActions();
+        const nextSearchInput = elements.featureView.querySelector("#partySearchInput");
+        nextSearchInput?.focus();
+        nextSearchInput?.setSelectionRange(partySearchQuery.length, partySearchQuery.length);
+      }
+    } else if (e.key === "Escape") {
+      if (tableSearchDebounceTimer) clearTimeout(tableSearchDebounceTimer);
+      partySearchInput.value = "";
+      partySearchQuery = "";
+      elements.searchInput.value = "";
+      const selectedId = elements.featureView.querySelector(".party-list-item.active")?.dataset.partyId;
+      const activeTab = elements.featureView.querySelector(".party-tabs button.active")?.dataset.partyTab || "transactions";
+      elements.featureView.innerHTML = partiesTemplate(selectedId ? Number(selectedId) : null, activeTab, "");
+      bindFeatureActions();
+      const nextSearchInput = elements.featureView.querySelector("#partySearchInput");
+      nextSearchInput?.focus();
+    }
   });
   elements.featureView.querySelector("[data-action='add-party']")?.addEventListener("click", () => openEntryModal("party"));
   elements.featureView.querySelector("[data-action='edit-party']")?.addEventListener("click", (event) => {
@@ -16690,18 +16873,58 @@ function bindFeatureActions() {
 
   const itemSearchInput = elements.featureView.querySelector("#itemSearchInput");
   itemSearchInput?.addEventListener("input", () => {
-    const listPanel = elements.featureView.querySelector(".item-list-panel");
-    const savedScroll = listPanel ? listPanel.scrollTop : 0;
-    const selectedId = elements.featureView.querySelector(".item-list-item.active")?.dataset.itemId;
     itemSearchQuery = itemSearchInput.value;
     elements.searchInput.value = itemSearchQuery;
-    elements.featureView.innerHTML = itemsTemplate(selectedId ? Number(selectedId) : null, "stockLedger", itemSearchQuery);
-    bindFeatureActions();
-    const nextListPanel = elements.featureView.querySelector(".item-list-panel");
-    if (nextListPanel) nextListPanel.scrollTop = savedScroll;
-    const nextSearchInput = elements.featureView.querySelector("#itemSearchInput");
-    nextSearchInput?.focus();
-    nextSearchInput?.setSelectionRange(itemSearchQuery.length, itemSearchQuery.length);
+    if (tableSearchDebounceTimer) clearTimeout(tableSearchDebounceTimer);
+    if (!itemSearchQuery) {
+      const selectedId = elements.featureView.querySelector(".item-list-item.active")?.dataset.itemId;
+      elements.featureView.innerHTML = itemsTemplate(selectedId ? Number(selectedId) : null, "stockLedger", "");
+      bindFeatureActions();
+      const nextSearchInput = elements.featureView.querySelector("#itemSearchInput");
+      nextSearchInput?.focus();
+      return;
+    }
+    tableSearchDebounceTimer = setTimeout(() => {
+      tableSearchDebounceTimer = null;
+      const listPanel = elements.featureView.querySelector(".item-list-panel");
+      const savedScroll = listPanel ? listPanel.scrollTop : 0;
+      const selectedId = elements.featureView.querySelector(".item-list-item.active")?.dataset.itemId;
+      elements.featureView.innerHTML = itemsTemplate(selectedId ? Number(selectedId) : null, "stockLedger", itemSearchQuery);
+      bindFeatureActions();
+      const nextListPanel = elements.featureView.querySelector(".item-list-panel");
+      if (nextListPanel) nextListPanel.scrollTop = savedScroll;
+      const nextSearchInput = elements.featureView.querySelector("#itemSearchInput");
+      nextSearchInput?.focus();
+      nextSearchInput?.setSelectionRange(itemSearchQuery.length, itemSearchQuery.length);
+    }, 150);
+  });
+  itemSearchInput?.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      if (tableSearchDebounceTimer) {
+        clearTimeout(tableSearchDebounceTimer);
+        tableSearchDebounceTimer = null;
+        const listPanel = elements.featureView.querySelector(".item-list-panel");
+        const savedScroll = listPanel ? listPanel.scrollTop : 0;
+        const selectedId = elements.featureView.querySelector(".item-list-item.active")?.dataset.itemId;
+        elements.featureView.innerHTML = itemsTemplate(selectedId ? Number(selectedId) : null, "stockLedger", itemSearchQuery);
+        bindFeatureActions();
+        const nextListPanel = elements.featureView.querySelector(".item-list-panel");
+        if (nextListPanel) nextListPanel.scrollTop = savedScroll;
+        const nextSearchInput = elements.featureView.querySelector("#itemSearchInput");
+        nextSearchInput?.focus();
+        nextSearchInput?.setSelectionRange(itemSearchQuery.length, itemSearchQuery.length);
+      }
+    } else if (e.key === "Escape") {
+      if (tableSearchDebounceTimer) clearTimeout(tableSearchDebounceTimer);
+      itemSearchInput.value = "";
+      itemSearchQuery = "";
+      elements.searchInput.value = "";
+      const selectedId = elements.featureView.querySelector(".item-list-item.active")?.dataset.itemId;
+      elements.featureView.innerHTML = itemsTemplate(selectedId ? Number(selectedId) : null, "stockLedger", "");
+      bindFeatureActions();
+      const nextSearchInput = elements.featureView.querySelector("#itemSearchInput");
+      nextSearchInput?.focus();
+    }
   });
   elements.featureView.querySelector("[data-action='add-item']")?.addEventListener("click", () => openEntryModal("item"));
     elements.featureView.querySelectorAll(".item-detail-panel [data-invoice-action]").forEach((button) => {
@@ -22312,10 +22535,46 @@ function partiesTemplate(selectedPartyId = null, activeTab = "transactions", que
   `;
 }
 
+function buildActivePartyIndex(fromDate, toDate) {
+  const activePartyNames = new Set();
+  const invoices = state.invoices || [];
+  for (let i = 0; i < invoices.length; i++) {
+    const inv = invoices[i];
+    if (!inv || !inv.party) continue;
+    if (!fromDate && !toDate) {
+      activePartyNames.add(inv.party);
+      continue;
+    }
+    const d = parseLocalIsoDate(inv.date || inv.invoiceDate || "");
+    if (!d) continue;
+    if (fromDate && d < fromDate) continue;
+    if (toDate && d > toDate) continue;
+    activePartyNames.add(inv.party);
+  }
+
+  const payments = state.payments || [];
+  for (let i = 0; i < payments.length; i++) {
+    const pmt = payments[i];
+    if (!pmt || !pmt.party) continue;
+    if (!fromDate && !toDate) {
+      activePartyNames.add(pmt.party);
+      continue;
+    }
+    const d = parseLocalIsoDate(pmt.paymentDate || pmt.date || "");
+    if (!d) continue;
+    if (fromDate && d < fromDate) continue;
+    if (toDate && d > toDate) continue;
+    activePartyNames.add(pmt.party);
+  }
+
+  return activePartyNames;
+}
+
 function applyPartyAdvancedFilter(parties, f) {
   const range = getPartyDateRange(f);
   const fromDate = range.from ? parseLocalIsoDate(range.from) : null;
   const toDate = range.to ? parseLocalIsoDate(range.to, true) : null;
+  const activePartyNames = f.balanceType === "active" ? buildActivePartyIndex(fromDate, toDate) : null;
 
   return parties.filter((party) => {
     const balance = Number(party.balance || 0);
@@ -22323,20 +22582,21 @@ function applyPartyAdvancedFilter(parties, f) {
     if (f.balanceType === "payable" && balance >= 0) return false;
     if (f.balanceType === "zero" && balance !== 0) return false;
     if (f.balanceType === "active") {
-      const hasActivity = partyHasActivityInRange(party, fromDate, toDate);
-      if (!hasActivity) return false;
+      if (!activePartyNames || !activePartyNames.has(party.name)) return false;
     }
     return true;
   });
 }
 
 function partyHasActivityInRange(party, fromDate, toDate) {
-  const invoices = (state.invoices || []).filter((inv) => inv.party === party.name);
-  const payments = (state.payments || []).filter((pmt) => pmt.party === party.name);
+  if (!party || !party.name) return false;
+  const invoices = state.invoices || [];
+  const payments = state.payments || [];
   if (!fromDate && !toDate) {
-    return invoices.length > 0 || payments.length > 0;
+    return invoices.some((inv) => inv.party === party.name) || payments.some((pmt) => pmt.party === party.name);
   }
   const hasInv = invoices.some((inv) => {
+    if (inv.party !== party.name) return false;
     const d = parseLocalIsoDate(inv.date || inv.invoiceDate || "");
     if (!d) return false;
     if (fromDate && d < fromDate) return false;
@@ -22345,6 +22605,7 @@ function partyHasActivityInRange(party, fromDate, toDate) {
   });
   if (hasInv) return true;
   return payments.some((pmt) => {
+    if (pmt.party !== party.name) return false;
     const d = parseLocalIsoDate(pmt.paymentDate || pmt.date || "");
     if (!d) return false;
     if (fromDate && d < fromDate) return false;
