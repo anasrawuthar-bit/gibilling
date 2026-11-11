@@ -865,176 +865,162 @@ function defaultBusinessSettings() {
 }
 
 function defaultTaxSlabs() {
-  return [
+  const standardRates = [0.25, 3, 5, 12, 18, 28, 40];
+  const list = [
     {
-      id: "tax_0",
-      name: "None (0%)",
+      id: "tax_none",
+      name: "None",
+      taxType: "none",
       rate: 0,
       cgst: 0,
       sgst: 0,
       igst: 0,
       cess: 0,
-      subTax1Name: "CGST",
+      subTax1Name: "",
       subTax1Rate: 0,
+      subTax2Name: "",
+      subTax2Rate: 0,
+      igstName: "IGST",
+      cessName: "Cess",
+      subTaxes: [],
+      isStandard: true
+    }
+  ];
+
+  for (const r of standardRates) {
+    const half = Math.round((r / 2) * 1000) / 1000;
+    const otherHalf = Math.round((r - half) * 1000) / 1000;
+    // Intra-State GST
+    list.push({
+      id: `tax_gst_${String(r).replace(".", "_")}`,
+      name: `GST@${r}%`,
+      taxType: "gst",
+      rate: r,
+      cgst: half,
+      sgst: otherHalf,
+      igst: 0,
+      cess: 0,
+      subTax1Name: "CGST",
+      subTax1Rate: half,
       subTax2Name: "SGST",
+      subTax2Rate: otherHalf,
+      igstName: "IGST",
+      cessName: "Cess",
+      subTaxes: [
+        { name: "CGST", rate: half },
+        { name: "SGST", rate: otherHalf }
+      ],
+      isStandard: true
+    });
+    // Inter-State IGST
+    list.push({
+      id: `tax_igst_${String(r).replace(".", "_")}`,
+      name: `IGST@${r}%`,
+      taxType: "igst",
+      rate: r,
+      cgst: 0,
+      sgst: 0,
+      igst: r,
+      cess: 0,
+      subTax1Name: "IGST",
+      subTax1Rate: r,
+      subTax2Name: "",
       subTax2Rate: 0,
       igstName: "IGST",
       cessName: "Cess",
       subTaxes: [
-        { name: "CGST", rate: 0 },
-        { name: "SGST", rate: 0 }
+        { name: "IGST", rate: r }
       ],
       isStandard: true
-    },
-    {
-      id: "tax_0_25",
-      name: "GST 0.25%",
-      rate: 0.25,
-      cgst: 0.125,
-      sgst: 0.125,
-      igst: 0.25,
-      cess: 0,
-      subTax1Name: "CGST",
-      subTax1Rate: 0.125,
-      subTax2Name: "SGST",
-      subTax2Rate: 0.125,
-      igstName: "IGST",
-      cessName: "Cess",
-      subTaxes: [
-        { name: "CGST", rate: 0.125 },
-        { name: "SGST", rate: 0.125 }
-      ],
-      isStandard: true
-    },
-    {
-      id: "tax_3",
-      name: "GST 3%",
-      rate: 3,
-      cgst: 1.5,
-      sgst: 1.5,
-      igst: 3,
-      cess: 0,
-      subTax1Name: "CGST",
-      subTax1Rate: 1.5,
-      subTax2Name: "SGST",
-      subTax2Rate: 1.5,
-      igstName: "IGST",
-      cessName: "Cess",
-      subTaxes: [
-        { name: "CGST", rate: 1.5 },
-        { name: "SGST", rate: 1.5 }
-      ],
-      isStandard: true
-    },
-    {
-      id: "tax_5",
-      name: "GST 5%",
-      rate: 5,
-      cgst: 2.5,
-      sgst: 2.5,
-      igst: 5,
-      cess: 0,
-      subTax1Name: "CGST",
-      subTax1Rate: 2.5,
-      subTax2Name: "SGST",
-      subTax2Rate: 2.5,
-      igstName: "IGST",
-      cessName: "Cess",
-      subTaxes: [
-        { name: "CGST", rate: 2.5 },
-        { name: "SGST", rate: 2.5 }
-      ],
-      isStandard: true
-    },
-    {
-      id: "tax_12",
-      name: "GST 12%",
-      rate: 12,
-      cgst: 6,
-      sgst: 6,
-      igst: 12,
-      cess: 0,
-      subTax1Name: "CGST",
-      subTax1Rate: 6,
-      subTax2Name: "SGST",
-      subTax2Rate: 6,
-      igstName: "IGST",
-      cessName: "Cess",
-      subTaxes: [
-        { name: "CGST", rate: 6 },
-        { name: "SGST", rate: 6 }
-      ],
-      isStandard: true
-    },
-    {
-      id: "tax_18",
-      name: "GST 18%",
-      rate: 18,
-      cgst: 9,
-      sgst: 9,
-      igst: 18,
-      cess: 0,
-      subTax1Name: "CGST",
-      subTax1Rate: 9,
-      subTax2Name: "SGST",
-      subTax2Rate: 9,
-      igstName: "IGST",
-      cessName: "Cess",
-      subTaxes: [
-        { name: "CGST", rate: 9 },
-        { name: "SGST", rate: 9 }
-      ],
-      isStandard: true
-    },
-    {
-      id: "tax_28",
-      name: "GST 28%",
-      rate: 28,
-      cgst: 14,
-      sgst: 14,
-      igst: 28,
-      cess: 0,
-      subTax1Name: "CGST",
-      subTax1Rate: 14,
-      subTax2Name: "SGST",
-      subTax2Rate: 14,
-      igstName: "IGST",
-      cessName: "Cess",
-      subTaxes: [
-        { name: "CGST", rate: 14 },
-        { name: "SGST", rate: 14 }
-      ],
-      isStandard: true
-    },
-    {
-      id: "tax_40",
-      name: "GST 40%",
-      rate: 40,
-      cgst: 20,
-      sgst: 20,
-      igst: 40,
-      cess: 0,
-      subTax1Name: "CGST",
-      subTax1Rate: 20,
-      subTax2Name: "SGST",
-      subTax2Rate: 20,
-      igstName: "IGST",
-      cessName: "Cess",
-      subTaxes: [
-        { name: "CGST", rate: 20 },
-        { name: "SGST", rate: 20 }
-      ],
-      isStandard: true
-    },
-  ];
+    });
+  }
+
+  // Exempt
+  list.push({
+    id: "tax_exempt",
+    name: "Exempt",
+    taxType: "exempt",
+    rate: 0,
+    cgst: 0,
+    sgst: 0,
+    igst: 0,
+    cess: 0,
+    subTax1Name: "Exempt",
+    subTax1Rate: 0,
+    subTax2Name: "",
+    subTax2Rate: 0,
+    igstName: "IGST",
+    cessName: "Cess",
+    subTaxes: [
+      { name: "Exempt", rate: 0 }
+    ],
+    isStandard: true
+  });
+
+  return list;
+}
+
+function sortTaxSlabs(slabs = []) {
+  return slabs.slice().sort((a, b) => {
+    const isNoneA = a.taxType === "none" || String(a.name || "").toLowerCase().startsWith("none");
+    const isNoneB = b.taxType === "none" || String(b.name || "").toLowerCase().startsWith("none");
+    if (isNoneA && !isNoneB) return -1;
+    if (!isNoneA && isNoneB) return 1;
+
+    const isExemptA = a.taxType === "exempt" || String(a.name || "").toLowerCase().includes("exempt");
+    const isExemptB = b.taxType === "exempt" || String(b.name || "").toLowerCase().includes("exempt");
+    if (isExemptA && !isExemptB) return 1;
+    if (!isExemptA && isExemptB) return -1;
+
+    const rateA = Number(a.rate || 0);
+    const rateB = Number(b.rate || 0);
+    if (rateA !== rateB) return rateA - rateB;
+
+    const isIgstA = a.taxType === "igst" || String(a.name || "").toUpperCase().startsWith("IGST");
+    const isIgstB = b.taxType === "igst" || String(b.name || "").toUpperCase().startsWith("IGST");
+    if (!isIgstA && isIgstB) return -1;
+    if (isIgstA && !isIgstB) return 1;
+
+    return String(a.name || "").localeCompare(String(b.name || ""));
+  });
 }
 
 function normalizeTaxSlabs(slabs = []) {
   if (!Array.isArray(slabs) || slabs.length === 0) return defaultTaxSlabs();
-  return slabs.map((s, idx) => {
+
+  const standardRates = [0.25, 3, 5, 12, 18, 28, 40];
+  const isFullSettingsList = slabs.length >= 7 && slabs.some((s) => Number(s.rate) === 18) && slabs.some((s) => Number(s.rate) === 28);
+
+  const normalized = [];
+  const seenKeys = new Set();
+
+  slabs.forEach((s, idx) => {
     const rate = Math.max(0, Math.min(100, Number(s.rate ?? 0)));
     const cess = Math.max(0, Math.min(100, Number(s.cess ?? 0)));
-    const name = String(s.name || (rate === 0 ? "None (0%)" : `GST ${rate}%`)).trim();
+    let rawName = String(s.name || "").trim();
+
+    if (rawName.toLowerCase() === "none (0%)" || rawName.toLowerCase() === "none") {
+      rawName = "None";
+    } else {
+      const gstMatch = rawName.match(/^GST\s+(\d+(\.\d+)?)%$/i);
+      if (gstMatch) rawName = `GST@${gstMatch[1]}%`;
+      const igstMatch = rawName.match(/^IGST\s+(\d+(\.\d+)?)%$/i);
+      if (igstMatch) rawName = `IGST@${igstMatch[1]}%`;
+    }
+
+    let taxType = s.taxType;
+    if (!taxType) {
+      if (rawName.toUpperCase().startsWith("IGST")) taxType = "igst";
+      else if (rawName.toLowerCase().includes("exempt")) taxType = "exempt";
+      else if (rawName.toLowerCase().startsWith("none") || (rate === 0 && !rawName.toLowerCase().includes("exempt"))) taxType = "none";
+      else taxType = "gst";
+    }
+
+    const defaultName = taxType === "igst" ? `IGST@${rate}%` : (taxType === "exempt" ? "Exempt" : (taxType === "none" ? "None" : `GST@${rate}%`));
+    const name = rawName || defaultName;
+    const isIgst = taxType === "igst";
+    const isExempt = taxType === "exempt";
+    const isNone = taxType === "none";
 
     let subTaxes = Array.isArray(s.subTaxes) && s.subTaxes.length > 0
       ? s.subTaxes.map((st) => ({
@@ -1042,6 +1028,93 @@ function normalizeTaxSlabs(slabs = []) {
           rate: Math.max(0, Number(st.rate || 0))
         }))
       : [];
+
+    if (isIgst) {
+      if (subTaxes.length === 0) {
+        subTaxes = [{ name: "IGST", rate }];
+      }
+      const item = {
+        id: String(s.id || `tax_igst_${String(rate).replace(".", "_")}`),
+        name,
+        taxType: "igst",
+        rate,
+        cgst: 0,
+        sgst: 0,
+        igst: rate,
+        cess,
+        subTax1Name: "IGST",
+        subTax1Rate: rate,
+        subTax2Name: "",
+        subTax2Rate: 0,
+        igstName: "IGST",
+        cessName: String(s.cessName || "Cess").trim(),
+        subTaxes,
+        isStandard: Boolean(s.isStandard || standardRates.includes(rate)),
+      };
+      const key = `igst_${rate}_${name}`;
+      if (!seenKeys.has(key)) {
+        seenKeys.add(key);
+        normalized.push(item);
+      }
+      return;
+    }
+
+    if (isExempt) {
+      if (subTaxes.length === 0) {
+        subTaxes = [{ name: "Exempt", rate: 0 }];
+      }
+      const item = {
+        id: String(s.id || "tax_exempt"),
+        name: "Exempt",
+        taxType: "exempt",
+        rate: 0,
+        cgst: 0,
+        sgst: 0,
+        igst: 0,
+        cess,
+        subTax1Name: "Exempt",
+        subTax1Rate: 0,
+        subTax2Name: "",
+        subTax2Rate: 0,
+        igstName: "IGST",
+        cessName: String(s.cessName || "Cess").trim(),
+        subTaxes,
+        isStandard: true,
+      };
+      const key = "exempt";
+      if (!seenKeys.has(key)) {
+        seenKeys.add(key);
+        normalized.push(item);
+      }
+      return;
+    }
+
+    if (isNone) {
+      const item = {
+        id: String(s.id || "tax_none"),
+        name: "None",
+        taxType: "none",
+        rate: 0,
+        cgst: 0,
+        sgst: 0,
+        igst: 0,
+        cess: 0,
+        subTax1Name: "",
+        subTax1Rate: 0,
+        subTax2Name: "",
+        subTax2Rate: 0,
+        igstName: "IGST",
+        cessName: String(s.cessName || "Cess").trim(),
+        subTaxes: [],
+        isStandard: true,
+      };
+      const key = "none";
+      if (!seenKeys.has(key)) {
+        seenKeys.add(key);
+        normalized.push(item);
+      }
+      return;
+    }
 
     if (subTaxes.length === 0) {
       const sub1Name = String(s.subTax1Name || "CGST").trim();
@@ -1058,27 +1131,133 @@ function normalizeTaxSlabs(slabs = []) {
     const subTax1Rate = subTaxes[0] !== undefined ? subTaxes[0].rate : rate / 2;
     const subTax2Name = subTaxes[1]?.name || "SGST";
     const subTax2Rate = subTaxes[1] !== undefined ? subTaxes[1].rate : rate / 2;
-    const igstName = String(s.igstName || "IGST").trim();
-    const cessName = String(s.cessName || "Cess").trim();
 
-    return {
-      id: String(s.id || `tax_${rate}_${idx}`),
+    const item = {
+      id: String(s.id || `tax_gst_${String(rate).replace(".", "_")}`),
       name,
+      taxType: "gst",
       rate,
       cgst: subTax1Rate,
       sgst: subTax2Rate,
-      igst: s.igst !== undefined ? Number(s.igst) : rate,
+      igst: 0,
       cess,
       subTax1Name,
       subTax1Rate,
       subTax2Name,
       subTax2Rate,
-      igstName,
-      cessName,
+      igstName: "IGST",
+      cessName: String(s.cessName || "Cess").trim(),
       subTaxes,
-      isStandard: Boolean(s.isStandard),
+      isStandard: Boolean(s.isStandard || standardRates.includes(rate)),
     };
+    const key = `gst_${rate}_${name}`;
+    if (!seenKeys.has(key)) {
+      seenKeys.add(key);
+      normalized.push(item);
+    }
   });
+
+  if (!isFullSettingsList) {
+    return normalized;
+  }
+
+  if (!seenKeys.has("none")) {
+    seenKeys.add("none");
+    normalized.push({
+      id: "tax_none",
+      name: "None",
+      taxType: "none",
+      rate: 0,
+      cgst: 0,
+      sgst: 0,
+      igst: 0,
+      cess: 0,
+      subTax1Name: "",
+      subTax1Rate: 0,
+      subTax2Name: "",
+      subTax2Rate: 0,
+      igstName: "IGST",
+      cessName: "Cess",
+      subTaxes: [],
+      isStandard: true,
+    });
+  }
+
+  for (const r of standardRates) {
+    const half = Math.round((r / 2) * 1000) / 1000;
+    const otherHalf = Math.round((r - half) * 1000) / 1000;
+
+    const hasGst = normalized.some((s) => s.taxType === "gst" && Number(s.rate) === r);
+    if (!hasGst) {
+      normalized.push({
+        id: `tax_gst_${String(r).replace(".", "_")}`,
+        name: `GST@${r}%`,
+        taxType: "gst",
+        rate: r,
+        cgst: half,
+        sgst: otherHalf,
+        igst: 0,
+        cess: 0,
+        subTax1Name: "CGST",
+        subTax1Rate: half,
+        subTax2Name: "SGST",
+        subTax2Rate: otherHalf,
+        igstName: "IGST",
+        cessName: "Cess",
+        subTaxes: [
+          { name: "CGST", rate: half },
+          { name: "SGST", rate: otherHalf }
+        ],
+        isStandard: true,
+      });
+    }
+
+    const hasIgst = normalized.some((s) => s.taxType === "igst" && Number(s.rate) === r);
+    if (!hasIgst) {
+      normalized.push({
+        id: `tax_igst_${String(r).replace(".", "_")}`,
+        name: `IGST@${r}%`,
+        taxType: "igst",
+        rate: r,
+        cgst: 0,
+        sgst: 0,
+        igst: r,
+        cess: 0,
+        subTax1Name: "IGST",
+        subTax1Rate: r,
+        subTax2Name: "",
+        subTax2Rate: 0,
+        igstName: "IGST",
+        cessName: "Cess",
+        subTaxes: [{ name: "IGST", rate: r }],
+        isStandard: true,
+      });
+    }
+  }
+
+  if (!seenKeys.has("exempt")) {
+    seenKeys.add("exempt");
+    normalized.push({
+      id: "tax_exempt",
+      name: "Exempt",
+      taxType: "exempt",
+      rate: 0,
+      cgst: 0,
+      sgst: 0,
+      igst: 0,
+      cess: 0,
+      subTax1Name: "Exempt",
+      subTax1Rate: 0,
+      subTax2Name: "",
+      subTax2Rate: 0,
+      igstName: "IGST",
+      cessName: "Cess",
+      subTaxes: [{ name: "Exempt", rate: 0 }],
+      isStandard: true,
+    });
+  }
+
+  return sortTaxSlabs(normalized);
 }
 
 function defaultCustomFieldDefinitions() {
@@ -16411,16 +16590,38 @@ function bindFeatureActions() {
       if (taxSlabCessTh) taxSlabCessTh.style.display = isCess ? "" : "none";
 
       taxSlabsTableBody.innerHTML = slabs.map((slab) => {
-        const isZero = Number(slab.rate) === 0;
+        const isIgst = slab.taxType === "igst" || String(slab.name).toUpperCase().startsWith("IGST");
+        const isExempt = slab.taxType === "exempt" || String(slab.name).toLowerCase().includes("exempt");
+        const isNone = slab.taxType === "none" || String(slab.name).toLowerCase().startsWith("none");
+
         const sub1 = (Array.isArray(slab.subTaxes) && slab.subTaxes[0]) || {
-          name: slab.subTax1Name || "CGST",
-          rate: slab.subTax1Rate !== undefined ? slab.subTax1Rate : (slab.cgst !== undefined ? slab.cgst : slab.rate / 2)
+          name: slab.subTax1Name || (isIgst ? "IGST" : (isExempt ? "Exempt" : "CGST")),
+          rate: slab.subTax1Rate !== undefined ? slab.subTax1Rate : (isIgst ? slab.rate : (isExempt ? 0 : slab.rate / 2))
         };
-        const sub2 = (Array.isArray(slab.subTaxes) && slab.subTaxes[1]) || {
+        const sub2 = (Array.isArray(slab.subTaxes) && slab.subTaxes[1]) || (isIgst || isExempt || isNone ? null : {
           name: slab.subTax2Name || "SGST",
-          rate: slab.subTax2Rate !== undefined ? slab.subTax2Rate : (slab.sgst !== undefined ? slab.sgst : slab.rate / 2)
-        };
+          rate: slab.subTax2Rate !== undefined ? slab.subTax2Rate : slab.rate / 2
+        });
         const extraSubTaxes = Array.isArray(slab.subTaxes) && slab.subTaxes.length > 2 ? slab.subTaxes.slice(2) : [];
+
+        let sub1Markup = "";
+        let sub2Markup = "";
+
+        if (isIgst) {
+          sub1Markup = `<span class="split-pill igst">IGST: <strong>${slab.rate}%</strong></span>`;
+          sub2Markup = `<span style="color:#94a3b8; font-size:12px;">-</span>`;
+        } else if (isExempt) {
+          sub1Markup = `<span class="split-pill" style="background:#f1f5f9; color:#475569; border:1px solid #cbd5e1;">Exempt: <strong>0%</strong></span>`;
+          sub2Markup = `<span style="color:#94a3b8; font-size:12px;">-</span>`;
+        } else if (isNone) {
+          sub1Markup = `<span style="color:#94a3b8; font-size:12px;">-</span>`;
+          sub2Markup = `<span style="color:#94a3b8; font-size:12px;">-</span>`;
+        } else {
+          sub1Markup = `<span class="split-pill cgst">${escapeHtml(sub1.name || "CGST")}: <strong>${sub1.rate ?? 0}%</strong></span>`;
+          sub2Markup = sub2 && sub2.name
+            ? `<span class="split-pill sgst">${escapeHtml(sub2.name)}: <strong>${sub2.rate ?? 0}%</strong></span>`
+            : `<span style="color:#94a3b8; font-size:12px;">-</span>`;
+        }
 
         return `
           <tr class="tax-slab-row" data-slab-id="${escapeHtml(slab.id)}">
@@ -16431,12 +16632,10 @@ function bindFeatureActions() {
               <span class="tax-slab-rate-pill" style="font-weight:700;">${slab.rate}%</span>
             </td>
             <td style="text-align:center;">
-              <span class="split-pill cgst">${escapeHtml(sub1.name || "CGST")}: <strong>${sub1.rate ?? 0}%</strong></span>
+              ${sub1Markup}
             </td>
             <td style="text-align:center;">
-              ${sub2 && sub2.name ? `
-                <span class="split-pill sgst">${escapeHtml(sub2.name)}: <strong>${sub2.rate ?? 0}%</strong></span>
-              ` : `<span style="color:#94a3b8; font-size:12px;">-</span>`}
+              ${sub2Markup}
               ${extraSubTaxes.map((st) => `
                 <span class="split-pill" style="background:#e0e7ff; color:#3730a3; margin-left:4px;">${escapeHtml(st.name)}: <strong>${st.rate}%</strong></span>
               `).join("")}
@@ -16474,7 +16673,7 @@ function bindFeatureActions() {
               if (idx >= 0) {
                 currentSlabs[idx] = updatedSlab;
               }
-              currentSlabs.sort((a, b) => Number(a.rate) - Number(b.rate));
+              currentSlabs = sortTaxSlabs(currentSlabs);
               taxSlabsJson.value = JSON.stringify(currentSlabs);
               if (customTaxRatesJson) {
                 customTaxRatesJson.value = JSON.stringify(currentSlabs.map((s) => Number(s.rate)));
@@ -16506,6 +16705,7 @@ function bindFeatureActions() {
           if (!target) return;
           if (confirm(`Are you sure you want to delete "${target.name}"?`)) {
             currentSlabs = currentSlabs.filter((s) => String(s.id) !== String(slabId));
+            currentSlabs = sortTaxSlabs(currentSlabs);
             taxSlabsJson.value = JSON.stringify(currentSlabs);
             if (customTaxRatesJson) {
               customTaxRatesJson.value = JSON.stringify(currentSlabs.map((s) => Number(s.rate)));
@@ -16534,13 +16734,13 @@ function bindFeatureActions() {
         try {
           currentSlabs = JSON.parse(taxSlabsJson.value || "[]");
         } catch {}
-        const existingIdx = currentSlabs.findIndex((s) => Number(s.rate) === Number(newSlab.rate));
+        const existingIdx = currentSlabs.findIndex((s) => s.id === newSlab.id || (Number(s.rate) === Number(newSlab.rate) && s.taxType === newSlab.taxType && s.name === newSlab.name));
         if (existingIdx >= 0) {
           currentSlabs[existingIdx] = newSlab;
         } else {
           currentSlabs.push(newSlab);
         }
-        currentSlabs.sort((a, b) => Number(a.rate) - Number(b.rate));
+        currentSlabs = sortTaxSlabs(currentSlabs);
         taxSlabsJson.value = JSON.stringify(currentSlabs);
         if (customTaxRatesJson) {
           customTaxRatesJson.value = JSON.stringify(currentSlabs.map((s) => Number(s.rate)));
@@ -30071,9 +30271,10 @@ function openTaxSlabModal(slabToEdit = null, onSave = null) {
 
   const initialRate = isEditing ? slabToEdit.rate : "";
   const initialName = isEditing ? slabToEdit.name : "";
-  const initialIgstName = isEditing ? (slabToEdit.igstName || "IGST") : "IGST";
-  const initialIgst = isEditing ? slabToEdit.igst : initialRate;
   const initialCess = isEditing ? (slabToEdit.cess || 0) : 0;
+  const isIgst = isEditing && (slabToEdit.taxType === "igst" || String(slabToEdit.name).toUpperCase().startsWith("IGST"));
+  const isExempt = isEditing && (slabToEdit.taxType === "exempt" || String(slabToEdit.name).toLowerCase().includes("exempt"));
+  const isNone = isEditing && (slabToEdit.taxType === "none" || String(slabToEdit.name).toLowerCase().startsWith("none"));
 
   // Initialize Sub-Taxes array dynamically
   let subTaxesState = [];
@@ -30083,14 +30284,22 @@ function openTaxSlabModal(slabToEdit = null, onSave = null) {
       rate: Number(st.rate || 0)
     }));
   } else if (isEditing) {
-    const sub1 = slabToEdit.subTax1Name || "CGST";
-    const r1 = slabToEdit.subTax1Rate !== undefined ? Number(slabToEdit.subTax1Rate) : (slabToEdit.cgst !== undefined ? Number(slabToEdit.cgst) : Number(initialRate) / 2);
-    const sub2 = slabToEdit.subTax2Name || "SGST";
-    const r2 = slabToEdit.subTax2Rate !== undefined ? Number(slabToEdit.subTax2Rate) : (slabToEdit.sgst !== undefined ? Number(slabToEdit.sgst) : Number(initialRate) / 2);
-    subTaxesState = [
-      { name: sub1, rate: r1 },
-      { name: sub2, rate: r2 }
-    ];
+    if (isIgst) {
+      subTaxesState = [{ name: "IGST", rate: Number(initialRate || 0) }];
+    } else if (isExempt) {
+      subTaxesState = [{ name: "Exempt", rate: 0 }];
+    } else if (isNone) {
+      subTaxesState = [];
+    } else {
+      const sub1 = slabToEdit.subTax1Name || "CGST";
+      const r1 = slabToEdit.subTax1Rate !== undefined ? Number(slabToEdit.subTax1Rate) : (slabToEdit.cgst !== undefined ? Number(slabToEdit.cgst) : Number(initialRate) / 2);
+      const sub2 = slabToEdit.subTax2Name || "SGST";
+      const r2 = slabToEdit.subTax2Rate !== undefined ? Number(slabToEdit.subTax2Rate) : (slabToEdit.sgst !== undefined ? Number(slabToEdit.sgst) : Number(initialRate) / 2);
+      subTaxesState = [
+        { name: sub1, rate: r1 },
+        { name: sub2, rate: r2 }
+      ];
+    }
   } else {
     const r = parseFloat(initialRate) || 0;
     subTaxesState = [
@@ -30263,9 +30472,18 @@ function openTaxSlabModal(slabToEdit = null, onSave = null) {
     const val = parseFloat(rateInput.value);
     if (!isNaN(val)) {
       if (!userHasTypedName && nameInput) {
-        nameInput.value = val === 0 ? "None (0%)" : `GST ${val}%`;
+        if (isIgst) {
+          nameInput.value = `IGST@${val}%`;
+        } else if (isExempt) {
+          nameInput.value = "Exempt";
+        } else {
+          nameInput.value = val === 0 ? "None" : `GST@${val}%`;
+        }
       }
-      if (subTaxesState.length === 2 && subTaxesState[0].name === "CGST" && (subTaxesState[1].name === "SGST" || subTaxesState[1].name === "UTGST")) {
+      if (subTaxesState.length === 1 && subTaxesState[0].name === "IGST") {
+        subTaxesState[0].rate = val;
+        renderSubTaxRows();
+      } else if (subTaxesState.length === 2 && subTaxesState[0].name === "CGST" && (subTaxesState[1].name === "SGST" || subTaxesState[1].name === "UTGST")) {
         const half = Math.round((val / 2) * 1000) / 1000;
         const otherHalf = Math.round((val - half) * 1000) / 1000;
         subTaxesState[0].rate = half;
@@ -30297,7 +30515,18 @@ function openTaxSlabModal(slabToEdit = null, onSave = null) {
       showToast("Please enter a valid total tax rate between 0 and 100.");
       return;
     }
-    const name = nameInput.value.trim() || (rate === 0 ? "None (0%)" : `GST ${rate}%`);
+
+    const rawName = nameInput.value.trim();
+    let taxType = isEditing ? slabToEdit.taxType : undefined;
+    if (!taxType) {
+      if (rawName.toUpperCase().startsWith("IGST")) taxType = "igst";
+      else if (rawName.toLowerCase().includes("exempt")) taxType = "exempt";
+      else if (rawName.toLowerCase().startsWith("none") || rate === 0) taxType = "none";
+      else taxType = "gst";
+    }
+
+    const defaultName = taxType === "igst" ? `IGST@${rate}%` : (taxType === "exempt" ? "Exempt" : (rate === 0 ? "None" : `GST@${rate}%`));
+    const name = rawName || defaultName;
     const cess = cessEnabled ? (parseFloat(modal.querySelector("#taxSlabCessInput")?.value) || 0) : 0;
 
     const normalizedSubTaxes = subTaxesState.map((st) => ({
@@ -30305,24 +30534,27 @@ function openTaxSlabModal(slabToEdit = null, onSave = null) {
       rate: parseFloat(st.rate) || 0
     }));
 
-    const sub1 = normalizedSubTaxes[0] || { name: "CGST", rate: rate / 2 };
-    const sub2 = normalizedSubTaxes[1] || { name: "SGST", rate: rate / 2 };
+    const isIgstType = taxType === "igst";
+    const isExemptType = taxType === "exempt";
+    const sub1 = normalizedSubTaxes[0] || (isIgstType ? { name: "IGST", rate } : (isExemptType ? { name: "Exempt", rate: 0 } : { name: "CGST", rate: rate / 2 }));
+    const sub2 = normalizedSubTaxes[1] || (isIgstType || isExemptType ? null : { name: "SGST", rate: rate / 2 });
 
     const slabData = {
-      id: isEditing ? slabToEdit.id : `tax_${rate}_${Date.now()}`,
+      id: isEditing ? slabToEdit.id : `tax_${taxType}_${rate}_${Date.now()}`,
       name,
+      taxType,
       rate,
       subTaxes: normalizedSubTaxes,
       subTax1Name: sub1.name,
       subTax1Rate: sub1.rate,
-      subTax2Name: sub2.name,
-      subTax2Rate: sub2.rate,
-      cgst: sub1.rate,
-      sgst: sub2.rate,
-      igst: rate,
+      subTax2Name: sub2 ? sub2.name : "",
+      subTax2Rate: sub2 ? sub2.rate : 0,
+      cgst: isIgstType ? 0 : sub1.rate,
+      sgst: isIgstType ? 0 : (sub2 ? sub2.rate : 0),
+      igst: isIgstType ? rate : 0,
       igstName: "IGST",
       cess,
-      cessName: "CESS",
+      cessName: "Cess",
       isStandard: isEditing ? Boolean(slabToEdit.isStandard) : false,
     };
 
