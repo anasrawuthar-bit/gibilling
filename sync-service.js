@@ -134,7 +134,7 @@ class HttpSyncAdapter {
       throw Object.assign(new Error(data.error || "Sync pull failed."), { code: data.code || "SERVER_ERROR" });
     }
     const rawEvents = Array.isArray(data.changes) ? data.changes : (Array.isArray(data.events) ? data.events : []);
-    const supportedEntities = new Set(["unit", "item_category"]);
+    const supportedEntities = new Set(["unit", "units", "item_category", "item_categories", "party", "parties", "item", "items"]);
     const changes = rawEvents.map((ev) => {
       let payload = ev.payload;
       if (typeof payload === "string") {

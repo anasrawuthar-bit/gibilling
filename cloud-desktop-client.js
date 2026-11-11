@@ -29,30 +29,36 @@ class CloudLicenseManager {
     if (url) localStorage.setItem(CLOUD_STORAGE_KEYS.SERVER_URL, url.trim().replace(/\/$/, ""));
   }
 
-  static getLicense() {
+  static getStoredLicense() {
     try {
       const data = localStorage.getItem(CLOUD_STORAGE_KEYS.LICENSE);
       if (data) return JSON.parse(data);
     } catch (_) {}
+    return null;
+  }
+
+  static getLicense() {
+    const stored = this.getStoredLicense();
+    if (stored) return stored;
 
     return {
-      activated: localStorage.getItem(CLOUD_STORAGE_KEYS.ACTIVATED) === "true",
-      companyId: "default",
-      companyName: "Business Workspace",
-      email: "owner@company.com",
-      plan: "Professional",
-      validUntil: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(),
-      lastOnlineCheck: new Date().toISOString(),
-      gracePeriodDays: 14,
-      status: "active",
-      token: "zyndev_offline"
+      activated: false,
+      companyId: null,
+      companyName: "Unregistered",
+      email: null,
+      plan: "None",
+      validUntil: null,
+      lastOnlineCheck: null,
+      gracePeriodDays: 0,
+      status: "unauthenticated",
+      token: null
     };
   }
 
   static saveLicense(license) {
     if (!license) return;
-    const existing = this.getLicense();
-    const merged = { ...existing, ...license };
+    const existing = this.getStoredLicense() || {};
+    const merged = { ...existing, ...license, activated: true };
     localStorage.setItem(CLOUD_STORAGE_KEYS.LICENSE, JSON.stringify(merged));
     localStorage.setItem(CLOUD_STORAGE_KEYS.ACTIVATED, "true");
     if (merged.token && window.giDB?.configureSync) {
@@ -66,14 +72,15 @@ class CloudLicenseManager {
 
   static isActivated() {
     const val = localStorage.getItem(CLOUD_STORAGE_KEYS.ACTIVATED);
-    if (val === null) {
-      return true; // Resilience for existing local workspaces
-    }
-    return val === "true";
+    const lic = this.getStoredLicense();
+    return val === "true" && Boolean(lic && lic.token && lic.email);
   }
 
   static setActivated(val = true) {
     localStorage.setItem(CLOUD_STORAGE_KEYS.ACTIVATED, val ? "true" : "false");
+    if (!val) {
+      localStorage.removeItem(CLOUD_STORAGE_KEYS.LICENSE);
+    }
   }
 
   /**
@@ -470,8 +477,23 @@ class CloudSyncWidget {
       } else {
         if (typeof showToast === "function") showToast("Local database backup saved.", "success");
       }
+
+      const lic = CloudLicenseManager.getLicense();
+      if (lic && lic.token && navigator.onLine && window.giCloud?.uploadTenantBackup) {
+        try {
+          const cloudRes = await window.giCloud.uploadTenantBackup({
+            token: lic.token,
+            serverUrl: CloudLicenseManager.getServerUrl()
+          });
+          if (cloudRes && cloudRes.ok) {
+            if (typeof showToast === "function") showToast("Cloud backup synchronized successfully!", "success");
+          }
+        } catch (cErr) {
+          console.warn("Cloud backup upload warning:", cErr.message);
+        }
+      }
     } catch (err) {
-      if (typeof showToast === "function") showToast("Could not create local backup: " + err.message, "error");
+      if (typeof showToast === "function") showToast("Could not create backup: " + err.message, "error");
     }
   }
 }
@@ -695,6 +717,7 @@ class PinUiController {
       document.getElementById("pinSetupModal")?.classList.add("hidden");
       PinSecurityManager.disablePin();
       if (typeof showToast === "function") showToast("PIN security skipped. You can enable it in Settings anytime.");
+      window.dispatchEvent(new Event("gi-account-activated"));
     });
 
     document.getElementById("pinForgotBtn")?.addEventListener("click", () => {
@@ -828,6 +851,7 @@ class PinUiController {
           await PinSecurityManager.setPin(this.setupFirstPin);
           document.getElementById("pinSetupModal")?.classList.add("hidden");
           if (typeof showToast === "function") showToast("Security PIN configured successfully!", "success");
+          window.dispatchEvent(new Event("gi-account-activated"));
         } else {
           if (errorEl) {
             errorEl.textContent = "PINs did not match. Please start over.";
@@ -850,9 +874,18 @@ class PinUiController {
 class ActivationUiController {
   static pendingEmail = "";
 
+  static async getMachineName() {
+    try {
+      if (window.giApp?.getSystemInfo) {
+        const info = await window.giApp.getSystemInfo();
+        if (info && info.hostname) return info.hostname;
+      }
+    } catch (_) {}
+    return "Windows Desktop PC";
+  }
+
   static init() {
     const form = document.getElementById("cloudActivationForm");
-    const demoBtn = document.getElementById("activationOfflineDemoBtn");
     const advToggle = document.getElementById("activationAdvToggle");
     const serverField = document.getElementById("activationServerField");
     const regLink = document.getElementById("activationRegisterLink");
@@ -863,10 +896,6 @@ class ActivationUiController {
 
     advToggle?.addEventListener("click", () => {
       serverField?.classList.toggle("hidden");
-    });
-
-    demoBtn?.addEventListener("click", () => {
-      this.activateOfflineTrial();
     });
 
     regLink?.addEventListener("click", (e) => {
@@ -894,12 +923,28 @@ class ActivationUiController {
         CloudLicenseManager.setServerUrl(serverUrl);
         this.pendingEmail = email;
 
-        // Call initiate login via secure IPC to request 6-digit Device Verification OTP
         let data = null;
         if (window.giCloud?.initiateLogin) {
-          const result = await window.giCloud.initiateLogin({ email, password, machineName: await this.getMachineName(), serverUrl });
+          const machineName = await this.getMachineName();
+          const result = await window.giCloud.initiateLogin({ email, password, machineName, serverUrl });
           if (!result || !result.ok) {
-            throw new Error(result?.error || result?.data?.error || "Login failed. Check credentials or account approval status.");
+            const status = result?.status || result?.data?.status;
+            const code = result?.data?.code;
+            let msg = result?.error || result?.data?.error || "Login failed.";
+            if (status === "pending_approval") {
+              msg = "Your business account is pending Super Admin review. You will receive an approval email shortly.";
+            } else if (status === "pending_verification") {
+              msg = "Email address has not been verified yet. Please complete verification on the web portal.";
+            } else if (status === "rejected") {
+              msg = result?.data?.error || "Your account registration was rejected. Please contact support.";
+            } else if (status === "suspended") {
+              msg = "This business account has been suspended by the Super Admin. Please contact customer support.";
+            } else if (status === "expired") {
+              msg = "Your subscription and 14-day offline grace period have expired. Please renew your plan.";
+            } else if (code === "DEVICE_LIMIT_REACHED") {
+              msg = result?.data?.error || "Terminal device limit reached for your plan. Please revoke an unused PC from your Customer Portal.";
+            }
+            throw new Error(msg);
           }
           data = result.data || {};
         } else {
@@ -907,7 +952,6 @@ class ActivationUiController {
         }
 
         if (data.requiresVerification) {
-          // Switch to Step 2: One-Time Verification Code screen
           form.classList.add("hidden");
           const otpStep = document.getElementById("activationOtpStep");
           otpStep?.classList.remove("hidden");
@@ -915,16 +959,11 @@ class ActivationUiController {
           const targetEmailEl = document.getElementById("activationTargetEmail");
           if (targetEmailEl) targetEmailEl.textContent = email;
 
-          if (data.devOtp) {
-            const codeInput = document.getElementById("activationOtpCode");
-            if (codeInput) codeInput.value = data.devOtp;
-          }
-
           if (typeof showToast === "function") showToast("One-time authorization code sent to your email.", "info");
         }
       } catch (err) {
         if (errorEl) {
-          errorEl.textContent = err.message || "Network error. Connect to internet or try offline mode.";
+          errorEl.textContent = err.message || "Network error. Connect to internet or verify credentials.";
           errorEl.classList.remove("hidden");
         }
       } finally {
@@ -955,7 +994,8 @@ class ActivationUiController {
       try {
         let data = null;
         if (window.giCloud?.verifyDevice) {
-          const result = await window.giCloud.verifyDevice({ email: this.pendingEmail, code, machineName: await this.getMachineName(), serverUrl });
+          const machineName = await this.getMachineName();
+          const result = await window.giCloud.verifyDevice({ email: this.pendingEmail, code, machineName, serverUrl });
           if (!result || !result.ok) {
             throw new Error(result?.error || result?.data?.error || "Invalid or expired verification code.");
           }
@@ -972,19 +1012,45 @@ class ActivationUiController {
           ownerName: data.customer?.ownerName,
           email: this.pendingEmail,
           plan: data.customer?.plan || "Professional",
-          validUntil: data.customer?.validUntil || new Date(Date.now() + 365*24*60*60*1000).toISOString(),
+          validUntil: data.customer?.validUntil || new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(),
           lastOnlineCheck: new Date().toISOString(),
           gracePeriodDays: 14,
           status: "active"
         });
+
+        // Check if an existing cloud backup exists for this customer account
+        let backupStatus = null;
+        try {
+          if (window.giCloud?.getTenantBackupStatus) {
+            backupStatus = await window.giCloud.getTenantBackupStatus({
+              token: data.token,
+              serverUrl
+            });
+          }
+        } catch (bkpErr) {
+          console.warn("Could not check backup status:", bkpErr.message);
+        }
+
+        if (backupStatus && backupStatus.ok && backupStatus.hasBackup && backupStatus.latest) {
+          document.getElementById("cloudActivationModal")?.classList.add("hidden");
+          ActivationUiController.showRestorePrompt(backupStatus.latest, data.token, data.customer, serverUrl);
+          return;
+        }
+
+        // Fresh installation: Initialize local company profile from cloud account
+        if (window.giCloud?.initCompanyFromProfile && data.customer) {
+          try {
+            await window.giCloud.initCompanyFromProfile(data.customer);
+          } catch (initErr) {
+            console.warn("Auto-initializing company profile warning:", initErr.message);
+          }
+        }
 
         document.getElementById("cloudActivationModal")?.classList.add("hidden");
         if (typeof showToast === "function") showToast("PC Authorized & ZynBill Activated Successfully!", "success");
 
         CloudSyncWidget.updatePlanPill();
         CloudSyncWidget.updatePopoverDetails();
-
-        // Prompt user to configure their 4-digit PIN
         PinUiController.showSetupModal();
       } catch (err) {
         if (errorEl) {
@@ -1011,38 +1077,78 @@ class ActivationUiController {
       try {
         let data = null;
         if (window.giCloud?.initiateLogin) {
-          const result = await window.giCloud.initiateLogin({ email: this.pendingEmail, password, machineName: await this.getMachineName(), serverUrl });
+          const machineName = await this.getMachineName();
+          const result = await window.giCloud.initiateLogin({ email: this.pendingEmail, password, machineName, serverUrl });
           if (result && result.ok && result.data) data = result.data;
-        }
-        if (data && data.ok && data.devOtp) {
-          const codeInput = document.getElementById("activationOtpCode");
-          if (codeInput) codeInput.value = data.devOtp;
         }
         if (typeof showToast === "function") showToast("Fresh verification code sent to your email.", "success");
       } catch (_) {}
     });
   }
 
-  static activateOfflineTrial() {
-    CloudLicenseManager.saveLicense({
-      activated: true,
-      companyId: "offline-demo",
-      companyName: "Local Business Workspace",
-      email: "demo@local.zynbill",
-      plan: "Offline Enterprise",
-      validUntil: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
-      lastOnlineCheck: new Date().toISOString(),
-      gracePeriodDays: 14,
-      status: "active",
-      token: "zyndev_demo"
-    });
+  static showRestorePrompt(latestBackup, token, customer, serverUrl) {
+    const modal = document.getElementById("cloudRestoreModal");
+    if (!modal) {
+      PinUiController.showSetupModal();
+      return;
+    }
 
-    document.getElementById("cloudActivationModal")?.classList.add("hidden");
-    if (typeof showToast === "function") showToast("Offline mode enabled. Welcome to ZynBill!", "success");
+    const compEl = document.getElementById("restoreCompanyName");
+    const dateEl = document.getElementById("restoreBackupDate");
+    const sizeEl = document.getElementById("restoreBackupSize");
+    const countsEl = document.getElementById("restoreRecordCounts");
 
-    CloudSyncWidget.updatePlanPill();
-    CloudSyncWidget.updatePopoverDetails();
-    PinUiController.showSetupModal();
+    if (compEl) compEl.textContent = latestBackup.companyName || customer?.companyName || "Your Business Workspace";
+    if (dateEl) dateEl.textContent = latestBackup.timestamp ? new Date(latestBackup.timestamp).toLocaleString() : "Recent";
+    if (sizeEl) sizeEl.textContent = `${((latestBackup.sizeBytes || 0) / 1024).toFixed(1)} KB`;
+
+    if (countsEl && latestBackup.recordCounts) {
+      const parts = [];
+      if (latestBackup.recordCounts.invoices !== undefined) parts.push(`${latestBackup.recordCounts.invoices} Invoices`);
+      if (latestBackup.recordCounts.parties !== undefined) parts.push(`${latestBackup.recordCounts.parties} Parties`);
+      if (latestBackup.recordCounts.items !== undefined) parts.push(`${latestBackup.recordCounts.items} Items`);
+      if (latestBackup.recordCounts.payments !== undefined) parts.push(`${latestBackup.recordCounts.payments} Payments`);
+      countsEl.textContent = parts.length ? parts.join(", ") : "Complete Database Records";
+    }
+
+    const confirmBtn = document.getElementById("btnConfirmRestoreCloud");
+    const skipBtn = document.getElementById("btnSkipRestoreCloud");
+
+    if (confirmBtn) {
+      confirmBtn.onclick = async () => {
+        confirmBtn.disabled = true;
+        confirmBtn.textContent = "Restoring Business Data...";
+        try {
+          if (window.giCloud?.restoreTenantBackup) {
+            const res = await window.giCloud.restoreTenantBackup({ token, serverUrl });
+            if (!res || !res.ok) throw new Error(res?.error || "Restore failed.");
+          }
+          modal.classList.add("hidden");
+          if (typeof showToast === "function") showToast("Business data successfully restored on this computer!", "success");
+          CloudSyncWidget.updatePlanPill();
+          CloudSyncWidget.updatePopoverDetails();
+          PinUiController.showSetupModal();
+        } catch (err) {
+          alert("Could not restore backup: " + err.message);
+          confirmBtn.disabled = false;
+          confirmBtn.textContent = "Retry Restore";
+        }
+      };
+    }
+
+    if (skipBtn) {
+      skipBtn.onclick = async () => {
+        modal.classList.add("hidden");
+        if (window.giCloud?.initCompanyFromProfile && customer) {
+          try { await window.giCloud.initCompanyFromProfile(customer); } catch (_) {}
+        }
+        CloudSyncWidget.updatePlanPill();
+        CloudSyncWidget.updatePopoverDetails();
+        PinUiController.showSetupModal();
+      };
+    }
+
+    modal.classList.remove("hidden");
   }
 
   static showActivationModal(force = false) {
@@ -1070,7 +1176,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   }
 
   if (!CloudLicenseManager.isActivated()) {
-    ActivationUiController.showActivationModal();
+    ActivationUiController.showActivationModal(true);
   } else if (PinSecurityManager.isPinEnabled()) {
     PinUiController.showLockScreen();
   }

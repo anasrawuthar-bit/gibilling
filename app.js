@@ -666,6 +666,15 @@ async function initApp() {
     }
 
     renderCompanyList();
+
+    // Check account authorization status: Never automatically enter demo or bypass login
+    if (typeof CloudLicenseManager !== "undefined" && !CloudLicenseManager.isActivated()) {
+      if (typeof ActivationUiController !== "undefined") {
+        ActivationUiController.showActivationModal(true);
+      }
+      return;
+    }
+
     const activeCompany = (state.companies || []).find((company) =>
       company.name === state.activeCompany || Boolean(company.isCurrent),
     );
@@ -679,13 +688,28 @@ async function initApp() {
   }
 }
 
+window.addEventListener("gi-account-activated", async () => {
+  if (window.giDB) {
+    try {
+      state = normalizeState(await window.giDB.getState());
+    } catch (_) {}
+  }
+  renderCompanyList();
+  const activeCompany = (state.companies || []).find((company) =>
+    company.name === state.activeCompany || Boolean(company.isCurrent),
+  );
+  if (activeCompany?.name) {
+    enterAppShell();
+  } else {
+    showCompanyScreen();
+  }
+});
+
 function loadState() {
   const fallback = {
-    activeCompany: "testt",
+    activeCompany: "",
     country: "",
-    companies: [
-      { name: "testt", isCurrent: 1 },
-    ],
+    companies: [],
     transactions: [],
     invoices: [],
     invoiceItems: [],
@@ -735,7 +759,7 @@ function normalizeState(nextState) {
   const defaultSettings = defaultBusinessSettings();
   const nextSettings = nextState?.businessSettings || {};
   const normalized = {
-    activeCompany: "testt",
+    activeCompany: nextState?.activeCompany || (nextState?.companies?.[0]?.name || ""),
     country: "",
     companies: [],
     transactions: [],

@@ -108,4 +108,8 @@ contextBridge.exposeInMainWorld("giCloud", {
   verifyPinReset: (payload) => ipcRenderer.invoke("cloud:pin-reset-verify", payload),
   checkUpdates: (options) => ipcRenderer.invoke("cloud:check-updates", options),
   validateLicense: (options) => ipcRenderer.invoke("cloud:validate-license", options),
+  uploadTenantBackup: (options) => ipcRenderer.invoke("cloud:upload-tenant-backup", options),
+  getTenantBackupStatus: (options) => ipcRenderer.invoke("cloud:get-tenant-backup-status", options),
+  restoreTenantBackup: (options) => ipcRenderer.invoke("cloud:restore-tenant-backup", options),
+  initCompanyFromProfile: (profile) => ipcRenderer.invoke("db:init-company-from-profile", profile),
 });

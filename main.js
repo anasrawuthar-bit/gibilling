@@ -597,6 +597,7 @@ function registerDatabaseHandlers() {
   ipcMain.handle("db:update-user", (_event, payload) => database.updateUser(payload));
   ipcMain.handle("db:delete-user", (_event, payload) => database.deleteUser(payload));
   ipcMain.handle("db:get-audit-trail", (_event, filter) => database.getAuditTrail(filter));
+  ipcMain.handle("db:init-company-from-profile", (_event, profile) => database.initializeCompanyFromCloudProfile(profile));
   ipcMain.handle("db:set-current-company", (_event, name) => database.setCurrentCompany(name));
   ipcMain.handle("db:set-country", (_event, country) => database.setCountry(country));
   ipcMain.handle("db:update-business-settings", (_event, settings) => database.updateBusinessSettings(settings));
@@ -1495,6 +1496,74 @@ function registerCloudHandlers() {
       headers: { "Authorization": `Bearer ${options.token.trim()}` },
       timeoutMs: 5000
     }, options.serverUrl);
+  });
+
+  ipcMain.handle("cloud:upload-tenant-backup", async (_event, options = {}) => {
+    try {
+      const token = options.token || "";
+      if (!token) return { ok: false, error: "Authentication token required." };
+      const buffer = database.exportDatabaseBuffer();
+      const activeCompany = database.getCurrentCompany ? database.getCurrentCompany() : null;
+      const res = await safeCloudFetch("/api/v1/tenant/backup/upload", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${token}`,
+          "Content-Type": "application/json"
+        },
+        body: {
+          backupData: buffer.toString("base64"),
+          companyName: activeCompany?.name || "Business",
+          schemaVersion: 9
+        },
+        timeoutMs: 60000
+      }, options.serverUrl);
+      return res.data || res;
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle("cloud:get-tenant-backup-status", async (_event, options = {}) => {
+    try {
+      const token = options.token || "";
+      if (!token) return { ok: false, error: "Authentication token required." };
+      const res = await safeCloudFetch("/api/v1/tenant/backup/status", {
+        method: "GET",
+        headers: { "Authorization": `Bearer ${token}` },
+        timeoutMs: 10000
+      }, options.serverUrl);
+      return res.data || res;
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle("cloud:restore-tenant-backup", async (_event, options = {}) => {
+    try {
+      const token = options.token || "";
+      if (!token) return { ok: false, error: "Authentication token required." };
+      const res = await safeCloudFetch("/api/v1/tenant/backup/latest?format=json", {
+        method: "GET",
+        headers: { "Authorization": `Bearer ${token}` },
+        timeoutMs: 60000
+      }, options.serverUrl);
+
+      if (!res.ok || !res.data?.ok || !res.data?.backupData) {
+        return { ok: false, error: res.data?.error || res.error || "Failed to download cloud backup." };
+      }
+
+      const backupBuffer = Buffer.from(res.data.backupData, "base64");
+      const userDataPath = app.getPath("userData");
+      const tempRestorePath = path.join(userDataPath, `cloud_restore_${Date.now()}.sqlite`);
+      fs.writeFileSync(tempRestorePath, backupBuffer);
+
+      await database.restoreBackup(tempRestorePath, { userDataPath });
+      try { fs.unlinkSync(tempRestorePath); } catch (_) {}
+
+      return { ok: true, message: "Cloud backup successfully restored.", recordCounts: res.data.recordCounts };
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
   });
 }
 

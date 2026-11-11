@@ -163,6 +163,20 @@ masterDb.exec(`
     updated_at TEXT NOT NULL
   );
 
+  CREATE TABLE IF NOT EXISTS tenant_backups (
+    id TEXT PRIMARY KEY,
+    customer_id TEXT NOT NULL,
+    filename TEXT NOT NULL,
+    size_bytes INTEGER NOT NULL,
+    schema_version INTEGER DEFAULT 9,
+    company_name TEXT,
+    checksum TEXT,
+    record_counts TEXT,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY(customer_id) REFERENCES customers(id) ON DELETE CASCADE
+  );
+  CREATE INDEX IF NOT EXISTS idx_tenant_backups_cust_date ON tenant_backups(customer_id, created_at DESC);
+
   CREATE TABLE IF NOT EXISTS error_logs (
     id TEXT PRIMARY KEY,
     source TEXT NOT NULL,         -- 'server', 'desktop_client', 'sync_engine', 'auth', 'database'
@@ -593,6 +607,13 @@ function getTenantDbPath(customerId) {
   return path.join(TENANTS_DIR, `tenant_${sanitized}.sqlite`);
 }
 
+function getTenantBackupsDir(customerId) {
+  const sanitized = customerId.replace(/[^a-zA-Z0-9_-]/g, '_');
+  const dir = path.join(TENANTS_DIR, sanitized, 'backups');
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
 function getTenantDb(customerId) {
   if (tenantDbCache.has(customerId)) {
     return tenantDbCache.get(customerId);
@@ -640,6 +661,19 @@ function getTenantDb(customerId) {
       purchase_price REAL DEFAULT 0,
       tax_rate REAL DEFAULT 0,
       stock_qty REAL DEFAULT 0,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS units (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      code TEXT,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS item_categories (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
 
@@ -1259,5 +1293,6 @@ module.exports = {
   listCloudBackups,
   verifyAndInspectBackup,
   restoreBackupToSandbox,
-  getCanonicalPath
+  getCanonicalPath,
+  getTenantBackupsDir
 };

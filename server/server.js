@@ -9,6 +9,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const url = require('node:url');
 const crypto = require('node:crypto');
+const { DatabaseSync } = require('node:sqlite');
 
 const {
   masterDb,
@@ -37,7 +38,8 @@ const {
   backupAllTenantDbs,
   listCloudBackups,
   verifyAndInspectBackup,
-  restoreBackupToSandbox
+  restoreBackupToSandbox,
+  getTenantBackupsDir
 } = require('./db');
 const smtp = require('./smtp');
 
@@ -144,6 +146,27 @@ async function parseJsonBody(req, maxBytes = 10 * 1024 * 1024) {
       } catch (err) {
         reject(new Error('Malformed JSON body: ' + err.message));
       }
+    });
+    req.on('error', (err) => {
+      reject(err);
+    });
+  });
+}
+
+async function parseBufferBody(req, maxBytes = 100 * 1024 * 1024) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    let bytes = 0;
+    req.on('data', (chunk) => {
+      bytes += chunk.length;
+      if (bytes > maxBytes) {
+        req.destroy();
+        return reject(new Error('Payload exceeded maximum size limit (100MB).'));
+      }
+      chunks.push(chunk);
+    });
+    req.on('end', () => {
+      resolve(Buffer.concat(chunks));
     });
     req.on('error', (err) => {
       reject(err);
@@ -766,8 +789,6 @@ const server = http.createServer(async (req, res) => {
       });
     }
 
-    masterDb.prepare('UPDATE otps SET verified = 1 WHERE id = ?').run(otpRecord.id);
-
     const customer = masterDb.prepare('SELECT * FROM customers WHERE email = ?').get(cleanEmail);
     if (!customer) return sendJson(res, 404, { ok: false, error: 'Customer not found.' });
 
@@ -783,6 +804,8 @@ const server = http.createServer(async (req, res) => {
         code: 'DEVICE_LIMIT_REACHED'
       });
     }
+
+    masterDb.prepare('UPDATE otps SET verified = 1 WHERE id = ?').run(otpRecord.id);
 
     // Issue Device Token
     const token = generateToken('zyndev_');
@@ -2638,6 +2661,203 @@ const server = http.createServer(async (req, res) => {
     return { ok: true, customer, device };
   }
 
+  // ── Tenant Cloud Database Backup & Device Migration Endpoints ──
+
+  // 1. Upload Full SQLite Database Snapshot from Desktop Client
+  if (req.method === 'POST' && pathname === '/api/v1/tenant/backup/upload') {
+    const token = getBearerToken(req);
+    const auth = validateTenantSyncEligibility(token);
+    if (!auth.ok) return sendJson(res, auth.status, { ok: false, error: auth.error });
+
+    const { customer, device } = auth;
+    let backupBuffer = null;
+    let companyName = (req.headers['x-company-name'] ? decodeURIComponent(req.headers['x-company-name']) : '') || customer.company_name;
+    let schemaVersion = parseInt(req.headers['x-schema-version'] || '9', 10);
+
+    const contentType = req.headers['content-type'] || '';
+    if (contentType.includes('application/json')) {
+      const body = await parseJsonBody(req, 100 * 1024 * 1024);
+      if (body.companyName) companyName = body.companyName;
+      if (body.schemaVersion) schemaVersion = parseInt(body.schemaVersion, 10);
+      if (!body.backupData) {
+        return sendJson(res, 400, { ok: false, error: 'Missing backupData payload.' });
+      }
+      backupBuffer = Buffer.from(body.backupData, 'base64');
+    } else {
+      backupBuffer = await parseBufferBody(req, 100 * 1024 * 1024);
+    }
+
+    if (!backupBuffer || backupBuffer.length < 512) {
+      return sendJson(res, 400, { ok: false, error: 'Invalid or empty backup file.' });
+    }
+
+    // Verify SQLite magic header: "SQLite format 3\0"
+    const header = backupBuffer.subarray(0, 16).toString('utf8');
+    if (!header.startsWith('SQLite format 3')) {
+      return sendJson(res, 400, { ok: false, error: 'Uploaded file is not a valid SQLite database format.' });
+    }
+
+    // Sandbox integrity inspection before saving
+    const tempBackupPath = path.join(STAGING_DIR, `temp_upload_${customer.id}_${Date.now()}.sqlite`);
+    let recordCounts = {};
+    try {
+      fs.writeFileSync(tempBackupPath, backupBuffer);
+      const testDb = new DatabaseSync(tempBackupPath);
+      const integrityRow = testDb.prepare("PRAGMA integrity_check;").get();
+      const integrityStatus = integrityRow?.integrity_check || Object.values(integrityRow || {})[0];
+      if (integrityStatus !== 'ok') {
+        throw new Error('SQLite database integrity check failed: ' + integrityStatus);
+      }
+
+      // Read summary stats
+      try { recordCounts.invoices = testDb.prepare("SELECT COUNT(*) as c FROM invoices").get()?.c || 0; } catch (_) {}
+      try { recordCounts.parties = testDb.prepare("SELECT COUNT(*) as c FROM parties").get()?.c || 0; } catch (_) {}
+      try { recordCounts.items = testDb.prepare("SELECT COUNT(*) as c FROM items").get()?.c || 0; } catch (_) {}
+      try { recordCounts.payments = testDb.prepare("SELECT COUNT(*) as c FROM payments").get()?.c || 0; } catch (_) {}
+      try { recordCounts.ledger = testDb.prepare("SELECT COUNT(*) as c FROM ledger_entries").get()?.c || 0; } catch (_) {}
+      testDb.close();
+    } catch (testErr) {
+      try { fs.unlinkSync(tempBackupPath); } catch (_) {}
+      return sendJson(res, 400, { ok: false, error: 'Database verification failed: ' + testErr.message });
+    }
+
+    // Move to tenant backups directory
+    const tenantBackupsDir = getTenantBackupsDir(customer.id);
+    const nowIso = new Date().toISOString();
+    const backupId = 't_bkp_' + crypto.randomBytes(8).toString('hex');
+    const safeTimestamp = nowIso.replace(/[:.]/g, '-');
+    const finalFilename = `tenant_backup_${safeTimestamp}.sqlite`;
+    const finalPath = path.join(tenantBackupsDir, finalFilename);
+    const latestPath = path.join(tenantBackupsDir, 'latest_backup.sqlite');
+
+    try {
+      fs.renameSync(tempBackupPath, finalPath);
+      fs.copyFileSync(finalPath, latestPath);
+    } catch (mvErr) {
+      try {
+        fs.copyFileSync(tempBackupPath, finalPath);
+        fs.copyFileSync(finalPath, latestPath);
+        fs.unlinkSync(tempBackupPath);
+      } catch (_) {}
+    }
+
+    // SHA-256 Checksum
+    const checksum = crypto.createHash('sha256').update(backupBuffer).digest('hex');
+
+    // Record in masterDb
+    masterDb.prepare(`
+      INSERT INTO tenant_backups (id, customer_id, filename, size_bytes, schema_version, company_name, checksum, record_counts, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(backupId, customer.id, finalFilename, backupBuffer.length, schemaVersion, companyName, checksum, JSON.stringify(recordCounts), nowIso);
+
+    return sendJson(res, 200, {
+      ok: true,
+      backupId,
+      timestamp: nowIso,
+      sizeBytes: backupBuffer.length,
+      recordCounts,
+      message: 'Cloud backup successfully uploaded and verified.'
+    });
+  }
+
+  // 2. Download Latest SQLite Database Snapshot for Tenant
+  if (req.method === 'GET' && pathname === '/api/v1/tenant/backup/latest') {
+    const token = getBearerToken(req);
+    const auth = validateTenantSyncEligibility(token);
+    if (!auth.ok) return sendJson(res, auth.status, { ok: false, error: auth.error });
+
+    const { customer } = auth;
+    const tenantBackupsDir = getTenantBackupsDir(customer.id);
+    const latestPath = path.join(tenantBackupsDir, 'latest_backup.sqlite');
+
+    if (!fs.existsSync(latestPath)) {
+      return sendJson(res, 404, { ok: false, error: 'No cloud database backup found for this account.' });
+    }
+
+    const latestMeta = masterDb.prepare('SELECT * FROM tenant_backups WHERE customer_id = ? ORDER BY created_at DESC LIMIT 1').get(customer.id);
+
+    if (query.format === 'json') {
+      const data = fs.readFileSync(latestPath);
+      return sendJson(res, 200, {
+        ok: true,
+        backupData: data.toString('base64'),
+        sizeBytes: data.length,
+        timestamp: latestMeta?.created_at || new Date().toISOString(),
+        companyName: latestMeta?.company_name || customer.company_name,
+        recordCounts: latestMeta?.record_counts ? JSON.parse(latestMeta.record_counts) : {}
+      });
+    }
+
+    // Binary download
+    const stat = fs.statSync(latestPath);
+    res.writeHead(200, {
+      'Content-Type': 'application/x-sqlite3',
+      'Content-Length': stat.size,
+      'Content-Disposition': 'attachment; filename="zynbill-tenant-backup.sqlite"',
+      'x-company-name': encodeURIComponent(latestMeta?.company_name || customer.company_name || ''),
+      'x-backup-timestamp': latestMeta?.created_at || '',
+      'Access-Control-Allow-Origin': res._corsOrigin || '*'
+    });
+    fs.createReadStream(latestPath).pipe(res);
+    return;
+  }
+
+  // 3. Check Tenant Cloud Backup Status
+  if (req.method === 'GET' && pathname === '/api/v1/tenant/backup/status') {
+    const token = getBearerToken(req);
+    const auth = validateTenantSyncEligibility(token);
+    if (!auth.ok) return sendJson(res, auth.status, { ok: false, error: auth.error });
+
+    const { customer } = auth;
+    const tenantBackupsDir = getTenantBackupsDir(customer.id);
+    const latestPath = path.join(tenantBackupsDir, 'latest_backup.sqlite');
+    const hasBackupFile = fs.existsSync(latestPath);
+
+    const latestMeta = masterDb.prepare('SELECT * FROM tenant_backups WHERE customer_id = ? ORDER BY created_at DESC LIMIT 1').get(customer.id);
+
+    let parsedCounts = {};
+    if (latestMeta?.record_counts) {
+      try { parsedCounts = JSON.parse(latestMeta.record_counts); } catch (_) {}
+    }
+
+    return sendJson(res, 200, {
+      ok: true,
+      hasBackup: Boolean(hasBackupFile && latestMeta),
+      latest: latestMeta ? {
+        id: latestMeta.id,
+        timestamp: latestMeta.created_at,
+        sizeBytes: latestMeta.size_bytes,
+        companyName: latestMeta.company_name,
+        recordCounts: parsedCounts
+      } : null
+    });
+  }
+
+  // 4. List Tenant Backups
+  if (req.method === 'GET' && pathname === '/api/v1/tenant/backup/list') {
+    const token = getBearerToken(req);
+    const auth = validateTenantSyncEligibility(token);
+    if (!auth.ok) return sendJson(res, auth.status, { ok: false, error: auth.error });
+
+    const { customer } = auth;
+    const rows = masterDb.prepare('SELECT id, size_bytes, schema_version, company_name, record_counts, created_at FROM tenant_backups WHERE customer_id = ? ORDER BY created_at DESC LIMIT 20').all(customer.id);
+
+    const backups = rows.map((r) => {
+      let counts = {};
+      try { counts = JSON.parse(r.record_counts || '{}'); } catch (_) {}
+      return {
+        id: r.id,
+        sizeBytes: r.size_bytes,
+        schemaVersion: r.schema_version,
+        companyName: r.company_name,
+        recordCounts: counts,
+        timestamp: r.created_at
+      };
+    });
+
+    return sendJson(res, 200, { ok: true, backups });
+  }
+
   // Push Changes from Desktop Client to Cloud Tenant Database
   if (req.method === 'POST' && pathname === '/api/v1/sync/push') {
     const token = getBearerToken(req);
@@ -2730,6 +2950,25 @@ const server = http.createServer(async (req, res) => {
               stock_qty = excluded.stock_qty,
               updated_at = excluded.updated_at
           `).run(item.id || entityId, item.name || 'Item', item.sku || '', item.category || '', item.sale_price || item.salePrice || 0, item.purchase_price || item.purchasePrice || 0, item.tax_rate || item.taxRate || 0, item.stock_qty || item.stockQty || 0, nowIso);
+        } else if ((entityType === 'units' || entityType === 'unit') && parsedPayload) {
+          const u = parsedPayload;
+          tenantDb.prepare(`
+            INSERT INTO units (id, name, code, updated_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+              name = excluded.name,
+              code = excluded.code,
+              updated_at = excluded.updated_at
+          `).run(u.id || entityId, u.name || 'Unit', u.code || '', nowIso);
+        } else if ((entityType === 'item_categories' || entityType === 'item_category') && parsedPayload) {
+          const c = parsedPayload;
+          tenantDb.prepare(`
+            INSERT INTO item_categories (id, name, updated_at)
+            VALUES (?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+              name = excluded.name,
+              updated_at = excluded.updated_at
+          `).run(c.id || entityId, c.name || 'Category', nowIso);
         }
 
         // Commit savepoint

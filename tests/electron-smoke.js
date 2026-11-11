@@ -17,6 +17,8 @@ app.whenReady().then(async () => {
     ipcMain.handle("db:get-state", () => database.getState());
     ipcMain.handle("db:set-current-company", (_event, name) => database.setCurrentCompany(name));
     ipcMain.handle("db:preview-next-invoice-number", (_event, type, docDate) => database.previewNextInvoiceNumber(type, docDate));
+    ipcMain.handle("whatsapp:get-status", () => ({ ready: false, authenticated: false }));
+    ipcMain.handle("cloud:check-health", () => ({ reachable: false }));
 
     const window = new BrowserWindow({
       width: 1400,
@@ -38,7 +40,17 @@ app.whenReady().then(async () => {
     });
 
     await window.loadFile(path.join(__dirname, "..", "index.html"));
-    await new Promise((resolve) => setTimeout(resolve, 250));
+    await window.webContents.executeJavaScript(`
+      localStorage.setItem('zynbill_device_activated', 'true');
+      localStorage.setItem('zynbill_license_cache', JSON.stringify({
+        token: 'smoke_test_token',
+        email: 'smoke@zynbill.com',
+        plan: 'Professional',
+        status: 'active'
+      }));
+      window.dispatchEvent(new Event('gi-account-activated'));
+    `);
+    await new Promise((resolve) => setTimeout(resolve, 350));
 
     const initial = await window.webContents.executeJavaScript(`({
       companyVisible: !document.getElementById("companyScreen").classList.contains("hidden"),

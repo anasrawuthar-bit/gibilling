@@ -8017,6 +8017,85 @@ function getBackupHistory(userDataPath) {
   }
 }
 
+function exportDatabaseBuffer() {
+  if (!db || typeof db.export !== "function") {
+    throw new Error("Database is not initialized or does not support binary export.");
+  }
+  return Buffer.from(db.export());
+}
+
+function initializeCompanyFromCloudProfile(profile = {}) {
+  const companyName = String(profile.companyName || profile.company_name || profile.name || "").trim();
+  if (!companyName) {
+    throw new Error("Company name is required to initialize business profile.");
+  }
+
+  return inDatabaseTransaction(() => {
+    let company = one("SELECT id, name FROM companies WHERE LOWER(name) = LOWER(?)", [companyName]);
+    if (!company) {
+      const defaultTestt = one("SELECT id, name FROM companies WHERE name = 'testt' LIMIT 1");
+      if (defaultTestt) {
+        let txCount = 0;
+        let invCount = 0;
+        try { txCount = one("SELECT COUNT(*) as c FROM transactions WHERE company_id = ?", [defaultTestt.id])?.c || 0; } catch (_) {}
+        try { invCount = one("SELECT COUNT(*) as c FROM invoices WHERE company_id = ?", [defaultTestt.id])?.c || 0; } catch (_) {}
+        if (txCount === 0 && invCount === 0) {
+          run("UPDATE companies SET name = ?, email = ?, country = ?, is_current = 1 WHERE id = ?", [
+            companyName,
+            String(profile.email || ""),
+            String(profile.country || "India"),
+            defaultTestt.id,
+          ]);
+          company = { id: defaultTestt.id, name: companyName };
+        }
+      }
+    }
+
+    if (!company) {
+      createCompany({
+        businessName: companyName,
+        legalName: profile.ownerName || profile.owner_name || companyName,
+        gstin: profile.gstin || "",
+        state: profile.state || "Kerala",
+        country: profile.country || "India",
+        phone: profile.phone || "",
+        email: profile.email || "",
+        address: profile.address || "",
+        pincode: profile.pincode || "",
+      });
+      company = one("SELECT id, name FROM companies WHERE LOWER(name) = LOWER(?)", [companyName]);
+    }
+
+    if (company?.id) {
+      run("UPDATE companies SET is_current = 1 WHERE id = ?", [company.id]);
+      run("UPDATE companies SET is_current = 0 WHERE id <> ?", [company.id]);
+
+      const settings = {
+        businessName: companyName,
+        legalName: profile.ownerName || profile.owner_name || companyName,
+        gstin: profile.gstin || "",
+        state: profile.state || "Kerala",
+        phone: profile.phone || "",
+        email: profile.email || "",
+        address: profile.address || "",
+        pincode: profile.pincode || "",
+      };
+      Object.entries(settings).forEach(([k, v]) => {
+        if (v) {
+          run("INSERT OR REPLACE INTO company_settings (company_id, key, value) VALUES (?, ?, ?)", [
+            company.id,
+            k,
+            String(v),
+          ]);
+        }
+      });
+    }
+
+    persist();
+    return getState();
+  });
+}
+
 module.exports = {
   initDatabase,
   getDatabasePath,
@@ -8100,4 +8179,6 @@ module.exports = {
   createDailyAutomatedBackupAsync,
   getActiveBackupPromise,
   getBackupHistory,
+  exportDatabaseBuffer,
+  initializeCompanyFromCloudProfile,
 };

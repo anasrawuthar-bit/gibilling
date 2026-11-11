@@ -92,6 +92,11 @@ async function sendMail({ to, subject, html, text }) {
 
   const config = getActiveSmtpConfig();
 
+  // In test environment or simulated mode, do not open external network sockets
+  if (process.env.NODE_ENV === 'test' || process.env.SIMULATE_SMTP === 'true') {
+    return { ok: true, delivered: false, simulated: true };
+  }
+
   // If live SMTP credentials are configured, send via network socket
   if (config.host && config.user && config.pass) {
     try {
