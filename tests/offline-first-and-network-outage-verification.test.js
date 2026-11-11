@@ -131,6 +131,20 @@ async function runOfflineVerification() {
   assert.strictEqual(CloudLicenseManager.isActivated(), true, "Must NOT force logout on network outage");
   console.log("  ✓ Network failures during sync do NOT log out or lock the user");
 
+  // 2d: Simulate WiFi connected (navigator.onLine = true) but cloud backend is down/unreachable
+  global.navigator.onLine = true;
+  global.window.giCloud = {
+    validateLicense: async () => ({
+      ok: false,
+      status: 0,
+      error: "Network error communicating with cloud server. Connection refused."
+    })
+  };
+  const serverDownResult = await CloudLicenseManager.syncLicenseWithServer();
+  assert.ok(serverDownResult, "Must retain license when server is down/unreachable");
+  assert.strictEqual(CloudLicenseManager.isActivated(), true, "Must NOT show activation screen when server is unreachable");
+  console.log("  ✓ Server connection loss / backend down preserves local license without activation prompt");
+
   // -------------------------------------------------------------------------
   // TEST 3: Pure Local SQLite Billing & Inventory Operations While Offline
   // -------------------------------------------------------------------------

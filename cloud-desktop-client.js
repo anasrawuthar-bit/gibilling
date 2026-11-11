@@ -214,27 +214,33 @@ class CloudLicenseManager {
       let data = null;
       let status = 200;
       let ok = true;
+      let result = null;
       if (window.giCloud?.validateLicense) {
-        const result = await window.giCloud.validateLicense({ serverUrl: sUrl, token: license.token });
+        result = await window.giCloud.validateLicense({ serverUrl: sUrl, token: license.token });
         if (result) {
-          ok = result.ok;
-          status = result.status || (result.data && result.data.status) || (ok ? 200 : 400);
+          ok = Boolean(result.ok);
+          status = typeof result.status === "number" ? result.status : (typeof result.data?.status === "number" ? result.data.status : (ok ? 200 : 0));
           data = result.data || result;
         }
       }
 
-      const isRevokedOrSuspended = !ok || (data && (
-        !data.ok ||
-        status === 401 ||
-        status === 403 ||
+      // Offline-First Protection:
+      // Network failure, DNS error, timeout, server down, or status 0 / 5xx MUST NEVER log the user out!
+      // Local activation and full offline billing capability remain 100% active.
+      if (!result || status === 0 || (!ok && (status === 0 || status >= 500))) {
+        return license;
+      }
+
+      // Explicit revocation / suspension ONLY if the server is reached and explicitly responds with 401/403 or suspended status
+      const isRevokedOrSuspended = (status === 401 || status === 403) || (data && (
         data.status === 401 ||
         data.status === 403 ||
-        data.error?.includes("suspended") ||
-        data.error?.includes("revoked") ||
-        data.error?.includes("rejected") ||
-        data.error?.includes("Invalid") ||
-        data.error?.includes("not found") ||
-        (data.license && (data.license.status === "suspended" || data.license.status === "rejected"))
+        data.error?.toLowerCase().includes("suspended") ||
+        data.error?.toLowerCase().includes("revoked") ||
+        data.error?.toLowerCase().includes("rejected") ||
+        data.error?.toLowerCase().includes("invalid token") ||
+        data.error?.toLowerCase().includes("account not found") ||
+        (data.license && (data.license.status === "suspended" || data.license.status === "rejected" || data.license.status === "revoked"))
       ));
 
       if (isRevokedOrSuspended) {
@@ -258,7 +264,7 @@ class CloudLicenseManager {
         return this.getLicense();
       }
     } catch (err) {
-      console.warn("License sync error:", err);
+      console.warn("License sync error (offline/unreachable):", err);
     }
     return license;
   }
