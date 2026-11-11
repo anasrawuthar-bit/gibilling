@@ -15,6 +15,8 @@ const CLOUD_STORAGE_KEYS = {
   PIN_ENABLED: "zynbill_pin_enabled",
   PIN_HASH: "zynbill_pin_hash",
   PIN_SALT: "zynbill_pin_salt",
+  PIN_ATTEMPTS: "zynbill_pin_failed_attempts",
+  PIN_LOCKOUT_UNTIL: "zynbill_pin_lockout_until",
   LAST_SYNC: "zynbill_last_sync_timestamp",
   SERVER_URL: "zynbill_cloud_server_url"
 };
@@ -89,10 +91,31 @@ class CloudLicenseManager {
    */
   static checkGracePeriod() {
     const license = this.getLicense();
-    if (!license || !license.validUntil) return { isOverdue: false, inGracePeriod: false, daysRemaining: 14 };
+    if (!license || !license.validUntil) {
+      return { isOverdue: true, inGracePeriod: false, daysRemaining: 0, error: "Missing license data." };
+    }
 
     const now = Date.now();
     const expiry = new Date(license.validUntil).getTime();
+    if (isNaN(expiry)) {
+      return { isOverdue: true, inGracePeriod: false, daysRemaining: 0, error: "Corrupted license expiration timestamp." };
+    }
+
+    // Monotonicity / Clock-tampering check:
+    // If system clock is earlier than lastOnlineCheck (with 1-minute tolerance for micro jitter)
+    if (license.lastOnlineCheck) {
+      const lastCheck = new Date(license.lastOnlineCheck).getTime();
+      if (!isNaN(lastCheck) && now < lastCheck - 60000) {
+        return {
+          isOverdue: true,
+          inGracePeriod: false,
+          daysRemaining: 0,
+          clockTampered: true,
+          error: "System clock anomaly detected. Current date is earlier than last recorded online verification."
+        };
+      }
+    }
+
     const overdueMs = now - expiry;
 
     if (overdueMs <= 0) {
@@ -145,9 +168,9 @@ class CloudLicenseManager {
 
     try {
       let data = null;
-      if (window.giCloud?.checkHealth) {
-        const result = await window.giCloud.checkHealth({ serverUrl: sUrl, token: license.token });
-        if (result && result.ok && result.data) data = result.data;
+      if (window.giCloud?.validateLicense) {
+        const result = await window.giCloud.validateLicense({ serverUrl: sUrl, token: license.token });
+        if (result) data = result.data || result;
       }
       if (data && data.ok && data.license) {
         this.saveLicense({
@@ -159,6 +182,13 @@ class CloudLicenseManager {
           lastOnlineCheck: new Date().toISOString()
         });
         return this.getLicense();
+      } else if (data && (!data.ok || data.status === 401 || data.error?.includes("revoked") || data.error?.includes("Invalid"))) {
+        // Device authorization revoked on server
+        this.setActivated(false);
+        if (typeof showToast === "function") {
+          showToast("Device authorization was revoked on the cloud server. Please log in again.", "error");
+        }
+        ActivationUiController.showActivationModal(true);
       }
     } catch (_) {}
     return license;
@@ -201,6 +231,49 @@ class PinSecurityManager {
     localStorage.setItem(CLOUD_STORAGE_KEYS.PIN_ENABLED, "false");
     localStorage.removeItem(CLOUD_STORAGE_KEYS.PIN_HASH);
     localStorage.removeItem(CLOUD_STORAGE_KEYS.PIN_SALT);
+    this.resetAttempts();
+  }
+
+  static getLockoutStatus() {
+    const lockoutUntil = parseInt(localStorage.getItem(CLOUD_STORAGE_KEYS.PIN_LOCKOUT_UNTIL) || "0", 10);
+    const now = Date.now();
+    if (lockoutUntil && now < lockoutUntil) {
+      return {
+        isLocked: true,
+        secondsRemaining: Math.ceil((lockoutUntil - now) / 1000)
+      };
+    }
+    const failedAttempts = parseInt(localStorage.getItem(CLOUD_STORAGE_KEYS.PIN_ATTEMPTS) || "0", 10);
+    return {
+      isLocked: false,
+      secondsRemaining: 0,
+      failedAttempts
+    };
+  }
+
+  static recordFailedAttempt() {
+    const current = parseInt(localStorage.getItem(CLOUD_STORAGE_KEYS.PIN_ATTEMPTS) || "0", 10) + 1;
+    localStorage.setItem(CLOUD_STORAGE_KEYS.PIN_ATTEMPTS, String(current));
+
+    let lockoutDurationMs = 0;
+    if (current >= 10) {
+      lockoutDurationMs = 15 * 60 * 1000; // 15-minute lockout after 10 attempts
+    } else if (current >= 5) {
+      lockoutDurationMs = 60 * 1000; // 60-second lockout after 5 attempts
+    }
+
+    if (lockoutDurationMs > 0) {
+      const lockoutUntil = Date.now() + lockoutDurationMs;
+      localStorage.setItem(CLOUD_STORAGE_KEYS.PIN_LOCKOUT_UNTIL, String(lockoutUntil));
+      return { current, lockoutUntil, isLocked: true, seconds: Math.ceil(lockoutDurationMs / 1000) };
+    }
+
+    return { current, isLocked: false, remainingBeforeLock: 5 - current };
+  }
+
+  static resetAttempts() {
+    localStorage.removeItem(CLOUD_STORAGE_KEYS.PIN_ATTEMPTS);
+    localStorage.removeItem(CLOUD_STORAGE_KEYS.PIN_LOCKOUT_UNTIL);
   }
 }
 
@@ -797,6 +870,17 @@ class PinUiController {
     const errorEl = document.getElementById("pinErrorText");
     errorEl?.classList.add("hidden");
 
+    const lockout = PinSecurityManager.getLockoutStatus();
+    if (lockout.isLocked) {
+      if (errorEl) {
+        errorEl.textContent = `Too many failed attempts. PIN entry locked for ${lockout.secondsRemaining}s.`;
+        errorEl.classList.remove("hidden");
+      }
+      this.currentInput = "";
+      this.updateDots("pinDotsRow", 0);
+      return;
+    }
+
     if (key === "clear") {
       this.currentInput = "";
     } else if (key === "back") {
@@ -810,11 +894,17 @@ class PinUiController {
     if (this.currentInput.length === 4) {
       const isValid = await PinSecurityManager.verifyPin(this.currentInput);
       if (isValid) {
+        PinSecurityManager.resetAttempts();
         this.hideLockScreen();
         if (typeof showToast === "function") showToast("PIN verified. Welcome to ZynBill!", "success");
       } else {
+        const failure = PinSecurityManager.recordFailedAttempt();
         if (errorEl) {
-          errorEl.textContent = "Incorrect PIN. Please try again.";
+          if (failure.isLocked) {
+            errorEl.textContent = `Too many failed attempts (5/5). PIN entry locked for ${failure.seconds}s.`;
+          } else {
+            errorEl.textContent = `Incorrect PIN (${failure.current}/5 attempts). Please try again.`;
+          }
           errorEl.classList.remove("hidden");
         }
         this.currentInput = "";

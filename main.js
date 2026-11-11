@@ -31,6 +31,11 @@ const syncService = new SyncService({
   intervalMs: 15000
 });
 
+const customUserData = process.env.ZYNIBILL_USER_DATA_DIR || (process.argv || []).find(a => a && a.startsWith('--user-data-dir='))?.split('=')[1];
+if (customUserData && app && typeof app.setPath === 'function') {
+  app.setPath('userData', path.resolve(customUserData));
+}
+
 const singleInstanceLock = (app && typeof app.requestSingleInstanceLock === "function")
   ? app.requestSingleInstanceLock()
   : true;
@@ -1503,16 +1508,19 @@ function registerCloudHandlers() {
       const token = options.token || "";
       if (!token) return { ok: false, error: "Authentication token required." };
       const buffer = database.exportDatabaseBuffer();
+      const checksum = crypto.createHash("sha256").update(buffer).digest("hex");
       const activeCompany = database.getCurrentCompany ? database.getCurrentCompany() : null;
       const res = await safeCloudFetch("/api/v1/tenant/backup/upload", {
         method: "POST",
         headers: {
           "Authorization": `Bearer ${token}`,
-          "Content-Type": "application/json"
+          "Content-Type": "application/json",
+          "x-checksum-sha256": checksum
         },
         body: {
           backupData: buffer.toString("base64"),
           companyName: activeCompany?.name || "Business",
+          checksum,
           schemaVersion: 9
         },
         timeoutMs: 60000
@@ -1553,6 +1561,12 @@ function registerCloudHandlers() {
       }
 
       const backupBuffer = Buffer.from(res.data.backupData, "base64");
+      const localChecksum = crypto.createHash("sha256").update(backupBuffer).digest("hex");
+      const expectedChecksum = res.data.checksum;
+      if (expectedChecksum && localChecksum !== expectedChecksum) {
+        return { ok: false, error: "Cloud backup transmission checksum mismatch: backup data was corrupted in transit." };
+      }
+
       const userDataPath = app.getPath("userData");
       const tempRestorePath = path.join(userDataPath, `cloud_restore_${Date.now()}.sqlite`);
       fs.writeFileSync(tempRestorePath, backupBuffer);

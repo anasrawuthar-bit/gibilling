@@ -182,6 +182,10 @@ function getBearerToken(req) {
   return null;
 }
 
+function getDevOtp(otp) {
+  return (process.env.NODE_ENV === 'test' && process.env.ENABLE_DEV_OTP !== 'false') ? otp : undefined;
+}
+
 function compareSemver(v1, v2) {
   const p1 = String(v1 || '').split('.').map(n => parseInt(n, 10) || 0);
   const p2 = String(v2 || '').split('.').map(n => parseInt(n, 10) || 0);
@@ -543,7 +547,7 @@ const server = http.createServer(async (req, res) => {
       message: 'Verification OTP sent to your registered email.',
       email: cleanEmail,
       customerId,
-      devOtp: process.env.NODE_ENV === 'production' ? undefined : otp
+      devOtp: getDevOtp(otp)
     });
   }
 
@@ -743,7 +747,7 @@ const server = http.createServer(async (req, res) => {
       requiresVerification: true,
       email: cleanEmail,
       message: 'One-Time Device Verification Code sent to your registered email.',
-      devOtp: process.env.NODE_ENV === 'production' ? undefined : otp
+      devOtp: getDevOtp(otp)
     });
   }
 
@@ -1040,7 +1044,7 @@ const server = http.createServer(async (req, res) => {
     return sendJson(res, 200, {
       ok: true,
       message: 'PIN Reset Verification Code sent to registered email.',
-      devOtp: process.env.NODE_ENV === 'production' ? undefined : otp
+      devOtp: getDevOtp(otp)
     });
   }
 
@@ -2473,7 +2477,7 @@ const server = http.createServer(async (req, res) => {
     return sendJson(res, 200, {
       ok: true,
       message: 'Password reset code sent to your registered email.',
-      devOtp: process.env.NODE_ENV === 'production' ? undefined : otp
+      devOtp: getDevOtp(otp)
     });
   }
 
@@ -2639,7 +2643,7 @@ const server = http.createServer(async (req, res) => {
     const device = masterDb.prepare('SELECT customer_id FROM device_tokens WHERE token = ?').get(token);
     if (!device) return { ok: false, status: 401, error: 'Unauthorized or revoked device token.' };
 
-    const customer = masterDb.prepare('SELECT id, status, valid_until, plan FROM customers WHERE id = ?').get(device.customer_id);
+    const customer = masterDb.prepare('SELECT id, company_name, status, valid_until, plan FROM customers WHERE id = ?').get(device.customer_id);
     if (!customer) return { ok: false, status: 404, error: 'Tenant customer account not found.' };
 
     if (customer.status !== 'active') {
@@ -2671,7 +2675,7 @@ const server = http.createServer(async (req, res) => {
 
     const { customer, device } = auth;
     let backupBuffer = null;
-    let companyName = (req.headers['x-company-name'] ? decodeURIComponent(req.headers['x-company-name']) : '') || customer.company_name;
+    let companyName = String((req.headers['x-company-name'] ? decodeURIComponent(req.headers['x-company-name']) : '') || customer.company_name || 'Business Workspace');
     let schemaVersion = parseInt(req.headers['x-schema-version'] || '9', 10);
 
     const contentType = req.headers['content-type'] || '';
@@ -2726,7 +2730,7 @@ const server = http.createServer(async (req, res) => {
     const nowIso = new Date().toISOString();
     const backupId = 't_bkp_' + crypto.randomBytes(8).toString('hex');
     const safeTimestamp = nowIso.replace(/[:.]/g, '-');
-    const finalFilename = `tenant_backup_${safeTimestamp}.sqlite`;
+    const finalFilename = `tenant_backup_${safeTimestamp}_${crypto.randomBytes(4).toString('hex')}.sqlite`;
     const finalPath = path.join(tenantBackupsDir, finalFilename);
     const latestPath = path.join(tenantBackupsDir, 'latest_backup.sqlite');
 
@@ -2744,17 +2748,42 @@ const server = http.createServer(async (req, res) => {
     // SHA-256 Checksum
     const checksum = crypto.createHash('sha256').update(backupBuffer).digest('hex');
 
+    // If client supplied expected checksum, assert exact match
+    const clientProvidedChecksum = String(req.headers['x-checksum-sha256'] || '').trim().toLowerCase();
+    if (clientProvidedChecksum && clientProvidedChecksum !== checksum) {
+      try { fs.unlinkSync(finalPath); } catch (_) {}
+      return sendJson(res, 400, {
+        ok: false,
+        error: 'Upload checksum mismatch. Data transmission was corrupted.'
+      });
+    }
+
     // Record in masterDb
     masterDb.prepare(`
       INSERT INTO tenant_backups (id, customer_id, filename, size_bytes, schema_version, company_name, checksum, record_counts, created_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(backupId, customer.id, finalFilename, backupBuffer.length, schemaVersion, companyName, checksum, JSON.stringify(recordCounts), nowIso);
 
+    // Prune historic snapshots beyond retention limit (keep latest 10)
+    try {
+      const excessBackups = masterDb.prepare(
+        'SELECT id, filename FROM tenant_backups WHERE customer_id = ? ORDER BY created_at DESC LIMIT -1 OFFSET 10'
+      ).all(customer.id);
+      for (const oldBkp of excessBackups) {
+        try {
+          const oldFilePath = path.join(tenantBackupsDir, oldBkp.filename);
+          if (fs.existsSync(oldFilePath)) fs.unlinkSync(oldFilePath);
+        } catch (_) {}
+        masterDb.prepare('DELETE FROM tenant_backups WHERE id = ?').run(oldBkp.id);
+      }
+    } catch (_) {}
+
     return sendJson(res, 200, {
       ok: true,
       backupId,
       timestamp: nowIso,
       sizeBytes: backupBuffer.length,
+      checksum,
       recordCounts,
       message: 'Cloud backup successfully uploaded and verified.'
     });
@@ -2782,6 +2811,7 @@ const server = http.createServer(async (req, res) => {
         ok: true,
         backupData: data.toString('base64'),
         sizeBytes: data.length,
+        checksum: latestMeta?.checksum || crypto.createHash('sha256').update(data).digest('hex'),
         timestamp: latestMeta?.created_at || new Date().toISOString(),
         companyName: latestMeta?.company_name || customer.company_name,
         recordCounts: latestMeta?.record_counts ? JSON.parse(latestMeta.record_counts) : {}
@@ -2796,6 +2826,7 @@ const server = http.createServer(async (req, res) => {
       'Content-Disposition': 'attachment; filename="zynbill-tenant-backup.sqlite"',
       'x-company-name': encodeURIComponent(latestMeta?.company_name || customer.company_name || ''),
       'x-backup-timestamp': latestMeta?.created_at || '',
+      'x-checksum-sha256': latestMeta?.checksum || '',
       'Access-Control-Allow-Origin': res._corsOrigin || '*'
     });
     fs.createReadStream(latestPath).pipe(res);
@@ -2827,6 +2858,7 @@ const server = http.createServer(async (req, res) => {
         id: latestMeta.id,
         timestamp: latestMeta.created_at,
         sizeBytes: latestMeta.size_bytes,
+        checksum: latestMeta.checksum,
         companyName: latestMeta.company_name,
         recordCounts: parsedCounts
       } : null
