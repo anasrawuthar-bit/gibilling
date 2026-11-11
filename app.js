@@ -16425,10 +16425,7 @@ function bindFeatureActions() {
         return `
           <tr class="tax-slab-row" data-slab-id="${escapeHtml(slab.id)}">
             <td class="tax-slab-name-cell">
-              <div class="tax-slab-title-group">
-                <strong class="tax-slab-title">${escapeHtml(slab.name)}</strong>
-                <span class="tax-slab-badge ${slab.isStandard ? 'standard' : 'custom'}">${slab.isStandard ? 'Standard GST' : 'Custom'}</span>
-              </div>
+              <strong class="tax-slab-title">${escapeHtml(slab.name)}</strong>
             </td>
             <td class="tax-slab-rate-cell" style="text-align:center;">
               <span class="tax-slab-rate-pill" style="font-weight:700;">${slab.rate}%</span>
