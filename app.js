@@ -5137,6 +5137,22 @@ async function handleBusinessSettingsSubmit(event) {
   if (formElement?.querySelector('[name="printTerms"]')) {
     settings.printTerms = form.get("printTerms") === "on";
   }
+  if (form.has("gstRegistrationType")) {
+    settings.gstRegistrationType = String(form.get("gstRegistrationType") || "regular").toLowerCase();
+    settings.enableTax = settings.gstRegistrationType !== "unregistered";
+  }
+  if (form.has("legalName")) settings.legalName = String(form.get("legalName") || "").trim();
+  if (form.has("stateCode")) settings.stateCode = String(form.get("stateCode") || "").trim();
+  if (form.has("defaultPricingMode")) {
+    settings.defaultPricingMode = String(form.get("defaultPricingMode") || "tax_exclusive").toLowerCase();
+    settings.defaultTaxInclusive = settings.defaultPricingMode === "tax_inclusive";
+  }
+  if (form.has("gstReturnPreference")) {
+    settings.gstReturnPreference = String(form.get("gstReturnPreference") || "monthly").toLowerCase();
+  }
+  if (formElement?.querySelector('[name="reverseChargeEnabled"]')) {
+    settings.reverseChargeEnabled = form.get("reverseChargeEnabled") === "on";
+  }
   if (formElement?.querySelector('[name="printSignature"]')) {
     settings.printSignature = form.get("printSignature") === "on";
   }
@@ -5588,6 +5604,15 @@ function getStateByGstin(gstin) {
   if (clean.length < 2) return "";
   const code = clean.slice(0, 2);
   return GST_STATE_CODES[code] || "";
+}
+
+function getStateCodeByStateName(stateName) {
+  if (!stateName || typeof stateName !== "string") return "";
+  const clean = stateName.trim().toLowerCase();
+  for (const [code, name] of Object.entries(GST_STATE_CODES)) {
+    if (name.toLowerCase() === clean) return code;
+  }
+  return "";
 }
 
 const INDIAN_STATES = [
@@ -16073,6 +16098,62 @@ function bindFeatureActions() {
       }
       if (taxRatesConfigSection) {
         taxRatesConfigSection.classList.toggle("hidden", !enableTaxToggle.checked);
+      }
+    });
+  }
+
+  const gstRegistrationTypeSelect = elements.featureView.querySelector("#gstRegistrationTypeSelect");
+  const taxGstinInput = elements.featureView.querySelector("#taxGstinInput");
+  const taxStateSelect = elements.featureView.querySelector("#taxStateSelect");
+  const taxStateCodeInput = elements.featureView.querySelector("#taxStateCodeInput");
+  const gstinFieldWrap = elements.featureView.querySelector("#gstinFieldWrap");
+  const legalNameFieldWrap = elements.featureView.querySelector("#legalNameFieldWrap");
+  const taxPreferencesCard = elements.featureView.querySelector("#taxPreferencesCard");
+  const taxReturnsCard = elements.featureView.querySelector("#taxReturnsCard");
+  const gstTypeBadge = elements.featureView.querySelector("#gstTypeBadge");
+  const gstRegistrationHelp = elements.featureView.querySelector("#gstRegistrationHelp");
+
+  if (gstRegistrationTypeSelect) {
+    gstRegistrationTypeSelect.addEventListener("change", () => {
+      const mode = gstRegistrationTypeSelect.value;
+      if (gstTypeBadge) {
+        gstTypeBadge.textContent = mode === "regular" ? "Regular GST" : (mode === "composition" ? "Composition" : "Unregistered");
+      }
+      if (gstinFieldWrap) gstinFieldWrap.style.display = mode === "unregistered" ? "none" : "";
+      if (legalNameFieldWrap) legalNameFieldWrap.style.display = mode === "unregistered" ? "none" : "";
+      if (taxPreferencesCard) taxPreferencesCard.style.display = mode === "unregistered" ? "none" : "";
+      if (taxSlabsManagementCard) taxSlabsManagementCard.style.display = mode === "unregistered" ? "none" : "";
+      if (taxReturnsCard) taxReturnsCard.style.display = mode === "regular" ? "" : "none";
+      if (gstRegistrationHelp) {
+        gstRegistrationHelp.textContent = mode === "regular"
+          ? "Standard GST regime: charge CGST/SGST on intra-state and IGST on inter-state sales. Eligible for full Input Tax Credit."
+          : (mode === "composition"
+            ? "Composition dealer: issues 'Bill of Supply' without output GST. Ineligible for Input Tax Credit on inward supplies."
+            : "Unregistered business: no output GST collected on sales. Purchase GST from registered vendors tracked independently.");
+      }
+    });
+  }
+
+  if (taxGstinInput) {
+    taxGstinInput.addEventListener("input", () => {
+      const gstinVal = taxGstinInput.value.trim().toUpperCase();
+      if (gstinVal.length >= 2) {
+        const derivedCode = gstinVal.slice(0, 2);
+        if (taxStateCodeInput) taxStateCodeInput.value = derivedCode;
+        const stateName = getStateByGstin(gstinVal);
+        if (stateName && taxStateSelect) {
+          ensureSelectValue(taxStateSelect, stateName);
+        }
+      }
+    });
+  }
+
+  if (taxStateSelect) {
+    taxStateSelect.addEventListener("change", () => {
+      const sName = taxStateSelect.value;
+      const derivedCode = getStateCodeByStateName(sName);
+      if (derivedCode && taxStateCodeInput) {
+        taxStateCodeInput.value = derivedCode;
       }
     });
   }
@@ -29601,7 +29682,8 @@ function settingsPrintingTemplate() {
 
 function settingsTaxTemplate() {
   const settings = state.businessSettings || defaultBusinessSettings();
-  const taxEnabled = settings.enableTax !== false;
+  const regType = String(settings.gstRegistrationType || (settings.enableTax !== false ? "regular" : "unregistered")).toLowerCase();
+  const taxEnabled = regType !== "unregistered";
   const cessEnabled = Boolean(settings.enableCess);
   const taxSlabs = normalizeTaxSlabs(settings.taxSlabs || (Array.isArray(settings.customTaxRates) ? settings.customTaxRates.map((r) => ({
     id: `tax_${r}`,
@@ -29614,11 +29696,19 @@ function settingsTaxTemplate() {
     isStandard: [0, 0.25, 3, 5, 12, 18, 28, 40].includes(r),
   })) : defaultTaxSlabs()));
 
+  const stateOptions = INDIAN_STATES.map((s) => {
+    const isSelected = (settings.state || "Kerala").toLowerCase() === s.toLowerCase();
+    return `<option value="${escapeHtml(s)}" ${isSelected ? "selected" : ""}>${escapeHtml(s)}</option>`;
+  }).join("");
+
+  const pricingMode = settings.defaultPricingMode || (settings.defaultTaxInclusive ? "tax_inclusive" : "tax_exclusive");
+  const returnPref = settings.gstReturnPreference || "monthly";
+
   return `
     <header class="settings-page-header">
       <div>
         <h2>Tax Configuration</h2>
-        <p>Configure active GST rates, split breakdown (CGST &amp; SGST), inter-state IGST, and Cess rules.</p>
+        <p>Configure Indian GST business registration, calculation rules, active tax rates, and return preferences.</p>
       </div>
       <div class="settings-header-actions">
         <span class="settings-status-indicator" id="businessSettingsStatus"></span>
@@ -29628,35 +29718,99 @@ function settingsTaxTemplate() {
 
     <form class="business-settings-form" id="businessSettingsForm" data-settings-subtab="TAX">
       <div class="settings-form-grid">
+
+        <!-- SECTION 1: BUSINESS GST REGISTRATION -->
         <section class="settings-card" style="grid-column: 1 / -1;">
           <div class="settings-card-head">
-            <h3>Tax System Controls</h3>
-            <span class="badge">Master Switch</span>
+            <h3>Section 1 – Business GST Registration</h3>
+            <span class="badge" id="gstTypeBadge">${regType === "regular" ? "Regular GST" : (regType === "composition" ? "Composition" : "Unregistered")}</span>
           </div>
-          <div class="settings-toggle-stack">
-            <label class="settings-toggle-row">
-              <input type="checkbox" id="enableTaxToggle" name="enableTax" ${taxEnabled ? "checked" : ""}>
-              <div class="settings-toggle-info">
-                <strong>Enable GST / Tax System</strong>
-                <span>Turn off to completely disable GST and run a clean non-tax billing business. When disabled, tax columns, percentages, and GST reports are completely hidden across invoices, items, and navigation.</span>
-              </div>
-            </label>
-            <label class="settings-toggle-row" style="margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border-color, #f1f5f9);">
-              <input type="checkbox" id="enableCessToggle" name="enableCess" ${cessEnabled ? "checked" : ""}>
-              <div class="settings-toggle-info">
-                <strong>Enable Cess (Compensation / Additional Cess)</strong>
-                <span>Enable this if your business deals with commodities or goods attracting GST Cess. Adds a dedicated Cess % column and calculation across tax slabs and invoices.</span>
-              </div>
-            </label>
+
+          <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; margin-top: 14px;">
+            <div class="settings-field">
+              <label class="settings-label" for="gstRegistrationTypeSelect">GST Registration Type *</label>
+              <select class="settings-select" id="gstRegistrationTypeSelect" name="gstRegistrationType">
+                <option value="regular" ${regType === "regular" ? "selected" : ""}>Regular GST (Standard Tax Invoice, CGST+SGST/IGST)</option>
+                <option value="composition" ${regType === "composition" ? "selected" : ""}>Composition Scheme (Section 10 - Bill of Supply, 0% Output Tax)</option>
+                <option value="unregistered" ${regType === "unregistered" ? "selected" : ""}>Unregistered / Non-GST Business (Normal Commercial Invoices)</option>
+              </select>
+              <span class="settings-help-text" id="gstRegistrationHelp">
+                ${regType === "regular" ? "Standard GST regime: charge CGST/SGST on intra-state and IGST on inter-state sales. Eligible for full Input Tax Credit." : (regType === "composition" ? "Composition dealer: issues 'Bill of Supply' without output GST. Ineligible for Input Tax Credit on inward supplies." : "Unregistered business: no output GST collected on sales. Purchase GST from registered vendors tracked independently.")}
+              </span>
+            </div>
+
+            <div class="settings-field" id="gstinFieldWrap" style="${regType === 'unregistered' ? 'display:none;' : ''}">
+              <label class="settings-label" for="taxGstinInput">Goods & Services Tax Identification Number (GSTIN) *</label>
+              <input type="text" class="settings-input" id="taxGstinInput" name="gstin" value="${escapeHtml(settings.gstin || "")}" placeholder="e.g. 32AAAAA0000A1Z5" maxlength="15" style="text-transform:uppercase; font-family:monospace; font-weight:700; letter-spacing:1px;">
+              <span class="settings-help-text">15-digit alphanumeric GSTIN. First 2 digits represent your State Code.</span>
+            </div>
+
+            <div class="settings-field" id="legalNameFieldWrap" style="${regType === 'unregistered' ? 'display:none;' : ''}">
+              <label class="settings-label" for="taxLegalNameInput">Legal Business Name (as per GST Certificate)</label>
+              <input type="text" class="settings-input" id="taxLegalNameInput" name="legalName" value="${escapeHtml(settings.legalName || "")}" placeholder="Legal Entity Name">
+              <span class="settings-help-text">Appears alongside trade name on official GST Tax Invoices.</span>
+            </div>
+
+            <div class="settings-field">
+              <label class="settings-label" for="taxStateSelect">Principal Place of Business State *</label>
+              <select class="settings-select" id="taxStateSelect" name="state">
+                ${stateOptions}
+              </select>
+              <span class="settings-help-text">Used as Supplier State to determine Intra-State vs Inter-State supply.</span>
+            </div>
+
+            <div class="settings-field">
+              <label class="settings-label" for="taxStateCodeInput">GST State Code</label>
+              <input type="text" class="settings-input" id="taxStateCodeInput" name="stateCode" value="${escapeHtml(settings.stateCode || "32")}" readonly style="background:#f8fafc; font-weight:700;">
+              <span class="settings-help-text">Auto-derived 2-digit Indian GST jurisdiction code.</span>
+            </div>
           </div>
         </section>
 
-        <section class="settings-card" id="taxSlabsManagementCard" style="grid-column: 1 / -1; ${taxEnabled ? '' : 'display:none;'}">
+        <!-- SECTION 2: TAX CALCULATION PREFERENCES -->
+        <section class="settings-card" id="taxPreferencesCard" style="grid-column: 1 / -1; ${regType === 'unregistered' ? 'display:none;' : ''}">
+          <div class="settings-card-head">
+            <h3>Section 2 – Tax Calculation Preferences</h3>
+            <span class="badge">Rules & Pricing</span>
+          </div>
+
+          <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; margin-top: 14px;">
+            <div class="settings-field">
+              <label class="settings-label" for="defaultPricingModeSelect">Default Item Pricing Mode</label>
+              <select class="settings-select" id="defaultPricingModeSelect" name="defaultPricingMode">
+                <option value="tax_exclusive" ${pricingMode === "tax_exclusive" ? "selected" : ""}>Tax Exclusive (Prices entered without GST; Tax added on top)</option>
+                <option value="tax_inclusive" ${pricingMode === "tax_inclusive" ? "selected" : ""}>Tax Inclusive (Prices entered include GST; System auto-extracts base & tax)</option>
+              </select>
+              <span class="settings-help-text">Choose how unit prices are entered in sales and purchase invoices.</span>
+            </div>
+
+            <div class="settings-field">
+              <label class="settings-label">Intra-State vs Inter-State Rule</label>
+              <div style="padding: 10px 14px; background: #f8fafc; border: 1px solid var(--border-color, #e2e8f0); border-radius: 8px; font-size: 12.5px; color: #334155; line-height: 1.5;">
+                <strong>Intra-State (Same State):</strong> 50% CGST + 50% SGST<br>
+                <strong>Inter-State (Different State):</strong> 100% IGST based on Place of Supply
+              </div>
+            </div>
+
+            <div class="settings-field" style="grid-column: 1 / -1;">
+              <label class="settings-toggle-row" style="margin: 0; padding: 10px 0;">
+                <input type="checkbox" id="reverseChargeToggle" name="reverseChargeEnabled" ${settings.reverseChargeEnabled ? "checked" : ""}>
+                <div class="settings-toggle-info">
+                  <strong>Enable Reverse Charge (RCM) Tracking</strong>
+                  <span>Enable this to account for GST reverse charge liability on inward purchases from unregistered vendors or notified goods/services.</span>
+                </div>
+              </label>
+            </div>
+          </div>
+        </section>
+
+        <!-- SECTION 3: PRODUCT & SERVICE TAX CONFIGURATION -->
+        <section class="settings-card" id="taxSlabsManagementCard" style="grid-column: 1 / -1; ${regType === 'unregistered' ? 'display:none;' : ''}">
           <div class="settings-card-head" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
             <div>
-              <h3 style="margin:0 0 4px 0;">Currently Active Tax Slabs &amp; Split Breakdown</h3>
+              <h3 style="margin:0 0 4px 0;">Section 3 – Product &amp; Service Tax Slabs</h3>
               <p style="margin:0; font-size:12px; color:var(--text-muted, #64748b);">
-                Shows all active taxes used in billing. Each slab displays its intra-state split (CGST + SGST) and inter-state rate (IGST).
+                Authoritative GST rate master. Items reference these slabs; changing a slab never alters finalized historical invoices.
               </p>
             </div>
             <div style="display:flex; gap:8px;">
@@ -29668,7 +29822,17 @@ function settingsTaxTemplate() {
             </div>
           </div>
 
-          <div class="tax-slabs-table-wrap" style="margin-top: 16px;">
+          <div style="margin: 12px 0;">
+            <label class="settings-toggle-row" style="margin:0; padding: 6px 0;">
+              <input type="checkbox" id="enableCessToggle" name="enableCess" ${cessEnabled ? "checked" : ""}>
+              <div class="settings-toggle-info">
+                <strong>Enable GST Compensation Cess</strong>
+                <span>Adds dedicated Cess % column and calculation across applicable commodity items.</span>
+              </div>
+            </label>
+          </div>
+
+          <div class="tax-slabs-table-wrap" style="margin-top: 14px;">
             <table class="tax-slabs-table">
               <thead>
                 <tr>
@@ -29689,6 +29853,32 @@ function settingsTaxTemplate() {
           <input type="hidden" id="taxSlabsJson" name="taxSlabsJson" value="${escapeHtml(JSON.stringify(taxSlabs))}">
           <input type="hidden" id="customTaxRatesJson" name="customTaxRatesJson" value="${escapeHtml(JSON.stringify(taxSlabs.map((s) => Number(s.rate))))}">
         </section>
+
+        <!-- SECTION 4: GST RETURN PREFERENCES -->
+        <section class="settings-card" id="taxReturnsCard" style="grid-column: 1 / -1; ${regType === 'regular' ? '' : 'display:none;'}">
+          <div class="settings-card-head">
+            <h3>Section 4 – GST Return Preferences</h3>
+            <span class="badge">Compliance Cycle</span>
+          </div>
+
+          <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; margin-top: 14px;">
+            <div class="settings-field">
+              <label class="settings-label" for="gstReturnPreferenceSelect">Filing Frequency (GSTR-1 &amp; GSTR-3B)</label>
+              <select class="settings-select" id="gstReturnPreferenceSelect" name="gstReturnPreference">
+                <option value="monthly" ${returnPref === "monthly" ? "selected" : ""}>Monthly Filing (Standard - All Regular GST Taxpayers)</option>
+                <option value="qrmp" ${returnPref === "qrmp" ? "selected" : ""}>QRMP Scheme (Quarterly Return &amp; Monthly Payment - Turnover &le; ₹5 Cr)</option>
+              </select>
+              <span class="settings-help-text">QRMP is available only for registered businesses with aggregate annual turnover up to ₹5 Crores.</span>
+            </div>
+
+            <div class="settings-field" style="grid-column: 1 / -1;">
+              <div style="padding: 12px 16px; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; font-size: 13px; color: #1e40af; line-height: 1.5;">
+                ℹ️ <strong>GST Compliance Note:</strong> Sales invoices, credit notes, and purchase ledgers generated by ZynBill automatically align with your chosen return preference for GSTR-1, GSTR-3B, and GSTR-2B ITC reconciliation reports.
+              </div>
+            </div>
+          </div>
+        </section>
+
       </div>
     </form>
   `;

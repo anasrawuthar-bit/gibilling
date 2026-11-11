@@ -234,8 +234,9 @@ function getSession(rawToken) {
     let parsedData = {};
     try { parsedData = JSON.parse(row.data); } catch (_) {}
     return {
-      tokenHash: row.token_hash,
+      id: row.user_id,
       userId: row.user_id,
+      tokenHash: row.token_hash,
       userType: row.user_type,
       email: row.email,
       name: row.name,

@@ -112,20 +112,57 @@ function getCorsOrigin(req, isSensitive = false) {
 }
 
 // ── HTTP Helper Functions ─────────────────────────────────────────────
-function sendJson(res, statusCode, data) {
+function sendJson(res, statusCode, data, extraHeaders = {}) {
   const corsOrigin = res._corsOrigin !== undefined ? res._corsOrigin : '*';
   const headers = {
     'Content-Type': 'application/json',
     'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS, HEAD',
     'Access-Control-Allow-Headers': 'Range, Content-Type, Authorization, X-Requested-With',
-    'Access-Control-Expose-Headers': 'Content-Range, Content-Length, Accept-Ranges'
+    'Access-Control-Expose-Headers': 'Content-Range, Content-Length, Accept-Ranges',
+    ...extraHeaders
   };
   if (corsOrigin) {
     headers['Access-Control-Allow-Origin'] = corsOrigin;
     if (corsOrigin !== '*') headers['Vary'] = 'Origin';
+    if (corsOrigin !== '*' && corsOrigin !== null) {
+      headers['Access-Control-Allow-Credentials'] = 'true';
+    }
   }
   res.writeHead(statusCode, headers);
   res.end(JSON.stringify(data));
+}
+
+// ── Cookie & Session Security Utilities ──────────────────────────────
+function parseCookies(req) {
+  const list = {};
+  const rc = req?.headers?.cookie;
+  if (!rc) return list;
+  rc.split(';').forEach(cookie => {
+    const parts = cookie.split('=');
+    const name = parts.shift().trim();
+    if (name) {
+      list[name] = decodeURIComponent(parts.join('='));
+    }
+  });
+  return list;
+}
+
+function buildSessionCookie(tokenName, tokenValue, maxAgeSec = 7 * 86400, req = null) {
+  const host = String(req?.headers?.host || '').split(':')[0].toLowerCase();
+  const isLoopback = ['localhost', '127.0.0.1', '::1'].includes(host);
+  const isHttps = Boolean(
+    req?.socket?.encrypted || 
+    req?.headers?.['x-forwarded-proto'] === 'https' ||
+    process.env.COOKIE_SECURE === 'true' ||
+    (process.env.NODE_ENV === 'production' && !isLoopback)
+  );
+  let cookie = `${tokenName}=${encodeURIComponent(tokenValue)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAgeSec}`;
+  if (isHttps) cookie += '; Secure';
+  return cookie;
+}
+
+function buildClearCookie(tokenName) {
+  return `${tokenName}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT`;
 }
 
 function sendHtml(res, filePath) {
@@ -189,11 +226,18 @@ async function parseBufferBody(req, maxBytes = 100 * 1024 * 1024) {
   });
 }
 
-function getBearerToken(req) {
-  const auth = req.headers.authorization || '';
+function getBearerToken(req, cookieName = null) {
+  const auth = req?.headers?.authorization || '';
   if (auth.startsWith('Bearer ')) {
-    return auth.slice(7).trim();
+    const t = auth.slice(7).trim();
+    if (t) return t;
   }
+  const cookies = parseCookies(req);
+  if (cookieName && cookies[cookieName]) {
+    return cookies[cookieName];
+  }
+  if (cookies['zynbill_portal_session']) return cookies['zynbill_portal_session'];
+  if (cookies['zynbill_admin_session']) return cookies['zynbill_admin_session'];
   return null;
 }
 
@@ -1166,16 +1210,17 @@ const server = http.createServer(async (req, res) => {
     const sessionToken = generateToken('adm_');
     saveSession(sessionToken, 'admin', admin.id, admin.email, admin.name, {}, 7 * 24 * 60 * 60 * 1000);
 
+    const cookieHeader = buildSessionCookie('zynbill_admin_session', sessionToken, 7 * 86400, req);
     return sendJson(res, 200, {
       ok: true,
       token: sessionToken,
       admin: { id: admin.id, email: admin.email, name: admin.name }
-    });
+    }, { 'Set-Cookie': cookieHeader });
   }
 
   // Admin Check Session
   function verifyAdmin(req, res) {
-    const token = getBearerToken(req);
+    const token = getBearerToken(req, 'zynbill_admin_session');
     if (!token) {
       sendJson(res, 401, { ok: false, error: 'Unauthorized Super Admin access.' });
       return null;
@@ -1191,10 +1236,10 @@ const server = http.createServer(async (req, res) => {
 
   // Super Admin Logout (Server-Side Session Revocation)
   if (req.method === 'POST' && pathname === '/api/v1/admin/logout') {
-    const token = getBearerToken(req);
-    if (!token) return sendJson(res, 400, { ok: false, error: 'Missing session authorization token.' });
-    deleteSession(token);
-    return sendJson(res, 200, { ok: true, message: 'Super Admin session revoked successfully.' });
+    const token = getBearerToken(req, 'zynbill_admin_session');
+    if (token) deleteSession(token);
+    const clearCookieHeader = buildClearCookie('zynbill_admin_session');
+    return sendJson(res, 200, { ok: true, message: 'Super Admin session revoked successfully.' }, { 'Set-Cookie': clearCookieHeader });
   }
 
   // List Customers with Filter & Stats
@@ -2375,6 +2420,7 @@ const server = http.createServer(async (req, res) => {
     const expiry = customer.valid_until ? new Date(customer.valid_until).getTime() : now + 365 * 86400000;
     const daysRemaining = Math.max(0, Math.ceil((expiry - now) / (24 * 60 * 60 * 1000)));
 
+    const cookieHeader = buildSessionCookie('zynbill_portal_session', sessionToken, 7 * 86400, req);
     return sendJson(res, 200, {
       ok: true,
       token: sessionToken,
@@ -2392,11 +2438,11 @@ const server = http.createServer(async (req, res) => {
         daysRemaining,
         gracePeriodDays: 14
       }
-    });
+    }, { 'Set-Cookie': cookieHeader });
   }
 
   function verifyCustomer(req, res) {
-    const token = getBearerToken(req);
+    const token = getBearerToken(req, 'zynbill_portal_session');
     if (!token) {
       sendJson(res, 401, { ok: false, error: 'Customer session expired. Please log in.' });
       return null;
@@ -2412,14 +2458,14 @@ const server = http.createServer(async (req, res) => {
 
   // Customer Portal Logout (Server-Side Session Revocation)
   if (req.method === 'POST' && pathname === '/api/v1/portal/logout') {
-    const token = getBearerToken(req);
-    if (!token) return sendJson(res, 400, { ok: false, error: 'Missing session authorization token.' });
-    deleteSession(token);
-    return sendJson(res, 200, { ok: true, message: 'Customer session revoked successfully.' });
+    const token = getBearerToken(req, 'zynbill_portal_session');
+    if (token) deleteSession(token);
+    const clearCookieHeader = buildClearCookie('zynbill_portal_session');
+    return sendJson(res, 200, { ok: true, message: 'Customer session revoked successfully.' }, { 'Set-Cookie': clearCookieHeader });
   }
 
-  // 2. Customer Profile & Devices
-  if (req.method === 'GET' && pathname === '/api/v1/portal/profile') {
+  // 2. Customer Profile & Devices (Also supports alias /portal/me)
+  if (req.method === 'GET' && (pathname === '/api/v1/portal/profile' || pathname === '/api/v1/portal/me')) {
     const session = verifyCustomer(req, res);
     if (!session) return;
 

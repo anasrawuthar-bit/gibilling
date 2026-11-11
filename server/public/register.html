@@ -110,6 +110,47 @@
       border-color: var(--primary);
       box-shadow: 0 0 0 3px rgba(0, 192, 243, 0.15);
     }
+    /* Password Show/Hide Control */
+    .password-input-wrap {
+      position: relative;
+      display: flex;
+      align-items: center;
+      width: 100%;
+    }
+    .password-input-wrap input {
+      width: 100%;
+      padding-right: 42px !important;
+    }
+    .btn-toggle-password {
+      position: absolute;
+      right: 8px;
+      top: 50%;
+      transform: translateY(-50%);
+      background: transparent;
+      border: none;
+      cursor: pointer;
+      padding: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #64748b;
+      border-radius: 6px;
+      transition: color 0.15s, background 0.15s;
+    }
+    .btn-toggle-password:hover {
+      color: #0f172a;
+      background: #f1f5f9;
+    }
+    .btn-toggle-password:focus-visible {
+      outline: 2px solid var(--primary);
+      outline-offset: 1px;
+    }
+    .password-match-indicator {
+      font-size: 12px;
+      font-weight: 600;
+      margin-top: 4px;
+      display: none;
+    }
     .btn-submit {
       width: 100%;
       height: 46px;
@@ -273,12 +314,25 @@
 
         <div class="form-group">
           <label>Password *</label>
-          <input type="password" class="input-control" id="password" placeholder="At least 6 characters" minlength="6" required>
+          <div class="password-input-wrap">
+            <input type="password" class="input-control" id="password" placeholder="At least 6 characters" minlength="6" required>
+            <button type="button" class="btn-toggle-password" aria-label="Show password" title="Show password">
+              <svg class="eye-show" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+              <svg class="eye-hide" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none;"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>
+            </button>
+          </div>
         </div>
 
         <div class="form-group">
           <label>Confirm Password *</label>
-          <input type="password" class="input-control" id="confirmPassword" placeholder="Confirm password" minlength="6" required>
+          <div class="password-input-wrap">
+            <input type="password" class="input-control" id="confirmPassword" placeholder="Confirm password" minlength="6" required>
+            <button type="button" class="btn-toggle-password" aria-label="Show password" title="Show password">
+              <svg class="eye-show" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+              <svg class="eye-hide" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none;"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>
+            </button>
+          </div>
+          <div class="password-match-indicator" id="passwordMatchMsg"></div>
         </div>
 
         <div class="full-width">
@@ -509,6 +563,55 @@
         alert('Could not retrieve status.');
       }
     }
+
+    // ── Password Show / Hide & Match Engine ───────────────────
+    function initPasswordToggles() {
+      document.querySelectorAll('.password-input-wrap').forEach(wrap => {
+        const input = wrap.querySelector('input');
+        const btn = wrap.querySelector('.btn-toggle-password');
+        if (!input || !btn || btn.dataset.initialized) return;
+        btn.dataset.initialized = 'true';
+        btn.addEventListener('click', (e) => {
+          e.preventDefault();
+          const isPassword = input.type === 'password';
+          input.type = isPassword ? 'text' : 'password';
+          btn.setAttribute('aria-label', isPassword ? 'Hide password' : 'Show password');
+          btn.setAttribute('title', isPassword ? 'Hide password' : 'Show password');
+          const showSvg = btn.querySelector('.eye-show');
+          const hideSvg = btn.querySelector('.eye-hide');
+          if (showSvg && hideSvg) {
+            showSvg.style.display = isPassword ? 'none' : 'block';
+            hideSvg.style.display = isPassword ? 'block' : 'none';
+          }
+          input.focus();
+        });
+      });
+    }
+
+    function checkPasswordMatch() {
+      const p1 = document.getElementById('password')?.value || '';
+      const p2 = document.getElementById('confirmPassword')?.value || '';
+      const msg = document.getElementById('passwordMatchMsg');
+      if (!msg) return;
+      if (!p2) {
+        msg.style.display = 'none';
+        return;
+      }
+      msg.style.display = 'block';
+      if (p1 === p2) {
+        msg.textContent = '✓ Passwords match';
+        msg.style.color = '#16a34a';
+      } else {
+        msg.textContent = '✗ Passwords do not match';
+        msg.style.color = '#dc2626';
+      }
+    }
+
+    window.addEventListener('DOMContentLoaded', () => {
+      initPasswordToggles();
+      document.getElementById('password')?.addEventListener('input', checkPasswordMatch);
+      document.getElementById('confirmPassword')?.addEventListener('input', checkPasswordMatch);
+    });
   </script>
 </body>
 </html>

@@ -1268,6 +1268,18 @@ function migrate() {
   addColumnIfMissing("credit_notes", "shipping_address", "TEXT");
   addColumnIfMissing("debit_notes", "meta_json", "TEXT");
   addColumnIfMissing("debit_notes", "shipping_address", "TEXT");
+  addColumnIfMissing("invoices", "company_registration_type", "TEXT NOT NULL DEFAULT 'regular'");
+  addColumnIfMissing("invoices", "company_gstin", "TEXT");
+  addColumnIfMissing("invoices", "pricing_mode", "TEXT NOT NULL DEFAULT 'tax_exclusive'");
+  addColumnIfMissing("estimates", "company_registration_type", "TEXT NOT NULL DEFAULT 'regular'");
+  addColumnIfMissing("estimates", "company_gstin", "TEXT");
+  addColumnIfMissing("estimates", "pricing_mode", "TEXT NOT NULL DEFAULT 'tax_exclusive'");
+  addColumnIfMissing("credit_notes", "company_registration_type", "TEXT NOT NULL DEFAULT 'regular'");
+  addColumnIfMissing("credit_notes", "company_gstin", "TEXT");
+  addColumnIfMissing("credit_notes", "pricing_mode", "TEXT NOT NULL DEFAULT 'tax_exclusive'");
+  addColumnIfMissing("debit_notes", "company_registration_type", "TEXT NOT NULL DEFAULT 'regular'");
+  addColumnIfMissing("debit_notes", "company_gstin", "TEXT");
+  addColumnIfMissing("debit_notes", "pricing_mode", "TEXT NOT NULL DEFAULT 'tax_exclusive'");
   addColumnIfMissing("invoice_items", "hsn_sac", "TEXT");
   addColumnIfMissing("invoice_items", "taxable_value", "REAL NOT NULL DEFAULT 0");
   addColumnIfMissing("invoice_items", "cgst_amount", "REAL NOT NULL DEFAULT 0");
@@ -1803,6 +1815,7 @@ function getState() {
         supply_type AS supplyType, place_of_supply AS placeOfSupply, party_gstin AS partyGstin,
         party_tax_type AS partyTaxType, tax_total AS taxTotal, cgst_total AS cgstTotal,
         sgst_total AS sgstTotal, igst_total AS igstTotal, cess_total AS cessTotal,
+        company_registration_type AS companyRegistrationType, company_gstin AS companyGstin, pricing_mode AS pricingMode,
         total, received, balance, status, notes, meta_json AS metaJson, created_at AS createdAt
        FROM invoices WHERE company_id = ? ORDER BY created_at DESC`,
       [currentCompany.id],
@@ -2245,9 +2258,11 @@ function defaultBusinessSettings(companyName = "testt") {
   return {
     businessName: companyName,
     legalName: "",
+    gstRegistrationType: "regular",
     gstin: "",
     pan: "",
     state: "Kerala",
+    stateCode: "32",
     address: "",
     city: "",
     pincode: "",
@@ -2284,11 +2299,14 @@ function defaultBusinessSettings(companyName = "testt") {
     printTerms: true,
     printSignature: true,
     stopSaleOnNegativeStock: false,
+    defaultPricingMode: "tax_exclusive",
     defaultTaxInclusive: false,
     enableHsn: true,
     enableAdditionalFields: true,
     enableTax: true,
     enableCess: false,
+    gstReturnPreference: "monthly",
+    reverseChargeEnabled: false,
     customTaxRates: [0, 0.25, 3, 5, 12, 18, 28, 40],
     taxSlabs: defaultTaxSlabs(),
   };
@@ -2358,9 +2376,27 @@ function getBusinessSettings(explicitCompanyId = null) {
       saved[row.key] = row.value;
     }
   });
+  const rawReg = saved.gstRegistrationType ? String(saved.gstRegistrationType).toLowerCase() : "";
+  const resolvedReg = ["unregistered", "regular", "composition"].includes(rawReg)
+    ? rawReg
+    : (saved.enableTax === false ? "unregistered" : (saved.gstin && String(saved.gstin).trim() ? "regular" : "regular"));
+  const resolvedState = String(saved.state || defaults.state || "Kerala").trim();
+  const rawGstin = resolvedReg === "unregistered" ? "" : String(saved.gstin || defaults.gstin || "").trim().toUpperCase();
+  const resolvedStateCode = saved.stateCode || (rawGstin.length >= 2 ? rawGstin.slice(0, 2) : getStateCodeByStateName(resolvedState)) || "32";
+  const resolvedPricing = saved.defaultPricingMode || (saved.defaultTaxInclusive ? "tax_inclusive" : "tax_exclusive");
+
   const res = {
     ...defaults,
     ...saved,
+    gstRegistrationType: resolvedReg,
+    enableTax: resolvedReg !== "unregistered",
+    gstin: rawGstin,
+    state: resolvedState,
+    stateCode: resolvedStateCode,
+    defaultPricingMode: resolvedPricing,
+    defaultTaxInclusive: resolvedPricing === "tax_inclusive",
+    gstReturnPreference: ["monthly", "qrmp"].includes(String(saved.gstReturnPreference).toLowerCase()) ? String(saved.gstReturnPreference).toLowerCase() : "monthly",
+    reverseChargeEnabled: Boolean(saved.reverseChargeEnabled ?? false),
     bankDetails: {
       ...defaults.bankDetails,
       ...(saved.bankDetails || {}),
@@ -2381,12 +2417,26 @@ function getBusinessSettings(explicitCompanyId = null) {
 function updateBusinessSettings(settings = {}) {
   const company = getCurrentCompany();
   const current = getBusinessSettings();
+
+  const rawReg = settings.gstRegistrationType !== undefined ? String(settings.gstRegistrationType).toLowerCase() : (settings.enableTax !== undefined ? (settings.enableTax ? "regular" : "unregistered") : current.gstRegistrationType || "regular");
+  const regType = ["unregistered", "regular", "composition"].includes(rawReg) ? rawReg : "regular";
+  const rawGstin = regType === "unregistered" ? "" : String(settings.gstin ?? current.gstin ?? "").trim().toUpperCase();
+  const nextState = String(settings.state ?? current.state ?? "Kerala").trim();
+  const nextStateCode = settings.stateCode ? String(settings.stateCode).trim() : ((rawGstin.length >= 2 ? rawGstin.slice(0, 2) : getStateCodeByStateName(nextState)) || "32");
+  const defaultPricing = String(settings.defaultPricingMode ?? (settings.defaultTaxInclusive !== undefined ? (settings.defaultTaxInclusive ? "tax_inclusive" : "tax_exclusive") : current.defaultPricingMode ?? "tax_exclusive"));
+
   const next = {
     businessName: String(settings.businessName ?? current.businessName ?? "").trim(),
     legalName: String(settings.legalName ?? current.legalName ?? "").trim(),
-    gstin: String(settings.gstin ?? current.gstin ?? "").trim().toUpperCase(),
+    gstRegistrationType: regType,
+    gstin: rawGstin,
     pan: String(settings.pan ?? current.pan ?? "").trim().toUpperCase(),
-    state: String(settings.state ?? current.state ?? "Kerala").trim(),
+    state: nextState,
+    stateCode: nextStateCode,
+    defaultPricingMode: defaultPricing,
+    defaultTaxInclusive: defaultPricing === "tax_inclusive",
+    gstReturnPreference: ["monthly", "qrmp"].includes(String(settings.gstReturnPreference).toLowerCase()) ? String(settings.gstReturnPreference).toLowerCase() : "monthly",
+    reverseChargeEnabled: Boolean(settings.reverseChargeEnabled ?? current.reverseChargeEnabled ?? false),
     address: String(settings.address ?? current.address ?? "").trim(),
     city: String(settings.city ?? current.city ?? "").trim(),
     pincode: String(settings.pincode ?? current.pincode ?? "").trim(),
@@ -2429,10 +2479,10 @@ function updateBusinessSettings(settings = {}) {
     printTerms: settings.printTerms !== undefined ? Boolean(settings.printTerms) : Boolean(current.printTerms ?? true),
     printSignature: settings.printSignature !== undefined ? Boolean(settings.printSignature) : Boolean(current.printSignature ?? true),
     stopSaleOnNegativeStock: settings.stopSaleOnNegativeStock !== undefined ? Boolean(settings.stopSaleOnNegativeStock) : Boolean(current.stopSaleOnNegativeStock ?? false),
-    defaultTaxInclusive: settings.defaultTaxInclusive !== undefined ? Boolean(settings.defaultTaxInclusive) : Boolean(current.defaultTaxInclusive ?? false),
+    defaultTaxInclusive: defaultPricing === "tax_inclusive",
     enableHsn: settings.enableHsn !== undefined ? Boolean(settings.enableHsn) : Boolean(current.enableHsn ?? true),
     enableAdditionalFields: settings.enableAdditionalFields !== undefined ? Boolean(settings.enableAdditionalFields) : Boolean(current.enableAdditionalFields ?? true),
-    enableTax: settings.enableTax !== undefined ? Boolean(settings.enableTax) : Boolean(current.enableTax ?? true),
+    enableTax: regType !== "unregistered",
     enableCess: settings.enableCess !== undefined ? Boolean(settings.enableCess) : Boolean(current.enableCess ?? false),
     taxSlabs: Array.isArray(settings.taxSlabs) && settings.taxSlabs.length > 0
       ? normalizeTaxSlabs(settings.taxSlabs)
@@ -5253,14 +5303,19 @@ function validateSaleStock(companyId, invoiceItems, excludedInvoiceId = "") {
 
 function createInvoiceRecord(companyId, transaction, entry, invoiceItems, totals, now) {
   const taxContext = invoiceTaxContext(companyId, entry);
-  const metaJson = normalizeMetaJson(entry.meta ?? entry.metaJson ?? {});
+  const parsedMeta = parseMetaJson(entry.meta ?? entry.metaJson ?? {});
+  parsedMeta.companyRegistrationType = taxContext.gstRegistrationType;
+  parsedMeta.companyGstin = taxContext.companyGstin;
+  parsedMeta.pricingMode = taxContext.pricingMode;
+  const metaJson = JSON.stringify(parsedMeta);
   run(
     `INSERT INTO invoices
       (id, company_id, transaction_id, invoice_no, type, party, party_id, phone, billing_address, shipping_address,
        invoice_date, due_date, payment_terms, payment_type, supply_type, place_of_supply,
        party_gstin, party_tax_type, subtotal, discount_total, tax_total, cgst_total, sgst_total,
-       igst_total, cess_total, total, received, balance, status, notes, meta_json, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       igst_total, cess_total, total, received, balance, status, notes, meta_json, created_at,
+       company_registration_type, company_gstin, pricing_mode)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       transaction.invoiceId,
       companyId,
@@ -5294,6 +5349,9 @@ function createInvoiceRecord(companyId, transaction, entry, invoiceItems, totals
       transaction.notes,
       metaJson,
       now,
+      taxContext.gstRegistrationType,
+      taxContext.companyGstin,
+      taxContext.pricingMode,
     ],
   );
 
@@ -5519,7 +5577,16 @@ function getStateByGstin(gstin) {
   return DB_GST_STATE_CODES[code] || "";
 }
 
-function invoiceTaxContext(companyId, entry) {
+function getStateCodeByStateName(stateName) {
+  if (!stateName || typeof stateName !== "string") return "";
+  const clean = stateName.trim().toLowerCase();
+  for (const [code, name] of Object.entries(DB_GST_STATE_CODES)) {
+    if (name.toLowerCase() === clean) return code;
+  }
+  return "";
+}
+
+function invoiceTaxContext(companyId, entry = {}) {
   const partyName = String(entry.party || "").trim();
   const party = one(
     "SELECT tax_type AS taxType, gstin, state FROM parties WHERE company_id = ? AND LOWER(name) = LOWER(?)",
@@ -5529,6 +5596,14 @@ function invoiceTaxContext(companyId, entry) {
   const firmState = String(entry.firmState || businessSettings.state || "Kerala").trim();
   const partyGstin = String(entry.partyGstin || party.gstin || "").trim().toUpperCase();
   const partyTaxType = String(entry.partyTaxType || party.taxType || "unregistered").trim();
+
+  const gstRegistrationType = String(
+    entry.companyRegistrationType || entry.gstRegistrationType || businessSettings.gstRegistrationType || (businessSettings.enableTax !== false ? "regular" : "unregistered")
+  ).toLowerCase();
+
+  const companyGstin = String(entry.companyGstin || businessSettings.gstin || "").trim().toUpperCase();
+  const pricingMode = String(entry.pricingMode || (businessSettings.defaultPricingMode || (businessSettings.defaultTaxInclusive ? "tax_inclusive" : "tax_exclusive"))).toLowerCase();
+
   let placeOfSupply = "";
   if (entry.placeOfSupply !== undefined || entry.state !== undefined) {
     const rawPlace = String(entry.placeOfSupply !== undefined ? entry.placeOfSupply : entry.state).trim();
@@ -5542,13 +5617,20 @@ function invoiceTaxContext(companyId, entry) {
     const resolvedState = resolveIndianStateName(rawPlace) || getStateByGstin(partyGstin);
     placeOfSupply = resolvedState || rawPlace || firmState;
   }
+
+  const isInterstate = Boolean(placeOfSupply && firmState && placeOfSupply.toLowerCase() !== firmState.toLowerCase());
+
   return {
     firmState,
     placeOfSupply,
     partyGstin,
     partyTaxType,
     supplyType: entry.supplyType || (partyGstin ? "b2b" : "b2c"),
-    isInterstate: Boolean(placeOfSupply && firmState && placeOfSupply.toLowerCase() !== firmState.toLowerCase()),
+    isInterstate,
+    gstRegistrationType,
+    companyGstin,
+    pricingMode,
+    reverseCharge: Boolean(entry.reverseCharge || (entry.type === "purchase" && partyTaxType === "unregistered" && businessSettings.reverseChargeEnabled)),
   };
 }
 
@@ -5581,6 +5663,8 @@ function itemTaxMeta(companyId, itemId, itemName) {
 }
 
 function normalizeInvoiceItems(companyId, transactionType, items, taxContext = invoiceTaxContext(companyId, {})) {
+  const isSaleSide = ["sale", "estimate", "proforma", "sale_order", "saleOrder", "delivery_challan", "deliveryChallan", "credit_note", "creditNote"].includes(transactionType);
+
   return items
     .filter((item) => (item.item || item.name || item.itemName) || (item.qty || item.quantity) || item.price)
     .map((item) => {
@@ -5588,13 +5672,10 @@ function normalizeInvoiceItems(companyId, transactionType, items, taxContext = i
       const qty = Number(item.qty ?? item.quantity ?? 0);
       const price = Number(item.price || 0);
       const discount = Number(item.discount || 0);
-      const taxRate = Number(item.taxRate || 0);
       if (!Number.isFinite(qty) || qty <= 0) throw new Error('Item quantity must be greater than zero.');
       if (!Number.isFinite(price) || price < 0 || !Number.isFinite(qty * price)) throw new Error('Item price must be finite and non-negative.');
       if (!Number.isFinite(discount) || discount < 0 || discount > qty * price) throw new Error('Invalid item discount.');
-      if (!Number.isFinite(taxRate) || taxRate < 0 || taxRate > 100) throw new Error('Invalid item tax rate.');
-      const taxable = Math.max(0, qty * price - discount);
-      const taxAmount = taxable * taxRate / 100;
+
       const existingItem = item.itemId
         ? one("SELECT id FROM items WHERE company_id = ? AND id = ?", [companyId, item.itemId])
         : one("SELECT id FROM items WHERE company_id = ? AND LOWER(name) = LOWER(?)", [companyId, itemName]);
@@ -5602,9 +5683,32 @@ function normalizeInvoiceItems(companyId, transactionType, items, taxContext = i
       const itemId = existingItem.id;
       const meta = itemTaxMeta(companyId, itemId, itemName);
       const hsnSac = String(item.hsnSac || meta.hsnSac || "").trim();
-      const resolvedTaxRate = Number(item.taxRate ?? meta.taxRate ?? 0);
-      const resolvedTaxAmount = taxable * resolvedTaxRate / 100;
+
+      // Check if registration type suppresses output tax on sales
+      let resolvedTaxRate = 0;
+      if (isSaleSide && (taxContext.gstRegistrationType === "unregistered" || taxContext.gstRegistrationType === "composition")) {
+        resolvedTaxRate = 0;
+      } else {
+        resolvedTaxRate = Number(item.taxRate ?? meta.taxRate ?? 0);
+      }
+      if (!Number.isFinite(resolvedTaxRate) || resolvedTaxRate < 0 || resolvedTaxRate > 100) throw new Error('Invalid item tax rate.');
+
+      const isTaxInclusive = Boolean(item.isTaxInclusive || taxContext.pricingMode === "tax_inclusive");
+      let taxable = 0;
+      let resolvedTaxAmount = 0;
+
+      if (resolvedTaxRate > 0 && isTaxInclusive) {
+        const netLineAmount = Math.max(0, qty * price - discount);
+        taxable = roundMoney(netLineAmount / (1 + resolvedTaxRate / 100));
+        resolvedTaxAmount = roundMoney(netLineAmount - taxable);
+      } else {
+        taxable = roundMoney(Math.max(0, qty * price - discount));
+        resolvedTaxAmount = roundMoney(taxable * resolvedTaxRate / 100);
+      }
+
       const split = splitGstAmount(resolvedTaxAmount, taxContext);
+      const lineTotal = roundMoney(taxable + resolvedTaxAmount);
+
       return {
         itemId,
         item: itemName || "Item",
@@ -5618,22 +5722,22 @@ function normalizeInvoiceItems(companyId, transactionType, items, taxContext = i
         taxRate: resolvedTaxRate,
         taxAmount: resolvedTaxAmount,
         ...split,
-        lineTotal: taxable + resolvedTaxAmount,
+        lineTotal,
       };
     });
 }
 
 function calculateInvoiceTotals(items, fallbackTotal, received, roundOff = false) {
   if (!Number.isFinite(received) || received < 0) throw new Error('Payment amount must be finite and non-negative.');
-  const subtotal = items.reduce((total, item) => total + item.qty * item.price, 0);
-  const discountTotal = items.reduce((total, item) => total + item.discount, 0);
-  const taxTotal = items.reduce((total, item) => total + item.taxAmount, 0);
-  const cgstTotal = items.reduce((total, item) => total + Number(item.cgstAmount || 0), 0);
-  const sgstTotal = items.reduce((total, item) => total + Number(item.sgstAmount || 0), 0);
-  const igstTotal = items.reduce((total, item) => total + Number(item.igstAmount || 0), 0);
-  const cessTotal = items.reduce((total, item) => total + Number(item.cessAmount || 0), 0);
+  const subtotal = roundMoney(items.reduce((total, item) => total + Number(item.taxableValue !== undefined ? item.taxableValue : (item.qty * item.price - (item.discount || 0))), 0));
+  const discountTotal = roundMoney(items.reduce((total, item) => total + Number(item.discount || 0), 0));
+  const taxTotal = roundMoney(items.reduce((total, item) => total + Number(item.taxAmount || 0), 0));
+  const cgstTotal = roundMoney(items.reduce((total, item) => total + Number(item.cgstAmount || 0), 0));
+  const sgstTotal = roundMoney(items.reduce((total, item) => total + Number(item.sgstAmount || 0), 0));
+  const igstTotal = roundMoney(items.reduce((total, item) => total + Number(item.igstAmount || 0), 0));
+  const cessTotal = roundMoney(items.reduce((total, item) => total + Number(item.cessAmount || 0), 0));
   const unroundedTotal = items.length
-    ? Math.max(0, subtotal - discountTotal + taxTotal)
+    ? roundMoney(subtotal + taxTotal)
     : Number(fallbackTotal || 0);
   const total = roundOff ? Math.round(unroundedTotal) : Math.round((unroundedTotal + Number.EPSILON) * 100) / 100;
   if (received > total + 0.000001) throw new Error('Payment cannot exceed invoice total.');
@@ -6428,18 +6532,40 @@ function ledgerFor(transaction) {
   const amount = Number(transaction.amount || 0);
   const meta = parseMetaJson(transaction.metaJson || transaction.meta || {});
 
+  let cgstTotal = Math.max(0, Number(transaction.cgstTotal ?? meta.cgstTotal ?? 0));
+  let sgstTotal = Math.max(0, Number(transaction.sgstTotal ?? meta.sgstTotal ?? 0));
+  let igstTotal = Math.max(0, Number(transaction.igstTotal ?? meta.igstTotal ?? 0));
+  let cessTotal = Math.max(0, Number(transaction.cessTotal ?? meta.cessTotal ?? 0));
+  let taxableValue = Math.max(0, Number(transaction.subtotal ?? meta.subtotal ?? 0));
+
+  const targetInvoiceId = transaction.invoiceId || transaction.invoice_id;
+  if (targetInvoiceId && (cgstTotal === 0 && sgstTotal === 0 && igstTotal === 0 && cessTotal === 0)) {
+    try {
+      const inv = one(
+        "SELECT subtotal, cgst_total AS cgstTotal, sgst_total AS sgstTotal, igst_total AS igstTotal, cess_total AS cessTotal, company_registration_type AS companyRegistrationType FROM invoices WHERE id = ?",
+        [targetInvoiceId]
+      );
+      if (inv) {
+        cgstTotal = Number(inv.cgstTotal || 0);
+        sgstTotal = Number(inv.sgstTotal || 0);
+        igstTotal = Number(inv.igstTotal || 0);
+        cessTotal = Number(inv.cessTotal || 0);
+        taxableValue = Number(inv.subtotal || 0);
+        if (!meta.companyRegistrationType && inv.companyRegistrationType) {
+          meta.companyRegistrationType = inv.companyRegistrationType;
+        }
+      }
+    } catch (_) {}
+  }
+
   if (transaction.type === "sale") {
-    const cgstTotal = Math.max(0, Number(transaction.cgstTotal ?? meta.cgstTotal ?? 0));
-    const sgstTotal = Math.max(0, Number(transaction.sgstTotal ?? meta.sgstTotal ?? 0));
-    const igstTotal = Math.max(0, Number(transaction.igstTotal ?? meta.igstTotal ?? 0));
-    const cessTotal = Math.max(0, Number(transaction.cessTotal ?? meta.cessTotal ?? 0));
     const taxTotal = cgstTotal + sgstTotal + igstTotal + cessTotal;
-    const taxableValue = Math.max(0, Number(transaction.subtotal ?? meta.subtotal ?? (amount - taxTotal) ?? amount));
-    const roundOff = Number((amount - (taxableValue + taxTotal)).toFixed(2));
+    const finalTaxableValue = taxableValue > 0 ? taxableValue : Math.max(0, Number(amount - taxTotal));
+    const roundOff = Number((amount - (finalTaxableValue + taxTotal)).toFixed(2));
 
     const entries = [
       { account: "Accounts Receivable", debit: amount, credit: 0 },
-      { account: "Sales", debit: 0, credit: taxableValue },
+      { account: "Sales", debit: 0, credit: finalTaxableValue },
     ];
     if (cgstTotal > 0) entries.push({ account: "Output CGST", debit: 0, credit: cgstTotal });
     if (sgstTotal > 0) entries.push({ account: "Output SGST", debit: 0, credit: sgstTotal });
@@ -6451,21 +6577,24 @@ function ledgerFor(transaction) {
   }
 
   if (transaction.type === "purchase") {
-    const cgstTotal = Math.max(0, Number(transaction.cgstTotal ?? meta.cgstTotal ?? 0));
-    const sgstTotal = Math.max(0, Number(transaction.sgstTotal ?? meta.sgstTotal ?? 0));
-    const igstTotal = Math.max(0, Number(transaction.igstTotal ?? meta.igstTotal ?? 0));
-    const cessTotal = Math.max(0, Number(transaction.cessTotal ?? meta.cessTotal ?? 0));
     const taxTotal = cgstTotal + sgstTotal + igstTotal + cessTotal;
-    const taxableValue = Math.max(0, Number(transaction.subtotal ?? meta.subtotal ?? (amount - taxTotal) ?? amount));
-    const roundOff = Number((amount - (taxableValue + taxTotal)).toFixed(2));
+    const finalTaxableValue = taxableValue > 0 ? taxableValue : Math.max(0, Number(amount - taxTotal));
+    const roundOff = Number((amount - (finalTaxableValue + taxTotal)).toFixed(2));
 
-    const entries = [
-      { account: "Purchases", debit: taxableValue, credit: 0 },
-    ];
-    if (cgstTotal > 0) entries.push({ account: "Input CGST", debit: cgstTotal, credit: 0 });
-    if (sgstTotal > 0) entries.push({ account: "Input SGST", debit: sgstTotal, credit: 0 });
-    if (igstTotal > 0) entries.push({ account: "Input IGST", debit: igstTotal, credit: 0 });
-    if (cessTotal > 0) entries.push({ account: "Input Cess", debit: cessTotal, credit: 0 });
+    const compReg = String(meta.companyRegistrationType || getBusinessSettings().gstRegistrationType || "regular").toLowerCase();
+    const isCompositionOrUnregistered = compReg === "composition" || compReg === "unregistered";
+
+    const entries = [];
+    if (isCompositionOrUnregistered && taxTotal > 0) {
+      // Ineligible for Input Tax Credit under Section 10(4) - tax is capitalized into Purchases
+      entries.push({ account: "Purchases", debit: taxableValue + taxTotal, credit: 0 });
+    } else {
+      entries.push({ account: "Purchases", debit: taxableValue, credit: 0 });
+      if (cgstTotal > 0) entries.push({ account: "Input CGST", debit: cgstTotal, credit: 0 });
+      if (sgstTotal > 0) entries.push({ account: "Input SGST", debit: sgstTotal, credit: 0 });
+      if (igstTotal > 0) entries.push({ account: "Input IGST", debit: igstTotal, credit: 0 });
+      if (cessTotal > 0) entries.push({ account: "Input Cess", debit: cessTotal, credit: 0 });
+    }
     if (roundOff > 0) entries.push({ account: "Round Off", debit: roundOff, credit: 0 });
     if (roundOff < 0) entries.push({ account: "Round Off", debit: 0, credit: Math.abs(roundOff) });
     entries.push({ account: "Accounts Payable", debit: 0, credit: amount });
@@ -8175,6 +8304,8 @@ module.exports = {
   getAuditTrail,
   saveJournalVoucher,
   getCurrentCompany,
+  getBusinessSettings,
+  ledgerFor,
   createDailyAutomatedBackup,
   createDailyAutomatedBackupAsync,
   getActiveBackupPromise,
