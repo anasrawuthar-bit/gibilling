@@ -56,6 +56,7 @@ const {
 } = require('./backup-crypto');
 
 const PORT = parseInt(process.env.PORT || '4000', 10);
+const HOST = process.env.HOST || '0.0.0.0';
 const PUBLIC_DIR = path.join(__dirname, 'public');
 const DATA_DIR = path.join(__dirname, 'data');
 const STAGING_DIR = path.join(DATA_DIR, 'staging');
@@ -86,6 +87,8 @@ function getCorsOrigin(req, isSensitive = false) {
   const trustedOrigins = new Set([
     'http://localhost:4000',
     'http://127.0.0.1:4000',
+    `http://localhost:${PORT}`,
+    `http://127.0.0.1:${PORT}`,
     'http://localhost:3000',
     'http://127.0.0.1:3000',
     'http://localhost:5173',
@@ -3228,15 +3231,29 @@ process.on('unhandledRejection', (reason, promise) => {
 
 // Start Server if run directly
 if (require.main === module) {
-  const publicUrl = (process.env.PUBLIC_URL || `http://localhost:${PORT}`).replace(/\/$/, '');
-  server.listen(PORT, '0.0.0.0', () => {
+  let publicUrl = (process.env.PUBLIC_URL || `http://localhost:${PORT}`).replace(/\/$/, '');
+
+  // Guard against port mismatch on loopback/localhost
+  try {
+    const parsedPublic = new URL(publicUrl);
+    const isLoopback = ['localhost', '127.0.0.1', '0.0.0.0', '::1'].includes(parsedPublic.hostname.toLowerCase());
+    if (isLoopback && parsedPublic.port && parseInt(parsedPublic.port, 10) !== PORT) {
+      console.warn(`[CONFIG WARNING] Configured PUBLIC_URL port (${parsedPublic.port}) does not match server listening PORT (${PORT}). Reconciling local URLs to port ${PORT}.`);
+      publicUrl = `${parsedPublic.protocol}//${parsedPublic.hostname}:${PORT}`;
+    }
+  } catch (_) {}
+
+  server.listen(PORT, HOST, () => {
+    const localUrl = `http://127.0.0.1:${PORT}`;
     console.log(`\n======================================================`);
-    console.log(`🚀 ZynBill Cloud Ecosystem Server running on http://localhost:${PORT}`);
-    console.log(`🌐 Public Domain / URL:          ${publicUrl}`);
-    console.log(`📋 Customer Registration Portal: ${publicUrl}/register`);
-    console.log(`👤 Customer Self-Service Portal: ${publicUrl}/portal`);
-    console.log(`👑 Super Admin Dashboard:        ${publicUrl}/admin`);
-    console.log(`⚡ Sync & Auth REST Endpoints:    ${publicUrl}/api/v1/`);
+    console.log(`🚀 ZynBill Cloud Ecosystem Server running on ${localUrl} (bind: ${HOST}:${PORT})`);
+    console.log(`👑 Super Admin Dashboard:        ${localUrl}/admin (or http://localhost:${PORT}/admin)`);
+    console.log(`📋 Customer Registration Portal: ${localUrl}/register`);
+    console.log(`👤 Customer Self-Service Portal: ${localUrl}/portal`);
+    console.log(`⚡ Sync & Auth REST Endpoints:    ${localUrl}/api/v1/`);
+    if (publicUrl && publicUrl !== localUrl && publicUrl !== `http://localhost:${PORT}`) {
+      console.log(`🌐 Configured Public Domain/URL: ${publicUrl}`);
+    }
     console.log(`======================================================\n`);
   });
 }
