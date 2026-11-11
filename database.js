@@ -10,7 +10,7 @@ let dbPath;
 let transactionDepth = 0;
 let lastMigrationResult = null;
 
-const SCHEMA_VERSION = 9;
+const SCHEMA_VERSION = 10;
 
 function configureDatabasePerformance(database = db) {
   if (!database) return;
@@ -138,6 +138,7 @@ function getMigrations(additionalMigrations = []) {
     { version: 7, name: "operational_document_type", up: () => addColumnIfMissing("estimates", "document_type", "TEXT NOT NULL DEFAULT 'estimate'") },
     { version: 8, name: "units_and_categories_upgrade", up: migrateUnitsAndCategoriesUpgrade },
     { version: 9, name: "gst_compliance_and_journal_tables", up: migrateGstComplianceAndJournalTables },
+    { version: 10, name: "tax_configuration_and_registration_type", up: migrateTaxConfigurationAndRegistrationType },
     ...(additionalMigrations || []),
   ];
 }
@@ -172,6 +173,7 @@ async function initDatabase(userDataPath, options = {}) {
     ensureItemTaxTypeColumn();
     ensurePartyAdditionalAddressesColumn();
     ensureShippingAddressColumns();
+    ensureTaxConfigurationColumns();
     seedDefaults();
     try {
       if (tableExists(db, "company_settings")) {
@@ -1470,6 +1472,133 @@ function migrateGstComplianceAndJournalTables() {
   `);
 }
 
+function migrateTaxConfigurationAndRegistrationType(database = db) {
+  if (!database) return;
+
+  // 1. Add missing columns to invoices, estimates, credit_notes, debit_notes
+  addColumnIfMissing("invoices", "company_registration_type", "TEXT NOT NULL DEFAULT 'regular'");
+  addColumnIfMissing("invoices", "company_gstin", "TEXT");
+  addColumnIfMissing("invoices", "pricing_mode", "TEXT NOT NULL DEFAULT 'tax_exclusive'");
+
+  addColumnIfMissing("estimates", "company_registration_type", "TEXT NOT NULL DEFAULT 'regular'");
+  addColumnIfMissing("estimates", "company_gstin", "TEXT");
+  addColumnIfMissing("estimates", "pricing_mode", "TEXT NOT NULL DEFAULT 'tax_exclusive'");
+
+  addColumnIfMissing("credit_notes", "company_registration_type", "TEXT NOT NULL DEFAULT 'regular'");
+  addColumnIfMissing("credit_notes", "company_gstin", "TEXT");
+  addColumnIfMissing("credit_notes", "pricing_mode", "TEXT NOT NULL DEFAULT 'tax_exclusive'");
+
+  addColumnIfMissing("debit_notes", "company_registration_type", "TEXT NOT NULL DEFAULT 'regular'");
+  addColumnIfMissing("debit_notes", "company_gstin", "TEXT");
+  addColumnIfMissing("debit_notes", "pricing_mode", "TEXT NOT NULL DEFAULT 'tax_exclusive'");
+
+  // 2. Add missing item columns if not present
+  addColumnIfMissing("invoice_items", "hsn_sac", "TEXT");
+  addColumnIfMissing("invoice_items", "taxable_value", "REAL NOT NULL DEFAULT 0");
+  addColumnIfMissing("invoice_items", "cgst_amount", "REAL NOT NULL DEFAULT 0");
+  addColumnIfMissing("invoice_items", "sgst_amount", "REAL NOT NULL DEFAULT 0");
+  addColumnIfMissing("invoice_items", "igst_amount", "REAL NOT NULL DEFAULT 0");
+  addColumnIfMissing("invoice_items", "cess_amount", "REAL NOT NULL DEFAULT 0");
+
+  addColumnIfMissing("estimate_items", "hsn_sac", "TEXT");
+  addColumnIfMissing("estimate_items", "taxable_value", "REAL NOT NULL DEFAULT 0");
+  addColumnIfMissing("estimate_items", "cgst_amount", "REAL NOT NULL DEFAULT 0");
+  addColumnIfMissing("estimate_items", "sgst_amount", "REAL NOT NULL DEFAULT 0");
+  addColumnIfMissing("estimate_items", "igst_amount", "REAL NOT NULL DEFAULT 0");
+  addColumnIfMissing("estimate_items", "cess_amount", "REAL NOT NULL DEFAULT 0");
+
+  addColumnIfMissing("credit_note_items", "hsn_sac", "TEXT");
+  addColumnIfMissing("credit_note_items", "taxable_value", "REAL NOT NULL DEFAULT 0");
+  addColumnIfMissing("credit_note_items", "cgst_amount", "REAL NOT NULL DEFAULT 0");
+  addColumnIfMissing("credit_note_items", "sgst_amount", "REAL NOT NULL DEFAULT 0");
+  addColumnIfMissing("credit_note_items", "igst_amount", "REAL NOT NULL DEFAULT 0");
+  addColumnIfMissing("credit_note_items", "cess_amount", "REAL NOT NULL DEFAULT 0");
+
+  addColumnIfMissing("debit_note_items", "hsn_sac", "TEXT");
+  addColumnIfMissing("debit_note_items", "taxable_value", "REAL NOT NULL DEFAULT 0");
+  addColumnIfMissing("debit_note_items", "cgst_amount", "REAL NOT NULL DEFAULT 0");
+  addColumnIfMissing("debit_note_items", "sgst_amount", "REAL NOT NULL DEFAULT 0");
+  addColumnIfMissing("debit_note_items", "igst_amount", "REAL NOT NULL DEFAULT 0");
+  addColumnIfMissing("debit_note_items", "cess_amount", "REAL NOT NULL DEFAULT 0");
+
+  // 3. Backfill company settings and existing transaction documents
+  if (tableExists(database, "companies") && tableExists(database, "company_settings")) {
+    const companies = queryRows(database, "SELECT id, name FROM companies");
+    for (const comp of companies) {
+      const cid = comp.id;
+      const settingsRows = queryRows(database, "SELECT key, value FROM company_settings WHERE company_id = ?", [cid]);
+      const sMap = {};
+      settingsRows.forEach((r) => {
+        try { sMap[r.key] = JSON.parse(r.value); } catch (_) { sMap[r.key] = r.value; }
+      });
+
+      // Preserve / derive registration type:
+      let regType = "regular";
+      if (sMap.gstRegistrationType && ["regular", "composition", "unregistered"].includes(String(sMap.gstRegistrationType).toLowerCase())) {
+        regType = String(sMap.gstRegistrationType).toLowerCase();
+      } else if (sMap.enableTax === false) {
+        regType = "unregistered";
+      } else {
+        // Legacy GST-enabled company: preserve as regular
+        regType = "regular";
+      }
+
+      const rawGstin = regType === "unregistered" ? "" : String(sMap.gstin || "").trim().toUpperCase();
+      const rawPricing = sMap.defaultPricingMode || (sMap.defaultTaxInclusive ? "tax_inclusive" : "tax_exclusive");
+      const rawState = String(sMap.state || "Kerala").trim();
+      const rawStateCode = sMap.stateCode || (rawGstin.length >= 2 ? rawGstin.slice(0, 2) : getStateCodeByStateName(rawState)) || "32";
+
+      // Persist derived settings to company_settings if not present
+      if (!sMap.gstRegistrationType) {
+        database.run("INSERT OR REPLACE INTO company_settings (company_id, key, value) VALUES (?, 'gstRegistrationType', ?)", [cid, JSON.stringify(regType)]);
+      }
+      if (!sMap.defaultPricingMode) {
+        database.run("INSERT OR REPLACE INTO company_settings (company_id, key, value) VALUES (?, 'defaultPricingMode', ?)", [cid, JSON.stringify(rawPricing)]);
+      }
+      if (!sMap.stateCode) {
+        database.run("INSERT OR REPLACE INTO company_settings (company_id, key, value) VALUES (?, 'stateCode', ?)", [cid, JSON.stringify(rawStateCode)]);
+      }
+      if (!sMap.gstReturnPreference) {
+        database.run("INSERT OR REPLACE INTO company_settings (company_id, key, value) VALUES (?, 'gstReturnPreference', ?)", [cid, JSON.stringify("monthly")]);
+      }
+
+      // Backfill documents for this company
+      database.run(
+        `UPDATE invoices 
+         SET company_registration_type = CASE WHEN company_registration_type IS NULL OR company_registration_type = '' THEN ? ELSE company_registration_type END,
+             company_gstin = CASE WHEN company_gstin IS NULL OR company_gstin = '' THEN ? ELSE company_gstin END,
+             pricing_mode = CASE WHEN pricing_mode IS NULL OR pricing_mode = '' THEN ? ELSE pricing_mode END
+         WHERE company_id = ?`,
+        [regType, rawGstin, rawPricing, cid]
+      );
+      database.run(
+        `UPDATE estimates 
+         SET company_registration_type = CASE WHEN company_registration_type IS NULL OR company_registration_type = '' THEN ? ELSE company_registration_type END,
+             company_gstin = CASE WHEN company_gstin IS NULL OR company_gstin = '' THEN ? ELSE company_gstin END,
+             pricing_mode = CASE WHEN pricing_mode IS NULL OR pricing_mode = '' THEN ? ELSE pricing_mode END
+         WHERE company_id = ?`,
+        [regType, rawGstin, rawPricing, cid]
+      );
+      database.run(
+        `UPDATE credit_notes 
+         SET company_registration_type = CASE WHEN company_registration_type IS NULL OR company_registration_type = '' THEN ? ELSE company_registration_type END,
+             company_gstin = CASE WHEN company_gstin IS NULL OR company_gstin = '' THEN ? ELSE company_gstin END,
+             pricing_mode = CASE WHEN pricing_mode IS NULL OR pricing_mode = '' THEN ? ELSE pricing_mode END
+         WHERE company_id = ?`,
+        [regType, rawGstin, rawPricing, cid]
+      );
+      database.run(
+        `UPDATE debit_notes 
+         SET company_registration_type = CASE WHEN company_registration_type IS NULL OR company_registration_type = '' THEN ? ELSE company_registration_type END,
+             company_gstin = CASE WHEN company_gstin IS NULL OR company_gstin = '' THEN ? ELSE company_gstin END,
+             pricing_mode = CASE WHEN pricing_mode IS NULL OR pricing_mode = '' THEN ? ELSE pricing_mode END
+         WHERE company_id = ?`,
+        [regType, rawGstin, rawPricing, cid]
+      );
+    }
+  }
+}
+
 function ensureDebitNoteSchema() {
   if (!db) return;
   db.run(`
@@ -1578,6 +1707,53 @@ function ensureShippingAddressColumns() {
   addColumnIfMissing("credit_notes", "shipping_address", "TEXT");
   addColumnIfMissing("debit_notes", "billing_address", "TEXT");
   addColumnIfMissing("debit_notes", "shipping_address", "TEXT");
+}
+
+function ensureTaxConfigurationColumns(database = db) {
+  if (!database) return;
+  addColumnIfMissing("invoices", "company_registration_type", "TEXT NOT NULL DEFAULT 'regular'");
+  addColumnIfMissing("invoices", "company_gstin", "TEXT");
+  addColumnIfMissing("invoices", "pricing_mode", "TEXT NOT NULL DEFAULT 'tax_exclusive'");
+
+  addColumnIfMissing("estimates", "company_registration_type", "TEXT NOT NULL DEFAULT 'regular'");
+  addColumnIfMissing("estimates", "company_gstin", "TEXT");
+  addColumnIfMissing("estimates", "pricing_mode", "TEXT NOT NULL DEFAULT 'tax_exclusive'");
+
+  addColumnIfMissing("credit_notes", "company_registration_type", "TEXT NOT NULL DEFAULT 'regular'");
+  addColumnIfMissing("credit_notes", "company_gstin", "TEXT");
+  addColumnIfMissing("credit_notes", "pricing_mode", "TEXT NOT NULL DEFAULT 'tax_exclusive'");
+
+  addColumnIfMissing("debit_notes", "company_registration_type", "TEXT NOT NULL DEFAULT 'regular'");
+  addColumnIfMissing("debit_notes", "company_gstin", "TEXT");
+  addColumnIfMissing("debit_notes", "pricing_mode", "TEXT NOT NULL DEFAULT 'tax_exclusive'");
+
+  addColumnIfMissing("invoice_items", "hsn_sac", "TEXT");
+  addColumnIfMissing("invoice_items", "taxable_value", "REAL NOT NULL DEFAULT 0");
+  addColumnIfMissing("invoice_items", "cgst_amount", "REAL NOT NULL DEFAULT 0");
+  addColumnIfMissing("invoice_items", "sgst_amount", "REAL NOT NULL DEFAULT 0");
+  addColumnIfMissing("invoice_items", "igst_amount", "REAL NOT NULL DEFAULT 0");
+  addColumnIfMissing("invoice_items", "cess_amount", "REAL NOT NULL DEFAULT 0");
+
+  addColumnIfMissing("estimate_items", "hsn_sac", "TEXT");
+  addColumnIfMissing("estimate_items", "taxable_value", "REAL NOT NULL DEFAULT 0");
+  addColumnIfMissing("estimate_items", "cgst_amount", "REAL NOT NULL DEFAULT 0");
+  addColumnIfMissing("estimate_items", "sgst_amount", "REAL NOT NULL DEFAULT 0");
+  addColumnIfMissing("estimate_items", "igst_amount", "REAL NOT NULL DEFAULT 0");
+  addColumnIfMissing("estimate_items", "cess_amount", "REAL NOT NULL DEFAULT 0");
+
+  addColumnIfMissing("credit_note_items", "hsn_sac", "TEXT");
+  addColumnIfMissing("credit_note_items", "taxable_value", "REAL NOT NULL DEFAULT 0");
+  addColumnIfMissing("credit_note_items", "cgst_amount", "REAL NOT NULL DEFAULT 0");
+  addColumnIfMissing("credit_note_items", "sgst_amount", "REAL NOT NULL DEFAULT 0");
+  addColumnIfMissing("credit_note_items", "igst_amount", "REAL NOT NULL DEFAULT 0");
+  addColumnIfMissing("credit_note_items", "cess_amount", "REAL NOT NULL DEFAULT 0");
+
+  addColumnIfMissing("debit_note_items", "hsn_sac", "TEXT");
+  addColumnIfMissing("debit_note_items", "taxable_value", "REAL NOT NULL DEFAULT 0");
+  addColumnIfMissing("debit_note_items", "cgst_amount", "REAL NOT NULL DEFAULT 0");
+  addColumnIfMissing("debit_note_items", "sgst_amount", "REAL NOT NULL DEFAULT 0");
+  addColumnIfMissing("debit_note_items", "igst_amount", "REAL NOT NULL DEFAULT 0");
+  addColumnIfMissing("debit_note_items", "cess_amount", "REAL NOT NULL DEFAULT 0");
 }
 
 function ensureUsersSchema() {
@@ -7530,7 +7706,7 @@ function validateDatabase(database = db, expectedVersion = SCHEMA_VERSION) {
     companies: ["id", "name", "is_current"],
     parties: ["id", "company_id", "name"],
     items: ["id", "company_id", "name"],
-    invoices: ["id", "company_id", "party_id", "invoice_no", "total"],
+    invoices: ["id", "company_id", "party_id", "invoice_no", "total", "company_registration_type", "pricing_mode"],
     invoice_items: ["id", "invoice_id", "item_name", "line_total"],
     payments: ["id", "company_id", "party_id", "invoice_id", "amount"],
     stock_movements: ["id", "company_id", "movement_type", "quantity"],
@@ -7544,7 +7720,9 @@ function validateDatabase(database = db, expectedVersion = SCHEMA_VERSION) {
     sync_conflicts: ["id", "company_id", "entity_type", "entity_id", "status"],
     tax_entries: ["id", "company_id", "source_type", "source_id", "document_no", "taxable_value"],
     audit_trail: ["id", "company_id", "action", "entity_type", "entity_id", "created_at"],
-    estimates: ["id", "company_id", "document_type"],
+    estimates: ["id", "company_id", "document_type", "company_registration_type", "pricing_mode"],
+    credit_notes: ["id", "company_id", "company_registration_type", "pricing_mode"],
+    debit_notes: ["id", "company_id", "company_registration_type", "pricing_mode"],
   };
 
   for (const [table, expectedColumns] of Object.entries(expectedTables)) {
