@@ -42,6 +42,11 @@ const {
   getTenantBackupsDir
 } = require('./db');
 const smtp = require('./smtp');
+const {
+  encryptBackupEnvelope,
+  decryptBackupEnvelope,
+  isEncryptedEnvelope
+} = require('./backup-crypto');
 
 const PORT = parseInt(process.env.PORT || '4000', 10);
 const PUBLIC_DIR = path.join(__dirname, 'public');
@@ -2720,42 +2725,51 @@ const server = http.createServer(async (req, res) => {
       try { recordCounts.payments = testDb.prepare("SELECT COUNT(*) as c FROM payments").get()?.c || 0; } catch (_) {}
       try { recordCounts.ledger = testDb.prepare("SELECT COUNT(*) as c FROM ledger_entries").get()?.c || 0; } catch (_) {}
       testDb.close();
+      try { fs.unlinkSync(tempBackupPath); } catch (_) {}
     } catch (testErr) {
       try { fs.unlinkSync(tempBackupPath); } catch (_) {}
       return sendJson(res, 400, { ok: false, error: 'Database verification failed: ' + testErr.message });
     }
 
-    // Move to tenant backups directory
-    const tenantBackupsDir = getTenantBackupsDir(customer.id);
-    const nowIso = new Date().toISOString();
-    const backupId = 't_bkp_' + crypto.randomBytes(8).toString('hex');
-    const safeTimestamp = nowIso.replace(/[:.]/g, '-');
-    const finalFilename = `tenant_backup_${safeTimestamp}_${crypto.randomBytes(4).toString('hex')}.sqlite`;
-    const finalPath = path.join(tenantBackupsDir, finalFilename);
-    const latestPath = path.join(tenantBackupsDir, 'latest_backup.sqlite');
-
-    try {
-      fs.renameSync(tempBackupPath, finalPath);
-      fs.copyFileSync(finalPath, latestPath);
-    } catch (mvErr) {
-      try {
-        fs.copyFileSync(tempBackupPath, finalPath);
-        fs.copyFileSync(finalPath, latestPath);
-        fs.unlinkSync(tempBackupPath);
-      } catch (_) {}
-    }
-
-    // SHA-256 Checksum
+    // SHA-256 Checksum of the verified plaintext SQLite database
     const checksum = crypto.createHash('sha256').update(backupBuffer).digest('hex');
 
     // If client supplied expected checksum, assert exact match
     const clientProvidedChecksum = String(req.headers['x-checksum-sha256'] || '').trim().toLowerCase();
     if (clientProvidedChecksum && clientProvidedChecksum !== checksum) {
-      try { fs.unlinkSync(finalPath); } catch (_) {}
       return sendJson(res, 400, {
         ok: false,
         error: 'Upload checksum mismatch. Data transmission was corrupted.'
       });
+    }
+
+    const nowIso = new Date().toISOString();
+
+    // Encrypt SQLite snapshot at rest with AES-256-GCM using tenant-derived key
+    const encryptedEnvelope = encryptBackupEnvelope(backupBuffer, customer.id, {
+      companyName,
+      schemaVersion,
+      timestamp: nowIso
+    });
+
+    // Move to tenant backups directory
+    const tenantBackupsDir = getTenantBackupsDir(customer.id);
+    const backupId = 't_bkp_' + crypto.randomBytes(8).toString('hex');
+    const safeTimestamp = nowIso.replace(/[:.]/g, '-');
+    const finalFilename = `tenant_backup_${safeTimestamp}_${crypto.randomBytes(4).toString('hex')}.enc`;
+    const finalPath = path.join(tenantBackupsDir, finalFilename);
+    const latestEncPath = path.join(tenantBackupsDir, 'latest_backup.enc');
+    const latestLegacyPath = path.join(tenantBackupsDir, 'latest_backup.sqlite');
+
+    try {
+      fs.writeFileSync(finalPath, encryptedEnvelope);
+      fs.copyFileSync(finalPath, latestEncPath);
+      // Remove legacy unencrypted file if it existed
+      if (fs.existsSync(latestLegacyPath)) {
+        try { fs.unlinkSync(latestLegacyPath); } catch (_) {}
+      }
+    } catch (writeErr) {
+      return sendJson(res, 500, { ok: false, error: 'Failed to write encrypted backup to disk: ' + writeErr.message });
     }
 
     // Record in masterDb
@@ -2783,9 +2797,11 @@ const server = http.createServer(async (req, res) => {
       backupId,
       timestamp: nowIso,
       sizeBytes: backupBuffer.length,
+      encryptedSizeBytes: encryptedEnvelope.length,
       checksum,
       recordCounts,
-      message: 'Cloud backup successfully uploaded and verified.'
+      encryptedAtRest: true,
+      message: 'Cloud backup successfully uploaded, encrypted at rest (AES-256-GCM), and verified.'
     });
   }
 
@@ -2797,21 +2813,30 @@ const server = http.createServer(async (req, res) => {
 
     const { customer } = auth;
     const tenantBackupsDir = getTenantBackupsDir(customer.id);
-    const latestPath = path.join(tenantBackupsDir, 'latest_backup.sqlite');
+    let latestPath = path.join(tenantBackupsDir, 'latest_backup.enc');
+    if (!fs.existsSync(latestPath)) {
+      latestPath = path.join(tenantBackupsDir, 'latest_backup.sqlite');
+    }
 
     if (!fs.existsSync(latestPath)) {
       return sendJson(res, 404, { ok: false, error: 'No cloud database backup found for this account.' });
     }
 
     const latestMeta = masterDb.prepare('SELECT * FROM tenant_backups WHERE customer_id = ? ORDER BY created_at DESC LIMIT 1').get(customer.id);
+    const rawFileData = fs.readFileSync(latestPath);
+    let decryptedSqlite;
+    try {
+      decryptedSqlite = decryptBackupEnvelope(rawFileData, customer.id);
+    } catch (decErr) {
+      return sendJson(res, 500, { ok: false, error: 'Failed to decrypt tenant backup at rest: ' + decErr.message });
+    }
 
     if (query.format === 'json') {
-      const data = fs.readFileSync(latestPath);
       return sendJson(res, 200, {
         ok: true,
-        backupData: data.toString('base64'),
-        sizeBytes: data.length,
-        checksum: latestMeta?.checksum || crypto.createHash('sha256').update(data).digest('hex'),
+        backupData: decryptedSqlite.toString('base64'),
+        sizeBytes: decryptedSqlite.length,
+        checksum: latestMeta?.checksum || crypto.createHash('sha256').update(decryptedSqlite).digest('hex'),
         timestamp: latestMeta?.created_at || new Date().toISOString(),
         companyName: latestMeta?.company_name || customer.company_name,
         recordCounts: latestMeta?.record_counts ? JSON.parse(latestMeta.record_counts) : {}
@@ -2819,17 +2844,16 @@ const server = http.createServer(async (req, res) => {
     }
 
     // Binary download
-    const stat = fs.statSync(latestPath);
     res.writeHead(200, {
       'Content-Type': 'application/x-sqlite3',
-      'Content-Length': stat.size,
+      'Content-Length': decryptedSqlite.length,
       'Content-Disposition': 'attachment; filename="zynbill-tenant-backup.sqlite"',
       'x-company-name': encodeURIComponent(latestMeta?.company_name || customer.company_name || ''),
       'x-backup-timestamp': latestMeta?.created_at || '',
-      'x-checksum-sha256': latestMeta?.checksum || '',
+      'x-checksum-sha256': latestMeta?.checksum || crypto.createHash('sha256').update(decryptedSqlite).digest('hex'),
       'Access-Control-Allow-Origin': res._corsOrigin || '*'
     });
-    fs.createReadStream(latestPath).pipe(res);
+    res.end(decryptedSqlite);
     return;
   }
 
@@ -2841,8 +2865,8 @@ const server = http.createServer(async (req, res) => {
 
     const { customer } = auth;
     const tenantBackupsDir = getTenantBackupsDir(customer.id);
-    const latestPath = path.join(tenantBackupsDir, 'latest_backup.sqlite');
-    const hasBackupFile = fs.existsSync(latestPath);
+    const hasBackupFile = fs.existsSync(path.join(tenantBackupsDir, 'latest_backup.enc')) ||
+                          fs.existsSync(path.join(tenantBackupsDir, 'latest_backup.sqlite'));
 
     const latestMeta = masterDb.prepare('SELECT * FROM tenant_backups WHERE customer_id = ? ORDER BY created_at DESC LIMIT 1').get(customer.id);
 

@@ -113,3 +113,11 @@ contextBridge.exposeInMainWorld("giCloud", {
   restoreTenantBackup: (options) => ipcRenderer.invoke("cloud:restore-tenant-backup", options),
   initCompanyFromProfile: (profile) => ipcRenderer.invoke("db:init-company-from-profile", profile),
 });
+
+contextBridge.exposeInMainWorld("giSecureStore", {
+  isAvailable: () => ipcRenderer.invoke("secure-store:is-available"),
+  getCredentials: () => ipcRenderer.invoke("secure-store:get-credentials"),
+  saveCredentials: (payload) => ipcRenderer.invoke("secure-store:save-credentials", payload),
+  clearCredentials: () => ipcRenderer.invoke("secure-store:clear-credentials"),
+  migrateFromLocalStorage: (payload) => ipcRenderer.invoke("secure-store:migrate-from-local-storage", payload)
+});

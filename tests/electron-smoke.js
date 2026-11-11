@@ -19,6 +19,11 @@ app.whenReady().then(async () => {
     ipcMain.handle("db:preview-next-invoice-number", (_event, type, docDate) => database.previewNextInvoiceNumber(type, docDate));
     ipcMain.handle("whatsapp:get-status", () => ({ ready: false, authenticated: false }));
     ipcMain.handle("cloud:check-health", () => ({ reachable: false }));
+    ipcMain.handle("secure-store:is-available", () => ({ available: false, platform: process.platform }));
+    ipcMain.handle("secure-store:get-credentials", () => ({ ok: true, hasCredentials: false }));
+    ipcMain.handle("secure-store:save-credentials", () => ({ ok: true }));
+    ipcMain.handle("secure-store:clear-credentials", () => ({ ok: true }));
+    ipcMain.handle("secure-store:migrate-from-local-storage", () => ({ ok: true, migrated: false }));
 
     const window = new BrowserWindow({
       width: 1400,

@@ -70,6 +70,20 @@ class CloudLicenseManager {
         enabled: true
       }).catch(() => {});
     }
+
+    if (window.giSecureStore?.saveCredentials) {
+      window.giSecureStore.saveCredentials({
+        token: merged.token,
+        email: merged.email,
+        customerId: merged.companyId || merged.customerId,
+        plan: merged.plan,
+        companyName: merged.companyName,
+        status: merged.status,
+        validUntil: merged.validUntil,
+        lastOnlineCheck: merged.lastOnlineCheck || new Date().toISOString(),
+        activated: true
+      }).catch(() => {});
+    }
   }
 
   static isActivated() {
@@ -145,6 +159,9 @@ class CloudLicenseManager {
     localStorage.setItem(CLOUD_STORAGE_KEYS.ACTIVATED, "false");
     if (typeof PinSecurityManager !== "undefined") {
       PinSecurityManager.disablePin();
+    }
+    if (window.giSecureStore?.clearCredentials) {
+      window.giSecureStore.clearCredentials().catch(() => {});
     }
     if (typeof showToast === "function") {
       showToast("Signed out of ZynBill account.", "info");
@@ -1254,6 +1271,32 @@ window.addEventListener("DOMContentLoaded", async () => {
   PinUiController.init();
   PinResetInAppController.init();
   SubscriptionModalController.init();
+
+  // Secure Windows DPAPI Storage verification & migration
+  if (window.giSecureStore?.getCredentials) {
+    try {
+      const secRes = await window.giSecureStore.getCredentials();
+      if (secRes && secRes.unauthorizedMachine) {
+        alert("Security Alert: Machine Authorization Mismatch.\n\nCredential data copied from another Windows computer cannot be decrypted on this device. Please log in with your registered account.");
+        localStorage.removeItem(CLOUD_STORAGE_KEYS.LICENSE);
+        localStorage.setItem(CLOUD_STORAGE_KEYS.ACTIVATED, "false");
+        ActivationUiController.showActivationModal(true);
+        return;
+      } else if (secRes && secRes.hasCredentials && secRes.credentials) {
+        const c = secRes.credentials;
+        if (c.token && c.email) {
+          CloudLicenseManager.saveLicense(c);
+        }
+      } else {
+        // If local storage has legacy token, migrate to DPAPI secure store
+        const legacyLic = CloudLicenseManager.getStoredLicense();
+        if (legacyLic?.token && window.giSecureStore?.migrateFromLocalStorage) {
+          await window.giSecureStore.migrateFromLocalStorage(legacyLic);
+        }
+      }
+    } catch (_) {}
+  }
+
   await CloudSyncWidget.init();
 
   const activeLicense = CloudLicenseManager.getLicense();

@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, Tray, dialog, ipcMain, nativeImage, shell } = require("electron");
+const { app, BrowserWindow, Menu, Tray, dialog, ipcMain, nativeImage, shell, safeStorage } = require("electron");
 const path = require("path");
 const fs = require("fs");
 const os = require("os");
@@ -1581,6 +1581,168 @@ function registerCloudHandlers() {
   });
 }
 
+function registerSecureStorageHandlers() {
+  function getSecureStorePath() {
+    return path.join(app.getPath("userData"), "secure_credentials.enc");
+  }
+
+  function encryptSensitive(value) {
+    if (!value) return "";
+    try {
+      if (safeStorage && typeof safeStorage.isEncryptionAvailable === "function" && safeStorage.isEncryptionAvailable()) {
+        return safeStorage.encryptString(String(value)).toString("base64");
+      }
+    } catch (_) {}
+    return "raw:" + Buffer.from(String(value), "utf8").toString("base64");
+  }
+
+  function decryptSensitive(storedStr) {
+    if (!storedStr) return "";
+    if (storedStr.startsWith("raw:")) {
+      return Buffer.from(storedStr.slice(4), "base64").toString("utf8");
+    }
+    if (safeStorage && typeof safeStorage.isEncryptionAvailable === "function" && safeStorage.isEncryptionAvailable()) {
+      try {
+        const buf = Buffer.from(storedStr, "base64");
+        return safeStorage.decryptString(buf);
+      } catch (err) {
+        throw new Error("DPAPI_DECRYPTION_FAILED: Token was encrypted on another machine or user account.");
+      }
+    }
+    return "";
+  }
+
+  ipcMain.handle("secure-store:is-available", () => {
+    return {
+      available: safeStorage && typeof safeStorage.isEncryptionAvailable === "function" ? safeStorage.isEncryptionAvailable() : false,
+      platform: process.platform
+    };
+  });
+
+  ipcMain.handle("secure-store:get-credentials", async () => {
+    const filePath = getSecureStorePath();
+    if (!fs.existsSync(filePath)) {
+      return { ok: true, hasCredentials: false, credentials: null };
+    }
+    try {
+      const raw = JSON.parse(fs.readFileSync(filePath, "utf8"));
+      let token = "";
+      let pinHash = "";
+      let pinSalt = "";
+
+      try {
+        if (raw.tokenEncrypted) token = decryptSensitive(raw.tokenEncrypted);
+        if (raw.pinHashEncrypted) pinHash = decryptSensitive(raw.pinHashEncrypted);
+        if (raw.pinSaltEncrypted) pinSalt = decryptSensitive(raw.pinSaltEncrypted);
+      } catch (decErr) {
+        console.warn("[SecureStore Security]: DPAPI decryption failure (unauthorized machine copy detected).");
+        return {
+          ok: false,
+          hasCredentials: true,
+          unauthorizedMachine: true,
+          error: "Machine authorization mismatch: Credentials cannot be decrypted on this device."
+        };
+      }
+
+      return {
+        ok: true,
+        hasCredentials: true,
+        credentials: {
+          token,
+          email: raw.email || "",
+          customerId: raw.customerId || "",
+          plan: raw.plan || "",
+          companyName: raw.companyName || "",
+          status: raw.status || "active",
+          validUntil: raw.validUntil || null,
+          lastOnlineCheck: raw.lastOnlineCheck || null,
+          pinHash,
+          pinSalt,
+          pinEnabled: Boolean(raw.pinEnabled),
+          activated: Boolean(raw.activated)
+        }
+      };
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle("secure-store:save-credentials", async (_event, creds = {}) => {
+    try {
+      const filePath = getSecureStorePath();
+      const tokenEncrypted = creds.token ? encryptSensitive(creds.token) : "";
+      const pinHashEncrypted = creds.pinHash ? encryptSensitive(creds.pinHash) : "";
+      const pinSaltEncrypted = creds.pinSalt ? encryptSensitive(creds.pinSalt) : "";
+
+      const payload = {
+        tokenEncrypted,
+        email: creds.email || "",
+        customerId: creds.customerId || "",
+        plan: creds.plan || "",
+        companyName: creds.companyName || "",
+        status: creds.status || "active",
+        validUntil: creds.validUntil || null,
+        lastOnlineCheck: creds.lastOnlineCheck || new Date().toISOString(),
+        pinHashEncrypted,
+        pinSaltEncrypted,
+        pinEnabled: Boolean(creds.pinEnabled),
+        activated: Boolean(creds.activated !== false),
+        updatedAt: new Date().toISOString()
+      };
+
+      fs.writeFileSync(filePath, JSON.stringify(payload, null, 2), "utf8");
+      return { ok: true, message: "Credentials encrypted and saved with Windows DPAPI." };
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle("secure-store:clear-credentials", async () => {
+    try {
+      const filePath = getSecureStorePath();
+      if (fs.existsSync(filePath)) {
+        fs.unlinkSync(filePath);
+      }
+      return { ok: true, message: "Secure credentials cleared." };
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle("secure-store:migrate-from-local-storage", async (_event, creds = {}) => {
+    try {
+      const filePath = getSecureStorePath();
+      if (!fs.existsSync(filePath) && (creds.token || creds.email)) {
+        const tokenEncrypted = creds.token ? encryptSensitive(creds.token) : "";
+        const pinHashEncrypted = creds.pinHash ? encryptSensitive(creds.pinHash) : "";
+        const pinSaltEncrypted = creds.pinSalt ? encryptSensitive(creds.pinSalt) : "";
+
+        const payload = {
+          tokenEncrypted,
+          email: creds.email || "",
+          customerId: creds.customerId || "",
+          plan: creds.plan || "",
+          companyName: creds.companyName || "",
+          status: creds.status || "active",
+          validUntil: creds.validUntil || null,
+          lastOnlineCheck: creds.lastOnlineCheck || new Date().toISOString(),
+          pinHashEncrypted,
+          pinSaltEncrypted,
+          pinEnabled: Boolean(creds.pinEnabled),
+          activated: Boolean(creds.activated !== false),
+          migratedFromLocalStorageAt: new Date().toISOString()
+        };
+
+        fs.writeFileSync(filePath, JSON.stringify(payload, null, 2), "utf8");
+        return { ok: true, migrated: true };
+      }
+      return { ok: true, migrated: false };
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  });
+}
+
 function createMenu() {
   const template = [
     {
@@ -1697,6 +1859,7 @@ if (singleInstanceLock && app && typeof app.whenReady === "function") {
     await database.initDatabase(app.getPath("userData"));
     registerDatabaseHandlers();
     registerCloudHandlers();
+    registerSecureStorageHandlers();
     createMenu();
     createTray();
     createMainWindow();
