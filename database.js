@@ -5986,7 +5986,8 @@ function normalizeInvoiceItems(companyId, transactionType, items, taxContext = i
       const resolvedTaxRate = Number(item.taxRate ?? meta.taxRate ?? 0);
       const resolvedTaxAmount = taxable * resolvedTaxRate / 100;
 
-      const matchedSlab = slabs.find((s) => Number(s.rate) === resolvedTaxRate || String(s.name) === String(item.taxType || ""));
+      const matchedSlab = (item.taxType ? slabs.find((s) => String(s.name).toLowerCase() === String(item.taxType).toLowerCase() || String(s.id) === String(item.taxType)) : null)
+        || slabs.find((s) => Number(s.rate) === resolvedTaxRate);
       const split = splitGstAmount(resolvedTaxAmount, taxContext, matchedSlab);
 
       const cessRate = Number(item.cessRate ?? item.cess ?? matchedSlab?.cess ?? 0);

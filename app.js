@@ -8678,7 +8678,7 @@ function recalcTransactionEditor() {
     taxTotal += taxAmount;
 
     const slabs = state.businessSettings?.taxSlabs || defaultTaxSlabs();
-    const slab = slabs.find((s) => Number(s.rate) === Number(taxRate) || s.name === taxValue);
+    const slab = slabs.find((s) => s.name === taxValue) || slabs.find((s) => Number(s.rate) === Number(taxRate));
     const cessRate = (state.businessSettings?.enableCess && slab?.cess) ? Number(slab.cess) : 0;
     const lineCessAmount = taxable * cessRate / 100;
     cessTotal += lineCessAmount;
@@ -24534,11 +24534,13 @@ function gstSlabRows(lines) {
     group.tax += Number(line.taxAmount || 0);
     slabs.set(rate, group);
   });
-  return [0, 5, 12, 18, 28]
-    .filter((rate) => slabs.has(rate))
+  const allRates = Array.from(new Set([...slabs.keys(), 0, 0.25, 3, 5, 12, 18, 28, 40])).sort((a, b) => a - b);
+  return allRates
+    .filter((rate) => slabs.has(rate) && (slabs.get(rate).taxable > 0 || slabs.get(rate).tax > 0 || [5, 12, 18, 28].includes(rate)))
     .map((rate) => {
-      const group = slabs.get(rate);
-      return [`${rate}%`, formatCurrency(group.taxable), formatCurrency(group.cgst), formatCurrency(group.sgst), formatCurrency(group.igst), formatCurrency(group.tax)];
+      const group = slabs.get(rate) || { taxable: 0, cgst: 0, sgst: 0, igst: 0, tax: 0 };
+      const label = rate === 0 ? "0% (Nil / Exempt)" : `${rate}%`;
+      return [label, formatCurrency(group.taxable), formatCurrency(group.cgst), formatCurrency(group.sgst), formatCurrency(group.igst), formatCurrency(group.tax)];
     });
 }
 
@@ -25316,7 +25318,8 @@ function gstDashboardReport() {
   const healthIssues = missingHsnCount + invalidGstinB2b;
   const healthScore = healthIssues === 0 ? "100% Audit Ready" : `${healthIssues} Action Item${healthIssues > 1 ? "s" : ""}`;
 
-  const rates = [0, 5, 12, 18, 28];
+  const configuredSlabs = state.businessSettings?.taxSlabs || defaultTaxSlabs();
+  const rates = Array.from(new Set([0, 0.25, 3, 5, 12, 18, 28, 40, ...configuredSlabs.map((s) => Number(s.rate)).filter((r) => !isNaN(r) && r >= 0)])).sort((a, b) => a - b);
   const saleLines = (state.invoiceItems || []).filter((l) => saleInvoices.some((inv) => inv.id === l.invoiceId));
   const purchaseLines = (state.invoiceItems || []).filter((l) => purchaseBills.some((inv) => inv.id === l.invoiceId));
 
@@ -25788,7 +25791,8 @@ function salesTaxSummaryReport() {
   const lines = (state.invoiceItems || []).filter((l) => invoiceIds.has(l.invoiceId));
 
   const slabs = new Map();
-  [0, 5, 12, 18, 28].forEach((r) => slabs.set(r, { rate: r, count: 0, taxable: 0, cgst: 0, sgst: 0, igst: 0, tax: 0 }));
+  const configuredRates = Array.from(new Set([0, 0.25, 3, 5, 12, 18, 28, 40, ...(state.businessSettings?.taxSlabs || defaultTaxSlabs()).map((s) => Number(s.rate)).filter((r) => !isNaN(r) && r >= 0)])).sort((a, b) => a - b);
+  configuredRates.forEach((r) => slabs.set(r, { rate: r, count: 0, taxable: 0, cgst: 0, sgst: 0, igst: 0, tax: 0 }));
 
   lines.forEach((l) => {
     const rate = Number(l.taxRate || 0);
@@ -25803,10 +25807,10 @@ function salesTaxSummaryReport() {
   });
 
   const slabRows = [...slabs.values()]
-    .filter((s) => s.taxable > 0 || s.count > 0 || [5, 12, 18, 28].includes(s.rate))
+    .filter((s) => s.taxable > 0 || s.count > 0 || [0, 0.25, 3, 5, 12, 18, 28, 40].includes(s.rate))
     .sort((a, b) => a.rate - b.rate)
     .map((s) => [
-      `${s.rate}% GST`,
+      s.rate === 0 ? "0% (Nil / Exempt)" : `${s.rate}% GST`,
       String(s.count),
       formatCurrency(s.taxable),
       formatCurrency(s.cgst),
@@ -25859,7 +25863,8 @@ function purchaseTaxSummaryReport() {
   const lines = (state.invoiceItems || []).filter((l) => purchaseIds.has(l.invoiceId));
 
   const slabs = new Map();
-  [0, 5, 12, 18, 28].forEach((r) => slabs.set(r, { rate: r, count: 0, taxable: 0, cgst: 0, sgst: 0, igst: 0, tax: 0 }));
+  const configuredRates = Array.from(new Set([0, 0.25, 3, 5, 12, 18, 28, 40, ...(state.businessSettings?.taxSlabs || defaultTaxSlabs()).map((s) => Number(s.rate)).filter((r) => !isNaN(r) && r >= 0)])).sort((a, b) => a - b);
+  configuredRates.forEach((r) => slabs.set(r, { rate: r, count: 0, taxable: 0, cgst: 0, sgst: 0, igst: 0, tax: 0 }));
 
   lines.forEach((l) => {
     const rate = Number(l.taxRate || 0);
@@ -25874,10 +25879,10 @@ function purchaseTaxSummaryReport() {
   });
 
   const slabRows = [...slabs.values()]
-    .filter((s) => s.taxable > 0 || s.count > 0 || [5, 12, 18, 28].includes(s.rate))
+    .filter((s) => s.taxable > 0 || s.count > 0 || [0, 0.25, 3, 5, 12, 18, 28, 40].includes(s.rate))
     .sort((a, b) => a.rate - b.rate)
     .map((s) => [
-      `${s.rate}% GST`,
+      s.rate === 0 ? "0% (Nil / Exempt)" : `${s.rate}% GST`,
       String(s.count),
       formatCurrency(s.taxable),
       formatCurrency(s.cgst),
