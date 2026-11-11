@@ -45,7 +45,9 @@ const smtp = require('./smtp');
 const {
   encryptBackupEnvelope,
   decryptBackupEnvelope,
-  isEncryptedEnvelope
+  isEncryptedEnvelope,
+  inspectBackupFormat,
+  validateProductionKeyConfiguration
 } = require('./backup-crypto');
 
 const PORT = parseInt(process.env.PORT || '4000', 10);
@@ -2824,6 +2826,10 @@ const server = http.createServer(async (req, res) => {
 
     const latestMeta = masterDb.prepare('SELECT * FROM tenant_backups WHERE customer_id = ? ORDER BY created_at DESC LIMIT 1').get(customer.id);
     const rawFileData = fs.readFileSync(latestPath);
+    const inspection = inspectBackupFormat(rawFileData);
+    const isEncryptedAtRest = inspection.isEncrypted;
+    const backupFormat = inspection.format;
+
     let decryptedSqlite;
     try {
       decryptedSqlite = decryptBackupEnvelope(rawFileData, customer.id);
@@ -2836,6 +2842,8 @@ const server = http.createServer(async (req, res) => {
         ok: true,
         backupData: decryptedSqlite.toString('base64'),
         sizeBytes: decryptedSqlite.length,
+        encryptedAtRest: isEncryptedAtRest,
+        backupFormat,
         checksum: latestMeta?.checksum || crypto.createHash('sha256').update(decryptedSqlite).digest('hex'),
         timestamp: latestMeta?.created_at || new Date().toISOString(),
         companyName: latestMeta?.company_name || customer.company_name,
@@ -2851,6 +2859,8 @@ const server = http.createServer(async (req, res) => {
       'x-company-name': encodeURIComponent(latestMeta?.company_name || customer.company_name || ''),
       'x-backup-timestamp': latestMeta?.created_at || '',
       'x-checksum-sha256': latestMeta?.checksum || crypto.createHash('sha256').update(decryptedSqlite).digest('hex'),
+      'x-encrypted-at-rest': String(isEncryptedAtRest),
+      'x-backup-format': backupFormat,
       'Access-Control-Allow-Origin': res._corsOrigin || '*'
     });
     res.end(decryptedSqlite);
@@ -2865,8 +2875,9 @@ const server = http.createServer(async (req, res) => {
 
     const { customer } = auth;
     const tenantBackupsDir = getTenantBackupsDir(customer.id);
-    const hasBackupFile = fs.existsSync(path.join(tenantBackupsDir, 'latest_backup.enc')) ||
-                          fs.existsSync(path.join(tenantBackupsDir, 'latest_backup.sqlite'));
+    const hasEnc = fs.existsSync(path.join(tenantBackupsDir, 'latest_backup.enc'));
+    const hasLegacy = fs.existsSync(path.join(tenantBackupsDir, 'latest_backup.sqlite'));
+    const hasBackupFile = hasEnc || hasLegacy;
 
     const latestMeta = masterDb.prepare('SELECT * FROM tenant_backups WHERE customer_id = ? ORDER BY created_at DESC LIMIT 1').get(customer.id);
 
@@ -2882,6 +2893,8 @@ const server = http.createServer(async (req, res) => {
         id: latestMeta.id,
         timestamp: latestMeta.created_at,
         sizeBytes: latestMeta.size_bytes,
+        encryptedAtRest: Boolean(hasEnc),
+        backupFormat: hasEnc ? 'encrypted' : (hasLegacy ? 'legacy_plaintext' : 'unknown'),
         checksum: latestMeta.checksum,
         companyName: latestMeta.company_name,
         recordCounts: parsedCounts

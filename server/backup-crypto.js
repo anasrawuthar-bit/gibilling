@@ -16,31 +16,137 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 
 const MAGIC_HEADER = Buffer.from('ZYNBKP01'); // 8 bytes: ZynBill Backup Format v1
-const CURRENT_KEY_ID = 'k1';
+let activeKeyId = 'k1';
 const SECRETS_DIR = path.join(__dirname, 'data', 'secrets');
 const KEY_FILE = path.join(SECRETS_DIR, 'backup_master.key');
 
 /**
- * Retrieves or generates the server Master Backup Encryption Key (32 bytes / 256 bits).
+ * Returns the currently active encryption key identifier.
  */
-function getMasterKey() {
+function getActiveKeyId() {
+  return activeKeyId;
+}
+
+/**
+ * Sets the active encryption key identifier (used for key rotation).
+ */
+function setActiveKeyId(newKeyId) {
+  if (!newKeyId || typeof newKeyId !== 'string') {
+    throw new Error('Key ID must be a non-empty string.');
+  }
+  activeKeyId = newKeyId.trim();
+  return activeKeyId;
+}
+
+/**
+ * Validates whether the server is configured with a secure production encryption secret.
+ */
+function validateProductionKeyConfiguration() {
+  const envKey = process.env.BACKUP_ENCRYPTION_KEY ? process.env.BACKUP_ENCRYPTION_KEY.trim() : null;
+  const keyring = process.env.BACKUP_KEYRING ? process.env.BACKUP_KEYRING.trim() : null;
+
+  if (keyring) {
+    try {
+      const parsed = JSON.parse(keyring);
+      if (typeof parsed === 'object' && Object.keys(parsed).length > 0) {
+        return {
+          ok: true,
+          source: 'env_keyring',
+          isProductionSafe: true,
+          keyCount: Object.keys(parsed).length,
+          message: 'Production backup encryption key ring configured via BACKUP_KEYRING environment variable.'
+        };
+      }
+    } catch (_) {}
+  }
+
+  if (envKey) {
+    const byteLen = Buffer.byteLength(envKey);
+    const isHex64 = envKey.length === 64 && /^[0-9a-fA-F]+$/.test(envKey);
+    const isBase64_44 = envKey.length === 44 && /^[0-9a-zA-Z+/=]+$/.test(envKey);
+
+    if (isHex64 || isBase64_44 || byteLen >= 32) {
+      return {
+        ok: true,
+        source: 'env_var',
+        isProductionSafe: true,
+        message: 'Production backup encryption master key configured via BACKUP_ENCRYPTION_KEY environment variable.'
+      };
+    } else {
+      return {
+        ok: false,
+        source: 'env_var_insufficient_entropy',
+        isProductionSafe: false,
+        error: 'BACKUP_ENCRYPTION_KEY is too short. Must be at least 32 bytes (or 64 hex characters).'
+      };
+    }
+  }
+
+  const isProduction = process.env.NODE_ENV === 'production';
+  return {
+    ok: !isProduction,
+    source: fs.existsSync(KEY_FILE) ? 'filesystem_fallback' : 'ephemeral_fallback',
+    isProductionSafe: false,
+    error: isProduction
+      ? 'CRITICAL SECURITY: BACKUP_ENCRYPTION_KEY is NOT configured in environment. Filesystem fallback keys are not permitted in production.'
+      : 'Using local filesystem key fallback for development/staging environment.'
+  };
+}
+
+/**
+ * Retrieves or generates the Master Backup Encryption Key (32 bytes / 256 bits) for a given keyId.
+ */
+function getMasterKey(keyId = activeKeyId) {
+  // 1. Check versioned key in environment (e.g., BACKUP_ENCRYPTION_KEY_K2)
+  const versionedEnvVar = `BACKUP_ENCRYPTION_KEY_${keyId.toUpperCase()}`;
+  const versionedEnvKey = process.env[versionedEnvVar] ? process.env[versionedEnvVar].trim() : null;
+  if (versionedEnvKey) {
+    if (versionedEnvKey.length === 64 && /^[0-9a-fA-F]+$/.test(versionedEnvKey)) {
+      return Buffer.from(versionedEnvKey, 'hex');
+    }
+    return crypto.createHash('sha256').update(versionedEnvKey).digest();
+  }
+
+  // 2. Check BACKUP_KEYRING JSON environment variable
+  if (process.env.BACKUP_KEYRING) {
+    try {
+      const ring = JSON.parse(process.env.BACKUP_KEYRING);
+      if (ring[keyId]) {
+        const rk = ring[keyId].trim();
+        if (rk.length === 64 && /^[0-9a-fA-F]+$/.test(rk)) {
+          return Buffer.from(rk, 'hex');
+        }
+        return crypto.createHash('sha256').update(rk).digest();
+      }
+    } catch (_) {}
+  }
+
+  // 3. Check primary BACKUP_ENCRYPTION_KEY environment variable
   const envKey = process.env.BACKUP_ENCRYPTION_KEY ? process.env.BACKUP_ENCRYPTION_KEY.trim() : null;
   if (envKey) {
-    if (envKey.length === 64) {
+    if (envKey.length === 64 && /^[0-9a-fA-F]+$/.test(envKey)) {
       return Buffer.from(envKey, 'hex');
-    } else if (envKey.length === 44) {
+    } else if (envKey.length === 44 && /^[0-9a-zA-Z+/=]+$/.test(envKey)) {
       return Buffer.from(envKey, 'base64');
     } else if (Buffer.byteLength(envKey) >= 32) {
       return crypto.createHash('sha256').update(envKey).digest();
     }
   }
 
+  // Production safety check
+  if (process.env.NODE_ENV === 'production' && process.env.STRICT_PRODUCTION_SECURITY === 'true') {
+    throw new Error('CRITICAL SECURITY VIOLATION: BACKUP_ENCRYPTION_KEY environment secret is required in production.');
+  }
+
   if (!fs.existsSync(SECRETS_DIR)) {
     fs.mkdirSync(SECRETS_DIR, { recursive: true });
   }
 
-  if (fs.existsSync(KEY_FILE)) {
-    const fileContent = fs.readFileSync(KEY_FILE, 'utf8').trim();
+  const versionedKeyFile = path.join(SECRETS_DIR, `backup_master_${keyId}.key`);
+  const targetFile = fs.existsSync(versionedKeyFile) ? versionedKeyFile : KEY_FILE;
+
+  if (fs.existsSync(targetFile)) {
+    const fileContent = fs.readFileSync(targetFile, 'utf8').trim();
     if (fileContent.length === 64) {
       return Buffer.from(fileContent, 'hex');
     }
@@ -49,8 +155,8 @@ function getMasterKey() {
   // Generate fresh cryptographically secure 256-bit master key
   const freshKey = crypto.randomBytes(32);
   try {
-    fs.writeFileSync(KEY_FILE, freshKey.toString('hex'), { mode: 0o600 });
-    console.log('[BackupCrypto] Generated and persisted fresh Master Backup Encryption Key in secrets store.');
+    fs.writeFileSync(targetFile, freshKey.toString('hex'), { mode: 0o600 });
+    console.log(`[BackupCrypto] Generated and persisted Master Key (${keyId}) in secrets store: ${targetFile}`);
   } catch (err) {
     console.warn('[BackupCrypto] Could not persist key file (using memory key):', err.message);
   }
@@ -60,11 +166,11 @@ function getMasterKey() {
 /**
  * Derives a tenant-specific 256-bit encryption key using HKDF-SHA256.
  */
-function deriveTenantKey(customerId, keyId = CURRENT_KEY_ID) {
+function deriveTenantKey(customerId, keyId = activeKeyId) {
   if (!customerId || typeof customerId !== 'string') {
     throw new Error('customerId is required for tenant key derivation.');
   }
-  const masterKey = getMasterKey();
+  const masterKey = getMasterKey(keyId);
   const info = `zynbill_backup_encryption_${keyId}`;
   const derived = crypto.hkdfSync('sha256', masterKey, customerId, info, 32);
   return Buffer.from(derived);
@@ -76,6 +182,42 @@ function deriveTenantKey(customerId, keyId = CURRENT_KEY_ID) {
 function isEncryptedEnvelope(buffer) {
   if (!buffer || buffer.length < MAGIC_HEADER.length) return false;
   return buffer.subarray(0, MAGIC_HEADER.length).equals(MAGIC_HEADER);
+}
+
+/**
+ * Inspects a backup buffer and categorizes its format, encryption status, and version.
+ */
+function inspectBackupFormat(buffer) {
+  if (!buffer || !Buffer.isBuffer(buffer) || buffer.length < 16) {
+    return { format: 'invalid', isEncrypted: false, isSqlite: false };
+  }
+
+  if (isEncryptedEnvelope(buffer)) {
+    let keyId = 'k1';
+    try {
+      const keyIdLen = buffer.readUInt8(MAGIC_HEADER.length);
+      keyId = buffer.subarray(MAGIC_HEADER.length + 1, MAGIC_HEADER.length + 1 + keyIdLen).toString('utf8');
+    } catch (_) {}
+    return {
+      format: 'encrypted',
+      version: 'ZYNBKP01',
+      keyId,
+      isEncrypted: true,
+      isSqlite: true // Will be SQLite after decryption
+    };
+  }
+
+  const headerPrefix = buffer.subarray(0, 16).toString('utf8');
+  if (headerPrefix.startsWith('SQLite format 3')) {
+    return {
+      format: 'legacy_plaintext',
+      version: 'sqlite3',
+      isEncrypted: false,
+      isSqlite: true
+    };
+  }
+
+  return { format: 'unknown', isEncrypted: false, isSqlite: false };
 }
 
 /**
@@ -96,7 +238,8 @@ function encryptBackupEnvelope(sqliteBuffer, customerId, metadata = {}) {
     throw new Error('customerId is required for backup encryption.');
   }
 
-  const tenantKey = deriveTenantKey(customerId, CURRENT_KEY_ID);
+  const selectedKeyId = metadata.keyId || activeKeyId;
+  const tenantKey = deriveTenantKey(customerId, selectedKeyId);
   const iv = crypto.randomBytes(12);
 
   const aadData = {
@@ -115,7 +258,7 @@ function encryptBackupEnvelope(sqliteBuffer, customerId, metadata = {}) {
   const ciphertext = Buffer.concat([cipher.update(sqliteBuffer), cipher.final()]);
   const authTag = cipher.getAuthTag();
 
-  const keyIdBuffer = Buffer.from(CURRENT_KEY_ID, 'utf8');
+  const keyIdBuffer = Buffer.from(selectedKeyId, 'utf8');
   const keyIdLenBuf = Buffer.from([keyIdBuffer.length]);
 
   const aadLenBuf = Buffer.alloc(2);
@@ -142,13 +285,14 @@ function decryptBackupEnvelope(envelopeBuffer, customerId) {
     throw new Error('Invalid or truncated backup envelope buffer.');
   }
 
+  const inspection = inspectBackupFormat(envelopeBuffer);
+
   // Handle legacy unencrypted SQLite files (backward compatibility)
-  const headerPrefix = envelopeBuffer.subarray(0, 16).toString('utf8');
-  if (headerPrefix.startsWith('SQLite format 3')) {
+  if (inspection.format === 'legacy_plaintext') {
     return envelopeBuffer;
   }
 
-  if (!isEncryptedEnvelope(envelopeBuffer)) {
+  if (inspection.format !== 'encrypted') {
     throw new Error('Unrecognized backup file format: neither ZYNBKP01 encrypted envelope nor SQLite format 3.');
   }
 
@@ -208,8 +352,12 @@ function decryptBackupEnvelope(envelopeBuffer, customerId) {
 
 module.exports = {
   getMasterKey,
+  getActiveKeyId,
+  setActiveKeyId,
+  validateProductionKeyConfiguration,
   deriveTenantKey,
   isEncryptedEnvelope,
+  inspectBackupFormat,
   encryptBackupEnvelope,
   decryptBackupEnvelope
 };
