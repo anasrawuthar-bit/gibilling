@@ -151,6 +151,35 @@ class CloudLicenseManager {
    * Syncs latest subscription and plan status from cloud backend
    */
 
+  static forceLogout(reason) {
+    localStorage.removeItem(CLOUD_STORAGE_KEYS.LICENSE);
+    localStorage.setItem(CLOUD_STORAGE_KEYS.ACTIVATED, "false");
+    if (typeof PinSecurityManager !== "undefined") {
+      PinSecurityManager.disablePin();
+    }
+    if (window.giSecureStore?.clearCredentials) {
+      window.giSecureStore.clearCredentials().catch(() => {});
+    }
+    if (window.giDB?.configureSync) {
+      window.giDB.configureSync({ enabled: false }).catch(() => {});
+    }
+
+    ActivationUiController.showActivationModal(true);
+
+    const errBox = document.getElementById("activationErrorMsg");
+    if (errBox) {
+      errBox.textContent = reason || "Your account has been revoked or suspended. Please contact the administrator.";
+      errBox.classList.remove("hidden");
+    }
+
+    if (typeof showToast === "function") {
+      showToast(reason || "Account revoked or suspended. Signed out.", "error");
+    }
+
+    CloudSyncWidget.updatePlanPill();
+    CloudSyncWidget.updatePopoverDetails();
+  }
+
   static signOut() {
     if (!confirm("Are you sure you want to sign out of ZynBill? Your local invoices and master data remain safely on this PC.")) {
       return;
@@ -163,16 +192,14 @@ class CloudLicenseManager {
     if (window.giSecureStore?.clearCredentials) {
       window.giSecureStore.clearCredentials().catch(() => {});
     }
+    if (window.giDB?.configureSync) {
+      window.giDB.configureSync({ enabled: false }).catch(() => {});
+    }
     if (typeof showToast === "function") {
       showToast("Signed out of ZynBill account.", "info");
     }
 
-    const actModal = document.getElementById("cloudActivationModal");
-    const form = document.getElementById("cloudActivationForm");
-    const otpStep = document.getElementById("activationOtpStep");
-    form?.classList.remove("hidden");
-    otpStep?.classList.add("hidden");
-    actModal?.classList.remove("hidden");
+    ActivationUiController.showActivationModal(true);
 
     CloudSyncWidget.updatePlanPill();
     CloudSyncWidget.updatePopoverDetails();
@@ -185,11 +212,41 @@ class CloudLicenseManager {
 
     try {
       let data = null;
+      let status = 200;
+      let ok = true;
       if (window.giCloud?.validateLicense) {
         const result = await window.giCloud.validateLicense({ serverUrl: sUrl, token: license.token });
-        if (result) data = result.data || result;
+        if (result) {
+          ok = result.ok;
+          status = result.status || (result.data && result.data.status) || (ok ? 200 : 400);
+          data = result.data || result;
+        }
       }
-      if (data && data.ok && data.license) {
+
+      const isRevokedOrSuspended = !ok || (data && (
+        !data.ok ||
+        status === 401 ||
+        status === 403 ||
+        data.status === 401 ||
+        data.status === 403 ||
+        data.error?.includes("suspended") ||
+        data.error?.includes("revoked") ||
+        data.error?.includes("rejected") ||
+        data.error?.includes("Invalid") ||
+        data.error?.includes("not found") ||
+        (data.license && (data.license.status === "suspended" || data.license.status === "rejected"))
+      ));
+
+      if (isRevokedOrSuspended) {
+        const reason = (data && data.error) ||
+          (data && data.license && data.license.status === "suspended"
+            ? "This business account has been suspended by the administrator."
+            : "Your account registration was revoked or rejected.");
+        this.forceLogout(reason);
+        return null;
+      }
+
+      if (data && data.ok && data.license && data.license.status === "active") {
         this.saveLicense({
           plan: data.license.plan,
           validUntil: data.license.validUntil,
@@ -199,15 +256,10 @@ class CloudLicenseManager {
           lastOnlineCheck: new Date().toISOString()
         });
         return this.getLicense();
-      } else if (data && (!data.ok || data.status === 401 || data.error?.includes("revoked") || data.error?.includes("Invalid"))) {
-        // Device authorization revoked on server
-        this.setActivated(false);
-        if (typeof showToast === "function") {
-          showToast("Device authorization was revoked on the cloud server. Please log in again.", "error");
-        }
-        ActivationUiController.showActivationModal(true);
       }
-    } catch (_) {}
+    } catch (err) {
+      console.warn("License sync error:", err);
+    }
     return license;
   }
 }
@@ -1260,7 +1312,12 @@ class ActivationUiController {
 
   static showActivationModal(force = false) {
     if (!CloudLicenseManager.isActivated() || force) {
-      document.getElementById("cloudActivationModal")?.classList.remove("hidden");
+      const actModal = document.getElementById("cloudActivationModal");
+      const form = document.getElementById("cloudActivationForm");
+      const otpStep = document.getElementById("activationOtpStep");
+      form?.classList.remove("hidden");
+      otpStep?.classList.add("hidden");
+      actModal?.classList.remove("hidden");
     }
   }
 }
@@ -1310,9 +1367,28 @@ window.addEventListener("DOMContentLoaded", async () => {
 
   if (!CloudLicenseManager.isActivated()) {
     ActivationUiController.showActivationModal(true);
-  } else if (PinSecurityManager.isPinEnabled()) {
-    PinUiController.showLockScreen();
+  } else {
+    // Immediate online license validation to enforce revocation / suspension instantly
+    if (navigator.onLine) {
+      CloudLicenseManager.syncLicenseWithServer().catch(() => {});
+    }
+    if (PinSecurityManager.isPinEnabled()) {
+      PinUiController.showLockScreen();
+    }
   }
+
+  // Real-time account status synchronization (revocation / suspension polling)
+  setInterval(() => {
+    if (navigator.onLine && CloudLicenseManager.isActivated()) {
+      CloudLicenseManager.syncLicenseWithServer().catch(() => {});
+    }
+  }, 30000);
+
+  window.addEventListener("focus", () => {
+    if (navigator.onLine && CloudLicenseManager.isActivated()) {
+      CloudLicenseManager.syncLicenseWithServer().catch(() => {});
+    }
+  });
 });
 
 // Export globally for renderer access

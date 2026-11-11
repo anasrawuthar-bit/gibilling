@@ -258,6 +258,16 @@ function deleteSession(rawToken) {
   }
 }
 
+function deleteSessionsByUserId(userId) {
+  if (!userId) return false;
+  try {
+    const res = masterDb.prepare('DELETE FROM web_sessions WHERE user_id = ?').run(userId);
+    return res.changes > 0;
+  } catch (_) {
+    return false;
+  }
+}
+
 function cleanupExpiredSessions() {
   try {
     masterDb.prepare('DELETE FROM web_sessions WHERE expires_at < ?').run(new Date().toISOString());
@@ -1258,6 +1268,7 @@ module.exports = {
   saveSession,
   getSession,
   deleteSession,
+  deleteSessionsByUserId,
   cleanupExpiredSessions,
   checkRateLimit,
   resetRateLimit,

@@ -702,6 +702,19 @@
     window.addEventListener('DOMContentLoaded', () => {
       initPasswordToggles();
       loadProfile();
+
+      // Real-time account status synchronization (revocation / suspension polling)
+      setInterval(() => {
+        if (customerToken || document.cookie.includes('zynbill_portal_session')) {
+          loadProfile();
+        }
+      }, 30000);
+
+      window.addEventListener('focus', () => {
+        if (customerToken || document.cookie.includes('zynbill_portal_session')) {
+          loadProfile();
+        }
+      });
     });
 
     // Multi-tab logout synchronization

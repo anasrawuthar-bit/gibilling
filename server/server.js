@@ -24,6 +24,7 @@ const {
   saveSession,
   getSession,
   deleteSession,
+  deleteSessionsByUserId,
   cleanupExpiredSessions,
   checkRateLimit,
   resetRateLimit,
@@ -1037,7 +1038,22 @@ const server = http.createServer(async (req, res) => {
       SELECT id, company_name, owner_name, email, plan, status, valid_until FROM customers WHERE id = ?
     `).get(device.customer_id);
 
-    if (!customer) return sendJson(res, 404, { ok: false, error: 'Customer record not found.' });
+    if (!customer) {
+      masterDb.prepare('DELETE FROM device_tokens WHERE token = ?').run(token);
+      return sendJson(res, 404, { ok: false, error: 'Customer record not found.' });
+    }
+
+    if (customer.status !== 'active') {
+      // Invalidate device token immediately if account is not active
+      masterDb.prepare('DELETE FROM device_tokens WHERE token = ?').run(token);
+      return sendJson(res, 403, {
+        ok: false,
+        status: 403,
+        error: customer.status === 'suspended'
+          ? 'This business account has been suspended by the administrator.'
+          : 'Your account registration was rejected or revoked.'
+      });
+    }
 
     const now = Date.now();
     const expiry = customer.valid_until ? new Date(customer.valid_until).getTime() : now + 365 * 86400000;
@@ -1340,6 +1356,10 @@ const server = http.createServer(async (req, res) => {
       WHERE id = ?
     `).run(reason, now, customerId);
 
+    // Invalidate all active portal sessions and authorized devices for this rejected customer
+    deleteSessionsByUserId(customerId);
+    masterDb.prepare('DELETE FROM device_tokens WHERE customer_id = ?').run(customerId);
+
     await smtp.sendRejectionEmail(customer.email, customer.company_name, reason);
 
     return sendJson(res, 200, { ok: true, message: 'Account registration rejected.', customerId });
@@ -1360,6 +1380,12 @@ const server = http.createServer(async (req, res) => {
     masterDb.prepare(`
       UPDATE customers SET status = ?, updated_at = ? WHERE id = ?
     `).run(newStatus, new Date().toISOString(), customerId);
+
+    // If account suspended, immediately invalidate all active portal sessions and desktop device tokens
+    if (newStatus === 'suspended') {
+      deleteSessionsByUserId(customerId);
+      masterDb.prepare('DELETE FROM device_tokens WHERE customer_id = ?').run(customerId);
+    }
 
     return sendJson(res, 200, { ok: true, message: `Status updated to ${newStatus}.`, customerId, status: newStatus });
   }
@@ -2453,6 +2479,21 @@ const server = http.createServer(async (req, res) => {
       sendJson(res, 401, { ok: false, error: 'Customer session expired. Please log in.' });
       return null;
     }
+
+    const customer = masterDb.prepare('SELECT id, status FROM customers WHERE id = ?').get(session.id);
+    if (!customer || customer.status !== 'active') {
+      deleteSession(token);
+      const clearCookieHeader = buildClearCookie('zynbill_portal_session');
+      sendJson(res, 403, {
+        ok: false,
+        status: 403,
+        error: customer && customer.status === 'suspended'
+          ? 'Your account has been suspended by the administrator.'
+          : 'Your account has been revoked or is no longer active.'
+      }, { 'Set-Cookie': clearCookieHeader });
+      return null;
+    }
+
     return session;
   }
 
