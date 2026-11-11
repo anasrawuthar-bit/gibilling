@@ -1408,9 +1408,10 @@
 
     async function handleLogin(e) {
       e.preventDefault();
-      const email = document.getElementById('adminEmail').value;
-      const password = document.getElementById('adminPassword').value;
+      const email = (document.getElementById('adminEmail').value || '').trim();
+      const password = document.getElementById('adminPassword').value || '';
       const errEl = document.getElementById('loginError');
+      errEl.style.display = 'none';
 
       try {
         const res = await fetch('/api/v1/admin/login', {

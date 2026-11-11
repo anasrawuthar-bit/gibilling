@@ -442,6 +442,10 @@ async function runDualPcMigrationTest() {
     console.log("   ALL 8 PHASES OF DUAL-PC MIGRATION & OFFLINE BILLING PASSED!    ");
     console.log("==================================================================");
   } finally {
+    try {
+      const { syncSuperAdminCredentials } = require("../server/db");
+      syncSuperAdminCredentials();
+    } catch (_) {}
     if (httpServer) {
       await new Promise((resolve) => httpServer.close(resolve));
     }

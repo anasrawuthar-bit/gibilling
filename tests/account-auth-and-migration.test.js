@@ -479,6 +479,10 @@ async function runAuditTests() {
     console.log("   ALL 16 E2E AUTH, SUBSCRIPTION & MIGRATION TESTS PASSED 100%!  ");
     console.log("==================================================================");
   } finally {
+    try {
+      const { syncSuperAdminCredentials } = require("../server/db");
+      syncSuperAdminCredentials();
+    } catch (_) {}
     if (httpServer) {
       await new Promise((resolve) => httpServer.close(resolve));
     }

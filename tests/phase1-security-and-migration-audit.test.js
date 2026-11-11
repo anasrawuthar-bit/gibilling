@@ -349,6 +349,10 @@ async function runAudit() {
     console.log("  ALL 9 INDEPENDENT SECURITY & INTEGRITY TESTS PASSED 100%!       ");
     console.log("==================================================================");
   } finally {
+    try {
+      const { syncSuperAdminCredentials } = require("../server/db");
+      syncSuperAdminCredentials();
+    } catch (_) {}
     if (httpServer) {
       await new Promise((resolve) => httpServer.close(resolve));
     }

@@ -32,7 +32,7 @@ const {
 } = require("../server/backup-crypto");
 
 const { server } = require("../server/server");
-const { masterDb, hashPassword, getTenantBackupsDir } = require("../server/db");
+const { masterDb, hashPassword, getTenantBackupsDir, syncSuperAdminCredentials } = require("../server/db");
 const database = require("../database");
 const smtp = require("../server/smtp");
 
@@ -374,6 +374,7 @@ async function runStagingVerificationTests() {
     console.log("  ALL 8 STAGING VERIFICATION TESTS PASSED 100%!                  ");
     console.log("==================================================================");
   } finally {
+    try { syncSuperAdminCredentials(); } catch (_) {}
     if (httpServer) {
       await new Promise((resolve) => httpServer.close(resolve));
     }

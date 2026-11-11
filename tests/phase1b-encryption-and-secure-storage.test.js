@@ -272,6 +272,10 @@ async function runPhase1bTests() {
     console.log("  ALL PHASE 1B ENCRYPTION & DECRYPTION TESTS PASSED 100%!         ");
     console.log("==================================================================");
   } finally {
+    try {
+      const { syncSuperAdminCredentials } = require("../server/db");
+      syncSuperAdminCredentials();
+    } catch (_) {}
     if (httpServer) {
       await new Promise((resolve) => httpServer.close(resolve));
     }

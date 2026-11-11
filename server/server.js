@@ -4,6 +4,10 @@
  * Zero external dependencies: uses Node native http, crypto & sqlite!
  */
 
+// Ensure zero-dependency environment variables are loaded first
+require('./env-loader');
+const { getAdminConfigStatus } = require('./env-loader');
+
 const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -39,7 +43,8 @@ const {
   listCloudBackups,
   verifyAndInspectBackup,
   restoreBackupToSandbox,
-  getTenantBackupsDir
+  getTenantBackupsDir,
+  syncSuperAdminCredentials
 } = require('./db');
 const smtp = require('./smtp');
 const {
@@ -1115,6 +1120,13 @@ const server = http.createServer(async (req, res) => {
     const body = await parseJsonBody(req);
     const { email, password } = body;
 
+    const cleanEmail = String(email || '').trim().toLowerCase();
+    const cleanPassword = typeof password === 'string' ? password : '';
+
+    if (!cleanEmail || !cleanPassword) {
+      return sendJson(res, 400, { ok: false, error: 'Admin email and password are required.' });
+    }
+
     const clientIp = getClientIp(req);
     const rateKey = `admin_login_${clientIp}`;
     const rateCheck = checkRateLimit(rateKey, 5, 15 * 60 * 1000);
@@ -1129,8 +1141,8 @@ const server = http.createServer(async (req, res) => {
       });
     }
 
-    const admin = masterDb.prepare('SELECT * FROM admins WHERE email = ?').get(String(email).trim().toLowerCase());
-    if (!admin || !verifyPassword(password, admin.password_hash, admin.password_salt)) {
+    const admin = masterDb.prepare('SELECT * FROM admins WHERE LOWER(TRIM(email)) = ?').get(cleanEmail);
+    if (!admin || !verifyPassword(cleanPassword, admin.password_hash, admin.password_salt)) {
       return sendJson(res, 401, { ok: false, error: 'Invalid admin credentials.' });
     }
 
@@ -1139,7 +1151,7 @@ const server = http.createServer(async (req, res) => {
     // Transparently upgrade legacy password hashes to modern 600k rounds
     if (checkPasswordNeedsRehash(admin.password_salt)) {
       try {
-        const upgraded = hashPassword(password);
+        const upgraded = hashPassword(cleanPassword);
         masterDb.prepare('UPDATE admins SET password_hash = ?, password_salt = ? WHERE id = ?')
           .run(upgraded.hash, upgraded.salt, admin.id);
         console.log(`[Security] Transparently upgraded Super Admin (${admin.email}) to 600,000 PBKDF2 rounds.`);

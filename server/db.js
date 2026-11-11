@@ -11,37 +11,8 @@ const path = require('node:path');
 const { DatabaseSync } = require('node:sqlite');
 const crypto = require('node:crypto');
 
-// Load environment variables from .env if present
-function loadEnv() {
-  const envCandidates = [
-    path.join(__dirname, '.env'),
-    path.join(process.cwd(), '.env'),
-    path.join(process.cwd(), 'server', '.env')
-  ];
-  for (const envPath of envCandidates) {
-    if (fs.existsSync(envPath)) {
-      try {
-        const lines = fs.readFileSync(envPath, 'utf8').split(/\r?\n/);
-        for (const line of lines) {
-          const trimmed = line.trim();
-          if (!trimmed || trimmed.startsWith('#')) continue;
-          const eqIdx = trimmed.indexOf('=');
-          if (eqIdx !== -1) {
-            const key = trimmed.slice(0, eqIdx).trim();
-            let val = trimmed.slice(eqIdx + 1).trim();
-            if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
-              val = val.slice(1, -1);
-            }
-            if (!process.env[key]) {
-              process.env[key] = val;
-            }
-          }
-        }
-      } catch (_) {}
-    }
-  }
-}
-loadEnv();
+// Ensure zero-dependency environment variables are loaded
+require('./env-loader');
 
 const DATA_DIR = path.join(__dirname, 'data');
 const TENANTS_DIR = path.join(DATA_DIR, 'tenants');
@@ -566,37 +537,49 @@ function checkPasswordNeedsRehash(salt) {
   return !String(salt || '').startsWith('pbkdf2_600k$');
 }
 
-// Seed or synchronize Super Admin from .env credentials
-const targetAdminEmail = String(process.env.SUPER_ADMIN_EMAIL || 'admin@zynbill.com').trim().toLowerCase();
-const envAdminPass = process.env.SUPER_ADMIN_PASSWORD ? String(process.env.SUPER_ADMIN_PASSWORD).trim() : '';
-const targetAdminName = String(process.env.SUPER_ADMIN_NAME || 'Super Administrator');
+// Seed or synchronize Super Admin from environment credentials
+function syncSuperAdminCredentials() {
+  const targetAdminEmail = String(process.env.SUPER_ADMIN_EMAIL || process.env.ADMIN_EMAIL || 'admin@zynbill.com').trim().toLowerCase();
+  const envAdminPass = String(process.env.SUPER_ADMIN_PASSWORD || process.env.ADMIN_PASSWORD || '').trim();
+  const targetAdminName = String(process.env.SUPER_ADMIN_NAME || process.env.ADMIN_NAME || 'Super Administrator').trim();
 
-const existingAdmin = masterDb.prepare('SELECT id, email, password_salt FROM admins WHERE id = ? OR email = ?').get('admin_master', targetAdminEmail);
-if (!existingAdmin) {
-  if (!envAdminPass || envAdminPass.length < 8) {
-    throw new Error(
-      '[Security Exception] Super Admin account does not exist and SUPER_ADMIN_PASSWORD environment variable is missing or shorter than 8 characters. Administrator initialization refused.'
-    );
-  }
-  const { hash, salt } = hashPassword(envAdminPass);
-  masterDb.prepare(`
-    INSERT INTO admins (id, email, password_hash, password_salt, name, created_at)
-    VALUES (?, ?, ?, ?, ?, ?)
-  `).run('admin_master', targetAdminEmail, hash, salt, targetAdminName, new Date().toISOString());
-  console.log(`[MasterDB] Initialized Super Admin (${targetAdminEmail}) with OWASP 600k PBKDF2 hashing`);
-} else {
-  // Existing administrator found: preserve credentials unless explicitly configured with valid strong password
-  if (envAdminPass && envAdminPass.length >= 8) {
+  const existingAdmin = masterDb.prepare('SELECT id, email, password_salt FROM admins WHERE id = ? OR LOWER(TRIM(email)) = ?').get('admin_master', targetAdminEmail);
+  if (!existingAdmin) {
+    if (!envAdminPass || envAdminPass.length < 8) {
+      throw new Error(
+        '[Security Exception] Super Admin account does not exist and SUPER_ADMIN_PASSWORD (or ADMIN_PASSWORD) environment variable is missing or shorter than 8 characters. Administrator initialization refused.'
+      );
+    }
     const { hash, salt } = hashPassword(envAdminPass);
     masterDb.prepare(`
-      UPDATE admins SET email = ?, password_hash = ?, password_salt = ?, name = ? WHERE id = ?
-    `).run(targetAdminEmail, hash, salt, targetAdminName, existingAdmin.id);
-    console.log(`[MasterDB] Synchronized Super Admin (${targetAdminEmail}) credentials with OWASP 600k PBKDF2 hashing`);
-  } else if (envAdminPass && envAdminPass.length < 8) {
-    console.warn(`[MasterDB Security Warning] Provided SUPER_ADMIN_PASSWORD is shorter than 8 characters. Preserved existing credentials for (${existingAdmin.email || targetAdminEmail}).`);
+      INSERT INTO admins (id, email, password_hash, password_salt, name, created_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run('admin_master', targetAdminEmail, hash, salt, targetAdminName, new Date().toISOString());
+    console.log(`[MasterDB] Initialized Super Admin (${targetAdminEmail}) with OWASP 600k PBKDF2 hashing`);
+    return { status: 'initialized', email: targetAdminEmail };
   } else {
-    console.log(`[MasterDB] Preserved existing Super Admin account (${existingAdmin.email || targetAdminEmail}).`);
+    // Existing administrator found: preserve credentials unless explicitly configured with valid strong password
+    if (envAdminPass && envAdminPass.length >= 8) {
+      const { hash, salt } = hashPassword(envAdminPass);
+      masterDb.prepare(`
+        UPDATE admins SET email = ?, password_hash = ?, password_salt = ?, name = ? WHERE id = ?
+      `).run(targetAdminEmail, hash, salt, targetAdminName, existingAdmin.id);
+      console.log(`[MasterDB] Synchronized Super Admin (${targetAdminEmail}) credentials with OWASP 600k PBKDF2 hashing`);
+      return { status: 'synchronized', email: targetAdminEmail };
+    } else if (envAdminPass && envAdminPass.length < 8) {
+      console.warn(`[MasterDB Security Warning] Provided SUPER_ADMIN_PASSWORD is shorter than 8 characters. Preserved existing credentials for (${existingAdmin.email || targetAdminEmail}).`);
+      return { status: 'preserved_invalid_env', email: existingAdmin.email };
+    } else {
+      console.log(`[MasterDB] Preserved existing Super Admin account (${existingAdmin.email || targetAdminEmail}).`);
+      return { status: 'preserved_existing', email: existingAdmin.email };
+    }
   }
+}
+
+try {
+  syncSuperAdminCredentials();
+} catch (syncErr) {
+  console.warn('[MasterDB Admin Sync Warning]:', syncErr.message);
 }
 
 // ── Multi-Tenant Database Helper ────────────────────────────────────────
@@ -1294,5 +1277,6 @@ module.exports = {
   verifyAndInspectBackup,
   restoreBackupToSandbox,
   getCanonicalPath,
-  getTenantBackupsDir
+  getTenantBackupsDir,
+  syncSuperAdminCredentials
 };

@@ -90,7 +90,9 @@ app.whenReady().then(async () => {
     const emptySearchVisible = await window.webContents.executeJavaScript('Boolean(document.querySelector(".company-list-empty"))');
     assert.equal(emptySearchVisible, true, "company search should render an empty state");
 
-    await window.webContents.executeJavaScript('document.getElementById("companySearchInput").value = ""; document.getElementById("companySearchInput").dispatchEvent(new Event("input", { bubbles: true })); document.querySelector(".open-company-button").click()');
+    await window.webContents.executeJavaScript('document.getElementById("companySearchInput").value = ""; document.getElementById("companySearchInput").dispatchEvent(new Event("input", { bubbles: true }))');
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    await window.webContents.executeJavaScript('document.querySelector(".open-company-button").click()');
     await new Promise((resolve) => setTimeout(resolve, 800));
     const workspaceVisible = await window.webContents.executeJavaScript('!document.getElementById("appShell").classList.contains("hidden")');
     assert.equal(workspaceVisible, true, "Open should enter the selected company workspace");
