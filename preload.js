@@ -66,7 +66,9 @@ contextBridge.exposeInMainWorld("giDB", {
   runBackupNow: () => ipcRenderer.invoke("backup:run-now"),
   createSnapshot: () => ipcRenderer.invoke("db:create-snapshot"),
   listSnapshots: () => ipcRenderer.invoke("db:list-snapshots"),
+  listBackups: () => ipcRenderer.invoke("db:list-snapshots"),
   restoreSnapshot: (snapshotPath) => ipcRenderer.invoke("db:restore-snapshot", snapshotPath),
+  restoreBackupFile: (snapshotPath) => ipcRenderer.invoke("db:restore-snapshot", snapshotPath),
   previewBackup: (sourcePath) => ipcRenderer.invoke("db:preview-backup", sourcePath),
   getUsers: (companyId) => ipcRenderer.invoke("db:get-users", companyId),
   createUser: (payload) => ipcRenderer.invoke("db:create-user", payload),
@@ -81,6 +83,7 @@ contextBridge.exposeInMainWorld("giApp", {
   getVersion: () => ipcRenderer.invoke("app:get-version"),
   getSystemInfo: () => ipcRenderer.invoke("app:get-system-info"),
   exportPdf: (payload) => ipcRenderer.invoke("app:export-pdf", payload),
+  exportReportPdf: (payload) => ipcRenderer.invoke("report:export-pdf", payload),
   saveTempPdf: (payload) => ipcRenderer.invoke("whatsapp:save-temp-pdf", payload),
   showItemInFolder: (filePath) => ipcRenderer.invoke("whatsapp:show-in-folder", filePath),
   openPath: (filePath) => ipcRenderer.invoke("app:open-path", filePath),
@@ -120,4 +123,23 @@ contextBridge.exposeInMainWorld("giSecureStore", {
   saveCredentials: (payload) => ipcRenderer.invoke("secure-store:save-credentials", payload),
   clearCredentials: () => ipcRenderer.invoke("secure-store:clear-credentials"),
   migrateFromLocalStorage: (payload) => ipcRenderer.invoke("secure-store:migrate-from-local-storage", payload)
+});
+
+contextBridge.exposeInMainWorld("giPrinter", {
+  listPrinters: () => ipcRenderer.invoke("printer:list"),
+  printRaw: (payload) => ipcRenderer.invoke("printer:print-raw", payload),
+  kickDrawer: (payload) => ipcRenderer.invoke("printer:kick-drawer", payload),
+});
+
+contextBridge.exposeInMainWorld("giUpdater", {
+  getStatus: () => ipcRenderer.invoke("updater:status"),
+  checkForUpdates: () => ipcRenderer.invoke("updater:check"),
+  downloadUpdate: () => ipcRenderer.invoke("updater:download"),
+  installUpdate: () => ipcRenderer.invoke("updater:install"),
+  onStatusChange: (callback) => {
+    if (typeof callback !== "function") return () => {};
+    const handler = (_event, data) => callback(data);
+    ipcRenderer.on("updater:status-changed", handler);
+    return () => ipcRenderer.removeListener("updater:status-changed", handler);
+  },
 });

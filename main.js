@@ -4,10 +4,19 @@ const fs = require("fs");
 const os = require("os");
 const dns = require("node:dns");
 const net = require("node:net");
+const { execFile } = require("child_process");
 const { Agent } = require("undici");
 const database = require("./database");
 const { SyncService, DisabledSyncAdapter, HttpSyncAdapter } = require("./sync-service");
 const { whatsappService } = require("./whatsapp-service");
+
+let autoUpdater = null;
+try {
+  const electronUpdater = require("electron-updater");
+  autoUpdater = electronUpdater.autoUpdater;
+} catch (e) {
+  console.warn("[AutoUpdater] electron-updater module notice:", e.message);
+}
 
 let mainWindow = null;
 let tray = null;
@@ -361,6 +370,317 @@ async function triggerExitBackupIfEnabled() {
   }
 }
 
+// ── Windows Native Raw Spooler ESC/POS Thermal Printing & Cash Drawer Kick ──
+const RAW_PRINT_POWERSHELL = `
+param(
+  [Parameter(Mandatory=$true)][string]$DataPath,
+  [Parameter(Mandatory=$true)][string]$PrinterName,
+  [Parameter(Mandatory=$true)][string]$DocumentName
+)
+
+Add-Type -TypeDefinition @"
+using System;
+using System.Runtime.InteropServices;
+
+public class RawPrinterHelper
+{
+  [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi)]
+  public class DOCINFOA
+  {
+    [MarshalAs(UnmanagedType.LPStr)] public string pDocName;
+    [MarshalAs(UnmanagedType.LPStr)] public string pOutputFile;
+    [MarshalAs(UnmanagedType.LPStr)] public string pDataType;
+  }
+
+  [DllImport("winspool.Drv", EntryPoint = "OpenPrinterA", SetLastError = true, CharSet = CharSet.Ansi, ExactSpelling = true, CallingConvention = CallingConvention.StdCall)]
+  public static extern bool OpenPrinter([MarshalAs(UnmanagedType.LPStr)] string szPrinter, out IntPtr hPrinter, IntPtr pd);
+
+  [DllImport("winspool.Drv", EntryPoint = "ClosePrinter", SetLastError = true, ExactSpelling = true, CallingConvention = CallingConvention.StdCall)]
+  public static extern bool ClosePrinter(IntPtr hPrinter);
+
+  [DllImport("winspool.Drv", EntryPoint = "StartDocPrinterA", SetLastError = true, CharSet = CharSet.Ansi, ExactSpelling = true, CallingConvention = CallingConvention.StdCall)]
+  public static extern bool StartDocPrinter(IntPtr hPrinter, Int32 level, [In, MarshalAs(UnmanagedType.LPStruct)] DOCINFOA di);
+
+  [DllImport("winspool.Drv", EntryPoint = "EndDocPrinter", SetLastError = true, ExactSpelling = true, CallingConvention = CallingConvention.StdCall)]
+  public static extern bool EndDocPrinter(IntPtr hPrinter);
+
+  [DllImport("winspool.Drv", EntryPoint = "StartPagePrinter", SetLastError = true, ExactSpelling = true, CallingConvention = CallingConvention.StdCall)]
+  public static extern bool StartPagePrinter(IntPtr hPrinter);
+
+  [DllImport("winspool.Drv", EntryPoint = "EndPagePrinter", SetLastError = true, ExactSpelling = true, CallingConvention = CallingConvention.StdCall)]
+  public static extern bool EndPagePrinter(IntPtr hPrinter);
+
+  [DllImport("winspool.Drv", EntryPoint = "WritePrinter", SetLastError = true, ExactSpelling = true, CallingConvention = CallingConvention.StdCall)]
+  public static extern bool WritePrinter(IntPtr hPrinter, IntPtr pBytes, Int32 dwCount, out Int32 dwWritten);
+
+  public static bool SendBytesToPrinter(string printerName, byte[] bytes, string documentName)
+  {
+    IntPtr printerHandle = IntPtr.Zero;
+    IntPtr unmanagedBytes = IntPtr.Zero;
+    DOCINFOA docInfo = new DOCINFOA();
+    docInfo.pDocName = documentName;
+    docInfo.pDataType = "RAW";
+
+    try
+    {
+      if (!OpenPrinter(printerName.Normalize(), out printerHandle, IntPtr.Zero)) return false;
+      if (!StartDocPrinter(printerHandle, 1, docInfo)) return false;
+      if (!StartPagePrinter(printerHandle)) return false;
+
+      unmanagedBytes = Marshal.AllocCoTaskMem(bytes.Length);
+      Marshal.Copy(bytes, 0, unmanagedBytes, bytes.Length);
+      Int32 written;
+      bool success = WritePrinter(printerHandle, unmanagedBytes, bytes.Length, out written);
+
+      EndPagePrinter(printerHandle);
+      EndDocPrinter(printerHandle);
+      return success && written == bytes.Length;
+    }
+    finally
+    {
+      if (unmanagedBytes != IntPtr.Zero) Marshal.FreeCoTaskMem(unmanagedBytes);
+      if (printerHandle != IntPtr.Zero) ClosePrinter(printerHandle);
+    }
+  }
+}
+"@
+
+[byte[]]$bytes = [System.IO.File]::ReadAllBytes($DataPath)
+if ($bytes.Length -le 0) {
+  throw "Print data is empty"
+}
+
+$success = [RawPrinterHelper]::SendBytesToPrinter($PrinterName, $bytes, $DocumentName)
+if (-not $success) {
+  $errorCode = [Runtime.InteropServices.Marshal]::GetLastWin32Error()
+  throw "Raw printer write failed for '$PrinterName'. Windows error: $errorCode"
+}
+`;
+
+function execFilePromise(command, args, options) {
+  return new Promise((resolve, reject) => {
+    execFile(command, args, options, (error, stdout, stderr) => {
+      if (error) {
+        reject(new Error(String(stderr || stdout || error.message || error)));
+        return;
+      }
+      resolve(stdout);
+    });
+  });
+}
+
+async function printWindowsRawBytes(printerName, buffer, jobName = "ZynBill Raw Print") {
+  if (process.platform !== "win32") {
+    throw new Error("Raw Windows spooler printing is only supported on Windows.");
+  }
+  const cleanPrinter = String(printerName || "").trim();
+  if (!cleanPrinter) {
+    throw new Error("No printer specified for raw printing. Please select a receipt printer.");
+  }
+  if (!Buffer.isBuffer(buffer) || buffer.length === 0) {
+    throw new Error("Print buffer is empty.");
+  }
+
+  const tempDir = app.getPath("temp") || os.tmpdir();
+  const uniqueId = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  const dataPath = path.join(tempDir, `zynbill-print-${uniqueId}.bin`);
+  const scriptPath = path.join(tempDir, `zynbill-raw-print-${uniqueId}.ps1`);
+
+  await fs.promises.writeFile(dataPath, buffer);
+  await fs.promises.writeFile(scriptPath, RAW_PRINT_POWERSHELL, "utf8");
+
+  try {
+    await execFilePromise(
+      "powershell.exe",
+      ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", scriptPath, dataPath, cleanPrinter, jobName],
+      { windowsHide: true, timeout: 20000 }
+    );
+    return { ok: true, success: true, bytesWritten: buffer.length };
+  } finally {
+    await Promise.allSettled([
+      fs.promises.unlink(dataPath).catch(() => {}),
+      fs.promises.unlink(scriptPath).catch(() => {})
+    ]);
+  }
+}
+
+// ── Silent Background PDF Export Engine ──
+async function exportHtmlToPdf(html, targetFilePath, options = {}) {
+  const printWindow = new BrowserWindow({
+    show: false,
+    width: 900,
+    height: 1200,
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+      sandbox: true,
+      javascript: false,
+    },
+  });
+
+  try {
+    printWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+    const policy = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:; object-src 'none'; base-uri 'none'">`;
+    await printWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(policy + html)}`);
+    const pdfData = await printWindow.webContents.printToPDF({
+      printBackground: true,
+      pageSize: options.pageSize || "A4",
+      landscape: Boolean(options.landscape),
+      margins: options.margins || {
+        marginType: "custom",
+        top: 0.35,
+        bottom: 0.35,
+        left: 0.35,
+        right: 0.35,
+      },
+    });
+    fs.mkdirSync(path.dirname(targetFilePath), { recursive: true });
+    fs.writeFileSync(targetFilePath, pdfData);
+    return { ok: true, success: true, filePath: targetFilePath };
+  } finally {
+    printWindow.destroy();
+  }
+}
+
+// ── Auto-Updater Manager ──
+let updateStatus = {
+  state: "idle",
+  message: "Update check not started",
+  version: (app && typeof app.getVersion === "function") ? app.getVersion() : "1.1.1",
+  latestVersion: null,
+  percent: 0,
+};
+
+function setUpdateStatus(state, message, extra = {}) {
+  updateStatus = {
+    ...updateStatus,
+    state,
+    message,
+    version: (app && typeof app.getVersion === "function") ? app.getVersion() : "1.1.1",
+    ...extra,
+  };
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send("updater:status-changed", updateStatus);
+  }
+}
+
+function setupAutoUpdater() {
+  if (!autoUpdater) return;
+  autoUpdater.autoDownload = false;
+  autoUpdater.autoInstallOnAppQuit = false;
+
+  autoUpdater.on("checking-for-update", () => {
+    setUpdateStatus("checking", "Checking for updates...");
+  });
+
+  autoUpdater.on("update-available", (info) => {
+    setUpdateStatus("available", `Version ${info?.version || "new"} is available.`, {
+      latestVersion: info?.version,
+      percent: 0,
+    });
+  });
+
+  autoUpdater.on("update-not-available", (info) => {
+    setUpdateStatus("not-available", "You are using the latest version of ZynBill.", {
+      latestVersion: info?.version || updateStatus.version,
+    });
+  });
+
+  autoUpdater.on("download-progress", (progress) => {
+    const percent = Math.round(Number(progress?.percent || 0));
+    setUpdateStatus("downloading", `Downloading update (${percent}%)...`, {
+      percent,
+    });
+  });
+
+  autoUpdater.on("update-downloaded", (info) => {
+    setUpdateStatus("downloaded", `Version ${info?.version || "new"} downloaded. Click Install to update and restart.`, {
+      latestVersion: info?.version,
+      percent: 100,
+    });
+  });
+
+  autoUpdater.on("error", (err) => {
+    setUpdateStatus("error", `Update notice: ${err?.message || String(err)}`);
+  });
+}
+
+function registerUpdaterHandlers() {
+  ipcMain.handle("updater:status", async () => updateStatus);
+
+  ipcMain.handle("updater:check", async () => {
+    if (!app.isPackaged || !autoUpdater) {
+      setUpdateStatus("disabled", `Auto update is active in installed Windows builds (Current: v${app.getVersion()}).`);
+      return updateStatus;
+    }
+    try {
+      setUpdateStatus("checking", "Checking for updates...");
+      await autoUpdater.checkForUpdates();
+    } catch (err) {
+      setUpdateStatus("error", err?.message || "Failed to check for updates");
+    }
+    return updateStatus;
+  });
+
+  ipcMain.handle("updater:download", async () => {
+    if (!autoUpdater) throw new Error("Auto updater not available");
+    setUpdateStatus("downloading", "Starting download...", { percent: 0 });
+    await autoUpdater.downloadUpdate();
+    return updateStatus;
+  });
+
+  ipcMain.handle("updater:install", async () => {
+    if (!autoUpdater) throw new Error("Auto updater not available");
+    setUpdateStatus("installing", "Installing update in background. The application will reopen automatically...");
+    autoUpdater.quitAndInstall(true, true);
+    return updateStatus;
+  });
+}
+
+function registerPrinterHandlers() {
+  ipcMain.handle("printer:list", async () => {
+    const targetWin = mainWindow && !mainWindow.isDestroyed() ? mainWindow : null;
+    if (!targetWin) return [];
+    try {
+      const printers = await targetWin.webContents.getPrintersAsync();
+      return (printers || []).map((p) => ({
+        name: p.name,
+        displayName: p.displayName || p.name,
+        isDefault: Boolean(p.isDefault),
+        status: p.status,
+      }));
+    } catch (err) {
+      console.warn("Failed to get printers:", err);
+      return [];
+    }
+  });
+
+  ipcMain.handle("printer:print-raw", async (_event, payload = {}) => {
+    const printerName = payload.printerName || payload.printer;
+    let rawBuffer = null;
+    if (Buffer.isBuffer(payload.buffer)) {
+      rawBuffer = payload.buffer;
+    } else if (payload.base64) {
+      rawBuffer = Buffer.from(payload.base64, "base64");
+    } else if (typeof payload.data === "string") {
+      rawBuffer = Buffer.from(payload.data, payload.encoding || "latin1");
+    } else if (Array.isArray(payload.bytes)) {
+      rawBuffer = Buffer.from(payload.bytes);
+    }
+    if (!rawBuffer) throw new Error("No print data provided.");
+    return await printWindowsRawBytes(printerName, rawBuffer, payload.jobName || "ZynBill Receipt");
+  });
+
+  ipcMain.handle("printer:kick-drawer", async (_event, payload = {}) => {
+    const printerName = payload.printerName || payload.printer;
+    const pin = Number(payload.pin || 2);
+    const kickPulse = pin === 5
+      ? Buffer.from([0x1b, 0x70, 0x01, 0x19, 0xfa])
+      : Buffer.from([0x1b, 0x70, 0x00, 0x19, 0xfa]);
+    return await printWindowsRawBytes(printerName, kickPulse, "ZynBill Cash Drawer Kick");
+  });
+}
+
 function registerDatabaseHandlers() {
   ipcMain.handle("app:get-version", () => app.getVersion());
   ipcMain.handle("app:get-system-info", () => {
@@ -537,20 +857,32 @@ function registerDatabaseHandlers() {
 
   ipcMain.handle("db:list-snapshots", async () => {
     try {
-      const backupDir = path.join(app.getPath("userData"), "backups");
-      const autoDir = path.join(backupDir, "auto");
+      const preferredDir = getZynBackupDir();
+      const userDataBackupDir = path.join(app.getPath("userData"), "backups");
+      const autoDir = path.join(userDataBackupDir, "auto");
       const list = [];
-      const scanDir = (dir, isAuto) => {
-        if (!fs.existsSync(dir)) return;
+      const seenPaths = new Set();
+
+      const scanDir = (dir, defaultType) => {
+        if (!dir || !fs.existsSync(dir)) return;
         const files = fs.readdirSync(dir).filter((f) => f.endsWith(".zyn") || f.endsWith(".sqlite") || f.endsWith(".db"));
         files.forEach((f) => {
-          const fullPath = path.join(dir, f);
+          const fullPath = path.resolve(path.join(dir, f));
+          if (seenPaths.has(fullPath)) return;
+          seenPaths.add(fullPath);
           try {
             const stats = fs.statSync(fullPath);
+            const lower = f.toLowerCase();
+            let bType = defaultType;
+            if (lower.includes("exit")) bType = "Exit Auto";
+            else if (lower.includes("daily") || lower.includes("gi-auto")) bType = "Daily Auto";
+            else if (lower.includes("safety") || lower.includes("before-restore")) bType = "Safety Pre-Restore";
+            else if (lower.includes("snapshot") || lower.includes("manual")) bType = "Manual Snapshot";
             list.push({
               filename: f,
               path: fullPath,
-              isAuto,
+              type: bType,
+              isAuto: bType.includes("Auto"),
               sizeBytes: stats.size,
               formattedSize: formatSnapshotSize(stats.size),
               createdAt: stats.mtime.toISOString(),
@@ -559,8 +891,10 @@ function registerDatabaseHandlers() {
           } catch (_) {}
         });
       };
-      scanDir(backupDir, false);
-      scanDir(autoDir, true);
+
+      scanDir(preferredDir, "Manual Backup");
+      scanDir(userDataBackupDir, "System Backup");
+      scanDir(autoDir, "Daily Auto");
       list.sort((a, b) => b.mtimeMs - a.mtimeMs);
       return list;
     } catch (err) {
@@ -568,15 +902,36 @@ function registerDatabaseHandlers() {
       return [];
     }
   });
+  ipcMain.handle("db:backup-list", async () => {
+    const snapshots = await ipcMain.handlers.get("db:list-snapshots")();
+    return { ok: true, backups: snapshots };
+  });
 
   ipcMain.handle("db:restore-snapshot", async (_event, snapshotPath) => {
     if (!snapshotPath || !fs.existsSync(snapshotPath)) {
       throw new Error("Snapshot file does not exist.");
     }
+
+    // Create a safety backup of the active database before restoring, just like in restaurant pos
+    try {
+      const backupDir = getZynBackupDir();
+      const now = new Date();
+      const pad = (n) => String(n).padStart(2, "0");
+      const stamp = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}_${pad(now.getHours())}-${pad(now.getMinutes())}-${pad(now.getSeconds())}`;
+      const safetyFile = path.join(backupDir, `safety-before-restore-${stamp}.zyn`);
+      await database.backupTo(safetyFile);
+      console.log(`[SafetyBackup] Created safety snapshot before restoration: ${safetyFile}`);
+    } catch (safetyErr) {
+      console.warn("[SafetyBackup] Pre-restore safety backup notice:", safetyErr.message);
+    }
+
     const result = await database.restoreBackup(snapshotPath, {
       userDataPath: app.getPath("userData"),
     });
     return result;
+  });
+  ipcMain.handle("db:backup-restore-file", async (_event, snapshotPath) => {
+    return await ipcMain.handlers.get("db:restore-snapshot")(_event, snapshotPath);
   });
 
   ipcMain.handle("db:preview-backup", async (_event, sourcePath) => {
@@ -673,45 +1028,43 @@ function registerDatabaseHandlers() {
   });
   ipcMain.handle("db:get-daily-backups", () => database.getBackupHistory?.(app.getPath("userData")) || []);
   ipcMain.handle("db:create-daily-backup", () => database.createDailyAutomatedBackup?.(app.getPath("userData")) || null);
-  ipcMain.handle("app:export-pdf", async (_event, { htmlContent, defaultFilename = "invoice.pdf" }) => {
-    const fs = require("fs");
-    if (typeof htmlContent !== 'string' || !htmlContent.trim() || Buffer.byteLength(htmlContent, 'utf8') > 10 * 1024 * 1024) throw new Error('Invalid or oversized PDF document.');
-    const targetWin = mainWindow && !mainWindow.isDestroyed() ? mainWindow : null;
-    const saveResult = await dialog.showSaveDialog(targetWin, {
-      title: "Export to PDF",
-      defaultPath: path.basename(String(defaultFilename)).replace(/[<>:"|?*]/g, '_'),
-      filters: [{ name: "PDF Files", extensions: ["pdf"] }],
-    });
+  const handlePdfExport = async (_event, payload = {}) => {
+    const html = String(payload.htmlContent || payload.html || "");
+    if (!html.trim() || Buffer.byteLength(html, "utf8") > 15 * 1024 * 1024) {
+      throw new Error("Invalid or oversized PDF document.");
+    }
+    const defaultFileName = path.basename(String(payload.defaultFilename || payload.defaultFileName || "ZynBill Document.pdf")).replace(/[<>:"|?*]/g, "_");
 
-    if (saveResult.canceled || !saveResult.filePath) {
-      return { success: false, canceled: true };
+    let targetFilePath = payload.targetPath;
+    if (payload.silent && !targetFilePath) {
+      const reportsDir = path.join(app.getPath("documents"), "ZynBill Reports");
+      fs.mkdirSync(reportsDir, { recursive: true });
+      targetFilePath = path.join(reportsDir, defaultFileName.endsWith(".pdf") ? defaultFileName : `${defaultFileName}.pdf`);
     }
 
-    const printWindow = new BrowserWindow({
-      show: false,
-      webPreferences: {
-        nodeIntegration: false,
-        contextIsolation: true,
-        sandbox: true,
-        javascript: false,
-      },
-    });
-
-    try {
-      printWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
-      const policy = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:; object-src 'none'; base-uri 'none'">`;
-      await printWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(policy + htmlContent)}`);
-      const pdfData = await printWindow.webContents.printToPDF({
-        printBackground: true,
-        pageSize: "A4",
-        margins: { marginType: "default" },
+    if (!targetFilePath) {
+      const targetWin = mainWindow && !mainWindow.isDestroyed() ? mainWindow : null;
+      const saveResult = await dialog.showSaveDialog(targetWin, {
+        title: "Export to PDF",
+        defaultPath: defaultFileName.endsWith(".pdf") ? defaultFileName : `${defaultFileName}.pdf`,
+        filters: [{ name: "PDF Files", extensions: ["pdf"] }],
       });
-      fs.writeFileSync(saveResult.filePath, pdfData);
-      return { success: true, filePath: saveResult.filePath };
-    } finally {
-      printWindow.destroy();
+      if (saveResult.canceled || !saveResult.filePath) {
+        return { success: false, ok: false, canceled: true };
+      }
+      targetFilePath = saveResult.filePath;
     }
-  });
+
+    await exportHtmlToPdf(html, targetFilePath, {
+      landscape: payload.landscape,
+      pageSize: payload.pageSize || "A4",
+      margins: payload.margins,
+    });
+    return { success: true, ok: true, filePath: targetFilePath };
+  };
+
+  ipcMain.handle("app:export-pdf", handlePdfExport);
+  ipcMain.handle("report:export-pdf", handlePdfExport);
   ipcMain.handle("whatsapp:open-link", async (_event, url) => {
     if (typeof url === "string" && (url.startsWith("https://wa.me/") || url.startsWith("https://web.whatsapp.com/") || url.startsWith("whatsapp://") || url.startsWith("mailto:"))) {
       try {
@@ -1860,6 +2213,9 @@ if (singleInstanceLock && app && typeof app.whenReady === "function") {
     registerDatabaseHandlers();
     registerCloudHandlers();
     registerSecureStorageHandlers();
+    registerPrinterHandlers();
+    registerUpdaterHandlers();
+    setupAutoUpdater();
     createMenu();
     createTray();
     createMainWindow();

@@ -849,6 +849,10 @@ function defaultBusinessSettings() {
     thermalWidth: "80mm",
     a4Template: "modern",
     thermalTemplate: "retail",
+    thermalPrinterName: "",
+    useRawThermalPrint: false,
+    autoKickCashDrawer: false,
+    cashDrawerPin: 2,
     printCompanyLogo: true,
     printBankDetails: true,
     printUpiQr: true,
@@ -5481,6 +5485,14 @@ async function handleBusinessSettingsSubmit(event) {
   if (form.has("thermalWidth")) settings.thermalWidth = String(form.get("thermalWidth") || "80mm");
   if (form.has("a4Template")) settings.a4Template = String(form.get("a4Template") || "modern");
   if (form.has("thermalTemplate")) settings.thermalTemplate = String(form.get("thermalTemplate") || "retail");
+  if (form.has("thermalPrinterName")) settings.thermalPrinterName = String(form.get("thermalPrinterName") || "").trim();
+  if (formElement?.querySelector('[name="useRawThermalPrint"]')) {
+    settings.useRawThermalPrint = form.get("useRawThermalPrint") === "on";
+  }
+  if (formElement?.querySelector('[name="autoKickCashDrawer"]')) {
+    settings.autoKickCashDrawer = form.get("autoKickCashDrawer") === "on";
+  }
+  if (form.has("cashDrawerPin")) settings.cashDrawerPin = Number(form.get("cashDrawerPin") || 2);
 
   if (formElement?.querySelector('[name="showPrintPreview"]')) {
     settings.showPrintPreview = form.get("showPrintPreview") === "on";
@@ -6231,6 +6243,31 @@ function openInvoicePreviewModal(previewData = null, options = {}) {
   });
   backdrop.querySelector("[data-preview-print]")?.addEventListener("click", () => {
     if (currentFormat === "thermal") {
+      const business = preview.business || state.businessSettings || defaultBusinessSettings();
+      if (business.useRawThermalPrint && business.thermalPrinterName && window.giPrinter?.printRaw) {
+        try {
+          const escPosData = buildEscPosReceipt(preview, {
+            thermalWidth: currentThermalWidth,
+            kickDrawer: Boolean(business.autoKickCashDrawer),
+            pin: Number(business.cashDrawerPin || 2),
+          });
+          window.giPrinter.printRaw({
+            printerName: business.thermalPrinterName,
+            data: escPosData,
+            jobName: `Invoice ${preview.invoiceNo || "Receipt"}`
+          }).then(() => {
+            showToast(`Receipt printed directly to ${business.thermalPrinterName}`);
+            closePreview();
+          }).catch((err) => {
+            console.warn("Direct raw ESC/POS print failed, falling back to system print:", err);
+            document.body.classList.add("invoice-thermal-print-mode", `thermal-print-${currentThermalWidth}`);
+            window.print();
+          });
+          return;
+        } catch (err) {
+          console.warn("Failed to generate ESC/POS receipt:", err);
+        }
+      }
       document.body.classList.add("invoice-thermal-print-mode", `thermal-print-${currentThermalWidth}`);
     } else {
       document.body.classList.add("invoice-a4-print-mode");
@@ -6269,46 +6306,187 @@ function openInvoicePreviewModal(previewData = null, options = {}) {
   });
 }
 
+function buildEscPosReceipt(preview, options = {}) {
+  const business = preview.business || state.businessSettings || defaultBusinessSettings();
+  const is58mm = (options.thermalWidth || business.thermalWidth || "80mm") === "58mm";
+  const colWidth = is58mm ? 32 : 42;
+
+  const ESC = "\x1b";
+  const GS = "\x1d";
+  const INIT = `${ESC}@`;
+  const ALIGN_LEFT = `${ESC}a\x00`;
+  const ALIGN_CENTER = `${ESC}a\x01`;
+  const ALIGN_RIGHT = `${ESC}a\x02`;
+  const BOLD_ON = `${ESC}E\x01`;
+  const BOLD_OFF = `${ESC}E\x00`;
+  const DOUBLE_ON = `${GS}!\x11`;
+  const DOUBLE_OFF = `${GS}!\x00`;
+  const CUT_FEED = `${GS}V\x41\x03`;
+  const pin = Number(options.pin || business.cashDrawerPin || 2);
+  const KICK_DRAWER = pin === 5 ? `${ESC}p\x01\x19\xfa` : `${ESC}p\x00\x19\xfa`;
+
+  const pad = (str, len, align = "left") => {
+    str = String(str || "");
+    if (str.length > len) str = str.slice(0, len);
+    if (align === "right") return str.padStart(len, " ");
+    if (align === "center") {
+      const left = Math.floor((len - str.length) / 2);
+      return str.padStart(left + str.length, " ").padEnd(len, " ");
+    }
+    return str.padEnd(len, " ");
+  };
+
+  const line = "-".repeat(colWidth);
+  let out = INIT;
+
+  // Store Header
+  out += ALIGN_CENTER + BOLD_ON + DOUBLE_ON;
+  out += (business.businessName || business.companyName || state.activeCompany || "ZynBill") + "\n";
+  out += DOUBLE_OFF + BOLD_OFF;
+
+  if (business.address) out += business.address + "\n";
+  if (business.phone) out += "Ph: " + business.phone + "\n";
+  if (business.gstin) out += "GSTIN: " + business.gstin + "\n";
+  out += "\n";
+
+  // Document Info
+  out += ALIGN_LEFT;
+  out += `Bill No: ${preview.invoiceNo || "-"}     Date: ${preview.date || new Date().toISOString().slice(0, 10)}\n`;
+  if (preview.partyName && preview.partyName !== "Cash" && preview.partyName !== "Walking Customer") {
+    out += `Party: ${preview.partyName}\n`;
+    if (preview.partyGstin) out += `Buyer GSTIN: ${preview.partyGstin}\n`;
+  }
+  out += line + "\n";
+
+  // Items List
+  if (is58mm) {
+    out += BOLD_ON + pad("ITEM", 15) + pad("QTY", 4, "right") + pad("RATE", 6, "right") + pad("AMT", 7, "right") + BOLD_OFF + "\n";
+    out += line + "\n";
+    (preview.items || []).forEach((it) => {
+      const name = it.name || it.item || "Item";
+      const qty = String(it.quantity || it.qty || 1);
+      const rate = Number(it.rate || it.unitPrice || 0).toFixed(2);
+      const amt = Number(it.total || (it.quantity * it.rate) || 0).toFixed(2);
+      if (name.length > 15) {
+        out += name + "\n";
+        out += pad("", 15) + pad(qty, 4, "right") + pad(rate, 6, "right") + pad(amt, 7, "right") + "\n";
+      } else {
+        out += pad(name, 15) + pad(qty, 4, "right") + pad(rate, 6, "right") + pad(amt, 7, "right") + "\n";
+      }
+    });
+  } else {
+    out += BOLD_ON + pad("ITEM", 18) + pad("QTY", 5, "right") + pad("RATE", 9, "right") + pad("TOTAL", 10, "right") + BOLD_OFF + "\n";
+    out += line + "\n";
+    (preview.items || []).forEach((it) => {
+      const name = it.name || it.item || "Item";
+      const qty = String(it.quantity || it.qty || 1);
+      const rate = Number(it.rate || it.unitPrice || 0).toFixed(2);
+      const amt = Number(it.total || (it.quantity * it.rate) || 0).toFixed(2);
+      if (name.length > 18) {
+        out += name + "\n";
+        out += pad("", 18) + pad(qty, 5, "right") + pad(rate, 9, "right") + pad(amt, 10, "right") + "\n";
+      } else {
+        out += pad(name, 18) + pad(qty, 5, "right") + pad(rate, 9, "right") + pad(amt, 10, "right") + "\n";
+      }
+    });
+  }
+  out += line + "\n";
+
+  // Financial Totals
+  const netTotal = Number(preview.total || preview.grandTotal || 0).toFixed(2);
+  const totalQty = (preview.items || []).reduce((acc, it) => acc + Number(it.quantity || it.qty || 0), 0);
+
+  out += pad("Total Items / Qty:", colWidth - 10) + pad(String(totalQty), 10, "right") + "\n";
+  if (Number(preview.tax || 0) > 0) {
+    out += pad("Tax Amount:", colWidth - 12) + pad(Number(preview.tax).toFixed(2), 12, "right") + "\n";
+  }
+  if (Number(preview.discount || 0) > 0) {
+    out += pad("Discount:", colWidth - 12) + pad("-" + Number(preview.discount).toFixed(2), 12, "right") + "\n";
+  }
+
+  out += BOLD_ON + DOUBLE_ON;
+  out += pad("NET TOTAL:", is58mm ? 16 : 22) + pad(netTotal, is58mm ? 16 : 20, "right") + "\n";
+  out += DOUBLE_OFF + BOLD_OFF;
+
+  out += line + "\n";
+  out += ALIGN_CENTER;
+  out += (business.terms || "Thank you! Visit again.") + "\n\n\n";
+
+  if (options.kickDrawer || business.autoKickCashDrawer) {
+    out += KICK_DRAWER;
+  }
+  out += CUT_FEED;
+
+  return out;
+}
+
 function triggerDirectInvoicePrint(preview, options = {}) {
   const business = preview.business || state.businessSettings || defaultBusinessSettings();
   let currentFormat = options.printerType || business.printerType || "a4";
   if (currentFormat === "regular") currentFormat = "a4";
   const currentThermalWidth = options.thermalWidth || business.thermalWidth || "80mm";
 
-  document.getElementById("invoicePreviewModal")?.remove();
-  const backdrop = document.createElement("div");
-  backdrop.id = "invoicePreviewModal";
-  backdrop.className = "modal-backdrop invoice-preview-backdrop";
-  backdrop.style.cssText = "position:fixed;left:-9999px;top:-9999px;opacity:0;pointer-events:none;";
-  backdrop.innerHTML = `
-    <section class="invoice-preview-modal ${currentFormat === "thermal" ? "is-thermal" : "is-a4"}">
-      <div class="invoice-preview-stage">
-        <div class="invoice-preview-paper ${currentFormat === "thermal" ? `thermal-${currentThermalWidth}` : "a4-paper"}">
-          ${renderInvoicePaperHtml(preview, {
-            printerType: currentFormat,
-            a4Template: options.a4Template || business.a4Template || "modern",
-            thermalTemplate: options.thermalTemplate || business.thermalTemplate || "retail",
-            thermalWidth: currentThermalWidth,
-          })}
-        </div>
-      </div>
-    </section>
-  `;
-  document.body.appendChild(backdrop);
-
-  if (currentFormat === "thermal") {
-    document.body.classList.add("invoice-thermal-print-mode", `thermal-print-${currentThermalWidth}`);
-  } else {
-    document.body.classList.add("invoice-a4-print-mode");
+  if (currentFormat === "thermal" && business.useRawThermalPrint && business.thermalPrinterName && window.giPrinter?.printRaw) {
+    try {
+      const escPosData = buildEscPosReceipt(preview, {
+        thermalWidth: currentThermalWidth,
+        kickDrawer: Boolean(business.autoKickCashDrawer),
+        pin: Number(business.cashDrawerPin || 2),
+      });
+      window.giPrinter.printRaw({
+        printerName: business.thermalPrinterName,
+        data: escPosData,
+        jobName: `Invoice ${preview.invoiceNo || "Receipt"}`
+      }).then(() => {
+        showToast(`Receipt printed directly to ${business.thermalPrinterName}`);
+      }).catch((err) => {
+        console.warn("Direct raw ESC/POS print failed, fallback to system print:", err);
+        fallbackBrowserPrint();
+      });
+      return;
+    } catch (err) {
+      console.warn("Failed to generate ESC/POS receipt:", err);
+    }
   }
 
-  setTimeout(() => {
-    window.print();
+  function fallbackBrowserPrint() {
+    document.getElementById("invoicePreviewModal")?.remove();
+    const backdrop = document.createElement("div");
+    backdrop.id = "invoicePreviewModal";
+    backdrop.className = "modal-backdrop invoice-preview-backdrop";
+    backdrop.style.cssText = "position:fixed;left:-9999px;top:-9999px;opacity:0;pointer-events:none;";
+    backdrop.innerHTML = `
+      <section class="invoice-preview-modal ${currentFormat === "thermal" ? "is-thermal" : "is-a4"}">
+        <div class="invoice-preview-stage">
+          <div class="invoice-preview-paper ${currentFormat === "thermal" ? `thermal-${currentThermalWidth}` : "a4-paper"}">
+            ${renderInvoicePaperHtml(preview, {
+              printerType: currentFormat,
+              a4Template: options.a4Template || business.a4Template || "modern",
+              thermalTemplate: options.thermalTemplate || business.thermalTemplate || "retail",
+              thermalWidth: currentThermalWidth,
+            })}
+          </div>
+        </div>
+      </section>
+    `;
+    document.body.appendChild(backdrop);
+
+    if (currentFormat === "thermal") {
+      document.body.classList.add("invoice-thermal-print-mode", `thermal-print-${currentThermalWidth}`);
+    } else {
+      document.body.classList.add("invoice-a4-print-mode");
+    }
+
     setTimeout(() => {
-      document.body.classList.remove("invoice-thermal-print-mode", "thermal-print-80mm", "thermal-print-58mm", "invoice-a4-print-mode");
-      backdrop.remove();
-    }, 400);
-  }, 100);
+      window.print();
+      setTimeout(() => {
+        document.body.classList.remove("invoice-thermal-print-mode", "thermal-print-80mm", "thermal-print-58mm", "invoice-a4-print-mode");
+        backdrop.remove();
+      }, 400);
+    }, 100);
+  }
+
+  fallbackBrowserPrint();
 }
 
 function buildInvoicePreviewData() {
@@ -15578,12 +15756,14 @@ async function exportCurrentReportToPdf() {
 
   const fileSafeHeading = heading.toLowerCase().replace(/[^a-z0-9]+/g, "-");
   const defaultFilename = `${fileSafeHeading || "report"}-${stamp}.pdf`;
+  const isWide = tablesData.some((t) => t.table && t.table.querySelectorAll("th").length > 7);
 
-  if (window.giApp?.exportPdf) {
+  const exportFn = window.giApp?.exportReportPdf || window.giApp?.exportPdf;
+  if (exportFn) {
     try {
-      const res = await window.giApp.exportPdf({ htmlContent, defaultFilename });
-      if (res?.success) {
-        showToast(`PDF exported: ${res.filePath.split(/[\\/]/).pop()}`);
+      const res = await exportFn({ htmlContent, defaultFilename, landscape: isWide });
+      if (res?.success || res?.ok) {
+        showToast(`PDF exported: ${(res.filePath || defaultFilename).split(/[\\/]/).pop()}`);
       } else if (!res?.canceled) {
         showToast("PDF export was cancelled or failed.");
       }
@@ -16410,6 +16590,61 @@ function bindFeatureActions() {
 
       try {
         const currentVersion = (window.giApp?.getVersion ? await window.giApp.getVersion() : null) || (window.giDB?.getVersion ? await window.giDB.getVersion() : null) || "1.1.1";
+
+        if (window.giUpdater?.checkForUpdates) {
+          const updStatus = await window.giUpdater.checkForUpdates();
+          const nowStr = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+          if (subtitle) subtitle.textContent = `Last checked: Today at ${nowStr}`;
+
+          if (updStatus?.state === "downloaded") {
+            if (heading) heading.textContent = `🚀 Update Ready: ZynBill v${updStatus.latestVersion || "New"}`;
+            if (feedback) {
+              feedback.style.display = "block";
+              feedback.style.background = "#f0fdf4";
+              feedback.style.borderColor = "#bbf7d0";
+              feedback.style.color = "#166534";
+              feedback.innerHTML = `
+                <div style="font-weight:700;margin-bottom:6px;font-size:13.5px;">✓ Update downloaded and verified!</div>
+                <p style="font-size:12.5px;margin:4px 0 10px;">The latest version is ready to be installed.</p>
+                <button type="button" class="primary-button" id="btnInstallUpdateNow" style="background:#16a34a;color:#fff;padding:6px 16px;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;border:none;">
+                  🔄 Restart &amp; Install Update Now
+                </button>
+              `;
+              feedback.querySelector("#btnInstallUpdateNow")?.addEventListener("click", () => {
+                window.giUpdater.installUpdate();
+              });
+            }
+            showToast("Update ready to install!");
+            return;
+          }
+
+          if (updStatus?.state === "available" || updStatus?.state === "downloading") {
+            if (heading) heading.textContent = `⬇️ Downloading Update: ZynBill v${updStatus.latestVersion || ""}`;
+            if (feedback) {
+              feedback.style.display = "block";
+              feedback.style.background = "#eff6ff";
+              feedback.style.borderColor = "#bfdbfe";
+              feedback.style.color = "#1e40af";
+              feedback.innerHTML = `<div>Downloading update package in background... (${updStatus.percent || 0}%)</div>`;
+            }
+            showToast("Downloading update...");
+            return;
+          }
+
+          if (updStatus?.state === "not-available") {
+            if (heading) heading.textContent = `ZynBill v${currentVersion} is up to date`;
+            if (feedback) {
+              feedback.style.display = "block";
+              feedback.style.background = "#f0fdf4";
+              feedback.style.borderColor = "#bbf7d0";
+              feedback.style.color = "#166534";
+              feedback.innerHTML = `✓ You are running the latest version of ZynBill (v${escapeHtml(currentVersion)}). No updates are required.`;
+            }
+            showToast(`ZynBill is up to date (v${currentVersion})`);
+            return;
+          }
+        }
+
         const cloudSettings = (typeof CloudLicenseManager !== "undefined") ? CloudLicenseManager.getSettings() : {};
         const serverUrl = cloudSettings.serverUrl || "http://localhost:4000";
 
@@ -16532,6 +16767,77 @@ function bindFeatureActions() {
       a4Template,
       thermalTemplate
     });
+  });
+
+  const thermalPrinterSelect = elements.featureView.querySelector("#thermalPrinterSelect");
+  if (thermalPrinterSelect && window.giPrinter?.listPrinters) {
+    const currentSaved = state.businessSettings?.thermalPrinterName || "";
+    window.giPrinter.listPrinters().then((printers) => {
+      if (!Array.isArray(printers) || !printers.length) {
+        thermalPrinterSelect.innerHTML = `<option value="">(No installed Windows printers found)</option>`;
+        return;
+      }
+      thermalPrinterSelect.innerHTML = `
+        <option value="">-- Select Windows Receipt Printer --</option>
+        ${printers.map((p) => `
+          <option value="${escapeHtml(p.name)}" ${p.name === currentSaved || (!currentSaved && p.isDefault) ? "selected" : ""}>
+            ${escapeHtml(p.displayName || p.name)}${p.isDefault ? " (Default)" : ""}
+          </option>
+        `).join("")}
+      `;
+    }).catch((err) => {
+      thermalPrinterSelect.innerHTML = `<option value="">Error detecting printers: ${escapeHtml(err.message)}</option>`;
+    });
+  }
+
+  elements.featureView.querySelector('[data-action="test-raw-thermal-print"]')?.addEventListener("click", async () => {
+    const form = elements.featureView.querySelector("#businessSettingsForm");
+    const printerName = form?.querySelector('[name="thermalPrinterName"]')?.value || state.businessSettings?.thermalPrinterName;
+    if (!printerName) {
+      showToast("Please select a Windows receipt printer first.");
+      return;
+    }
+    if (!window.giPrinter?.printRaw) {
+      showToast("Raw ESC/POS printing is available in the desktop application.");
+      return;
+    }
+    try {
+      showToast(`Sending test receipt to ${printerName}...`);
+      const sample = sampleInvoicePreviewData();
+      const escPosData = buildEscPosReceipt(sample, {
+        thermalWidth: form?.querySelector('[name="thermalWidth"]')?.value || "80mm",
+        kickDrawer: false,
+      });
+      await window.giPrinter.printRaw({
+        printerName,
+        data: escPosData,
+        jobName: "ZynBill ESC/POS Test",
+      });
+      showToast("Test receipt sent successfully!");
+    } catch (err) {
+      showToast(`Test print failed: ${err.message || err}`);
+    }
+  });
+
+  elements.featureView.querySelector('[data-action="test-kick-cash-drawer"]')?.addEventListener("click", async () => {
+    const form = elements.featureView.querySelector("#businessSettingsForm");
+    const printerName = form?.querySelector('[name="thermalPrinterName"]')?.value || state.businessSettings?.thermalPrinterName;
+    const pin = Number(form?.querySelector('[name="cashDrawerPin"]')?.value || 2);
+    if (!printerName) {
+      showToast("Please select the receipt printer connected to your cash drawer.");
+      return;
+    }
+    if (!window.giPrinter?.kickDrawer) {
+      showToast("Cash drawer kick is available in the desktop application.");
+      return;
+    }
+    try {
+      showToast(`Sending cash drawer pulse (Pin ${pin})...`);
+      await window.giPrinter.kickDrawer({ printerName, pin });
+      showToast("Cash drawer kick pulse sent!");
+    } catch (err) {
+      showToast(`Drawer kick failed: ${err.message || err}`);
+    }
   });
 
   const enableTaxToggle = elements.featureView.querySelector("#enableTaxToggle");
@@ -22876,6 +23182,28 @@ function syncTemplate() {
         </div>
       </section>
 
+      <!-- Section 3: Available Backups & 1-Click Restore -->
+      <section class="sync-card" style="margin-top:20px;">
+        <div class="sync-card-head sync-card-head--split">
+          <div style="display:flex;align-items:center;gap:12px;">
+            <div style="width:38px;height:38px;border-radius:10px;background:#f0fdf4;display:flex;align-items:center;justify-content:center;color:#16a34a;font-size:20px;">
+              💾
+            </div>
+            <div>
+              <h2 class="sync-card-title">Local Backups &amp; 1-Click Restore</h2>
+              <p class="sync-card-sub">All database snapshots and backups found on this PC. 1-click restore with automated pre-restore protection.</p>
+            </div>
+          </div>
+          <button class="secondary-button compact-button" data-action="refresh-backups-list" type="button" style="display:inline-flex;align-items:center;gap:6px;">
+            <span>🔄</span>
+            <span>Refresh List</span>
+          </button>
+        </div>
+        <div class="sync-card-body" id="localBackupsListContainer" style="margin-top:12px;padding:0;overflow:hidden;border:1px solid #e2e8f0;border-radius:8px;">
+          <div style="padding:24px;text-align:center;color:#64748b;font-size:13px;">Loading available backups...</div>
+        </div>
+      </section>
+
     </section>
   `;
 }
@@ -22890,6 +23218,9 @@ async function handleRunBackupNow() {
       showToast(`Backup saved: ${res.filename} in ${res.folder}`);
       const lastEl = document.getElementById("syncLastBackup");
       if (lastEl) lastEl.textContent = "Just now";
+      if (typeof window.giRefreshBackupsList === "function") {
+        window.giRefreshBackupsList();
+      }
     } else {
       showToast("Backup is available in desktop application.");
     }
@@ -22933,6 +23264,118 @@ function bindSyncEvents() {
       showToast(`Auto-backup on exit ${enabled ? "enabled" : "disabled"}.`);
     });
   }
+
+  async function loadLocalBackupsList() {
+    const container = elements.featureView?.querySelector("#localBackupsListContainer");
+    if (!container) return;
+    if (!window.giDB?.listSnapshots && !window.giDB?.listBackups) {
+      container.innerHTML = `<div style="padding:20px;text-align:center;color:#64748b;font-size:13px;">Local backups are available in the desktop application.</div>`;
+      return;
+    }
+    try {
+      const listFn = window.giDB.listBackups || window.giDB.listSnapshots;
+      const res = await listFn();
+      const backups = Array.isArray(res) ? res : (res?.backups || []);
+      if (!backups.length) {
+        container.innerHTML = `
+          <div style="padding:28px 20px;text-align:center;">
+            <div style="font-size:28px;margin-bottom:8px;">📦</div>
+            <div style="font-weight:600;font-size:14px;color:#334155;">No Local Backups Found</div>
+            <p style="font-size:12px;color:#64748b;margin:4px 0 14px;">Click <strong>+ Backup Now</strong> above to create your first safety backup snapshot.</p>
+          </div>
+        `;
+        return;
+      }
+
+      container.innerHTML = `
+        <table class="data-table" style="width:100%;font-size:12.5px;margin:0;">
+          <thead>
+            <tr style="background:#f8fafc;border-bottom:1px solid #e2e8f0;">
+              <th style="padding:10px 14px;text-align:left;">Backup File</th>
+              <th style="padding:10px 14px;text-align:left;">Type</th>
+              <th style="padding:10px 14px;text-align:left;">Created / Modified</th>
+              <th style="padding:10px 14px;text-align:right;">Size</th>
+              <th style="padding:10px 14px;text-align:center;width:130px;">Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${backups.map((b) => {
+              const badgeColor = b.type?.includes("Safety")
+                ? "background:#fef2f2;color:#991b1b;border:1px solid #fecaca;"
+                : b.type?.includes("Exit")
+                ? "background:#eff6ff;color:#1e40af;border:1px solid #bfdbfe;"
+                : b.type?.includes("Daily")
+                ? "background:#f0fdf4;color:#166534;border:1px solid #bbf7d0;"
+                : "background:#f1f5f9;color:#334155;border:1px solid #cbd5e1;";
+              const dateStr = b.createdAt ? new Date(b.createdAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" }) : "-";
+              return `
+                <tr style="border-bottom:1px solid #f1f5f9;">
+                  <td style="padding:10px 14px;font-family:monospace;font-size:12px;font-weight:600;color:#0f172a;">
+                    ${escapeHtml(b.filename)}
+                  </td>
+                  <td style="padding:10px 14px;">
+                    <span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:12px;${badgeColor}">
+                      ${escapeHtml(b.type || (b.isAuto ? "Auto" : "Manual"))}
+                    </span>
+                  </td>
+                  <td style="padding:10px 14px;color:#475569;white-space:nowrap;">
+                    ${escapeHtml(dateStr)}
+                  </td>
+                  <td style="padding:10px 14px;text-align:right;color:#475569;font-variant-numeric:tabular-nums;">
+                    ${escapeHtml(b.formattedSize || `${Math.round((b.sizeBytes || 0)/1024)} KB`)}
+                  </td>
+                  <td style="padding:10px 14px;text-align:center;">
+                    <button type="button" class="secondary-button compact-button" data-action="restore-specific-backup" data-path="${escapeHtml(b.path)}" data-filename="${escapeHtml(b.filename)}" style="font-size:11.5px;padding:3px 10px;font-weight:600;">
+                      1-Click Restore
+                    </button>
+                  </td>
+                </tr>
+              `;
+            }).join("")}
+          </tbody>
+        </table>
+      `;
+
+      container.querySelectorAll('[data-action="restore-specific-backup"]').forEach((btn) => {
+        btn.addEventListener("click", async () => {
+          const filePath = btn.dataset.path;
+          const filename = btn.dataset.filename;
+          if (!filePath) return;
+          const confirmRestore = confirm(
+            `Are you sure you want to restore "${filename}"?\n\n` +
+            `• Your current active database will be replaced with this snapshot.\n` +
+            `• A pre-restore safety backup of current data will be saved automatically.\n\n` +
+            `Click OK to proceed with restoration.`
+          );
+          if (!confirmRestore) return;
+
+          showGlobalLoader("Restoring Database Snapshot...", `Safely restoring from ${filename}...`);
+          try {
+            const restoreFn = window.giDB.restoreSnapshot || window.giDB.restoreBackupFile;
+            const result = await restoreFn(filePath);
+            hideGlobalLoader();
+            if (result && result.state) {
+              applyDatabaseState(result.state);
+            }
+            showToast(`Successfully restored: ${filename}`);
+            loadLocalBackupsList();
+          } catch (err) {
+            hideGlobalLoader();
+            alert("Restore Failed: " + (err.message || err));
+          }
+        });
+      });
+    } catch (err) {
+      container.innerHTML = `<div style="padding:20px;text-align:center;color:#b91c1c;font-size:13px;">Error loading backups: ${escapeHtml(err.message)}</div>`;
+    }
+  }
+
+  window.giRefreshBackupsList = loadLocalBackupsList;
+  loadLocalBackupsList();
+  elements.featureView?.querySelector("[data-action='refresh-backups-list']")?.addEventListener("click", () => {
+    showToast("Refreshing backups list...");
+    loadLocalBackupsList();
+  });
 }
 
 function partiesTemplate(selectedPartyId = null, activeTab = "transactions", query = partySearchQuery) {
@@ -29843,6 +30286,60 @@ function settingsPrintingTemplate() {
                 <option value="80mm" ${settings.thermalWidth === "58mm" ? "" : "selected"}>80mm (3-inch Standard POS)</option>
                 <option value="58mm" ${settings.thermalWidth === "58mm" ? "selected" : ""}>58mm (2-inch Compact Mobile POS)</option>
               </select>
+            </div>
+          </section>
+
+          <section class="settings-card">
+            <div class="settings-card-head">
+              <h3>Hardware Thermal Printer &amp; Cash Drawer</h3>
+              <span class="badge" style="background:#e0f2fe;color:#0284c7;">Native ESC/POS</span>
+            </div>
+            <div class="settings-field-group">
+              <label>Select Hardware Receipt Printer</label>
+              <select class="form-input" name="thermalPrinterName" id="thermalPrinterSelect">
+                <option value="">${settings.thermalPrinterName ? escapeHtml(settings.thermalPrinterName) : "(Loading installed Windows printers...)"}</option>
+              </select>
+              <small class="muted-text" style="display:block;margin-top:4px;">Direct raw ESC/POS byte streaming to your USB / Network Windows receipt printer.</small>
+            </div>
+            <div class="settings-toggle-stack" style="margin-top:12px;">
+              <label class="settings-toggle-row">
+                <div class="settings-toggle-info">
+                  <strong>Direct Raw Spooler Printing (ESC/POS)</strong>
+                  <span>Bypasses browser print dialog and sends native ESC/POS commands directly to the printer spooler with instant auto-cut.</span>
+                </div>
+                <div class="settings-toggle-switch">
+                  <input type="checkbox" name="useRawThermalPrint" ${settings.useRawThermalPrint ? "checked" : ""}>
+                  <span class="settings-toggle-track"><span class="settings-toggle-thumb"></span></span>
+                </div>
+              </label>
+
+              <label class="settings-toggle-row">
+                <div class="settings-toggle-info">
+                  <strong>Cash Drawer Kick on Cash Sale</strong>
+                  <span>Sends hardware pulse to open the cash drawer when completing a cash transaction.</span>
+                </div>
+                <div class="settings-toggle-switch">
+                  <input type="checkbox" name="autoKickCashDrawer" ${settings.autoKickCashDrawer ? "checked" : ""}>
+                  <span class="settings-toggle-track"><span class="settings-toggle-thumb"></span></span>
+                </div>
+              </label>
+            </div>
+            <div class="settings-field-group" style="margin-top:12px;">
+              <label>Cash Drawer Connector Pin</label>
+              <select class="form-input" name="cashDrawerPin" style="max-width:180px;">
+                <option value="2" ${String(settings.cashDrawerPin || 2) === "2" ? "selected" : ""}>Pin 2 (Standard)</option>
+                <option value="5" ${String(settings.cashDrawerPin) === "5" ? "selected" : ""}>Pin 5 (Alternate)</option>
+              </select>
+            </div>
+            <div style="display:flex;gap:10px;margin-top:16px;flex-wrap:wrap;">
+              <button class="secondary-button compact-button" type="button" data-action="test-raw-thermal-print" style="display:inline-flex;align-items:center;gap:6px;">
+                <span>🖨️</span>
+                <span>Test ESC/POS Print</span>
+              </button>
+              <button class="secondary-button compact-button" type="button" data-action="test-kick-cash-drawer" style="display:inline-flex;align-items:center;gap:6px;">
+                <span>⚡</span>
+                <span>Test Cash Drawer Kick</span>
+              </button>
             </div>
           </section>
 
