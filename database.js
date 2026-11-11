@@ -2296,14 +2296,166 @@ function defaultBusinessSettings(companyName = "testt") {
 
 function defaultTaxSlabs() {
   return [
-    { id: "tax_0", name: "None (0%)", rate: 0, cgst: 0, sgst: 0, igst: 0, cess: 0, subTax1Name: "CGST", subTax1Rate: 0, subTax2Name: "SGST", subTax2Rate: 0, igstName: "IGST", isStandard: true },
-    { id: "tax_0_25", name: "GST 0.25%", rate: 0.25, cgst: 0.125, sgst: 0.125, igst: 0.25, cess: 0, subTax1Name: "CGST", subTax1Rate: 0.125, subTax2Name: "SGST", subTax2Rate: 0.125, igstName: "IGST", isStandard: true },
-    { id: "tax_3", name: "GST 3%", rate: 3, cgst: 1.5, sgst: 1.5, igst: 3, cess: 0, subTax1Name: "CGST", subTax1Rate: 1.5, subTax2Name: "SGST", subTax2Rate: 1.5, igstName: "IGST", isStandard: true },
-    { id: "tax_5", name: "GST 5%", rate: 5, cgst: 2.5, sgst: 2.5, igst: 5, cess: 0, subTax1Name: "CGST", subTax1Rate: 2.5, subTax2Name: "SGST", subTax2Rate: 2.5, igstName: "IGST", isStandard: true },
-    { id: "tax_12", name: "GST 12%", rate: 12, cgst: 6, sgst: 6, igst: 12, cess: 0, subTax1Name: "CGST", subTax1Rate: 6, subTax2Name: "SGST", subTax2Rate: 6, igstName: "IGST", isStandard: true },
-    { id: "tax_18", name: "GST 18%", rate: 18, cgst: 9, sgst: 9, igst: 18, cess: 0, subTax1Name: "CGST", subTax1Rate: 9, subTax2Name: "SGST", subTax2Rate: 9, igstName: "IGST", isStandard: true },
-    { id: "tax_28", name: "GST 28%", rate: 28, cgst: 14, sgst: 14, igst: 28, cess: 0, subTax1Name: "CGST", subTax1Rate: 14, subTax2Name: "SGST", subTax2Rate: 14, igstName: "IGST", isStandard: true },
-    { id: "tax_40", name: "GST 40%", rate: 40, cgst: 20, sgst: 20, igst: 40, cess: 0, subTax1Name: "CGST", subTax1Rate: 20, subTax2Name: "SGST", subTax2Rate: 20, igstName: "IGST", isStandard: true },
+    {
+      id: "tax_0",
+      name: "None (0%)",
+      rate: 0,
+      cgst: 0,
+      sgst: 0,
+      igst: 0,
+      cess: 0,
+      subTax1Name: "CGST",
+      subTax1Rate: 0,
+      subTax2Name: "SGST",
+      subTax2Rate: 0,
+      igstName: "IGST",
+      cessName: "Cess",
+      subTaxes: [
+        { name: "CGST", rate: 0 },
+        { name: "SGST", rate: 0 }
+      ],
+      isStandard: true
+    },
+    {
+      id: "tax_0_25",
+      name: "GST 0.25%",
+      rate: 0.25,
+      cgst: 0.125,
+      sgst: 0.125,
+      igst: 0.25,
+      cess: 0,
+      subTax1Name: "CGST",
+      subTax1Rate: 0.125,
+      subTax2Name: "SGST",
+      subTax2Rate: 0.125,
+      igstName: "IGST",
+      cessName: "Cess",
+      subTaxes: [
+        { name: "CGST", rate: 0.125 },
+        { name: "SGST", rate: 0.125 }
+      ],
+      isStandard: true
+    },
+    {
+      id: "tax_3",
+      name: "GST 3%",
+      rate: 3,
+      cgst: 1.5,
+      sgst: 1.5,
+      igst: 3,
+      cess: 0,
+      subTax1Name: "CGST",
+      subTax1Rate: 1.5,
+      subTax2Name: "SGST",
+      subTax2Rate: 1.5,
+      igstName: "IGST",
+      cessName: "Cess",
+      subTaxes: [
+        { name: "CGST", rate: 1.5 },
+        { name: "SGST", rate: 1.5 }
+      ],
+      isStandard: true
+    },
+    {
+      id: "tax_5",
+      name: "GST 5%",
+      rate: 5,
+      cgst: 2.5,
+      sgst: 2.5,
+      igst: 5,
+      cess: 0,
+      subTax1Name: "CGST",
+      subTax1Rate: 2.5,
+      subTax2Name: "SGST",
+      subTax2Rate: 2.5,
+      igstName: "IGST",
+      cessName: "Cess",
+      subTaxes: [
+        { name: "CGST", rate: 2.5 },
+        { name: "SGST", rate: 2.5 }
+      ],
+      isStandard: true
+    },
+    {
+      id: "tax_12",
+      name: "GST 12%",
+      rate: 12,
+      cgst: 6,
+      sgst: 6,
+      igst: 12,
+      cess: 0,
+      subTax1Name: "CGST",
+      subTax1Rate: 6,
+      subTax2Name: "SGST",
+      subTax2Rate: 6,
+      igstName: "IGST",
+      cessName: "Cess",
+      subTaxes: [
+        { name: "CGST", rate: 6 },
+        { name: "SGST", rate: 6 }
+      ],
+      isStandard: true
+    },
+    {
+      id: "tax_18",
+      name: "GST 18%",
+      rate: 18,
+      cgst: 9,
+      sgst: 9,
+      igst: 18,
+      cess: 0,
+      subTax1Name: "CGST",
+      subTax1Rate: 9,
+      subTax2Name: "SGST",
+      subTax2Rate: 9,
+      igstName: "IGST",
+      cessName: "Cess",
+      subTaxes: [
+        { name: "CGST", rate: 9 },
+        { name: "SGST", rate: 9 }
+      ],
+      isStandard: true
+    },
+    {
+      id: "tax_28",
+      name: "GST 28%",
+      rate: 28,
+      cgst: 14,
+      sgst: 14,
+      igst: 28,
+      cess: 0,
+      subTax1Name: "CGST",
+      subTax1Rate: 14,
+      subTax2Name: "SGST",
+      subTax2Rate: 14,
+      igstName: "IGST",
+      cessName: "Cess",
+      subTaxes: [
+        { name: "CGST", rate: 14 },
+        { name: "SGST", rate: 14 }
+      ],
+      isStandard: true
+    },
+    {
+      id: "tax_40",
+      name: "GST 40%",
+      rate: 40,
+      cgst: 20,
+      sgst: 20,
+      igst: 40,
+      cess: 0,
+      subTax1Name: "CGST",
+      subTax1Rate: 20,
+      subTax2Name: "SGST",
+      subTax2Rate: 20,
+      igstName: "IGST",
+      cessName: "Cess",
+      subTaxes: [
+        { name: "CGST", rate: 20 },
+        { name: "SGST", rate: 20 }
+      ],
+      isStandard: true
+    },
   ];
 }
 
@@ -2311,24 +2463,41 @@ function normalizeTaxSlabs(slabs = []) {
   if (!Array.isArray(slabs) || slabs.length === 0) return defaultTaxSlabs();
   return slabs.map((s, idx) => {
     const rate = Math.max(0, Math.min(100, Number(s.rate ?? 0)));
-    const cgst = s.cgst !== undefined ? Number(s.cgst) : rate / 2;
-    const sgst = s.sgst !== undefined ? Number(s.sgst) : rate / 2;
-    const igst = s.igst !== undefined ? Number(s.igst) : rate;
     const cess = Math.max(0, Math.min(100, Number(s.cess ?? 0)));
     const name = String(s.name || (rate === 0 ? "None (0%)" : `GST ${rate}%`)).trim();
-    const subTax1Name = String(s.subTax1Name || "CGST").trim();
-    const subTax1Rate = s.subTax1Rate !== undefined ? Number(s.subTax1Rate) : cgst;
-    const subTax2Name = String(s.subTax2Name || "SGST").trim();
-    const subTax2Rate = s.subTax2Rate !== undefined ? Number(s.subTax2Rate) : sgst;
+
+    let subTaxes = Array.isArray(s.subTaxes) && s.subTaxes.length > 0
+      ? s.subTaxes.map((st) => ({
+          name: String(st.name || "").trim().toUpperCase() || "TAX",
+          rate: Math.max(0, Number(st.rate || 0))
+        }))
+      : [];
+
+    if (subTaxes.length === 0) {
+      const sub1Name = String(s.subTax1Name || "CGST").trim();
+      const sub1Rate = s.subTax1Rate !== undefined ? Number(s.subTax1Rate) : (s.cgst !== undefined ? Number(s.cgst) : rate / 2);
+      const sub2Name = String(s.subTax2Name || "SGST").trim();
+      const sub2Rate = s.subTax2Rate !== undefined ? Number(s.subTax2Rate) : (s.sgst !== undefined ? Number(s.sgst) : rate / 2);
+      subTaxes = [
+        { name: sub1Name, rate: sub1Rate },
+        { name: sub2Name, rate: sub2Rate }
+      ];
+    }
+
+    const subTax1Name = subTaxes[0]?.name || "CGST";
+    const subTax1Rate = subTaxes[0] !== undefined ? subTaxes[0].rate : rate / 2;
+    const subTax2Name = subTaxes[1]?.name || "SGST";
+    const subTax2Rate = subTaxes[1] !== undefined ? subTaxes[1].rate : rate / 2;
     const igstName = String(s.igstName || "IGST").trim();
     const cessName = String(s.cessName || "Cess").trim();
+
     return {
       id: String(s.id || `tax_${rate}_${idx}`),
       name,
       rate,
       cgst: subTax1Rate,
       sgst: subTax2Rate,
-      igst,
+      igst: s.igst !== undefined ? Number(s.igst) : rate,
       cess,
       subTax1Name,
       subTax1Rate,
@@ -2336,6 +2505,7 @@ function normalizeTaxSlabs(slabs = []) {
       subTax2Rate,
       igstName,
       cessName,
+      subTaxes,
       isStandard: Boolean(s.isStandard),
     };
   });
@@ -5568,16 +5738,31 @@ function roundMoney(val) {
   return Math.round((Number(val || 0) + Number.EPSILON) * 100) / 100;
 }
 
-function splitGstAmount(taxAmount, context) {
+function splitGstAmount(taxAmount, context, slab = null) {
   const safeTax = roundMoney(taxAmount);
-  if (context.isInterstate) {
+  if (context && context.isInterstate) {
     return { cgstAmount: 0, sgstAmount: 0, igstAmount: safeTax, cessAmount: 0 };
   }
-  const halfTax = roundMoney(safeTax / 2);
-  const otherHalf = roundMoney(safeTax - halfTax);
+  let cgstAmount = 0;
+  let sgstAmount = 0;
+  if (slab && Array.isArray(slab.subTaxes) && slab.subTaxes.length >= 2) {
+    const r1 = Number(slab.subTaxes[0]?.rate || 0);
+    const r2 = Number(slab.subTaxes[1]?.rate || 0);
+    const tot = r1 + r2 > 0 ? (r1 + r2) : Number(slab.rate || 0);
+    if (tot > 0) {
+      cgstAmount = roundMoney(safeTax * (r1 / tot));
+      sgstAmount = roundMoney(safeTax - cgstAmount);
+    } else {
+      cgstAmount = roundMoney(safeTax / 2);
+      sgstAmount = roundMoney(safeTax - cgstAmount);
+    }
+  } else {
+    cgstAmount = roundMoney(safeTax / 2);
+    sgstAmount = roundMoney(safeTax - cgstAmount);
+  }
   return {
-    cgstAmount: halfTax,
-    sgstAmount: otherHalf,
+    cgstAmount,
+    sgstAmount,
     igstAmount: 0,
     cessAmount: 0,
   };
@@ -5593,6 +5778,9 @@ function itemTaxMeta(companyId, itemId, itemName) {
 }
 
 function normalizeInvoiceItems(companyId, transactionType, items, taxContext = invoiceTaxContext(companyId, {})) {
+  const businessSettings = getBusinessSettings();
+  const slabs = businessSettings.taxSlabs || defaultTaxSlabs();
+
   return items
     .filter((item) => (item.item || item.name || item.itemName) || (item.qty || item.quantity) || item.price)
     .map((item) => {
@@ -5606,7 +5794,6 @@ function normalizeInvoiceItems(companyId, transactionType, items, taxContext = i
       if (!Number.isFinite(discount) || discount < 0 || discount > qty * price) throw new Error('Invalid item discount.');
       if (!Number.isFinite(taxRate) || taxRate < 0 || taxRate > 100) throw new Error('Invalid item tax rate.');
       const taxable = Math.max(0, qty * price - discount);
-      const taxAmount = taxable * taxRate / 100;
       const existingItem = item.itemId
         ? one("SELECT id FROM items WHERE company_id = ? AND id = ?", [companyId, item.itemId])
         : one("SELECT id FROM items WHERE company_id = ? AND LOWER(name) = LOWER(?)", [companyId, itemName]);
@@ -5616,7 +5803,13 @@ function normalizeInvoiceItems(companyId, transactionType, items, taxContext = i
       const hsnSac = String(item.hsnSac || meta.hsnSac || "").trim();
       const resolvedTaxRate = Number(item.taxRate ?? meta.taxRate ?? 0);
       const resolvedTaxAmount = taxable * resolvedTaxRate / 100;
-      const split = splitGstAmount(resolvedTaxAmount, taxContext);
+
+      const matchedSlab = slabs.find((s) => Number(s.rate) === resolvedTaxRate || String(s.name) === String(item.taxType || ""));
+      const split = splitGstAmount(resolvedTaxAmount, taxContext, matchedSlab);
+
+      const cessRate = Number(item.cessRate ?? item.cess ?? matchedSlab?.cess ?? 0);
+      const lineCessAmount = roundMoney(taxable * cessRate / 100);
+
       return {
         itemId,
         item: itemName || "Item",
@@ -5630,7 +5823,9 @@ function normalizeInvoiceItems(companyId, transactionType, items, taxContext = i
         taxRate: resolvedTaxRate,
         taxAmount: resolvedTaxAmount,
         ...split,
-        lineTotal: taxable + resolvedTaxAmount,
+        cessAmount: lineCessAmount,
+        cessRate,
+        lineTotal: taxable + resolvedTaxAmount + lineCessAmount,
       };
     });
 }
@@ -5645,7 +5840,7 @@ function calculateInvoiceTotals(items, fallbackTotal, received, roundOff = false
   const igstTotal = items.reduce((total, item) => total + Number(item.igstAmount || 0), 0);
   const cessTotal = items.reduce((total, item) => total + Number(item.cessAmount || 0), 0);
   const unroundedTotal = items.length
-    ? Math.max(0, subtotal - discountTotal + taxTotal)
+    ? Math.max(0, subtotal - discountTotal + taxTotal + cessTotal)
     : Number(fallbackTotal || 0);
   const total = roundOff ? Math.round(unroundedTotal) : Math.round((unroundedTotal + Number.EPSILON) * 100) / 100;
   if (received > total + 0.000001) throw new Error('Payment cannot exceed invoice total.');
