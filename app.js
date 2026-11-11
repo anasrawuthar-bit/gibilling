@@ -29881,8 +29881,8 @@ function openTaxSlabModal(slabToEdit = null, onSave = null) {
   modal.style.zIndex = "999999";
 
   modal.innerHTML = `
-    <div class="modal-card" style="width: min(580px, 94vw); max-height: 90vh; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 20px 45px rgba(0,0,0,0.25); border-radius: 12px; background: #ffffff;">
-      <header class="modal-card-header" style="display:flex; justify-content:space-between; align-items:center; padding:16px 20px; border-bottom:1px solid #e2e8f0; background:#f8fafc;">
+    <div class="modal-card" style="width: min(580px, 94vw); max-height: 88vh; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 20px 45px rgba(0,0,0,0.25); border-radius: 12px; background: #ffffff;">
+      <header class="modal-card-header" style="flex-shrink:0; display:flex; justify-content:space-between; align-items:center; padding:14px 20px; border-bottom:1px solid #e2e8f0; background:#f8fafc;">
         <div>
           <strong style="font-size:16px; color:#0f172a;">${isEditing ? `Edit Tax Slab: ${escapeHtml(slabToEdit.name)}` : "Add New Tax Slab"}</strong>
           <p style="margin:2px 0 0 0; font-size:12px; color:#64748b;">Specify total tax percentage, customizable sub-tax names (CGST/SGST/UTGST), and optional Cess</p>
@@ -29890,80 +29890,95 @@ function openTaxSlabModal(slabToEdit = null, onSave = null) {
         <button type="button" class="close-button" data-action="close-tax-modal" style="font-size:22px; border:none; background:transparent; cursor:pointer; color:#64748b;">&times;</button>
       </header>
 
-      <form id="taxSlabForm" style="padding:20px; overflow-y:auto; display:flex; flex-direction:column; gap:16px;">
-        <div style="display:grid; grid-template-columns: 1fr 1.5fr; gap:12px;">
-          <div>
-            <label style="font-size:12px; font-weight:600; color:#334155; display:block; margin-bottom:6px;">Total Tax Rate (%) *</label>
-            <input type="number" step="0.01" min="0" max="100" id="taxSlabRateInput" class="form-input" required value="${initialRate}" placeholder="e.g. 18 or 6" style="width:100%; height:38px; font-weight:700; font-size:15px;">
-          </div>
-          <div>
-            <label style="font-size:12px; font-weight:600; color:#334155; display:block; margin-bottom:6px;">Tax Slab Name *</label>
-            <input type="text" id="taxSlabNameInput" class="form-input" required value="${escapeHtml(initialName)}" placeholder="e.g. GST 18%" style="width:100%; height:38px; font-size:14px;">
-          </div>
-        </div>
-
-        <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:14px;">
-          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; flex-wrap:wrap; gap:8px;">
-            <strong style="font-size:12px; text-transform:uppercase; letter-spacing:0.5px; color:#475569;">Intra-State Sub-Taxes (Local Sales)</strong>
-            <div style="display:flex; gap:6px;">
-              <button type="button" id="presetStateBtn" class="secondary-button" style="padding:2px 8px; font-size:11px; background:#eff6ff; color:#1d4ed8; border-color:#bfdbfe;">Preset: CGST + SGST</button>
-              <button type="button" id="presetUtBtn" class="secondary-button" style="padding:2px 8px; font-size:11px; background:#f0fdf4; color:#15803d; border-color:#bbf7d0;">Preset: CGST + UTGST</button>
-            </div>
-          </div>
-          
-          <div style="display:grid; grid-template-columns: 1fr 1fr; gap:12px; margin-bottom:12px;">
-            <div style="background:#ffffff; border:1px solid #dbeafe; border-radius:6px; padding:10px;">
-              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
-                <label style="font-size:11px; font-weight:700; color:#1d4ed8;">Sub-Tax 1 Name</label>
-                <input type="text" id="taxSlabSub1NameInput" class="form-input" value="${escapeHtml(initialSub1Name)}" placeholder="CGST" style="width:90px; height:26px; font-size:12px; font-weight:600; text-transform:uppercase;">
-              </div>
-              <div>
-                <label style="font-size:11px; color:#64748b; display:block; margin-bottom:2px;">Rate (%)</label>
-                <input type="number" step="0.001" min="0" max="100" id="taxSlabCgstInput" class="form-input" required value="${initialCgst}" style="width:100%; height:32px; font-weight:600;">
-              </div>
-            </div>
-
-            <div style="background:#ffffff; border:1px solid #dcfce7; border-radius:6px; padding:10px;">
-              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
-                <label style="font-size:11px; font-weight:700; color:#15803d;">Sub-Tax 2 Name</label>
-                <input type="text" id="taxSlabSub2NameInput" class="form-input" value="${escapeHtml(initialSub2Name)}" placeholder="SGST" style="width:90px; height:26px; font-size:12px; font-weight:600; text-transform:uppercase;">
-              </div>
-              <div>
-                <label style="font-size:11px; color:#64748b; display:block; margin-bottom:2px;">Rate (%)</label>
-                <input type="number" step="0.001" min="0" max="100" id="taxSlabSgstInput" class="form-input" required value="${initialSgst}" style="width:100%; height:32px; font-weight:600;">
-              </div>
-            </div>
-          </div>
-
-          <div style="background:#ffffff; border:1px solid #f3e8ff; border-radius:6px; padding:10px;">
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
-              <label style="font-size:11px; font-weight:700; color:#7e22ce;">Inter-State Component Name</label>
-              <input type="text" id="taxSlabIgstNameInput" class="form-input" value="${escapeHtml(initialIgstName)}" placeholder="IGST" style="width:90px; height:26px; font-size:12px; font-weight:600; text-transform:uppercase;">
+      <form id="taxSlabForm" style="display:flex; flex-direction:column; overflow:hidden; flex:1; margin:0;">
+        <div class="tax-slab-modal-body" style="padding:16px 20px; overflow-y:auto; flex:1; display:flex; flex-direction:column; gap:12px;">
+          <div style="display:grid; grid-template-columns: 1fr 1.5fr; gap:12px;">
+            <div>
+              <label style="font-size:12px; font-weight:600; color:#334155; display:block; margin-bottom:4px;">Total Tax Rate (%) *</label>
+              <input type="number" step="0.001" min="0" max="100" id="taxSlabRateInput" class="form-input" required value="${initialRate}" placeholder="e.g. 18 or 0.25" style="width:100%; height:36px; font-weight:700; font-size:15px;">
             </div>
             <div>
-              <label style="font-size:11px; color:#64748b; display:block; margin-bottom:2px;">Inter-State Rate (%)</label>
-              <input type="number" step="0.01" min="0" max="100" id="taxSlabIgstInput" class="form-input" required value="${initialIgst}" style="width:100%; height:32px; font-weight:600;">
+              <label style="font-size:12px; font-weight:600; color:#334155; display:block; margin-bottom:4px;">Tax Slab Name *</label>
+              <input type="text" id="taxSlabNameInput" class="form-input" required value="${escapeHtml(initialName)}" placeholder="e.g. GST 18%" style="width:100%; height:36px; font-size:14px;">
             </div>
           </div>
-          <small style="display:block; margin-top:8px; color:#64748b; font-size:11.5px; line-height:1.4;">
-            For local/intra-state sales, only Sub-Tax 1 + Sub-Tax 2 are charged. For inter-state sales, only IGST is charged. These are mutually exclusive.
-          </small>
-        </div>
 
-        <div style="background:#fffbeb; border:1px solid #fde68a; border-radius:8px; padding:14px;">
-          <div style="display:flex; justify-content:space-between; align-items:center; gap:12px;">
-            <div>
-              <strong style="font-size:13px; color:#92400e; display:block;">Compensation / Additional Cess (%)</strong>
-              <span style="font-size:11.5px; color:#b45309;">Independent Cess surcharge applicable to specific notified goods/commodities</span>
+          <!-- Section 1: Intra-State / Local Sales -->
+          <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:12px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; flex-wrap:wrap; gap:6px;">
+              <strong style="font-size:11.5px; text-transform:uppercase; letter-spacing:0.5px; color:#1e293b;">1. Intra-State Breakdown (Local Sales)</strong>
+              <div style="display:flex; gap:6px;">
+                <button type="button" id="presetStateBtn" class="secondary-button" style="padding:2px 8px; font-size:11px; background:#eff6ff; color:#1d4ed8; border-color:#bfdbfe;">Preset: CGST + SGST</button>
+                <button type="button" id="presetUtBtn" class="secondary-button" style="padding:2px 8px; font-size:11px; background:#f0fdf4; color:#15803d; border-color:#bbf7d0;">Preset: CGST + UTGST</button>
+              </div>
             </div>
-            <input type="number" step="0.01" min="0" max="100" id="taxSlabCessInput" class="form-input" value="${initialCess}" placeholder="0" style="width:110px; height:36px; text-align:right; font-weight:700; color:#92400e;">
+            
+            <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px;">
+              <div style="background:#ffffff; border:1px solid #dbeafe; border-radius:6px; padding:8px 10px;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+                  <label style="font-size:11px; font-weight:700; color:#1d4ed8;">Sub-Tax 1 Name</label>
+                  <input type="text" id="taxSlabSub1NameInput" class="form-input" value="${escapeHtml(initialSub1Name)}" placeholder="CGST" style="width:85px; height:24px; font-size:11.5px; font-weight:600; text-transform:uppercase;">
+                </div>
+                <div>
+                  <label style="font-size:10.5px; color:#64748b; display:block; margin-bottom:2px;">Rate (%)</label>
+                  <input type="number" step="0.001" min="0" max="100" id="taxSlabCgstInput" class="form-input" required value="${initialCgst}" style="width:100%; height:30px; font-weight:600; font-size:13px;">
+                </div>
+              </div>
+
+              <div style="background:#ffffff; border:1px solid #dcfce7; border-radius:6px; padding:8px 10px;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+                  <label style="font-size:11px; font-weight:700; color:#15803d;">Sub-Tax 2 Name</label>
+                  <input type="text" id="taxSlabSub2NameInput" class="form-input" value="${escapeHtml(initialSub2Name)}" placeholder="SGST" style="width:85px; height:24px; font-size:11.5px; font-weight:600; text-transform:uppercase;">
+                </div>
+                <div>
+                  <label style="font-size:10.5px; color:#64748b; display:block; margin-bottom:2px;">Rate (%)</label>
+                  <input type="number" step="0.001" min="0" max="100" id="taxSlabSgstInput" class="form-input" required value="${initialSgst}" style="width:100%; height:30px; font-weight:600; font-size:13px;">
+                </div>
+              </div>
+            </div>
+            <small style="display:block; margin-top:6px; color:#64748b; font-size:11px;">
+              Applied only when the buyer is inside the same state (Sub-Tax 1 + Sub-Tax 2).
+            </small>
+          </div>
+
+          <!-- Section 2: Inter-State / Outside State Sales -->
+          <div style="background:#fdf4ff; border:1px solid #f0abfc; border-radius:8px; padding:12px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+              <strong style="font-size:11.5px; text-transform:uppercase; letter-spacing:0.5px; color:#86198f;">2. Inter-State Component (Outside State)</strong>
+              <span style="font-size:11px; color:#a21caf;">Mutually exclusive with Intra-State</span>
+            </div>
+            <div style="background:#ffffff; border:1px solid #e879f9; border-radius:6px; padding:8px 10px;">
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+                <label style="font-size:11px; font-weight:700; color:#7e22ce;">Inter-State Component Name</label>
+                <input type="text" id="taxSlabIgstNameInput" class="form-input" value="${escapeHtml(initialIgstName)}" placeholder="IGST" style="width:85px; height:24px; font-size:11.5px; font-weight:600; text-transform:uppercase;">
+              </div>
+              <div>
+                <label style="font-size:10.5px; color:#64748b; display:block; margin-bottom:2px;">Inter-State Rate (%)</label>
+                <input type="number" step="0.001" min="0" max="100" id="taxSlabIgstInput" class="form-input" required value="${initialIgst}" style="width:100%; height:30px; font-weight:600; font-size:13px;">
+              </div>
+            </div>
+            <small style="display:block; margin-top:6px; color:#86198f; font-size:11px;">
+              Applied only when shipping/selling to another state (IGST only; never combined with CGST/SGST).
+            </small>
+          </div>
+
+          <!-- Section 3: Optional Cess -->
+          <div style="background:#fffbeb; border:1px solid #fde68a; border-radius:8px; padding:10px 12px; ${cessEnabled ? '' : 'display:none;'}">
+            <div style="display:flex; justify-content:space-between; align-items:center; gap:10px;">
+              <div>
+                <strong style="font-size:12px; color:#92400e; display:block;">Compensation / Additional Cess (%)</strong>
+                <span style="font-size:11px; color:#b45309;">Independent Cess surcharge applicable to specific notified goods</span>
+              </div>
+              <input type="number" step="0.01" min="0" max="100" id="taxSlabCessInput" class="form-input" value="${initialCess}" placeholder="0" style="width:100px; height:32px; text-align:right; font-weight:700; color:#92400e;">
+            </div>
           </div>
         </div>
 
-        <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:6px; padding-top:12px; border-top:1px solid #e2e8f0;">
-          <button type="button" class="secondary-button" data-action="close-tax-modal" style="padding:8px 16px;">Cancel</button>
-          <button type="submit" class="primary-button" style="padding:8px 20px; font-weight:600;">${isEditing ? "Update Tax Slab" : "Add Tax Slab"}</button>
-        </div>
+        <!-- Sticky / Fixed Modal Footer: Always 100% visible -->
+        <footer style="flex-shrink:0; display:flex; justify-content:flex-end; align-items:center; gap:10px; padding:12px 20px; border-top:1px solid #e2e8f0; background:#f8fafc;">
+          <button type="button" class="secondary-button" data-action="close-tax-modal" style="padding:7px 16px; font-size:13px;">Cancel</button>
+          <button type="submit" class="primary-button" style="padding:7px 20px; font-size:13px; font-weight:600; background:#2563eb; color:#ffffff; border-radius:6px;">${isEditing ? "Update Tax Slab" : "Add Tax Slab"}</button>
+        </footer>
       </form>
     </div>
   `;
@@ -30004,6 +30019,14 @@ function openTaxSlabModal(slabToEdit = null, onSave = null) {
       if (!userHasTypedName && nameInput) {
         nameInput.value = val === 0 ? "None (0%)" : `GST ${val}%`;
       }
+    }
+  });
+
+  cgstInput?.addEventListener("input", () => {
+    const total = parseFloat(rateInput.value) || 0;
+    const cgstVal = parseFloat(cgstInput.value) || 0;
+    if (sgstInput && total >= cgstVal) {
+      sgstInput.value = Math.round((total - cgstVal) * 1000) / 1000;
     }
   });
 
