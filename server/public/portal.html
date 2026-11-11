@@ -361,6 +361,80 @@
       margin-top: 24px;
     }
 
+    /* Zero-Flicker Pre-Auth Loader */
+    .auth-preloader {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 420px;
+      padding: 40px 20px;
+      text-align: center;
+    }
+    .auth-preloader-spinner {
+      width: 44px;
+      height: 44px;
+      border: 3px solid #e2e8f0;
+      border-top-color: var(--primary);
+      border-radius: 50%;
+      animation: authSpin 0.7s linear infinite;
+      margin-bottom: 16px;
+    }
+    @keyframes authSpin {
+      to { transform: rotate(360deg); }
+    }
+
+    /* Real-Time Business Analytics Metrics Grid */
+    .portal-metrics-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 16px;
+    }
+    @media (max-width: 900px) {
+      .portal-metrics-grid { grid-template-columns: repeat(2, 1fr); }
+    }
+    @media (max-width: 500px) {
+      .portal-metrics-grid { grid-template-columns: 1fr; }
+    }
+    .metric-card {
+      background: #ffffff;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 18px;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.03);
+      transition: transform 0.15s ease, box-shadow 0.15s ease;
+    }
+    .metric-card:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 16px rgba(0,0,0,0.06);
+    }
+    .metric-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+    .metric-title {
+      font-size: 11.5px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: #64748b;
+    }
+    .metric-icon {
+      font-size: 18px;
+    }
+    .metric-val {
+      font-size: 22px;
+      font-weight: 800;
+      color: #0f172a;
+    }
+    .metric-sub {
+      font-size: 12px;
+      color: #64748b;
+      margin-top: 4px;
+    }
+
     .hidden { display: none !important; }
   </style>
 </head>
@@ -379,8 +453,15 @@
     </div>
   </header>
 
-  <!-- Login Card if not logged in -->
-  <div class="login-container" id="loginCard">
+  <!-- Zero-Flicker Pre-Auth Loader Screen -->
+  <div class="auth-preloader" id="portalAuthLoader">
+    <div class="auth-preloader-spinner"></div>
+    <div style="font-size: 15px; font-weight: 700; color: #0f172a;">Connecting to ZynBill Portal...</div>
+    <div style="font-size: 13px; color: #64748b; margin-top: 4px;">Restoring your authenticated business session</div>
+  </div>
+
+  <!-- Login Card (Hidden by default to eliminate flicker on refresh) -->
+  <div class="login-container hidden" id="loginCard">
     <div style="text-align: center; margin-bottom: 24px;">
       <div class="brand-logo" style="margin: 0 auto 12px; width: 44px; height: 44px; font-size: 22px;">Z</div>
       <h2 style="font-size: 20px; font-weight: 800; color: #0f172a;">Customer Portal Login</h2>
@@ -449,6 +530,72 @@
         <span>✓ 1-Click Offline Installation</span>
         <span>✓ First PC One-Time Verification Code Protected</span>
         <span>✓ 14-Day Offline Grace Period</span>
+      </div>
+    </div>
+
+    <!-- Real-Time Business Analytics Metrics Grid -->
+    <div>
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+        <h3 style="font-size:16px; font-weight:700; color:#0f172a; display:flex; align-items:center; gap:8px;">
+          <span>📊</span> Cloud Business Summary
+        </h3>
+        <span style="font-size:12px; color:var(--muted); font-weight:600;">Real-time sync from offline desktop terminals</span>
+      </div>
+      <div class="portal-metrics-grid">
+        <div class="metric-card">
+          <div class="metric-header">
+            <span class="metric-title">Total Sales</span>
+            <span class="metric-icon">💰</span>
+          </div>
+          <div class="metric-val" id="rptTotalSales">₹0</div>
+          <div class="metric-sub" id="rptSalesCount">0 Invoices</div>
+        </div>
+
+        <div class="metric-card">
+          <div class="metric-header">
+            <span class="metric-title">Total Purchases</span>
+            <span class="metric-icon">📦</span>
+          </div>
+          <div class="metric-val" id="rptTotalPurchases">₹0</div>
+          <div class="metric-sub" id="rptPurchasesCount">0 Purchase Bills</div>
+        </div>
+
+        <div class="metric-card">
+          <div class="metric-header">
+            <span class="metric-title">Outstanding Dues</span>
+            <span class="metric-icon">⏳</span>
+          </div>
+          <div class="metric-val" id="rptTotalReceivables">₹0</div>
+          <div class="metric-sub" id="rptDueParties">0 Parties with balance</div>
+        </div>
+
+        <div class="metric-card">
+          <div class="metric-header">
+            <span class="metric-title">Inventory &amp; Master</span>
+            <span class="metric-icon">🏷️</span>
+          </div>
+          <div class="metric-val" id="rptCatalogCount">0 Items</div>
+          <div class="metric-sub" id="rptPartiesCount">0 Contacts</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Recent Synced Invoices & Financial Transactions Card -->
+    <div class="card">
+      <div class="card-title" style="justify-content:space-between;">
+        <div style="display:flex; align-items:center; gap:8px;">
+          <span>📑</span> Recent Synced Invoices &amp; Bills
+        </div>
+        <button type="button" class="btn-secondary" style="padding:4px 10px; font-size:11.5px;" onclick="loadPortalReports()">
+          ↻ Refresh Data
+        </button>
+      </div>
+      <p style="font-size:13px; color:var(--muted); margin-bottom:16px;">
+        Latest billing documents uploaded from your authorized offline desktop terminals.
+      </p>
+
+      <div id="rptTransactionsWrap">
+        <div style="text-align:center; padding:24px; color:#64748b; font-size:13px;">Loading synced business transactions...</div>
       </div>
     </div>
 
@@ -675,6 +822,22 @@
     let currentCustomer = null;
     let customerToken = localStorage.getItem('zynbill_portal_token');
 
+    // Immediate Zero-Flicker Pre-Auth Guard:
+    // Prevents the login card from ever flashing on screen when an authenticated user refreshes.
+    function preAuthCheck() {
+      const hasToken = Boolean(customerToken);
+      const hasCookie = document.cookie.includes('zynbill_portal_session');
+      if (!hasToken && !hasCookie) {
+        // Visitor is not logged in: display login card immediately with 0 delay
+        document.getElementById('portalAuthLoader')?.classList.add('hidden');
+        document.getElementById('loginCard')?.classList.remove('hidden');
+        return false;
+      }
+      // Authenticated visitor: keep loader visible, keep loginCard hidden while session verifies
+      return true;
+    }
+    preAuthCheck();
+
     // ── Password Show / Hide Engine ───────────────────────────
     function initPasswordToggles() {
       document.querySelectorAll('.password-input-wrap').forEach(wrap => {
@@ -788,14 +951,16 @@
       customerToken = null;
       currentCustomer = null;
       localStorage.removeItem('zynbill_portal_token');
-      document.getElementById('portalDashboard').classList.add('hidden');
+      document.getElementById('portalAuthLoader')?.classList.add('hidden');
+      document.getElementById('portalDashboard')?.classList.add('hidden');
       document.getElementById('portalUserSection').style.display = 'none';
-      document.getElementById('loginCard').classList.remove('hidden');
+      document.getElementById('loginCard')?.classList.remove('hidden');
     }
 
     function renderDashboard(customer, devices = []) {
-      document.getElementById('loginCard').classList.add('hidden');
-      document.getElementById('portalDashboard').classList.remove('hidden');
+      document.getElementById('portalAuthLoader')?.classList.add('hidden');
+      document.getElementById('loginCard')?.classList.add('hidden');
+      document.getElementById('portalDashboard')?.classList.remove('hidden');
       document.getElementById('portalUserSection').style.display = 'flex';
 
       document.getElementById('headerCompanyName').textContent = customer.companyName || customer.email;
@@ -832,14 +997,15 @@
         const r = data.reports;
 
         const fmt = (n) => '₹' + Number(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 });
-        document.getElementById('rptTotalSales').textContent = fmt(r.totalSales);
-        document.getElementById('rptSalesCount').textContent = `${r.salesCount || 0} Invoice${r.salesCount === 1 ? '' : 's'}`;
-        document.getElementById('rptTotalPurchases').textContent = fmt(r.totalPurchases);
-        document.getElementById('rptPurchasesCount').textContent = `${r.purchaseCount || 0} Purchase Bill${r.purchaseCount === 1 ? '' : 's'}`;
-        document.getElementById('rptTotalReceivables').textContent = fmt(r.totalReceivables);
-        document.getElementById('rptDueParties').textContent = `${r.partiesWithDue || 0} Customer${r.partiesWithDue === 1 ? '' : 's'} with balance`;
-        document.getElementById('rptCatalogCount').textContent = `${r.itemsCount || 0} Items`;
-        document.getElementById('rptPartiesCount').textContent = `${r.partiesCount || 0} Contacts`;
+        const setEl = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
+        setEl('rptTotalSales', fmt(r.totalSales));
+        setEl('rptSalesCount', `${r.salesCount || 0} Invoice${r.salesCount === 1 ? '' : 's'}`);
+        setEl('rptTotalPurchases', fmt(r.totalPurchases));
+        setEl('rptPurchasesCount', `${r.purchaseCount || 0} Purchase Bill${r.purchaseCount === 1 ? '' : 's'}`);
+        setEl('rptTotalReceivables', fmt(r.totalReceivables));
+        setEl('rptDueParties', `${r.partiesWithDue || 0} Customer${r.partiesWithDue === 1 ? '' : 's'} with balance`);
+        setEl('rptCatalogCount', `${r.itemsCount || 0} Items`);
+        setEl('rptPartiesCount', `${r.partiesCount || 0} Contacts`);
 
         const wrap = document.getElementById('rptTransactionsWrap');
         if (!r.recentTransactions || r.recentTransactions.length === 0) {

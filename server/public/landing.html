@@ -649,7 +649,7 @@
         <li><a href="#download">Download App</a></li>
       </ul>
 
-      <div class="nav-actions">
+      <div class="nav-actions" id="siteNavActions">
         <a href="/portal" class="btn btn-outline btn-sm">Login</a>
         <a href="/register" class="btn btn-primary btn-sm">Sign Up Free</a>
       </div>
@@ -959,5 +959,22 @@
     </div>
   </footer>
 
+  <script>
+    // Recognize existing customer session on landing page
+    (function() {
+      const token = localStorage.getItem('zynbill_portal_token');
+      const hasCookie = document.cookie.includes('zynbill_portal_session');
+      if (token || hasCookie) {
+        const navActions = document.getElementById('siteNavActions');
+        if (navActions) {
+          navActions.innerHTML = `
+            <a href="/portal" class="btn btn-primary btn-sm" style="display:inline-flex; align-items:center; gap:6px;">
+              <span>🏢 Portal Dashboard ↗</span>
+            </a>
+          `;
+        }
+      }
+    })();
+  </script>
 </body>
 </html>
