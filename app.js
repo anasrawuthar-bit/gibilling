@@ -866,14 +866,14 @@ function defaultBusinessSettings() {
 
 function defaultTaxSlabs() {
   return [
-    { id: "tax_0", name: "None (0%)", rate: 0, cgst: 0, sgst: 0, igst: 0, cess: 0, isStandard: true },
-    { id: "tax_0_25", name: "GST 0.25%", rate: 0.25, cgst: 0.125, sgst: 0.125, igst: 0.25, cess: 0, isStandard: true },
-    { id: "tax_3", name: "GST 3%", rate: 3, cgst: 1.5, sgst: 1.5, igst: 3, cess: 0, isStandard: true },
-    { id: "tax_5", name: "GST 5%", rate: 5, cgst: 2.5, sgst: 2.5, igst: 5, cess: 0, isStandard: true },
-    { id: "tax_12", name: "GST 12%", rate: 12, cgst: 6, sgst: 6, igst: 12, cess: 0, isStandard: true },
-    { id: "tax_18", name: "GST 18%", rate: 18, cgst: 9, sgst: 9, igst: 18, cess: 0, isStandard: true },
-    { id: "tax_28", name: "GST 28%", rate: 28, cgst: 14, sgst: 14, igst: 28, cess: 0, isStandard: true },
-    { id: "tax_40", name: "GST 40%", rate: 40, cgst: 20, sgst: 20, igst: 40, cess: 0, isStandard: true },
+    { id: "tax_0", name: "None (0%)", rate: 0, cgst: 0, sgst: 0, igst: 0, cess: 0, subTax1Name: "CGST", subTax1Rate: 0, subTax2Name: "SGST", subTax2Rate: 0, igstName: "IGST", isStandard: true },
+    { id: "tax_0_25", name: "GST 0.25%", rate: 0.25, cgst: 0.125, sgst: 0.125, igst: 0.25, cess: 0, subTax1Name: "CGST", subTax1Rate: 0.125, subTax2Name: "SGST", subTax2Rate: 0.125, igstName: "IGST", isStandard: true },
+    { id: "tax_3", name: "GST 3%", rate: 3, cgst: 1.5, sgst: 1.5, igst: 3, cess: 0, subTax1Name: "CGST", subTax1Rate: 1.5, subTax2Name: "SGST", subTax2Rate: 1.5, igstName: "IGST", isStandard: true },
+    { id: "tax_5", name: "GST 5%", rate: 5, cgst: 2.5, sgst: 2.5, igst: 5, cess: 0, subTax1Name: "CGST", subTax1Rate: 2.5, subTax2Name: "SGST", subTax2Rate: 2.5, igstName: "IGST", isStandard: true },
+    { id: "tax_12", name: "GST 12%", rate: 12, cgst: 6, sgst: 6, igst: 12, cess: 0, subTax1Name: "CGST", subTax1Rate: 6, subTax2Name: "SGST", subTax2Rate: 6, igstName: "IGST", isStandard: true },
+    { id: "tax_18", name: "GST 18%", rate: 18, cgst: 9, sgst: 9, igst: 18, cess: 0, subTax1Name: "CGST", subTax1Rate: 9, subTax2Name: "SGST", subTax2Rate: 9, igstName: "IGST", isStandard: true },
+    { id: "tax_28", name: "GST 28%", rate: 28, cgst: 14, sgst: 14, igst: 28, cess: 0, subTax1Name: "CGST", subTax1Rate: 14, subTax2Name: "SGST", subTax2Rate: 14, igstName: "IGST", isStandard: true },
+    { id: "tax_40", name: "GST 40%", rate: 40, cgst: 20, sgst: 20, igst: 40, cess: 0, subTax1Name: "CGST", subTax1Rate: 20, subTax2Name: "SGST", subTax2Rate: 20, igstName: "IGST", isStandard: true },
   ];
 }
 
@@ -886,14 +886,26 @@ function normalizeTaxSlabs(slabs = []) {
     const igst = s.igst !== undefined ? Number(s.igst) : rate;
     const cess = Math.max(0, Math.min(100, Number(s.cess ?? 0)));
     const name = String(s.name || (rate === 0 ? "None (0%)" : `GST ${rate}%`)).trim();
+    const subTax1Name = String(s.subTax1Name || "CGST").trim();
+    const subTax1Rate = s.subTax1Rate !== undefined ? Number(s.subTax1Rate) : cgst;
+    const subTax2Name = String(s.subTax2Name || "SGST").trim();
+    const subTax2Rate = s.subTax2Rate !== undefined ? Number(s.subTax2Rate) : sgst;
+    const igstName = String(s.igstName || "IGST").trim();
+    const cessName = String(s.cessName || "Cess").trim();
     return {
       id: String(s.id || `tax_${rate}_${idx}`),
       name,
       rate,
-      cgst,
-      sgst,
+      cgst: subTax1Rate,
+      sgst: subTax2Rate,
       igst,
       cess,
+      subTax1Name,
+      subTax1Rate,
+      subTax2Name,
+      subTax2Rate,
+      igstName,
+      cessName,
       isStandard: Boolean(s.isStandard),
     };
   });
@@ -3439,16 +3451,16 @@ function transactionEditorTemplate(type = getTransactionEditorType()) {
             ${taxEnabled ? `
               <div class="editor-total-line"><span>Tax</span><strong id="editorTaxTotal">0.00</strong></div>
               <div class="editor-gst-split">
-                <span>CGST <b id="editorCgstTotal">0.00</b></span>
-                <span>SGST <b id="editorSgstTotal">0.00</b></span>
-                <span>IGST <b id="editorIgstTotal">0.00</b></span>
+                <span id="editorCgstWrapper">CGST <b id="editorCgstTotal">0.00</b></span>
+                <span id="editorSgstWrapper">SGST <b id="editorSgstTotal">0.00</b></span>
+                <span id="editorIgstWrapper" style="display:none;">IGST <b id="editorIgstTotal">0.00</b></span>
               </div>
             ` : `
               <div class="editor-total-line hidden" style="display:none;"><span>Tax</span><strong id="editorTaxTotal">0.00</strong></div>
               <div class="editor-gst-split hidden" style="display:none;">
-                <span>CGST <b id="editorCgstTotal">0.00</b></span>
-                <span>SGST <b id="editorSgstTotal">0.00</b></span>
-                <span>IGST <b id="editorIgstTotal">0.00</b></span>
+                <span id="editorCgstWrapper">CGST <b id="editorCgstTotal">0.00</b></span>
+                <span id="editorSgstWrapper">SGST <b id="editorSgstTotal">0.00</b></span>
+                <span id="editorIgstWrapper" style="display:none;">IGST <b id="editorIgstTotal">0.00</b></span>
               </div>
             `}
             <label class="editor-roundoff-line"><span><input id="roundOffToggle" type="checkbox" checked> Round Off</span><input id="editorRoundOffValue" class="tiny-input" value="0.00" readonly></label>
@@ -6307,8 +6319,9 @@ function sampleInvoicePreviewData() {
   };
 }
 
-function computeGstSummaryRows(rows = []) {
+function computeGstSummaryRows(rows = [], isInterState = false) {
   const summaryMap = new Map();
+  const slabs = state.businessSettings?.taxSlabs || defaultTaxSlabs();
   rows.forEach((row) => {
     const rate = Number(row.taxRate || 0);
     if (!rate || rate <= 0) return; // Do not include None / 0% tax rows in GST tax summary
@@ -6320,25 +6333,45 @@ function computeGstSummaryRows(rows = []) {
     const taxable = Math.max(0, qty * price - discount);
     const tax = Number(row.tax || (taxable * rate / 100));
 
+    const slab = slabs.find((s) => Number(s.rate) === Number(rate));
+    const sub1Name = slab?.subTax1Name || "CGST";
+    const sub2Name = slab?.subTax2Name || "SGST";
+    const igstName = slab?.igstName || "IGST";
+    const sub1Rate = slab ? Number(slab.subTax1Rate !== undefined ? slab.subTax1Rate : slab.cgst) : rate / 2;
+    const sub2Rate = slab ? Number(slab.subTax2Rate !== undefined ? slab.subTax2Rate : slab.sgst) : rate / 2;
+    const totalSub = sub1Rate + sub2Rate > 0 ? (sub1Rate + sub2Rate) : rate;
+
     if (!summaryMap.has(key)) {
       summaryMap.set(key, {
         hsn,
         rate,
         taxable: 0,
-        cgstRate: rate / 2,
+        sub1Name,
+        sub1Rate,
+        cgstRate: sub1Rate,
         cgstAmt: 0,
-        sgstRate: rate / 2,
+        sub2Name,
+        sub2Rate,
+        sgstRate: sub2Rate,
         sgstAmt: 0,
+        igstName,
         igstRate: rate,
         igstAmt: 0,
         totalTax: 0,
+        isInterState: Boolean(isInterState),
       });
     }
     const entry = summaryMap.get(key);
     entry.taxable += taxable;
-    entry.cgstAmt += tax / 2;
-    entry.sgstAmt += tax / 2;
-    entry.igstAmt += tax;
+    if (isInterState) {
+      entry.igstAmt += tax;
+      entry.cgstAmt = 0;
+      entry.sgstAmt = 0;
+    } else {
+      entry.cgstAmt += tax * (sub1Rate / totalSub);
+      entry.sgstAmt += tax * (sub2Rate / totalSub);
+      entry.igstAmt = 0;
+    }
     entry.totalTax += tax;
   });
   return Array.from(summaryMap.values());
@@ -6349,7 +6382,9 @@ function renderA4Modern(data, bank, upiUri, flags = {}) {
   const documentTitle = data.documentTitle || (transactionEditorMeta(data.editorType) || {}).documentTitle || (taxEnabled ? "TAX INVOICE" : "INVOICE");
   const detailTitle = data.editorType === "estimate" ? "Quote Details" : data.editorType === "saleReturn" ? "Credit Note Details" : data.editorType === "purchaseReturn" ? "Debit Note Details" : (taxEnabled ? "Invoice Details" : "Bill Details");
   const logoSrc = flags.showLogo ? (data.business.logoBase64 || "") : "";
-  const gstRows = (taxEnabled && flags.showGstSummary) ? computeGstSummaryRows(data.rows) : [];
+  const isInterState = Boolean(Number(data.igst || 0) > 0 && !Number(data.cgst || 0) && !Number(data.sgst || 0)) ||
+    Boolean(data.placeOfSupply && data.business?.state && resolveIndianStateName(data.placeOfSupply) !== resolveIndianStateName(data.business.state));
+  const gstRows = (taxEnabled && flags.showGstSummary) ? computeGstSummaryRows(data.rows, isInterState) : [];
 
   return `
     <div class="invoice-a4-modern">
@@ -6429,18 +6464,26 @@ function renderA4Modern(data, bank, upiUri, flags = {}) {
 
       ${gstRows.length ? `
         <div class="a4-modern-gst-summary">
-          <div class="a4-gst-title">GST Tax Breakdown</div>
+          <div class="a4-gst-title">GST Tax Breakdown ${isInterState ? "(Inter-State / IGST)" : "(Intra-State / CGST + SGST)"}</div>
           <table class="a4-gst-table">
             <thead>
-              <tr><th>HSN/SAC</th><th style="text-align:right;">Taxable Value</th><th style="text-align:right;">CGST</th><th style="text-align:right;">SGST</th><th style="text-align:right;">Total Tax</th></tr>
+              ${isInterState ? `
+                <tr><th>HSN/SAC</th><th style="text-align:right;">Taxable Value</th><th style="text-align:right;">IGST</th><th style="text-align:right;">Total Tax</th></tr>
+              ` : `
+                <tr><th>HSN/SAC</th><th style="text-align:right;">Taxable Value</th><th style="text-align:right;">${escapeHtml(gstRows[0]?.sub1Name || 'CGST')}</th><th style="text-align:right;">${escapeHtml(gstRows[0]?.sub2Name || 'SGST')}</th><th style="text-align:right;">Total Tax</th></tr>
+              `}
             </thead>
             <tbody>
               ${gstRows.map((g) => `
                 <tr>
                   <td>${escapeHtml(g.hsn)} (${g.rate}%)</td>
                   <td style="text-align:right;">${formatCurrency(g.taxable)}</td>
-                  <td style="text-align:right;">${formatCurrency(g.cgstAmt)}</td>
-                  <td style="text-align:right;">${formatCurrency(g.sgstAmt)}</td>
+                  ${isInterState ? `
+                    <td style="text-align:right;">${formatCurrency(g.igstAmt)} (${g.igstRate}%)</td>
+                  ` : `
+                    <td style="text-align:right;">${formatCurrency(g.cgstAmt)}</td>
+                    <td style="text-align:right;">${formatCurrency(g.sgstAmt)}</td>
+                  `}
                   <td style="text-align:right;"><b>${formatCurrency(g.totalTax)}</b></td>
                 </tr>
               `).join("")}
@@ -6515,7 +6558,9 @@ function renderA4Modern(data, bank, upiUri, flags = {}) {
 function renderA4Classic(data, bank, upiUri, flags = {}) {
   const taxEnabled = flags.enableTax !== false && data.business?.enableTax !== false;
   const documentTitle = data.documentTitle || (taxEnabled ? "TAX INVOICE" : "INVOICE");
-  const gstRows = (taxEnabled && flags.showGstSummary) ? computeGstSummaryRows(data.rows) : [];
+  const isInterState = Boolean(Number(data.igst || 0) > 0 && !Number(data.cgst || 0) && !Number(data.sgst || 0)) ||
+    Boolean(data.placeOfSupply && data.business?.state && resolveIndianStateName(data.placeOfSupply) !== resolveIndianStateName(data.business.state));
+  const gstRows = (taxEnabled && flags.showGstSummary) ? computeGstSummaryRows(data.rows, isInterState) : [];
   const logoSrc = flags.showLogo ? (data.business.logoBase64 || "") : "";
 
   return `
@@ -6615,29 +6660,47 @@ function renderA4Classic(data, bank, upiUri, flags = {}) {
         <div class="a4-classic-tax-block">
           <table class="a4-classic-tax-table">
             <thead>
-              <tr>
-                <th rowspan="2">HSN/SAC</th>
-                <th rowspan="2" style="text-align:right;">Taxable Value</th>
-                <th colspan="2" style="text-align:center;">Central Tax</th>
-                <th colspan="2" style="text-align:center;">State Tax</th>
-                <th rowspan="2" style="text-align:right;">Total Tax Amount</th>
-              </tr>
-              <tr>
-                <th style="text-align:right;width:60px;">Rate</th>
-                <th style="text-align:right;width:80px;">Amount</th>
-                <th style="text-align:right;width:60px;">Rate</th>
-                <th style="text-align:right;width:80px;">Amount</th>
-              </tr>
+              ${isInterState ? `
+                <tr>
+                  <th rowspan="2">HSN/SAC</th>
+                  <th rowspan="2" style="text-align:right;">Taxable Value</th>
+                  <th colspan="2" style="text-align:center;">Integrated Tax (IGST)</th>
+                  <th rowspan="2" style="text-align:right;">Total Tax Amount</th>
+                </tr>
+                <tr>
+                  <th style="text-align:right;width:80px;">Rate</th>
+                  <th style="text-align:right;width:100px;">Amount</th>
+                </tr>
+              ` : `
+                <tr>
+                  <th rowspan="2">HSN/SAC</th>
+                  <th rowspan="2" style="text-align:right;">Taxable Value</th>
+                  <th colspan="2" style="text-align:center;">Central Tax (${escapeHtml(gstRows[0]?.sub1Name || "CGST")})</th>
+                  <th colspan="2" style="text-align:center;">State Tax (${escapeHtml(gstRows[0]?.sub2Name || "SGST")})</th>
+                  <th rowspan="2" style="text-align:right;">Total Tax Amount</th>
+                </tr>
+                <tr>
+                  <th style="text-align:right;width:60px;">Rate</th>
+                  <th style="text-align:right;width:80px;">Amount</th>
+                  <th style="text-align:right;width:60px;">Rate</th>
+                  <th style="text-align:right;width:80px;">Amount</th>
+                </tr>
+              `}
             </thead>
             <tbody>
               ${gstRows.map((g) => `
                 <tr>
                   <td>${escapeHtml(g.hsn)}</td>
                   <td style="text-align:right;">${formatCurrency(g.taxable)}</td>
-                  <td style="text-align:right;">${g.cgstRate}%</td>
-                  <td style="text-align:right;">${formatCurrency(g.cgstAmt)}</td>
-                  <td style="text-align:right;">${g.sgstRate}%</td>
-                  <td style="text-align:right;">${formatCurrency(g.sgstAmt)}</td>
+                  ${isInterState ? `
+                    <td style="text-align:right;">${g.igstRate}%</td>
+                    <td style="text-align:right;">${formatCurrency(g.igstAmt)}</td>
+                  ` : `
+                    <td style="text-align:right;">${g.cgstRate}%</td>
+                    <td style="text-align:right;">${formatCurrency(g.cgstAmt)}</td>
+                    <td style="text-align:right;">${g.sgstRate}%</td>
+                    <td style="text-align:right;">${formatCurrency(g.sgstAmt)}</td>
+                  `}
                   <td style="text-align:right;"><b>${formatCurrency(g.totalTax)}</b></td>
                 </tr>
               `).join("")}
@@ -6999,7 +7062,9 @@ function renderThermalBoutique(data, bank, upiUri, flags = {}) {
 }
 
 function renderThermalDetailed(data, bank, upiUri, flags = {}) {
-  const gstRows = computeGstSummaryRows(data.rows);
+  const isInterState = Boolean(Number(data.igst || 0) > 0 && !Number(data.cgst || 0) && !Number(data.sgst || 0)) ||
+    Boolean(data.placeOfSupply && data.business?.state && resolveIndianStateName(data.placeOfSupply) !== resolveIndianStateName(data.business.state));
+  const gstRows = computeGstSummaryRows(data.rows, isInterState);
 
   return `
     <div class="invoice-thermal invoice-thermal-detailed">
@@ -7035,18 +7100,26 @@ function renderThermalDetailed(data, bank, upiUri, flags = {}) {
       <div class="thermal-divider-dashed">--------------------------------</div>
 
       <div class="detailed-tax-table-wrap">
-        <div style="font-weight:700;font-size:10px;margin-bottom:3px;">GST TAX SUMMARY:</div>
+        <div style="font-weight:700;font-size:10px;margin-bottom:3px;">GST TAX SUMMARY ${isInterState ? "(IGST)" : ""}:</div>
         <table class="detailed-roll-tax-tbl">
           <thead>
-            <tr><th>HSN</th><th style="text-align:right;">Taxable</th><th style="text-align:right;">CGST</th><th style="text-align:right;">SGST</th></tr>
+            ${isInterState ? `
+              <tr><th>HSN</th><th style="text-align:right;">Taxable</th><th colspan="2" style="text-align:right;">IGST</th></tr>
+            ` : `
+              <tr><th>HSN</th><th style="text-align:right;">Taxable</th><th style="text-align:right;">${escapeHtml(gstRows[0]?.sub1Name || "CGST")}</th><th style="text-align:right;">${escapeHtml(gstRows[0]?.sub2Name || "SGST")}</th></tr>
+            `}
           </thead>
           <tbody>
             ${gstRows.map((g) => `
               <tr>
                 <td>${escapeHtml(g.hsn)}</td>
                 <td style="text-align:right;">${formatCurrency(g.taxable)}</td>
-                <td style="text-align:right;">${formatCurrency(g.cgstAmt)}</td>
-                <td style="text-align:right;">${formatCurrency(g.sgstAmt)}</td>
+                ${isInterState ? `
+                  <td colspan="2" style="text-align:right;">${formatCurrency(g.igstAmt)}</td>
+                ` : `
+                  <td style="text-align:right;">${formatCurrency(g.cgstAmt)}</td>
+                  <td style="text-align:right;">${formatCurrency(g.sgstAmt)}</td>
+                `}
               </tr>
             `).join("")}
           </tbody>
@@ -8246,18 +8319,17 @@ function recalcTransactionEditor() {
     subtotal += gross;
     discountTotal += discount;
     taxTotal += taxAmount;
-    const isExplicitIgst = taxValue.toUpperCase().startsWith("IGST");
-    const isExplicitGst = taxValue.toUpperCase().startsWith("GST");
-    if (isExplicitIgst) {
-      igstTotal += taxAmount;
-    } else if (isExplicitGst) {
-      cgstTotal += taxAmount / 2;
-      sgstTotal += taxAmount / 2;
-    } else if (taxSplitMode === "igst") {
+    const isInterState = (taxSplitMode === "igst");
+    if (isInterState) {
       igstTotal += taxAmount;
     } else {
-      cgstTotal += taxAmount / 2;
-      sgstTotal += taxAmount / 2;
+      const slabs = state.businessSettings?.taxSlabs || defaultTaxSlabs();
+      const slab = slabs.find((s) => Number(s.rate) === Number(taxRate) || s.name === taxValue);
+      const sub1 = slab ? Number(slab.subTax1Rate !== undefined ? slab.subTax1Rate : slab.cgst) : taxRate / 2;
+      const sub2 = slab ? Number(slab.subTax2Rate !== undefined ? slab.subTax2Rate : slab.sgst) : taxRate / 2;
+      const totalSub = sub1 + sub2 > 0 ? (sub1 + sub2) : taxRate;
+      cgstTotal += taxAmount * (sub1 / totalSub);
+      sgstTotal += taxAmount * (sub2 / totalSub);
     }
     grandTotal += amount;
     row.dataset.lineTax = taxAmount.toFixed(2);
@@ -8274,6 +8346,26 @@ function recalcTransactionEditor() {
   elements.featureView.querySelector("#editorCgstTotal").textContent = cgstTotal.toFixed(2);
   elements.featureView.querySelector("#editorSgstTotal").textContent = sgstTotal.toFixed(2);
   elements.featureView.querySelector("#editorIgstTotal").textContent = igstTotal.toFixed(2);
+
+  const isInterState = (taxSplitMode === "igst");
+  const cgstWrap = elements.featureView.querySelector("#editorCgstWrapper");
+  const sgstWrap = elements.featureView.querySelector("#editorSgstWrapper");
+  const igstWrap = elements.featureView.querySelector("#editorIgstWrapper");
+  if (cgstWrap && sgstWrap && igstWrap) {
+    if (isInterState) {
+      cgstWrap.style.display = "none";
+      sgstWrap.style.display = "none";
+      igstWrap.style.display = "";
+    } else {
+      cgstWrap.style.display = "";
+      sgstWrap.style.display = "";
+      igstWrap.style.display = "none";
+      const s1Name = state.businessSettings?.taxSlabs?.[0]?.subTax1Name || "CGST";
+      const s2Name = state.businessSettings?.taxSlabs?.[0]?.subTax2Name || "SGST";
+      if (cgstWrap.childNodes[0]) cgstWrap.childNodes[0].textContent = s1Name + " ";
+      if (sgstWrap.childNodes[0]) sgstWrap.childNodes[0].textContent = s2Name + " ";
+    }
+  }
   if (roundOffValue) roundOffValue.value = roundOff.toFixed(2);
   elements.featureView.querySelector("#editorQtyTotal").textContent = qtyTotal.toString();
   elements.featureView.querySelector("#editorTableTotal").textContent = grandTotal.toFixed(2);
@@ -16136,14 +16228,14 @@ function bindFeatureActions() {
                 <span class="tax-slab-no-split">Zero Tax / Exempt (0%)</span>
               ` : `
                 <div class="tax-slab-split-pills">
-                  <span class="split-pill cgst">CGST: <strong>${slab.cgst}%</strong></span>
+                  <span class="split-pill cgst">${escapeHtml(slab.subTax1Name || "CGST")}: <strong>${slab.subTax1Rate !== undefined ? slab.subTax1Rate : slab.cgst}%</strong></span>
                   <span class="split-plus">+</span>
-                  <span class="split-pill sgst">SGST: <strong>${slab.sgst}%</strong></span>
+                  <span class="split-pill sgst">${escapeHtml(slab.subTax2Name || "SGST")}: <strong>${slab.subTax2Rate !== undefined ? slab.subTax2Rate : slab.sgst}%</strong></span>
                 </div>
               `}
             </td>
             <td class="tax-slab-igst-cell" style="text-align:center;">
-              <span class="split-pill igst">IGST: <strong>${slab.igst}%</strong></span>
+              <span class="split-pill igst">${escapeHtml(slab.igstName || "IGST")}: <strong>${slab.igst}%</strong></span>
             </td>
             <td class="tax-slab-cess-col tax-slab-cess-cell" style="text-align:center; ${isCess ? '' : 'display:none;'}">
               <span class="split-pill cess">${slab.cess || 0}%</span>
@@ -29775,8 +29867,11 @@ function openTaxSlabModal(slabToEdit = null, onSave = null) {
 
   const initialRate = isEditing ? slabToEdit.rate : "";
   const initialName = isEditing ? slabToEdit.name : "";
-  const initialCgst = isEditing ? slabToEdit.cgst : (initialRate !== "" ? initialRate / 2 : "");
-  const initialSgst = isEditing ? slabToEdit.sgst : (initialRate !== "" ? initialRate / 2 : "");
+  const initialSub1Name = isEditing ? (slabToEdit.subTax1Name || "CGST") : "CGST";
+  const initialSub2Name = isEditing ? (slabToEdit.subTax2Name || "SGST") : "SGST";
+  const initialIgstName = isEditing ? (slabToEdit.igstName || "IGST") : "IGST";
+  const initialCgst = isEditing ? (slabToEdit.subTax1Rate !== undefined ? slabToEdit.subTax1Rate : slabToEdit.cgst) : (initialRate !== "" ? initialRate / 2 : "");
+  const initialSgst = isEditing ? (slabToEdit.subTax2Rate !== undefined ? slabToEdit.subTax2Rate : slabToEdit.sgst) : (initialRate !== "" ? initialRate / 2 : "");
   const initialIgst = isEditing ? slabToEdit.igst : initialRate;
   const initialCess = isEditing ? (slabToEdit.cess || 0) : 0;
 
@@ -29786,11 +29881,11 @@ function openTaxSlabModal(slabToEdit = null, onSave = null) {
   modal.style.zIndex = "999999";
 
   modal.innerHTML = `
-    <div class="modal-card" style="width: min(540px, 94vw); max-height: 90vh; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 20px 45px rgba(0,0,0,0.25); border-radius: 12px; background: #ffffff;">
+    <div class="modal-card" style="width: min(580px, 94vw); max-height: 90vh; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 20px 45px rgba(0,0,0,0.25); border-radius: 12px; background: #ffffff;">
       <header class="modal-card-header" style="display:flex; justify-content:space-between; align-items:center; padding:16px 20px; border-bottom:1px solid #e2e8f0; background:#f8fafc;">
         <div>
           <strong style="font-size:16px; color:#0f172a;">${isEditing ? `Edit Tax Slab: ${escapeHtml(slabToEdit.name)}` : "Add New Tax Slab"}</strong>
-          <p style="margin:2px 0 0 0; font-size:12px; color:#64748b;">Specify total tax percentage, CGST/SGST split, and optional Cess</p>
+          <p style="margin:2px 0 0 0; font-size:12px; color:#64748b;">Specify total tax percentage, customizable sub-tax names (CGST/SGST/UTGST), and optional Cess</p>
         </div>
         <button type="button" class="close-button" data-action="close-tax-modal" style="font-size:22px; border:none; background:transparent; cursor:pointer; color:#64748b;">&times;</button>
       </header>
@@ -29808,26 +29903,50 @@ function openTaxSlabModal(slabToEdit = null, onSave = null) {
         </div>
 
         <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:14px;">
-          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
-            <strong style="font-size:12px; text-transform:uppercase; letter-spacing:0.5px; color:#475569;">Intra-State &amp; Inter-State Split</strong>
-            <span style="font-size:11px; color:#64748b;">Auto-calculated (50/50 split)</span>
-          </div>
-          <div style="display:grid; grid-template-columns: 1fr 1fr; gap:12px;">
-            <div>
-              <label style="font-size:12px; font-weight:600; color:#1d4ed8; display:block; margin-bottom:4px;">CGST Rate (%) (Central)</label>
-              <input type="number" step="0.001" min="0" max="100" id="taxSlabCgstInput" class="form-input" required value="${initialCgst}" style="width:100%; height:34px; font-weight:600;">
-            </div>
-            <div>
-              <label style="font-size:12px; font-weight:600; color:#15803d; display:block; margin-bottom:4px;">SGST Rate (%) (State)</label>
-              <input type="number" step="0.001" min="0" max="100" id="taxSlabSgstInput" class="form-input" required value="${initialSgst}" style="width:100%; height:34px; font-weight:600;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; flex-wrap:wrap; gap:8px;">
+            <strong style="font-size:12px; text-transform:uppercase; letter-spacing:0.5px; color:#475569;">Intra-State Sub-Taxes (Local Sales)</strong>
+            <div style="display:flex; gap:6px;">
+              <button type="button" id="presetStateBtn" class="secondary-button" style="padding:2px 8px; font-size:11px; background:#eff6ff; color:#1d4ed8; border-color:#bfdbfe;">Preset: CGST + SGST</button>
+              <button type="button" id="presetUtBtn" class="secondary-button" style="padding:2px 8px; font-size:11px; background:#f0fdf4; color:#15803d; border-color:#bbf7d0;">Preset: CGST + UTGST</button>
             </div>
           </div>
-          <div style="margin-top:12px;">
-            <label style="font-size:12px; font-weight:600; color:#7e22ce; display:block; margin-bottom:4px;">IGST Rate (%) (Inter-State)</label>
-            <input type="number" step="0.01" min="0" max="100" id="taxSlabIgstInput" class="form-input" required value="${initialIgst}" style="width:100%; height:34px; font-weight:600;">
+          
+          <div style="display:grid; grid-template-columns: 1fr 1fr; gap:12px; margin-bottom:12px;">
+            <div style="background:#ffffff; border:1px solid #dbeafe; border-radius:6px; padding:10px;">
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                <label style="font-size:11px; font-weight:700; color:#1d4ed8;">Sub-Tax 1 Name</label>
+                <input type="text" id="taxSlabSub1NameInput" class="form-input" value="${escapeHtml(initialSub1Name)}" placeholder="CGST" style="width:90px; height:26px; font-size:12px; font-weight:600; text-transform:uppercase;">
+              </div>
+              <div>
+                <label style="font-size:11px; color:#64748b; display:block; margin-bottom:2px;">Rate (%)</label>
+                <input type="number" step="0.001" min="0" max="100" id="taxSlabCgstInput" class="form-input" required value="${initialCgst}" style="width:100%; height:32px; font-weight:600;">
+              </div>
+            </div>
+
+            <div style="background:#ffffff; border:1px solid #dcfce7; border-radius:6px; padding:10px;">
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                <label style="font-size:11px; font-weight:700; color:#15803d;">Sub-Tax 2 Name</label>
+                <input type="text" id="taxSlabSub2NameInput" class="form-input" value="${escapeHtml(initialSub2Name)}" placeholder="SGST" style="width:90px; height:26px; font-size:12px; font-weight:600; text-transform:uppercase;">
+              </div>
+              <div>
+                <label style="font-size:11px; color:#64748b; display:block; margin-bottom:2px;">Rate (%)</label>
+                <input type="number" step="0.001" min="0" max="100" id="taxSlabSgstInput" class="form-input" required value="${initialSgst}" style="width:100%; height:32px; font-weight:600;">
+              </div>
+            </div>
+          </div>
+
+          <div style="background:#ffffff; border:1px solid #f3e8ff; border-radius:6px; padding:10px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+              <label style="font-size:11px; font-weight:700; color:#7e22ce;">Inter-State Component Name</label>
+              <input type="text" id="taxSlabIgstNameInput" class="form-input" value="${escapeHtml(initialIgstName)}" placeholder="IGST" style="width:90px; height:26px; font-size:12px; font-weight:600; text-transform:uppercase;">
+            </div>
+            <div>
+              <label style="font-size:11px; color:#64748b; display:block; margin-bottom:2px;">Inter-State Rate (%)</label>
+              <input type="number" step="0.01" min="0" max="100" id="taxSlabIgstInput" class="form-input" required value="${initialIgst}" style="width:100%; height:32px; font-weight:600;">
+            </div>
           </div>
           <small style="display:block; margin-top:8px; color:#64748b; font-size:11.5px; line-height:1.4;">
-            For local/intra-state sales, GST splits equally into CGST &amp; SGST. For inter-state sales, full IGST is charged.
+            For local/intra-state sales, only Sub-Tax 1 + Sub-Tax 2 are charged. For inter-state sales, only IGST is charged. These are mutually exclusive.
           </small>
         </div>
 
@@ -29853,9 +29972,22 @@ function openTaxSlabModal(slabToEdit = null, onSave = null) {
 
   const rateInput = modal.querySelector("#taxSlabRateInput");
   const nameInput = modal.querySelector("#taxSlabNameInput");
+  const sub1NameInput = modal.querySelector("#taxSlabSub1NameInput");
+  const sub2NameInput = modal.querySelector("#taxSlabSub2NameInput");
+  const igstNameInput = modal.querySelector("#taxSlabIgstNameInput");
   const cgstInput = modal.querySelector("#taxSlabCgstInput");
   const sgstInput = modal.querySelector("#taxSlabSgstInput");
   const igstInput = modal.querySelector("#taxSlabIgstInput");
+
+  modal.querySelector("#presetStateBtn")?.addEventListener("click", () => {
+    if (sub1NameInput) sub1NameInput.value = "CGST";
+    if (sub2NameInput) sub2NameInput.value = "SGST";
+  });
+
+  modal.querySelector("#presetUtBtn")?.addEventListener("click", () => {
+    if (sub1NameInput) sub1NameInput.value = "CGST";
+    if (sub2NameInput) sub2NameInput.value = "UTGST";
+  });
 
   let userHasTypedName = isEditing;
   nameInput?.addEventListener("input", () => {
@@ -29894,6 +30026,9 @@ function openTaxSlabModal(slabToEdit = null, onSave = null) {
       return;
     }
     const name = nameInput.value.trim() || (rate === 0 ? "None (0%)" : `GST ${rate}%`);
+    const subTax1Name = sub1NameInput?.value.trim().toUpperCase() || "CGST";
+    const subTax2Name = sub2NameInput?.value.trim().toUpperCase() || "SGST";
+    const igstName = igstNameInput?.value.trim().toUpperCase() || "IGST";
     const cgst = parseFloat(cgstInput.value) || 0;
     const sgst = parseFloat(sgstInput.value) || 0;
     const igst = parseFloat(igstInput.value) || 0;
@@ -29903,10 +30038,16 @@ function openTaxSlabModal(slabToEdit = null, onSave = null) {
       id: isEditing ? slabToEdit.id : `tax_${rate}_${Date.now()}`,
       name,
       rate,
+      subTax1Name,
+      subTax1Rate: cgst,
+      subTax2Name,
+      subTax2Rate: sgst,
+      igstName,
       cgst,
       sgst,
       igst,
       cess,
+      cessName: "CESS",
       isStandard: isEditing ? Boolean(slabToEdit.isStandard) : false,
     };
 

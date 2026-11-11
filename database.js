@@ -2296,14 +2296,14 @@ function defaultBusinessSettings(companyName = "testt") {
 
 function defaultTaxSlabs() {
   return [
-    { id: "tax_0", name: "None (0%)", rate: 0, cgst: 0, sgst: 0, igst: 0, cess: 0, isStandard: true },
-    { id: "tax_0_25", name: "GST 0.25%", rate: 0.25, cgst: 0.125, sgst: 0.125, igst: 0.25, cess: 0, isStandard: true },
-    { id: "tax_3", name: "GST 3%", rate: 3, cgst: 1.5, sgst: 1.5, igst: 3, cess: 0, isStandard: true },
-    { id: "tax_5", name: "GST 5%", rate: 5, cgst: 2.5, sgst: 2.5, igst: 5, cess: 0, isStandard: true },
-    { id: "tax_12", name: "GST 12%", rate: 12, cgst: 6, sgst: 6, igst: 12, cess: 0, isStandard: true },
-    { id: "tax_18", name: "GST 18%", rate: 18, cgst: 9, sgst: 9, igst: 18, cess: 0, isStandard: true },
-    { id: "tax_28", name: "GST 28%", rate: 28, cgst: 14, sgst: 14, igst: 28, cess: 0, isStandard: true },
-    { id: "tax_40", name: "GST 40%", rate: 40, cgst: 20, sgst: 20, igst: 40, cess: 0, isStandard: true },
+    { id: "tax_0", name: "None (0%)", rate: 0, cgst: 0, sgst: 0, igst: 0, cess: 0, subTax1Name: "CGST", subTax1Rate: 0, subTax2Name: "SGST", subTax2Rate: 0, igstName: "IGST", isStandard: true },
+    { id: "tax_0_25", name: "GST 0.25%", rate: 0.25, cgst: 0.125, sgst: 0.125, igst: 0.25, cess: 0, subTax1Name: "CGST", subTax1Rate: 0.125, subTax2Name: "SGST", subTax2Rate: 0.125, igstName: "IGST", isStandard: true },
+    { id: "tax_3", name: "GST 3%", rate: 3, cgst: 1.5, sgst: 1.5, igst: 3, cess: 0, subTax1Name: "CGST", subTax1Rate: 1.5, subTax2Name: "SGST", subTax2Rate: 1.5, igstName: "IGST", isStandard: true },
+    { id: "tax_5", name: "GST 5%", rate: 5, cgst: 2.5, sgst: 2.5, igst: 5, cess: 0, subTax1Name: "CGST", subTax1Rate: 2.5, subTax2Name: "SGST", subTax2Rate: 2.5, igstName: "IGST", isStandard: true },
+    { id: "tax_12", name: "GST 12%", rate: 12, cgst: 6, sgst: 6, igst: 12, cess: 0, subTax1Name: "CGST", subTax1Rate: 6, subTax2Name: "SGST", subTax2Rate: 6, igstName: "IGST", isStandard: true },
+    { id: "tax_18", name: "GST 18%", rate: 18, cgst: 9, sgst: 9, igst: 18, cess: 0, subTax1Name: "CGST", subTax1Rate: 9, subTax2Name: "SGST", subTax2Rate: 9, igstName: "IGST", isStandard: true },
+    { id: "tax_28", name: "GST 28%", rate: 28, cgst: 14, sgst: 14, igst: 28, cess: 0, subTax1Name: "CGST", subTax1Rate: 14, subTax2Name: "SGST", subTax2Rate: 14, igstName: "IGST", isStandard: true },
+    { id: "tax_40", name: "GST 40%", rate: 40, cgst: 20, sgst: 20, igst: 40, cess: 0, subTax1Name: "CGST", subTax1Rate: 20, subTax2Name: "SGST", subTax2Rate: 20, igstName: "IGST", isStandard: true },
   ];
 }
 
@@ -2316,14 +2316,26 @@ function normalizeTaxSlabs(slabs = []) {
     const igst = s.igst !== undefined ? Number(s.igst) : rate;
     const cess = Math.max(0, Math.min(100, Number(s.cess ?? 0)));
     const name = String(s.name || (rate === 0 ? "None (0%)" : `GST ${rate}%`)).trim();
+    const subTax1Name = String(s.subTax1Name || "CGST").trim();
+    const subTax1Rate = s.subTax1Rate !== undefined ? Number(s.subTax1Rate) : cgst;
+    const subTax2Name = String(s.subTax2Name || "SGST").trim();
+    const subTax2Rate = s.subTax2Rate !== undefined ? Number(s.subTax2Rate) : sgst;
+    const igstName = String(s.igstName || "IGST").trim();
+    const cessName = String(s.cessName || "Cess").trim();
     return {
       id: String(s.id || `tax_${rate}_${idx}`),
       name,
       rate,
-      cgst,
-      sgst,
+      cgst: subTax1Rate,
+      sgst: subTax2Rate,
       igst,
       cess,
+      subTax1Name,
+      subTax1Rate,
+      subTax2Name,
+      subTax2Rate,
+      igstName,
+      cessName,
       isStandard: Boolean(s.isStandard),
     };
   });
@@ -8181,4 +8193,7 @@ module.exports = {
   getBackupHistory,
   exportDatabaseBuffer,
   initializeCompanyFromCloudProfile,
+  splitGstAmount,
+  defaultTaxSlabs,
+  normalizeTaxSlabs,
 };
