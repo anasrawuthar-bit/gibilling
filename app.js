@@ -8357,37 +8357,33 @@ function getTaxOptionsList(isService = false) {
 
 const STANDARD_GST_TAX_OPTIONS = [
   "None",
-  "IGST@0%",
-  "GST@0%",
-  "IGST@0.25%",
   "GST@0.25%",
-  "IGST@3%",
+  "IGST@0.25%",
   "GST@3%",
-  "IGST@5%",
+  "IGST@3%",
   "GST@5%",
-  "IGST@12%",
+  "IGST@5%",
   "GST@12%",
-  "IGST@18%",
+  "IGST@12%",
   "GST@18%",
-  "IGST@28%",
+  "IGST@18%",
   "GST@28%",
-  "IGST@40%",
+  "IGST@28%",
   "GST@40%",
+  "IGST@40%",
   "Exempt",
 ];
 
 const SERVICE_GST_TAX_OPTIONS = [
   "None",
-  "IGST@0%",
-  "GST@0%",
-  "IGST@5%",
   "GST@5%",
-  "IGST@12%",
+  "IGST@5%",
   "GST@12%",
-  "IGST@18%",
+  "IGST@12%",
   "GST@18%",
-  "IGST@28%",
+  "IGST@18%",
   "GST@28%",
+  "IGST@28%",
   "Exempt",
 ];
 
@@ -16416,6 +16412,16 @@ function bindFeatureActions() {
 
       taxSlabsTableBody.innerHTML = slabs.map((slab) => {
         const isZero = Number(slab.rate) === 0;
+        const sub1 = (Array.isArray(slab.subTaxes) && slab.subTaxes[0]) || {
+          name: slab.subTax1Name || "CGST",
+          rate: slab.subTax1Rate !== undefined ? slab.subTax1Rate : (slab.cgst !== undefined ? slab.cgst : slab.rate / 2)
+        };
+        const sub2 = (Array.isArray(slab.subTaxes) && slab.subTaxes[1]) || {
+          name: slab.subTax2Name || "SGST",
+          rate: slab.subTax2Rate !== undefined ? slab.subTax2Rate : (slab.sgst !== undefined ? slab.sgst : slab.rate / 2)
+        };
+        const extraSubTaxes = Array.isArray(slab.subTaxes) && slab.subTaxes.length > 2 ? slab.subTaxes.slice(2) : [];
+
         return `
           <tr class="tax-slab-row" data-slab-id="${escapeHtml(slab.id)}">
             <td class="tax-slab-name-cell">
@@ -16425,25 +16431,18 @@ function bindFeatureActions() {
               </div>
             </td>
             <td class="tax-slab-rate-cell" style="text-align:center;">
-              <span class="tax-slab-rate-pill">${slab.rate}%</span>
+              <span class="tax-slab-rate-pill" style="font-weight:700;">${slab.rate}%</span>
             </td>
-            <td class="tax-slab-split-cell">
-              ${isZero ? `
-                <span class="tax-slab-no-split">Zero Tax / Exempt (0%)</span>
-              ` : `
-                <div class="tax-slab-split-pills">
-                  ${(Array.isArray(slab.subTaxes) && slab.subTaxes.length > 0 ? slab.subTaxes : [
-                    { name: slab.subTax1Name || "CGST", rate: slab.subTax1Rate !== undefined ? slab.subTax1Rate : slab.cgst },
-                    { name: slab.subTax2Name || "SGST", rate: slab.subTax2Rate !== undefined ? slab.subTax2Rate : slab.sgst }
-                  ]).map((st, i) => `
-                    ${i > 0 ? `<span class="split-plus">+</span>` : ""}
-                    <span class="split-pill ${i % 2 === 0 ? 'cgst' : 'sgst'}">${escapeHtml(st.name)}: <strong>${st.rate}%</strong></span>
-                  `).join("")}
-                </div>
-              `}
+            <td style="text-align:center;">
+              <span class="split-pill cgst">${escapeHtml(sub1.name || "CGST")}: <strong>${sub1.rate ?? 0}%</strong></span>
             </td>
-            <td class="tax-slab-igst-cell" style="text-align:center;">
-              <span class="split-pill igst">${escapeHtml(slab.igstName || "IGST")}: <strong>${slab.igst}%</strong></span>
+            <td style="text-align:center;">
+              ${sub2 && sub2.name ? `
+                <span class="split-pill sgst">${escapeHtml(sub2.name)}: <strong>${sub2.rate ?? 0}%</strong></span>
+              ` : `<span style="color:#94a3b8; font-size:12px;">-</span>`}
+              ${extraSubTaxes.map((st) => `
+                <span class="split-pill" style="background:#e0e7ff; color:#3730a3; margin-left:4px;">${escapeHtml(st.name)}: <strong>${st.rate}%</strong></span>
+              `).join("")}
             </td>
             <td class="tax-slab-cess-col tax-slab-cess-cell" style="text-align:center; ${isCess ? '' : 'display:none;'}">
               <span class="split-pill cess">${slab.cess || 0}%</span>
@@ -16453,7 +16452,7 @@ function bindFeatureActions() {
                 <button type="button" class="btn-action-edit-slab" data-edit-slab="${escapeHtml(slab.id)}" title="Edit Tax Slab" aria-label="Edit Tax Slab" style="display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;padding:0;border-radius:6px;border:1px solid #cbd5e1;background:#ffffff;color:#0284c7;cursor:pointer;">
                   <svg class="gi-icon" style="width:14px;height:14px;fill:currentColor;"><use href="#gi-edit"></use></svg>
                 </button>
-                ${isZero ? '' : `
+                ${slab.isStandard ? '' : `
                   <button type="button" class="btn-action-delete-slab" data-delete-slab="${escapeHtml(slab.id)}" title="Delete Tax Slab" aria-label="Delete Tax Slab" style="display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;padding:0;border-radius:6px;border:1px solid #fecaca;background:#fff5f5;color:#dc2626;cursor:pointer;">
                     <svg class="gi-icon" style="width:14px;height:14px;fill:currentColor;"><use href="#gi-trash"></use></svg>
                   </button>
@@ -29956,14 +29955,14 @@ function settingsTaxTemplate() {
             <div>
               <h3 style="margin:0 0 4px 0;">Currently Active Tax Slabs &amp; Split Breakdown</h3>
               <p style="margin:0; font-size:12px; color:var(--text-muted, #64748b);">
-                Shows all active taxes used in billing. Each slab displays its intra-state split (CGST + SGST) and inter-state rate (IGST).
+                Shows all active taxes used in billing and their sub-tax components.
               </p>
             </div>
             <div style="display:flex; gap:8px;">
               <button type="button" id="btnResetTaxSlabs" class="secondary-button" style="font-size:12px; padding:6px 12px; font-weight:600;">Reset Standard GST</button>
               <button type="button" id="btnAddNewTaxSlab" class="primary-button" style="font-size:12px; padding:6px 14px; font-weight:600; display:inline-flex; align-items:center; gap:6px;">
                 <svg class="gi-icon" style="width:13px; height:13px;"><use href="#gi-plus"></use></svg>
-                + Add New Tax Slab
+                Add New Tax Slab
               </button>
             </div>
           </div>
@@ -29972,10 +29971,10 @@ function settingsTaxTemplate() {
             <table class="tax-slabs-table">
               <thead>
                 <tr>
-                  <th>Tax Slab / Name</th>
-                  <th style="text-align:center;">Total Rate</th>
-                  <th>Intra-State Split (CGST + SGST)</th>
-                  <th style="text-align:center;">Inter-State (IGST)</th>
+                  <th>TAXES slab</th>
+                  <th style="text-align:center;">Tax Rate</th>
+                  <th style="text-align:center;">Sub 1</th>
+                  <th style="text-align:center;">Sub 2</th>
                   <th id="taxSlabCessTh" class="tax-slab-cess-col" style="text-align:center; ${cessEnabled ? '' : 'display:none;'}">Cess (%)</th>
                   <th style="text-align:right;">Actions</th>
                 </tr>
@@ -30109,17 +30108,14 @@ function openTaxSlabModal(slabToEdit = null, onSave = null) {
   modal.style.zIndex = "999999";
 
   modal.innerHTML = `
-    <div class="modal-card" style="width: min(580px, 94vw); max-height: 88vh; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 20px 45px rgba(0,0,0,0.25); border-radius: 12px; background: #ffffff;">
-      <header class="modal-card-header" style="flex-shrink:0; display:flex; justify-content:space-between; align-items:center; padding:14px 20px; border-bottom:1px solid #e2e8f0; background:#f8fafc;">
-        <div>
-          <strong style="font-size:16px; color:#0f172a;">${isEditing ? `Edit Tax Slab: ${escapeHtml(slabToEdit.name)}` : "Add New Tax Slab"}</strong>
-          <p style="margin:2px 0 0 0; font-size:12px; color:#64748b;">Specify total tax percentage, customizable sub-taxes (Add/Remove), and optional Cess</p>
-        </div>
+    <div class="modal-card" style="width: min(520px, 94vw); max-height: 88vh; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 20px 45px rgba(0,0,0,0.25); border-radius: 12px; background: #ffffff;">
+      <header class="modal-card-header" style="flex-shrink:0; display:flex; justify-content:space-between; align-items:center; padding:16px 20px; border-bottom:1px solid #e2e8f0; background:#f8fafc;">
+        <strong style="font-size:16px; color:#0f172a;">${isEditing ? `Edit Tax Slab: ${escapeHtml(slabToEdit.name)}` : "Add New Tax Slab"}</strong>
         <button type="button" class="close-button" data-action="close-tax-modal" style="font-size:22px; border:none; background:transparent; cursor:pointer; color:#64748b;">&times;</button>
       </header>
 
       <form id="taxSlabForm" style="display:flex; flex-direction:column; overflow:hidden; flex:1; margin:0;">
-        <div class="tax-slab-modal-body" style="padding:16px 20px; overflow-y:auto; flex:1; display:flex; flex-direction:column; gap:12px;">
+        <div class="tax-slab-modal-body" style="padding:16px 20px; overflow-y:auto; flex:1; display:flex; flex-direction:column; gap:14px;">
           <div style="display:grid; grid-template-columns: 1fr 1.5fr; gap:12px;">
             <div>
               <label style="font-size:12px; font-weight:600; color:#334155; display:block; margin-bottom:4px;">Total Tax Rate (%) *</label>
@@ -30131,17 +30127,11 @@ function openTaxSlabModal(slabToEdit = null, onSave = null) {
             </div>
           </div>
 
-          <!-- Section 1: Dynamic Intra-State Sub-Taxes -->
+          <!-- Dynamic Sub-Taxes -->
           <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:12px;">
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; flex-wrap:wrap; gap:6px;">
-              <div>
-                <strong style="font-size:11.5px; text-transform:uppercase; letter-spacing:0.5px; color:#1e293b;">1. Intra-State Sub-Taxes (Local Sales)</strong>
-                <span id="subTaxBalanceBadge" style="font-size:11px; font-weight:600; margin-left:6px; padding:2px 6px; border-radius:4px;"></span>
-              </div>
-              <div style="display:flex; gap:6px; flex-wrap:wrap;">
-                <button type="button" id="presetStateBtn" class="secondary-button" style="padding:2px 8px; font-size:11px; background:#eff6ff; color:#1d4ed8; border-color:#bfdbfe;">Preset: CGST + SGST</button>
-                <button type="button" id="presetUtBtn" class="secondary-button" style="padding:2px 8px; font-size:11px; background:#f0fdf4; color:#15803d; border-color:#bbf7d0;">Preset: CGST + UTGST</button>
-              </div>
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+              <strong style="font-size:12px; text-transform:uppercase; letter-spacing:0.5px; color:#1e293b;">Sub-Taxes</strong>
+              <span id="subTaxBalanceBadge" style="font-size:11px; font-weight:600; padding:2px 6px; border-radius:4px;"></span>
             </div>
             
             <!-- Dynamic Sub-Tax List -->
@@ -30149,43 +30139,18 @@ function openTaxSlabModal(slabToEdit = null, onSave = null) {
               <!-- Rendered dynamically -->
             </div>
 
-            <div style="display:flex; justify-content:space-between; align-items:center; border-top:1px dashed #cbd5e1; padding-top:8px;">
-              <button type="button" id="btnAddSubTaxRow" class="secondary-button" style="display:inline-flex; align-items:center; gap:5px; font-size:11.5px; font-weight:600; padding:4px 10px; color:#2563eb; background:#eff6ff; border:1px solid #bfdbfe; border-radius:6px; cursor:pointer;">
+            <div style="display:flex; justify-content:flex-start; align-items:center; border-top:1px dashed #cbd5e1; padding-top:8px;">
+              <button type="button" id="btnAddSubTaxRow" class="secondary-button" style="display:inline-flex; align-items:center; gap:5px; font-size:11.5px; font-weight:600; padding:5px 12px; color:#2563eb; background:#eff6ff; border:1px solid #bfdbfe; border-radius:6px; cursor:pointer;">
                 <svg style="width:12px;height:12px;fill:currentColor;" viewBox="0 0 24 24"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
-                + Add Sub-Tax
+                Add Sub-Tax
               </button>
-              <span style="font-size:11px; color:#64748b;">Sub-taxes apply for sales within the state</span>
             </div>
           </div>
 
-          <!-- Section 2: Inter-State / Outside State Sales -->
-          <div style="background:#fdf4ff; border:1px solid #f0abfc; border-radius:8px; padding:12px;">
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-              <strong style="font-size:11.5px; text-transform:uppercase; letter-spacing:0.5px; color:#86198f;">2. Inter-State Component (Outside State)</strong>
-              <span style="font-size:11px; color:#a21caf;">Mutually exclusive with Intra-State</span>
-            </div>
-            <div style="background:#ffffff; border:1px solid #e879f9; border-radius:6px; padding:8px 10px;">
-              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
-                <label style="font-size:11px; font-weight:700; color:#7e22ce;">Inter-State Component Name</label>
-                <input type="text" id="taxSlabIgstNameInput" class="form-input" value="${escapeHtml(initialIgstName)}" placeholder="IGST" style="width:85px; height:24px; font-size:11.5px; font-weight:600; text-transform:uppercase;">
-              </div>
-              <div>
-                <label style="font-size:10.5px; color:#64748b; display:block; margin-bottom:2px;">Inter-State Rate (%)</label>
-                <input type="number" step="0.001" min="0" max="100" id="taxSlabIgstInput" class="form-input" required value="${initialIgst}" style="width:100%; height:30px; font-weight:600; font-size:13px;">
-              </div>
-            </div>
-            <small style="display:block; margin-top:6px; color:#86198f; font-size:11px;">
-              Applied only when shipping/selling to another state (IGST only; never combined with CGST/SGST).
-            </small>
-          </div>
-
-          <!-- Section 3: Optional Cess -->
+          <!-- Optional Cess -->
           <div style="background:#fffbeb; border:1px solid #fde68a; border-radius:8px; padding:10px 12px; ${cessEnabled ? '' : 'display:none;'}">
             <div style="display:flex; justify-content:space-between; align-items:center; gap:10px;">
-              <div>
-                <strong style="font-size:12px; color:#92400e; display:block;">Compensation / Additional Cess (%)</strong>
-                <span style="font-size:11px; color:#b45309;">Independent Cess surcharge applicable to specific notified goods</span>
-              </div>
+              <strong style="font-size:12px; color:#92400e;">Compensation / Cess (%)</strong>
               <input type="number" step="0.01" min="0" max="100" id="taxSlabCessInput" class="form-input" value="${initialCess}" placeholder="0" style="width:100px; height:32px; text-align:right; font-weight:700; color:#92400e;">
             </div>
           </div>
@@ -30204,8 +30169,6 @@ function openTaxSlabModal(slabToEdit = null, onSave = null) {
 
   const rateInput = modal.querySelector("#taxSlabRateInput");
   const nameInput = modal.querySelector("#taxSlabNameInput");
-  const igstNameInput = modal.querySelector("#taxSlabIgstNameInput");
-  const igstInput = modal.querySelector("#taxSlabIgstInput");
   const subTaxesContainer = modal.querySelector("#subTaxesContainer");
   const subTaxBalanceBadge = modal.querySelector("#subTaxBalanceBadge");
   const btnAddSubTaxRow = modal.querySelector("#btnAddSubTaxRow");
@@ -30294,28 +30257,6 @@ function openTaxSlabModal(slabToEdit = null, onSave = null) {
     renderSubTaxRows();
   });
 
-  modal.querySelector("#presetStateBtn")?.addEventListener("click", () => {
-    const total = parseFloat(rateInput.value) || 0;
-    const half = Math.round((total / 2) * 1000) / 1000;
-    const otherHalf = Math.round((total - half) * 1000) / 1000;
-    subTaxesState = [
-      { name: "CGST", rate: half },
-      { name: "SGST", rate: otherHalf }
-    ];
-    renderSubTaxRows();
-  });
-
-  modal.querySelector("#presetUtBtn")?.addEventListener("click", () => {
-    const total = parseFloat(rateInput.value) || 0;
-    const half = Math.round((total / 2) * 1000) / 1000;
-    const otherHalf = Math.round((total - half) * 1000) / 1000;
-    subTaxesState = [
-      { name: "CGST", rate: half },
-      { name: "UTGST", rate: otherHalf }
-    ];
-    renderSubTaxRows();
-  });
-
   let userHasTypedName = isEditing;
   nameInput?.addEventListener("input", () => {
     userHasTypedName = true;
@@ -30324,7 +30265,6 @@ function openTaxSlabModal(slabToEdit = null, onSave = null) {
   rateInput?.addEventListener("input", () => {
     const val = parseFloat(rateInput.value);
     if (!isNaN(val)) {
-      if (igstInput) igstInput.value = val;
       if (!userHasTypedName && nameInput) {
         nameInput.value = val === 0 ? "None (0%)" : `GST ${val}%`;
       }
@@ -30361,8 +30301,6 @@ function openTaxSlabModal(slabToEdit = null, onSave = null) {
       return;
     }
     const name = nameInput.value.trim() || (rate === 0 ? "None (0%)" : `GST ${rate}%`);
-    const igstName = igstNameInput?.value.trim().toUpperCase() || "IGST";
-    const igst = parseFloat(igstInput.value) || 0;
     const cess = cessEnabled ? (parseFloat(modal.querySelector("#taxSlabCessInput")?.value) || 0) : 0;
 
     const normalizedSubTaxes = subTaxesState.map((st) => ({
@@ -30384,8 +30322,8 @@ function openTaxSlabModal(slabToEdit = null, onSave = null) {
       subTax2Rate: sub2.rate,
       cgst: sub1.rate,
       sgst: sub2.rate,
-      igst,
-      igstName,
+      igst: rate,
+      igstName: "IGST",
       cess,
       cessName: "CESS",
       isStandard: isEditing ? Boolean(slabToEdit.isStandard) : false,
