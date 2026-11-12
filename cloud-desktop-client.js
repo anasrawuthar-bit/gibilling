@@ -1360,42 +1360,49 @@ class ActivationUiController {
 
     const confirmBtn = document.getElementById("btnConfirmRestoreCloud");
     const skipBtn = document.getElementById("btnSkipRestoreCloud");
+    if (skipBtn) {
+      skipBtn.style.display = "none";
+    }
 
     if (confirmBtn) {
       confirmBtn.onclick = async () => {
         confirmBtn.disabled = true;
-        confirmBtn.textContent = "Restoring Business Data...";
+        confirmBtn.textContent = "Restoring Business Data from Cloud...";
         try {
           if (window.giCloud?.restoreTenantBackup) {
             const res = await window.giCloud.restoreTenantBackup({ token, serverUrl });
             if (!res || !res.ok) throw new Error(res?.error || "Restore failed.");
           }
           modal.classList.add("hidden");
-          if (typeof showToast === "function") showToast("Business data successfully restored on this computer!", "success");
+          localStorage.setItem(CLOUD_STORAGE_KEYS.LAST_SYNC, new Date().toISOString());
+          if (typeof showToast === "function") showToast("Business data successfully restored! Loading workspace...", "success");
           CloudSyncWidget.updatePlanPill();
           CloudSyncWidget.updatePopoverDetails();
-          PinUiController.showSetupModal();
+          // Reload workspace so all restored invoices, parties and items load immediately
+          setTimeout(() => {
+            window.location.reload();
+          }, 800);
         } catch (err) {
-          alert("Could not restore backup: " + err.message);
+          console.error("Cloud restore failure:", err);
+          const errDiv = document.getElementById("restoreRecordCounts");
+          if (errDiv) {
+            errDiv.style.color = "#dc2626";
+            errDiv.textContent = `Restore failed: ${err.message || 'Unknown error'}. Click Retry below.`;
+          }
           confirmBtn.disabled = false;
-          confirmBtn.textContent = "Retry Restore";
+          confirmBtn.textContent = "🔄 Retry Business Data Restore";
         }
-      };
-    }
-
-    if (skipBtn) {
-      skipBtn.onclick = async () => {
-        modal.classList.add("hidden");
-        if (window.giCloud?.initCompanyFromProfile && customer) {
-          try { await window.giCloud.initCompanyFromProfile(customer); } catch (_) {}
-        }
-        CloudSyncWidget.updatePlanPill();
-        CloudSyncWidget.updatePopoverDetails();
-        PinUiController.showSetupModal();
       };
     }
 
     modal.classList.remove("hidden");
+
+    // Automatically trigger data restoration so business records are restored immediately without manual friction
+    setTimeout(() => {
+      if (confirmBtn && !confirmBtn.disabled) {
+        confirmBtn.click();
+      }
+    }, 400);
   }
 
   static showActivationModal(force = false) {

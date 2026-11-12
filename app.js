@@ -536,7 +536,7 @@ const elements = {
   appVersionBadge: document.getElementById("appVersionBadge") || document.querySelector(".app-version-badge"),
 };
 
-let currentAppVersion = "1.1.3";
+let currentAppVersion = "1.1.4";
 
 async function refreshAppVersion() {
   try {

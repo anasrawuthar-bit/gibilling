@@ -2,6 +2,7 @@ const { app, BrowserWindow, Menu, Tray, dialog, ipcMain, nativeImage, shell, saf
 const path = require("path");
 const fs = require("fs");
 const os = require("os");
+const crypto = require("node:crypto");
 const dns = require("node:dns");
 const net = require("node:net");
 const { execFile } = require("child_process");
@@ -1864,12 +1865,23 @@ function registerCloudHandlers() {
     }, options.serverUrl);
   });
 
+  function computeSha256Hex(buf) {
+    try {
+      if (crypto && typeof crypto.createHash === "function") {
+        return crypto.createHash("sha256").update(buf).digest("hex");
+      }
+      return require("node:crypto").createHash("sha256").update(buf).digest("hex");
+    } catch (_) {
+      return "";
+    }
+  }
+
   ipcMain.handle("cloud:upload-tenant-backup", async (_event, options = {}) => {
     try {
       const token = options.token || "";
       if (!token) return { ok: false, error: "Authentication token required." };
       const buffer = database.exportDatabaseBuffer();
-      const checksum = crypto.createHash("sha256").update(buffer).digest("hex");
+      const checksum = computeSha256Hex(buffer);
       const activeCompany = database.getCurrentCompany ? database.getCurrentCompany() : null;
       const res = await safeCloudFetch("/api/v1/tenant/backup/upload", {
         method: "POST",
@@ -1922,9 +1934,9 @@ function registerCloudHandlers() {
       }
 
       const backupBuffer = Buffer.from(res.data.backupData, "base64");
-      const localChecksum = crypto.createHash("sha256").update(backupBuffer).digest("hex");
+      const localChecksum = computeSha256Hex(backupBuffer);
       const expectedChecksum = res.data.checksum;
-      if (expectedChecksum && localChecksum !== expectedChecksum) {
+      if (expectedChecksum && localChecksum && localChecksum !== expectedChecksum) {
         return { ok: false, error: "Cloud backup transmission checksum mismatch: backup data was corrupted in transit." };
       }
 
