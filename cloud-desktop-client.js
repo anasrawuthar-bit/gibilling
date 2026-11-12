@@ -602,6 +602,20 @@ class CloudSyncWidget {
       } else {
         await new Promise(r => setTimeout(r, 600));
       }
+
+      // Automatically sync complete encrypted database snapshot to cloud
+      const lic = CloudLicenseManager.getLicense();
+      if (lic && lic.token && navigator.onLine && window.giCloud?.uploadTenantBackup) {
+        try {
+          await window.giCloud.uploadTenantBackup({
+            token: lic.token,
+            serverUrl: CloudLicenseManager.getServerUrl()
+          });
+        } catch (bErr) {
+          console.warn("Background cloud backup sync note:", bErr.message);
+        }
+      }
+
       localStorage.setItem(CLOUD_STORAGE_KEYS.LAST_SYNC, new Date().toISOString());
       await CloudLicenseManager.syncLicenseWithServer();
       this.setStatus("online", 0);

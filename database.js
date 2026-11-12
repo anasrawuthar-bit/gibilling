@@ -3152,6 +3152,12 @@ function createParty({
 
   const partyRecord = one("SELECT id FROM parties WHERE company_id = ? AND LOWER(TRIM(name)) = LOWER(?)", [company.id, cleanName]);
   recordAuditLog(company.id, "CREATE", "party", partyRecord ? partyRecord.id : cleanName, cleanName, { type, phone, gstin: cleanGstin || gstin });
+  if (partyRecord?.id) {
+    try {
+      ensureMasterSyncIdentity("parties", partyRecord.id);
+      recordSyncEvent(company.id, "party", partyRecord.id, "upsert", one("SELECT id, name, phone, email, type AS party_type, gstin, state, opening_balance AS balance, sync_id AS syncId, sync_version AS syncVersion FROM parties WHERE id = ?", [partyRecord.id]));
+    } catch (_) {}
+  }
   persist();
   return getState();
 }
@@ -3280,6 +3286,10 @@ function updateParty({
   }
 
   recordAuditLog(company.id, "UPDATE", "party", id, cleanName, { type, phone, gstin: cleanGstin || gstin });
+  try {
+    ensureMasterSyncIdentity("parties", id);
+    recordSyncEvent(company.id, "party", id, "upsert", one("SELECT id, name, phone, email, type AS party_type, gstin, state, opening_balance AS balance, sync_id AS syncId, sync_version AS syncVersion FROM parties WHERE id = ?", [id]));
+  } catch (_) {}
   persist();
   return getState();
 }
@@ -3484,6 +3494,12 @@ function createItem({
   );
   const itemRecord = one("SELECT id FROM items WHERE company_id = ? AND LOWER(name) = LOWER(?)", [company.id, name]);
   recordAuditLog(company.id, "CREATE", "item", itemRecord ? itemRecord.id : name, name, { salePrice, purchasePrice, taxRate, unit });
+  if (itemRecord?.id) {
+    try {
+      ensureMasterSyncIdentity("items", itemRecord.id);
+      recordSyncEvent(company.id, "item", itemRecord.id, "upsert", one("SELECT id, name, sku, category, sale_price AS salePrice, purchase_price AS purchasePrice, tax_rate AS taxRate, opening_stock AS stockQty, sync_id AS syncId, sync_version AS syncVersion FROM items WHERE id = ?", [itemRecord.id]));
+    } catch (_) {}
+  }
   persist();
   return getState();
 }
@@ -3603,6 +3619,10 @@ function updateItemUnsafe({
   }
 
   recordAuditLog(company.id, "UPDATE", "item", id, cleanName, { salePrice, purchasePrice, taxRate, unit });
+  try {
+    ensureMasterSyncIdentity("items", id);
+    recordSyncEvent(company.id, "item", id, "upsert", one("SELECT id, name, sku, category, sale_price AS salePrice, purchase_price AS purchasePrice, tax_rate AS taxRate, opening_stock AS stockQty, sync_id AS syncId, sync_version AS syncVersion FROM items WHERE id = ?", [id]));
+  } catch (_) {}
   persist();
   return getState();
 }
