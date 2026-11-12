@@ -21,6 +21,28 @@ Database schema versioning is managed independently via SQLite `schema_migration
 
 ---
 
+## [1.1.3] - 2026-11-12
+
+### Fixed
+- Fixed party and phone selection issue in invoice editor screen by defining and scoping `clearInlineError`.
+- Dynamically bound and updated the application version badge across sidebar and settings views.
+- Restored the 3-artifact Electron release package uploader dropzone (`latest.yml`, `.exe`, `.blockmap`) in the Super Admin panel.
+- Enabled automatic delta sync outbox events for parties and items, and automated encrypted database backup snapshot synchronization to the cloud.
+
+## [1.1.2] - 2026-11-12
+
+### Changed
+- Unified party records so one party can be used across sales and purchases without maintaining separate customer and supplier masters.
+- Made the Party Ledger the default view and placed party editing alongside the page-level add action.
+- Made invoice numbers in Party Transactions open the corresponding bill preview directly.
+- Updated report export and invoice sharing messages to reflect the available workflows.
+
+### Fixed
+- Aligned desktop, cloud, and lockfile release metadata at version `1.1.2`.
+- Updated `undici` to `7.30.2`, clearing all production dependency audit findings.
+
+---
+
 ## [1.1.0] - 2026-11-03
 
 ### Added
