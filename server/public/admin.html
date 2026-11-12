@@ -1516,39 +1516,95 @@
           if (blockmapInput.value) blockmapInput.value.value = '';
         };
 
-        const uploadSingleFile = (file, fileType, stepNum, totalSteps, version, notes) => {
-          return new Promise((resolve, reject) => {
-            const xhr = new XMLHttpRequest();
-            const url = `/api/v1/admin/releases/upload?version=${encodeURIComponent(version)}&filename=${encodeURIComponent(file.name)}&fileType=${fileType}&stage=true&notes=${encodeURIComponent(notes)}`;
-            xhr.open('POST', url, true);
-            xhr.timeout = 30 * 60 * 1000;
-            xhr.setRequestHeader('Authorization', 'Bearer ' + adminToken.value);
-            xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+        const uploadSingleFile = async (file, fileType, stepNum, totalSteps, version, notes) => {
+          const CHUNK_SIZE = 8 * 1024 * 1024; // 8 MB chunks (well below Cloudflare 100 MB body limit)
+          const isChunked = file.size > CHUNK_SIZE;
+          const totalChunks = isChunked ? Math.ceil(file.size / CHUNK_SIZE) : 1;
+          const uploadId = `${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
 
-            xhr.upload.onprogress = (ev) => {
-              if (ev.lengthComputable) {
-                const filePct = Math.round((ev.loaded / ev.total) * 100);
-                const overallPct = Math.round(((stepNum - 1) / totalSteps) * 90 + (filePct / totalSteps) * 0.9);
-                uploadPercent.value = overallPct;
-                uploadStatusText.value = `[${stepNum}/${totalSteps}] Staging ${file.name} (${(ev.loaded / (1024 * 1024)).toFixed(1)} MB / ${(ev.total / (1024 * 1024)).toFixed(1)} MB)...`;
+          const uploadChunk = (chunkBlob, chunkIndex, retries = 3) => {
+            return new Promise((resolve, reject) => {
+              const xhr = new XMLHttpRequest();
+              let url = `/api/v1/admin/releases/upload?version=${encodeURIComponent(version)}&filename=${encodeURIComponent(file.name)}&fileType=${fileType}&stage=true&notes=${encodeURIComponent(notes)}`;
+              if (isChunked) {
+                url += `&chunkIndex=${chunkIndex}&totalChunks=${totalChunks}&totalBytes=${file.size}&uploadId=${encodeURIComponent(uploadId)}`;
               }
-            };
+              xhr.open('POST', url, true);
+              xhr.timeout = 10 * 60 * 1000; // 10 minutes per chunk
+              xhr.setRequestHeader('Authorization', 'Bearer ' + adminToken.value);
+              xhr.setRequestHeader('Content-Type', 'application/octet-stream');
 
-            xhr.onload = () => {
-              let resp = {};
-              try { resp = JSON.parse(xhr.responseText); } catch (_) {}
-              if (xhr.status === 200 && resp.ok) {
-                resolve(resp);
-              } else {
-                reject(new Error(resp.error || xhr.statusText || `Upload failed with status ${xhr.status}`));
-              }
-            };
+              xhr.upload.onprogress = (ev) => {
+                if (ev.lengthComputable) {
+                  const chunkLoaded = ev.loaded;
+                  const totalLoadedSoFar = (chunkIndex * CHUNK_SIZE) + chunkLoaded;
+                  const currentTotal = Math.min(totalLoadedSoFar, file.size);
+                  const fileFraction = currentTotal / file.size;
+                  const overallPct = Math.round(((stepNum - 1) / totalSteps) * 90 + (fileFraction / totalSteps) * 90);
+                  uploadPercent.value = Math.min(92, overallPct);
+                  if (isChunked) {
+                    uploadStatusText.value = `[${stepNum}/${totalSteps}] Staging ${file.name} (Chunk ${chunkIndex + 1}/${totalChunks} - ${(currentTotal / (1024 * 1024)).toFixed(1)} MB / ${(file.size / (1024 * 1024)).toFixed(1)} MB)...`;
+                  } else {
+                    uploadStatusText.value = `[${stepNum}/${totalSteps}] Staging ${file.name} (${(ev.loaded / (1024 * 1024)).toFixed(1)} MB / ${(ev.total / (1024 * 1024)).toFixed(1)} MB)...`;
+                  }
+                }
+              };
 
-            xhr.onerror = () => reject(new Error('Network error during file upload. Check server connectivity.'));
-            xhr.ontimeout = () => reject(new Error('Upload timed out after 30 minutes.'));
+              xhr.onload = () => {
+                let resp = {};
+                try { resp = JSON.parse(xhr.responseText); } catch (_) {}
+                if (xhr.status === 200 && resp.ok) {
+                  resolve(resp);
+                } else {
+                  if (retries > 0 && xhr.status !== 401 && xhr.status !== 403) {
+                    console.warn(`Chunk ${chunkIndex + 1}/${totalChunks} upload error (HTTP ${xhr.status}), retrying... (${retries} retries remaining)`);
+                    setTimeout(() => {
+                      uploadChunk(chunkBlob, chunkIndex, retries - 1).then(resolve).catch(reject);
+                    }, 1500);
+                  } else {
+                    reject(new Error(resp.error || xhr.statusText || `Upload failed with status ${xhr.status}`));
+                  }
+                }
+              };
 
-            xhr.send(file);
-          });
+              xhr.onerror = () => {
+                if (retries > 0) {
+                  console.warn(`Network error on chunk ${chunkIndex + 1}/${totalChunks}, retrying... (${retries} retries remaining)`);
+                  setTimeout(() => {
+                    uploadChunk(chunkBlob, chunkIndex, retries - 1).then(resolve).catch(reject);
+                  }, 2000);
+                } else {
+                  reject(new Error(`Network error during chunk ${chunkIndex + 1}/${totalChunks} upload. Check internet connectivity.`));
+                }
+              };
+
+              xhr.ontimeout = () => {
+                if (retries > 0) {
+                  console.warn(`Timeout on chunk ${chunkIndex + 1}/${totalChunks}, retrying... (${retries} retries remaining)`);
+                  setTimeout(() => {
+                    uploadChunk(chunkBlob, chunkIndex, retries - 1).then(resolve).catch(reject);
+                  }, 2000);
+                } else {
+                  reject(new Error(`Upload timed out on chunk ${chunkIndex + 1}/${totalChunks}.`));
+                }
+              };
+
+              xhr.send(chunkBlob);
+            });
+          };
+
+          if (!isChunked) {
+            return await uploadChunk(file, 0);
+          }
+
+          let lastResp = null;
+          for (let c = 0; c < totalChunks; c++) {
+            const start = c * CHUNK_SIZE;
+            const end = Math.min(start + CHUNK_SIZE, file.size);
+            const chunkSlice = file.slice(start, end);
+            lastResp = await uploadChunk(chunkSlice, c);
+          }
+          return lastResp;
         };
 
         const publishReleasePackage = async () => {

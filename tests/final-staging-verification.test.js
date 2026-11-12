@@ -9,7 +9,7 @@
  * 5. Offline Grace Period vs Clock Rollback, Forward Advancement, and Monotonic Check
  * 6. Zero Plaintext Persistence on Disk during Upload, Storage, and Download
  * 7. SMTP Settings & Delivery Modes (Live vs Simulated)
- * 8. Repository Version Consistency (1.1.1 Alignment)
+ * 8. Repository Version Consistency
  */
 
 const assert = require("node:assert");
@@ -363,11 +363,11 @@ async function runStagingVerificationTests() {
     // -------------------------------------------------------------
     // TEST 8: Package Version & Release Metadata Consistency
     // -------------------------------------------------------------
-    console.log("\n▶ TEST 8: Verifying Repository Version Alignment (1.1.1)...");
+    console.log("\n▶ TEST 8: Verifying Repository Version Alignment...");
     const rootPkg = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "package.json"), "utf8"));
     const serverPkg = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "server", "package.json"), "utf8"));
-    assert.strictEqual(rootPkg.version, "1.1.1", "Root package.json version must be 1.1.1");
-    assert.strictEqual(serverPkg.version, "1.1.1", "Server package.json version must be 1.1.1");
+    assert.match(rootPkg.version, /^\d+\.\d+\.\d+$/, "Root package.json version must be valid semver");
+    assert.strictEqual(serverPkg.version, rootPkg.version, "Desktop and cloud package versions must match");
     console.log(`  ✓ Consistent package version verified across root and server: v${rootPkg.version}`);
 
     console.log("\n==================================================================");

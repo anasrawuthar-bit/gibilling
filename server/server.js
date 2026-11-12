@@ -401,6 +401,25 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
+  // ── Static Web Assets (/js/*, /css/*, /assets/*) ──────────────────────
+  if ((req.method === 'GET' || req.method === 'HEAD') && (pathname.startsWith('/js/') || pathname.startsWith('/css/') || pathname.startsWith('/assets/'))) {
+    const safeRel = path.normalize(pathname).replace(/^[\\\/]+/, '').replace(/^(\.\.[\/\\])+/, '');
+    const assetPath = path.join(PUBLIC_DIR, safeRel);
+    if (assetPath.startsWith(PUBLIC_DIR) && fs.existsSync(assetPath) && fs.statSync(assetPath).isFile()) {
+      const ext = path.extname(assetPath).toLowerCase();
+      let mime = 'application/octet-stream';
+      if (ext === '.js' || ext === '.mjs') mime = 'application/javascript; charset=utf-8';
+      else if (ext === '.css') mime = 'text/css; charset=utf-8';
+      else if (ext === '.json') mime = 'application/json; charset=utf-8';
+      else if (ext === '.svg') mime = 'image/svg+xml';
+      else if (ext === '.png') mime = 'image/png';
+      else if (ext === '.jpg' || ext === '.jpeg') mime = 'image/jpeg';
+      else if (ext === '.ico') mime = 'image/x-icon';
+      else if (ext === '.woff2') mime = 'font/woff2';
+      return streamFileWithRange(req, res, assetPath, mime);
+    }
+  }
+
   // ── Electron autoUpdater standard manifest (latest.yml) ────────────
   if ((req.method === 'GET' || req.method === 'HEAD') && (pathname === '/latest.yml' || pathname === '/downloads/latest.yml' || pathname === '/api/v1/downloads/latest.yml')) {
     const ymlPath = path.join(__dirname, 'public', 'downloads', 'latest.yml');
@@ -1683,20 +1702,44 @@ const server = http.createServer(async (req, res) => {
       else if (isBlockmap) cleanFilename = `ZynBill Setup ${version || '1.0.0'}.exe.blockmap`;
     }
 
+    const hasChunking = query.totalChunks !== undefined && parseInt(query.totalChunks, 10) > 1;
+    const chunkIndex = hasChunking ? parseInt(query.chunkIndex, 10) : 0;
+    const totalChunks = hasChunking ? parseInt(query.totalChunks, 10) : 1;
+    const totalBytes = hasChunking ? (parseInt(query.totalBytes, 10) || 0) : 0;
+    const uploadId = hasChunking ? (String(query.uploadId || '').replace(/[^a-zA-Z0-9_-]/g, '') || 'default') : null;
+
     // Determine target directory: staging folder or downloads folder
     const targetDir = isStaged ? path.join(STAGING_DIR, version || 'draft') : downloadsDir;
     if (!fs.existsSync(targetDir)) fs.mkdirSync(targetDir, { recursive: true });
 
     const targetPath = path.join(targetDir, cleanFilename);
-    const tempPath = path.join(targetDir, `.tmp_${Date.now()}_${cleanFilename}`);
-    const writeStream = fs.createWriteStream(tempPath);
+    const tempPath = hasChunking
+      ? path.join(targetDir, `.tmp_chunk_${uploadId}_${cleanFilename}`)
+      : path.join(targetDir, `.tmp_${Date.now()}_${cleanFilename}`);
+
+    // If chunking: chunk 0 starts fresh; subsequent chunks verify previous progress
+    if (hasChunking) {
+      if (chunkIndex === 0 && fs.existsSync(tempPath)) {
+        try { fs.unlinkSync(tempPath); } catch (_) {}
+      } else if (chunkIndex > 0 && !fs.existsSync(tempPath)) {
+        req.resume();
+        return sendJson(res, 400, {
+          ok: false,
+          error: `Previous upload chunks missing for ${cleanFilename}. Please restart the upload.`
+        });
+      }
+    }
+
+    const writeStream = fs.createWriteStream(tempPath, { flags: (hasChunking && chunkIndex > 0) ? 'a' : 'w' });
 
     let bytesReceived = 0;
     let aborted = false;
 
     function cleanupTemp() {
       try { writeStream.destroy(); } catch (_) {}
-      try { if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath); } catch (_) {}
+      if (!hasChunking) {
+        try { if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath); } catch (_) {}
+      }
     }
 
     req.on('aborted', () => {
@@ -1720,22 +1763,45 @@ const server = http.createServer(async (req, res) => {
     writeStream.on('finish', () => {
       if (aborted) return;
 
-      if (isInstaller && bytesReceived < 1024 * 1024) {
-        cleanupTemp();
-        return sendJson(res, 400, {
-          ok: false,
-          error: `Uploaded installer file is corrupt or too small (${(bytesReceived / 1024).toFixed(1)} KB). Compiled installers must be at least 1 MB.`
+      // For intermediate chunks in a chunked upload, acknowledge immediately
+      if (hasChunking && chunkIndex < totalChunks - 1) {
+        return sendJson(res, 200, {
+          ok: true,
+          complete: false,
+          chunkIndex,
+          totalChunks,
+          chunkBytes: bytesReceived
         });
       }
-      if (isBlockmap && bytesReceived < 100) {
-        cleanupTemp();
+
+      // Final chunk or single-stream upload: verify total size
+      const finalStats = fs.existsSync(tempPath) ? fs.statSync(tempPath) : { size: bytesReceived };
+      const totalReceived = finalStats.size;
+
+      if (totalBytes > 0 && totalReceived !== totalBytes) {
+        try { if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath); } catch (_) {}
+        return sendJson(res, 400, {
+          ok: false,
+          error: `File size verification failed for ${cleanFilename}. Expected ${totalBytes} bytes, got ${totalReceived} bytes.`
+        });
+      }
+
+      if (isInstaller && totalReceived < 1024 * 1024) {
+        try { if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath); } catch (_) {}
+        return sendJson(res, 400, {
+          ok: false,
+          error: `Uploaded installer file is corrupt or too small (${(totalReceived / 1024).toFixed(1)} KB). Compiled installers must be at least 1 MB.`
+        });
+      }
+      if (isBlockmap && totalReceived < 100) {
+        try { if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath); } catch (_) {}
         return sendJson(res, 400, {
           ok: false,
           error: 'Uploaded blockmap is empty or invalid.'
         });
       }
-      if (isManifest && bytesReceived < 10) {
-        cleanupTemp();
+      if (isManifest && totalReceived < 10) {
+        try { if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath); } catch (_) {}
         return sendJson(res, 400, {
           ok: false,
           error: 'Uploaded latest.yml is empty.'
@@ -1749,7 +1815,7 @@ const server = http.createServer(async (req, res) => {
         }
         fs.renameSync(tempPath, targetPath);
       } catch (renameErr) {
-        cleanupTemp();
+        try { if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath); } catch (_) {}
         return sendJson(res, 500, {
           ok: false,
           error: 'Failed to finalize uploaded package on server storage: ' + renameErr.message
@@ -1797,12 +1863,13 @@ const server = http.createServer(async (req, res) => {
 
       return sendJson(res, 200, {
         ok: true,
+        complete: true,
         message: `${cleanFilename} uploaded successfully!`,
         staged: isStaged,
         version,
         fileName: cleanFilename,
-        sizeBytes: bytesReceived,
-        sizeMb: (bytesReceived / (1024 * 1024)).toFixed(1) + ' MB',
+        sizeBytes: totalReceived,
+        sizeMb: (totalReceived / (1024 * 1024)).toFixed(1) + ' MB',
         sha512: computedSha512
       });
     });

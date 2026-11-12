@@ -34,6 +34,7 @@
   "build": {
     "appId": "com.zynbill.desktop",
     "productName": "ZynBill",
+    "compression": "maximum",
     "directories": {
       "output": "dist"
     },
