@@ -23,6 +23,7 @@ app.whenReady().then(async () => {
     ipcMain.handle("secure-store:save-credentials", () => ({ ok: true }));
     ipcMain.handle("secure-store:clear-credentials", () => ({ ok: true }));
     ipcMain.handle("secure-store:migrate-from-local-storage", () => ({ ok: true, migrated: false }));
+    ipcMain.handle("app:get-version", () => "1.1.2");
 
     const window = new BrowserWindow({
       width: 1400,

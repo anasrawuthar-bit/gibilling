@@ -533,7 +533,26 @@ const elements = {
   companyModalTitle: document.getElementById("companyModalTitle"),
   closeCompanyModalButton: document.getElementById("closeCompanyModalButton"),
   cancelCompanyModalButton: document.getElementById("cancelCompanyModalButton"),
+  appVersionBadge: document.getElementById("appVersionBadge") || document.querySelector(".app-version-badge"),
 };
+
+let currentAppVersion = "1.1.2";
+
+async function refreshAppVersion() {
+  try {
+    if (window.giApp?.getVersion) {
+      const v = await window.giApp.getVersion();
+      if (v) {
+        currentAppVersion = v;
+      }
+    }
+  } catch (_) {}
+  document.querySelectorAll(".app-version-badge").forEach((el) => {
+    el.textContent = `v${currentAppVersion}`;
+  });
+  return currentAppVersion;
+}
+refreshAppVersion();
 
 // ── Global Progress & Loading Controller ─────────────────────────────────────
 let topProgressTimer = null;
@@ -1614,6 +1633,12 @@ function updateSidebarBadges() {
   if (companySwitch) {
     companySwitch.title = "Company Profile & Settings";
     companySwitch.setAttribute("aria-label", "Company Profile & Settings");
+  }
+
+  // Update app version badge in sidebar
+  const verBadge = document.querySelector(".app-version-badge");
+  if (verBadge) {
+    verBadge.textContent = `v${currentAppVersion}`;
   }
 }
 
@@ -4953,9 +4978,9 @@ function handleEditorAction(action) {
   }
   const labels = {
     print: "Save & Print will save first, then open print preview.",
-    share: "WhatsApp/Email share placeholder. Message templates will connect here.",
+    share: "Save the invoice first, then use Share from its bill menu.",
   };
-  showToast(labels[action] || "Action coming soon.");
+  showToast(labels[action] || "This action is not available here.");
 }
 
 function closeInvoiceCalculator() {
@@ -14272,7 +14297,7 @@ function handleInvoiceListAction(action, invoiceId) {
     return;
   }
   if (action === "share") {
-    showToast("WhatsApp/Email share placeholder. Message templates will connect here.");
+    openWhatsAppShareModal(invoicePreviewDataFromRecord(invoice), invoiceType);
     return;
   }
   if (action === "void" || action === "cancel") {
@@ -16627,7 +16652,7 @@ function bindFeatureActions() {
       if (feedback) feedback.style.display = "none";
 
       try {
-        const currentVersion = (window.giApp?.getVersion ? await window.giApp.getVersion() : null) || (window.giDB?.getVersion ? await window.giDB.getVersion() : null) || "1.1.1";
+        const currentVersion = (window.giApp?.getVersion ? await window.giApp.getVersion() : null) || (window.giDB?.getVersion ? await window.giDB.getVersion() : null) || currentAppVersion;
 
         if (window.giUpdater?.checkForUpdates) {
           const updStatus = await window.giUpdater.checkForUpdates();
@@ -17369,7 +17394,7 @@ function bindFeatureActions() {
         }
         return;
       }
-      showToast(button.dataset.reportMessage || "Export placeholder ready.");
+      showToast(button.dataset.reportMessage || "This report action is not available.");
     });
   });
   const reportPartyFilterSelect = elements.featureView.querySelector("[data-report-party-filter]");
@@ -25277,7 +25302,7 @@ function reportPageShell({
   kpis = [],
   body = "",
   exportLabel = "Export CSV",
-  exportMessage = "Export placeholder ready.",
+  exportMessage = "CSV export will download shortly.",
   showToolbar = true,
 }) {
   return `
@@ -25609,7 +25634,7 @@ function gstReport(type) {
       ? "Output tax summary for sale invoices reflecting sales return credit notes."
       : "Input tax summary for purchase bills, debit note returns, and expense input GST.",
     exportLabel: `Export for ${isSale ? "GSTR-1" : "GSTR-2"} (CSV)`,
-    exportMessage: `${isSale ? "GSTR-1" : "GSTR-2"} CSV export placeholder ready.`,
+    exportMessage: `${isSale ? "GSTR-1" : "GSTR-2"} CSV export will download shortly.`,
     kpis: [
       { label: "Net Taxable Turnover", value: formatCurrency(netTaxable), note: returnTaxable > 0 ? `Gross: ${formatCurrency(totals.taxable)} | Ret: ${formatCurrency(returnTaxable)}` : `${totals.lines.length} taxable lines`, tone: "neutral" },
       { label: isSale ? "Net CGST Collected" : "Net CGST Input", value: formatCurrency(netCgst), note: returnCgst > 0 ? `Gross: ${formatCurrency(totals.cgst)}` : "Central GST", tone: "info" },
@@ -26496,7 +26521,7 @@ function gstLiabilityReport() {
     title: "GST Liability",
     summary: "Periodic accountant view of net GST payable or input tax credit reflecting returns and expense GST.",
     exportLabel: "Export GST Summary",
-    exportMessage: "GST liability export placeholder ready.",
+    exportMessage: "GST liability CSV export will download shortly.",
     kpis: [
       { label: "Net Output GST", value: formatCurrency(netOutput), note: creditNoteTax > 0 ? `Gross: ${formatCurrency(output.tax)} less Ret: ${formatCurrency(creditNoteTax)}` : "From sale invoices", tone: "danger" },
       { label: "Total Input GST", value: formatCurrency(totalInput), note: `Purchases (${formatCurrency(netPurchaseInput)}) + Expenses (${formatCurrency(expenseInput)})`, tone: "success" },
@@ -27498,7 +27523,7 @@ function transactionRegisterReport(type) {
     title,
     summary: isSale ? "Invoice-wise sales, receipts, tax and receivable." : "Bill-wise purchases, paid amount, tax and payable.",
     exportLabel: `Export ${isSale ? "Sales" : "Purchases"} CSV`,
-    exportMessage: `${title} export placeholder ready.`,
+    exportMessage: `${title} CSV export will download shortly.`,
     kpis: [
       { label: isSale ? "Total Sales" : "Total Purchases", value: formatCurrency(totals.total), note: `${totals.count} records`, tone: "neutral" },
       { label: isSale ? "Received" : "Paid", value: formatCurrency(totals.received), note: isSale ? "Customer receipts" : "Supplier payments", tone: "success" },
@@ -33410,13 +33435,13 @@ function settingsAboutTemplate() {
               <p style="margin:2px 0 0;font-size:13px;color:#64748b;">Enterprise Desktop Billing, Accounting &amp; GST Management</p>
             </div>
           </div>
-          <span class="badge" style="background:#e0f2fe;color:#0369a1;font-weight:700;font-size:13px;padding:4px 10px;">v1.1.0 Release</span>
+          <span class="badge" style="background:#e0f2fe;color:#0369a1;font-weight:700;font-size:13px;padding:4px 10px;">v${currentAppVersion} Release</span>
         </div>
 
         <div style="margin-top:20px;">
           <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:16px;max-width:320px;">
             <div style="font-size:11px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:0.04em;">Application Version</div>
-            <div style="font-size:20px;font-weight:800;color:#0f172a;margin-top:4px;">1.1.0</div>
+            <div style="font-size:20px;font-weight:800;color:#0f172a;margin-top:4px;">${currentAppVersion}</div>
             <div style="font-size:12px;color:#10b981;margin-top:4px;font-weight:500;">✓ Up to Date (Production)</div>
           </div>
         </div>
@@ -33437,7 +33462,7 @@ function settingsAboutTemplate() {
               🔄
             </div>
             <div>
-              <div id="updateStatusHeading" style="font-size:14px;font-weight:700;color:#0f172a;">ZynBill v1.1.1 is currently up to date</div>
+              <div id="updateStatusHeading" style="font-size:14px;font-weight:700;color:#0f172a;">ZynBill v${currentAppVersion} is currently up to date</div>
               <div id="updateStatusSubtitle" style="font-size:12px;color:#64748b;margin-top:2px;">Last checked: Just now (Production build)</div>
             </div>
           </div>
@@ -33448,7 +33473,7 @@ function settingsAboutTemplate() {
         </div>
 
         <div id="updateCheckFeedback" style="display:none;margin-top:12px;padding:12px 16px;border-radius:8px;font-size:13px;background:#f0fdf4;border:1px solid #bbf7d0;color:#166534;">
-          ✓ You are running the latest version of ZynBill (v1.1.1). No updates are required.
+          ✓ You are running the latest version of ZynBill (v${currentAppVersion}). No updates are required.
         </div>
       </section>
     </div>
