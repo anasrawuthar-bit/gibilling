@@ -3,10 +3,11 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ZynBill - Super Admin Customer Management</title>
+  <title>ZynBill - Super Admin Customer Management (Vue 3)</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <script src="/js/vue.global.prod.js"></script>
   <style>
     :root {
       --primary: #0284c7;
@@ -30,6 +31,7 @@
       display: flex;
       flex-direction: column;
     }
+    [v-cloak] { display: none !important; }
 
     /* Header */
     .admin-header {
@@ -66,7 +68,7 @@
     }
     .admin-badge {
       background: #334155;
-      color: #94a3b8;
+      color: #38bdf8;
       font-size: 11px;
       font-weight: 600;
       padding: 3px 8px;
@@ -99,13 +101,14 @@
 
     /* Main Container */
     .admin-container {
-      max-width: 1280px;
+      max-width: 1320px;
       width: 100%;
       margin: 24px auto;
       padding: 0 24px;
       display: flex;
       flex-direction: column;
       gap: 20px;
+      flex: 1;
     }
 
     /* Top Nav Tabs */
@@ -114,6 +117,7 @@
       gap: 8px;
       border-bottom: 1px solid var(--border);
       padding-bottom: 8px;
+      flex-wrap: wrap;
     }
     .main-tab-btn {
       padding: 10px 18px;
@@ -139,7 +143,7 @@
     /* Top KPI Summary */
     .kpi-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
       gap: 16px;
     }
     .kpi-card {
@@ -170,7 +174,7 @@
       gap: 16px;
       flex-wrap: wrap;
     }
-    .filter-tabs { display: flex; gap: 6px; }
+    .filter-tabs { display: flex; gap: 6px; flex-wrap: wrap; }
     .filter-btn {
       background: #f1f5f9;
       border: 1px solid transparent;
@@ -194,75 +198,81 @@
       outline: none;
       width: 280px;
     }
+    .search-input:focus { border-color: var(--primary); }
 
     table {
       width: 100%;
       border-collapse: collapse;
       text-align: left;
+      font-size: 13px;
     }
     th {
       background: #f8fafc;
-      padding: 12px 18px;
-      font-size: 11.5px;
+      padding: 12px 16px;
       font-weight: 700;
       color: var(--muted);
+      font-size: 11.5px;
       text-transform: uppercase;
-      letter-spacing: 0.04em;
+      letter-spacing: 0.03em;
       border-bottom: 1px solid var(--border);
     }
     td {
-      padding: 14px 18px;
-      font-size: 13px;
-      border-bottom: 1px solid var(--border);
+      padding: 14px 16px;
+      border-bottom: 1px solid #f1f5f9;
+      color: #334155;
       vertical-align: middle;
     }
     tr:last-child td { border-bottom: none; }
-    tr:hover td { background: #fafafa; }
+    tr:hover td { background: #fbfcfe; }
 
     /* Badges */
     .status-badge {
-      display: inline-block;
-      padding: 4px 10px;
-      border-radius: 9999px;
       font-size: 11.5px;
       font-weight: 700;
+      padding: 4px 10px;
+      border-radius: 12px;
+      display: inline-block;
       text-transform: uppercase;
-      letter-spacing: 0.04em;
+      letter-spacing: 0.03em;
     }
-    .badge-pending { background: #fef3c7; color: #b45309; }
-    .badge-otp { background: #e0f2fe; color: #0284c7; }
     .badge-active { background: #ecfdf5; color: #047857; }
-    .badge-suspended { background: #fee2e2; color: #b91c1c; }
-    .badge-rejected { background: #f1f5f9; color: #64748b; }
-
+    .badge-pending { background: #fffbeb; color: #b45309; }
+    .badge-otp { background: #eff6ff; color: #1e40af; }
+    .badge-suspended { background: #fef2f2; color: #b91c1c; }
+    .badge-rejected { background: #f3f4f6; color: #4b5563; }
     .plan-badge {
-      background: #e0f2fe;
-      color: #0369a1;
-      padding: 3px 8px;
+      background: #f0fdf4;
+      color: #166534;
+      border: 1px solid #bbf7d0;
+      font-size: 11px;
+      font-weight: 700;
+      padding: 2px 8px;
       border-radius: 6px;
-      font-size: 12px;
-      font-weight: 600;
+      display: inline-block;
     }
 
-    /* Buttons */
+    /* Action Buttons */
     .btn-action {
       padding: 6px 12px;
       border-radius: 6px;
-      border: 1px solid transparent;
-      font-family: inherit;
       font-size: 12px;
       font-weight: 600;
       cursor: pointer;
+      border: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
       transition: all 0.15s ease;
+      font-family: inherit;
     }
+    .btn-primary { background: #0284c7; color: #ffffff; }
+    .btn-primary:hover { background: #0369a1; }
+    .btn-secondary { background: #f1f5f9; color: #334155; }
+    .btn-secondary:hover { background: #e2e8f0; }
     .btn-approve { background: #10b981; color: #ffffff; }
     .btn-approve:hover { background: #059669; }
-    .btn-reject { background: #ffffff; border-color: #fca5a5; color: #dc2626; }
-    .btn-reject:hover { background: #fef2f2; }
-    .btn-secondary { background: #ffffff; border-color: var(--border); color: #334155; }
-    .btn-secondary:hover { background: #f8fafc; }
-    .btn-primary { background: #0284c7; color: #ffffff; border: none; }
-    .btn-primary:hover { background: #0369a1; }
+    .btn-reject { background: #ef4444; color: #ffffff; }
+    .btn-reject:hover { background: #dc2626; }
 
     /* Modals */
     .modal-backdrop {
@@ -273,20 +283,17 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      z-index: 200;
-      padding: 20px;
+      z-index: 100;
+      padding: 16px;
     }
     .modal-card {
       background: #ffffff;
-      width: 100%;
-      max-width: 520px;
       border-radius: 14px;
+      max-width: 520px;
+      width: 100%;
       padding: 28px;
-      box-shadow: 0 20px 48px rgba(0, 0, 0, 0.2);
+      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.15);
     }
-    .modal-head { margin-bottom: 20px; }
-    .modal-head h3 { font-size: 18px; color: var(--text); }
-    .modal-head p { font-size: 13px; color: var(--muted); margin-top: 4px; }
     .field-group {
       display: flex;
       flex-direction: column;
@@ -294,71 +301,35 @@
       margin-bottom: 16px;
     }
     .field-label { font-size: 12.5px; font-weight: 600; color: #334155; }
-    .select-control, .text-control {
-      height: 42px;
-      padding: 0 12px;
+    .text-control {
+      height: 40px;
+      padding: 0 14px;
       border: 1px solid var(--border);
       border-radius: 8px;
       font-family: inherit;
       font-size: 13.5px;
       outline: none;
-    }
-    /* Password Show/Hide Control */
-    .password-input-wrap {
-      position: relative;
-      display: flex;
-      align-items: center;
       width: 100%;
     }
-    .password-input-wrap input {
-      width: 100%;
-      padding-right: 42px !important;
-    }
-    .btn-toggle-password {
-      position: absolute;
-      right: 8px;
-      top: 50%;
-      transform: translateY(-50%);
-      background: transparent;
-      border: none;
-      cursor: pointer;
-      padding: 6px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      color: #64748b;
-      border-radius: 6px;
-      transition: color 0.15s, background 0.15s;
-    }
-    .btn-toggle-password:hover {
-      color: #0f172a;
-      background: #f1f5f9;
-    }
-    .btn-toggle-password:focus-visible {
-      outline: 2px solid #0284c7;
-      outline-offset: 1px;
-    }
-    .modal-actions {
-      display: flex;
-      justify-content: flex-end;
-      gap: 10px;
-      margin-top: 24px;
-    }
-    .hidden { display: none !important; }
+    .text-control:focus { border-color: var(--primary); }
 
-    /* Login Form overlay */
-    .login-container {
-      max-width: 400px;
-      width: 100%;
-      margin: 100px auto;
-      background: #ffffff;
-      padding: 36px;
-      border-radius: 14px;
-      border: 1px solid var(--border);
-      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.06);
+    /* Toast */
+    .toast-popup {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      padding: 12px 20px;
+      border-radius: 8px;
+      color: #fff;
+      font-size: 13.5px;
+      font-weight: 600;
+      z-index: 1000;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.18);
     }
+    .toast-success { background: #16a34a; }
+    .toast-error { background: #dc2626; }
 
-    /* ── Professional Artifact Uploader & Dropzone Components ── */
+    /* Release Artifacts Dropzone Components */
     .artifact-grid {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
@@ -478,17 +449,9 @@
       color: #ffffff;
       border-color: #0284c7;
     }
-    
     .file-loaded-view {
-      display: none;
       width: 100%;
       text-align: left;
-    }
-    .artifact-slot.has-file .file-loaded-view {
-      display: block;
-    }
-    .artifact-slot.has-file .artifact-body {
-      display: none;
     }
     .loaded-file-card {
       background: #f8fafc;
@@ -528,11 +491,11 @@
       color: #0284c7;
       text-decoration: none;
       white-space: nowrap;
+      cursor: pointer;
     }
     .loaded-change-link:hover {
       text-decoration: underline;
     }
-
     .manifest-spec-card {
       background: #ffffff;
       border: 1px solid #e2e8f0;
@@ -599,7 +562,6 @@
       background: #fffbeb;
       border-color: #fde68a;
     }
-
     .btn-publish-main {
       height: 42px;
       padding: 0 24px;
@@ -632,2047 +594,1575 @@
   </style>
 </head>
 <body>
-
-  <!-- Top Header -->
-  <header class="admin-header">
-    <div class="brand-section">
-      <div class="brand-logo">Z</div>
-      <div class="brand-title">ZynBill Super Admin Panel</div>
-      <span class="admin-badge">Multi-Tenant Cloud Control</span>
-    </div>
-    <div class="user-section" id="adminUserSection" style="display: none;">
-      <span id="adminNameDisplay">Super Admin</span>
-      <button class="btn-logout" onclick="handleLogout()">Sign Out</button>
-    </div>
-  </header>
-
-  <!-- Login Card if not logged in -->
-  <div class="login-container" id="loginCard">
-    <div style="text-align: center; margin-bottom: 24px;">
-      <div class="brand-logo" style="margin: 0 auto 12px; width: 44px; height: 44px; font-size: 22px;">Z</div>
-      <h2 style="font-size: 20px; font-weight: 800; color: #0f172a;">Super Admin Login</h2>
-      <p style="font-size: 13px; color: #64748b; margin-top: 4px;">Sign in to review and manage customer tenants</p>
-    </div>
-
-    <form onsubmit="handleLogin(event)" autocomplete="off">
-      <div class="field-group">
-        <label class="field-label">Admin Email</label>
-        <input type="email" id="adminEmail" class="text-control" placeholder="admin@yourdomain.in" autocomplete="off" required>
+  <div id="app" v-cloak>
+    <!-- Top Admin Header -->
+    <header class="admin-header">
+      <div class="brand-section">
+        <div class="brand-logo">Z</div>
+        <div class="brand-title">ZynBill Cloud Admin</div>
+        <span class="admin-badge">Vue 3 Core</span>
       </div>
-      <div class="field-group">
-        <label class="field-label">Password</label>
-        <div class="password-input-wrap">
-          <input type="password" id="adminPassword" class="text-control" placeholder="••••••••" autocomplete="new-password" required>
-          <button type="button" class="btn-toggle-password" aria-label="Show password" title="Show password">
-            <svg class="eye-show" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
-            <svg class="eye-hide" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none;"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>
-          </button>
-        </div>
+      <div class="user-section" v-if="authenticated">
+        <span>Logged in as <strong>{{ adminEmail }}</strong></span>
+        <button class="btn-logout" @click="handleLogout">Sign Out</button>
       </div>
-      <button type="submit" class="btn-action btn-approve" style="width: 100%; height: 44px; font-size: 14px; margin-top: 8px;">Sign In to Console</button>
-    </form>
-    <div id="loginError" style="color: #dc2626; font-size: 12.5px; margin-top: 12px; text-align: center; display: none;"></div>
-  </div>
+    </header>
 
-  <!-- Main Console -->
-  <div class="admin-container hidden" id="adminDashboard">
-
-    <!-- Top Navigation Tabs -->
-    <div class="admin-nav-tabs">
-      <button class="main-tab-btn active" id="tabBtnCustomers" onclick="switchMainTab('customers')">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-        <span>Customers</span>
-      </button>
-      <button class="main-tab-btn" id="tabBtnPlans" onclick="switchMainTab('plans')">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>
-        <span>Plans</span>
-      </button>
-      <button class="main-tab-btn" id="tabBtnSmtp" onclick="switchMainTab('smtp')">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
-        <span>SMTP Settings</span>
-      </button>
-      <button class="main-tab-btn" id="tabBtnReleases" onclick="switchMainTab('releases')">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
-        <span>App Releases</span>
-      </button>
-      <button class="main-tab-btn" id="tabBtnLogs" onclick="switchMainTab('logs')">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-        <span>Monitoring &amp; Telemetry</span>
-      </button>
-    </div>
-
-    <!-- ── TAB 1: CUSTOMERS ────────────────────────────────────── -->
-    <div id="viewCustomers">
-      <!-- Top KPI Summary -->
-      <div class="kpi-grid">
-        <div class="kpi-card">
-          <div class="kpi-label">Total Registered</div>
-          <div class="kpi-value" id="kpiTotal">0</div>
-          <div class="kpi-sub">Customers registered across all tenants</div>
-        </div>
-        <div class="kpi-card" style="border-left: 4px solid var(--warning);">
-          <div class="kpi-label">Pending Approval</div>
-          <div class="kpi-value" id="kpiPending" style="color: #b45309;">0</div>
-          <div class="kpi-sub">Awaiting your review &amp; plan assignment</div>
-        </div>
-        <div class="kpi-card" style="border-left: 4px solid var(--success);">
-          <div class="kpi-label">Active Subscriptions</div>
-          <div class="kpi-value" id="kpiActive" style="color: #047857;">0</div>
-          <div class="kpi-sub">Authorized for Windows desktop app access</div>
-        </div>
-        <div class="kpi-card" style="border-left: 4px solid var(--danger);">
-          <div class="kpi-label">Suspended / Rejected</div>
-          <div class="kpi-value" id="kpiOther">0</div>
-          <div class="kpi-sub">Disabled from cloud synchronization</div>
-        </div>
+    <!-- Admin Login Screen -->
+    <div v-if="!authenticated" style="max-width: 400px; margin: 100px auto; background: #fff; padding: 36px; border-radius: 14px; border: 1px solid var(--border); box-shadow: 0 10px 30px rgba(0,0,0,0.05); width: 90%;">
+      <div style="text-align: center; margin-bottom: 24px;">
+        <div class="brand-logo" style="margin: 0 auto 12px; width: 44px; height: 44px; font-size: 22px;">Z</div>
+        <h2 style="font-size: 20px; font-weight: 800; color: #0f172a;">Super Admin Access</h2>
+        <p style="font-size: 13px; color: var(--muted); margin-top: 4px;">Sign in to manage customers, plans &amp; releases</p>
       </div>
 
-      <!-- Table Card -->
-      <div class="table-card" style="margin-top: 20px;">
+      <form @submit.prevent="handleLogin">
+        <div class="field-group">
+          <label class="field-label">Administrator Email</label>
+          <input type="email" v-model="loginForm.email" class="text-control" required placeholder="admin@domain.com">
+        </div>
+        <div class="field-group">
+          <label class="field-label">Master Password</label>
+          <input type="password" v-model="loginForm.password" class="text-control" required placeholder="••••••••">
+        </div>
+        <button type="submit" class="btn-action btn-primary" style="width: 100%; height: 44px; font-size: 14px; margin-top: 8px;" :disabled="loginForm.loading">
+          {{ loginForm.loading ? 'Authenticating...' : 'Sign In as Super Admin' }}
+        </button>
+      </form>
+      <div v-if="loginForm.error" style="color: #dc2626; font-size: 12.5px; margin-top: 14px; text-align: center;">
+        {{ loginForm.error }}
+      </div>
+    </div>
+
+    <!-- Authenticated Admin Workspace -->
+    <div class="admin-container" v-else>
+      <!-- Navigation Tabs -->
+      <nav class="admin-nav-tabs">
+        <button class="main-tab-btn" :class="{ active: currentTab === 'overview' }" @click="currentTab = 'overview'">
+          <span>📊</span> Overview &amp; KPIs
+        </button>
+        <button class="main-tab-btn" :class="{ active: currentTab === 'customers' }" @click="currentTab = 'customers'">
+          <span>🏢</span> Tenant Customers ({{ customers.length }})
+        </button>
+        <button class="main-tab-btn" :class="{ active: currentTab === 'plans' }" @click="currentTab = 'plans'">
+          <span>📜</span> Subscription Plans ({{ plans.length }})
+        </button>
+        <button class="main-tab-btn" :class="{ active: currentTab === 'smtp' }" @click="currentTab = 'smtp'">
+          <span>✉️</span> SMTP Emailer
+        </button>
+        <button class="main-tab-btn" :class="{ active: currentTab === 'releases' }" @click="currentTab = 'releases'">
+          <span>🚀</span> Releases &amp; Updates
+        </button>
+        <button class="main-tab-btn" :class="{ active: currentTab === 'logs' }" @click="currentTab = 'logs'">
+          <span>📋</span> Live Audit Logs
+        </button>
+      </nav>
+
+      <!-- TAB 1: OVERVIEW & KPIS -->
+      <div v-if="currentTab === 'overview'" style="display: flex; flex-direction: column; gap: 20px;">
+        <div class="kpi-grid">
+          <div class="kpi-card">
+            <div class="kpi-label">Total Registered Tenants</div>
+            <div class="kpi-value">{{ stats.total || customers.length }}</div>
+            <div class="kpi-sub">Lifetime cloud customer profiles</div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-label">Pending Review</div>
+            <div class="kpi-value" style="color: #b45309;">{{ stats.pending || 0 }}</div>
+            <div class="kpi-sub">Awaiting admin review &amp; activation</div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-label">Active Subscriptions</div>
+            <div class="kpi-value" style="color: #047857;">{{ stats.active || 0 }}</div>
+            <div class="kpi-sub">Active desktop licenses billing</div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-label">Suspended / Rejected</div>
+            <div class="kpi-value" style="color: #64748b;">{{ (stats.suspended || 0) + (stats.rejected || 0) }}</div>
+            <div class="kpi-sub">Deactivated tenant workspaces</div>
+          </div>
+        </div>
+
+        <div class="table-card">
+          <div class="table-toolbar">
+            <h3 style="font-size: 15px; font-weight: 700;">Recent Tenant Registrations</h3>
+            <button class="btn-action btn-secondary" @click="currentTab = 'customers'">View All Customers →</button>
+          </div>
+          <div style="overflow-x: auto;">
+            <table>
+              <thead>
+                <tr>
+                  <th>Company &amp; Owner</th>
+                  <th>Contact Info</th>
+                  <th>State &amp; GSTIN</th>
+                  <th>Plan &amp; Devices</th>
+                  <th>Status</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="c in customers.slice(0, 5)" :key="c.id">
+                  <td>
+                    <div style="font-weight: 700; color: #0f172a;">{{ c.company_name }}</div>
+                    <div style="color: var(--muted); font-size: 12px;">Prop: {{ c.owner_name }}</div>
+                  </td>
+                  <td>
+                    <div>{{ c.email }}</div>
+                    <div style="color: var(--muted); font-size: 12px;">{{ c.phone || 'No phone' }}</div>
+                  </td>
+                  <td>
+                    <div>{{ c.state || 'Kerala' }}</div>
+                    <div style="color: var(--muted); font-size: 11.5px; font-family: monospace;">{{ c.gstin || 'Unregistered' }}</div>
+                  </td>
+                  <td>
+                    <span class="plan-badge">{{ c.plan || 'Professional' }}</span>
+                    <div style="color: var(--muted); font-size: 11px; margin-top: 4px;">{{ c.active_devices || 0 }} / {{ c.max_devices || 2 }} PCs</div>
+                  </td>
+                  <td>
+                    <span class="status-badge" :class="getStatusBadgeClass(c.status)">
+                      {{ getStatusBadgeLabel(c.status) }}
+                    </span>
+                  </td>
+                  <td>
+                    <button v-if="c.status === 'pending' || c.status === 'pending_verification'" class="btn-action btn-approve" @click="openApproveModal(c)">Approve</button>
+                    <button v-else-if="c.status === 'active'" class="btn-action btn-secondary" @click="toggleCustomerStatus(c, 'suspended')">Suspend</button>
+                    <button v-else class="btn-action btn-secondary" @click="toggleCustomerStatus(c, 'active')">Activate</button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- TAB 2: TENANT CUSTOMERS -->
+      <div v-if="currentTab === 'customers'" class="table-card">
         <div class="table-toolbar">
           <div class="filter-tabs">
-            <button class="filter-btn active" data-filter="all" onclick="setFilter('all')">All Customers</button>
-            <button class="filter-btn" data-filter="pending_approval" onclick="setFilter('pending_approval')">Pending Review <span id="pendingCountBadge" style="background:#fef3c7;color:#b45309;padding:1px 6px;border-radius:10px;font-size:11px;">0</span></button>
-            <button class="filter-btn" data-filter="active" onclick="setFilter('active')">Active</button>
-            <button class="filter-btn" data-filter="suspended" onclick="setFilter('suspended')">Suspended</button>
-            <button class="filter-btn" data-filter="rejected" onclick="setFilter('rejected')">Rejected</button>
+            <button class="filter-btn" :class="{ active: customerFilter === 'all' }" @click="customerFilter = 'all'">All ({{ customers.length }})</button>
+            <button class="filter-btn" :class="{ active: customerFilter === 'active' }" @click="customerFilter = 'active'">Active</button>
+            <button class="filter-btn" :class="{ active: customerFilter === 'pending' }" @click="customerFilter = 'pending'">Pending Review</button>
+            <button class="filter-btn" :class="{ active: customerFilter === 'suspended' }" @click="customerFilter = 'suspended'">Suspended</button>
           </div>
-          <div>
-            <input type="text" class="search-input" id="searchInput" placeholder="Search company, email, phone..." oninput="handleSearch()">
-          </div>
+          <input type="text" v-model="customerSearch" class="search-input" placeholder="🔍 Search company, email, GSTIN...">
         </div>
 
-        <table>
-          <thead>
-            <tr>
-              <th>Company / Proprietor</th>
-              <th>Contact Details</th>
-              <th>Location / GSTIN</th>
-              <th>Plan &amp; Validity</th>
-              <th>Status</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody id="customerTableBody">
-            <tr><td colspan="6" style="text-align: center; padding: 36px; color: var(--muted);">Loading customer directory...</td></tr>
-          </tbody>
-        </table>
+        <div style="overflow-x: auto;">
+          <table>
+            <thead>
+              <tr>
+                <th>Company &amp; Proprietor</th>
+                <th>Contact</th>
+                <th>Location / GSTIN</th>
+                <th>Plan &amp; Terminal Seats</th>
+                <th>Status</th>
+                <th style="text-align: right;">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-if="!filteredCustomers.length">
+                <td colspan="6" style="text-align: center; padding: 36px; color: var(--muted);">No matching customers found.</td>
+              </tr>
+              <tr v-for="c in filteredCustomers" :key="c.id">
+                <td>
+                  <div style="font-weight: 700; color: #0f172a;">{{ c.company_name }}</div>
+                  <div style="color: var(--muted); font-size: 12px; margin-top: 2px;">Prop: {{ c.owner_name }}</div>
+                </td>
+                <td>
+                  <div>{{ c.email }}</div>
+                  <div style="color: var(--muted); font-size: 12px; margin-top: 2px;">{{ c.phone || 'No phone' }}</div>
+                </td>
+                <td>
+                  <div>{{ c.state || 'Kerala' }}</div>
+                  <div style="color: var(--muted); font-size: 11.5px; font-family: monospace;">{{ c.gstin || 'Unregistered' }}</div>
+                </td>
+                <td>
+                  <span class="plan-badge">{{ c.plan || 'Professional' }}</span>
+                  <div style="color: var(--muted); font-size: 11px; margin-top: 4px;">Expires: {{ formatDate(c.valid_until) }}</div>
+                  <div style="margin-top: 4px;">
+                    <span class="btn-action btn-secondary" style="font-size: 11px; padding: 2px 8px;" @click="openDevicesModal(c)">
+                      🖥️ {{ c.active_devices || 0 }} / {{ c.max_devices || 2 }} PCs
+                    </span>
+                  </div>
+                </td>
+                <td>
+                  <span class="status-badge" :class="getStatusBadgeClass(c.status)">
+                    {{ getStatusBadgeLabel(c.status) }}
+                  </span>
+                </td>
+                <td style="text-align: right;">
+                  <button v-if="c.status === 'pending' || c.status === 'pending_verification'" class="btn-action btn-approve" style="margin-right: 6px;" @click="openApproveModal(c)">Approve</button>
+                  <button v-if="c.status === 'active'" class="btn-action btn-reject" style="margin-right: 6px;" @click="toggleCustomerStatus(c, 'suspended')">Suspend</button>
+                  <button v-if="c.status === 'suspended'" class="btn-action btn-approve" style="margin-right: 6px;" @click="toggleCustomerStatus(c, 'active')">Re-activate</button>
+                  <button class="btn-action btn-secondary" @click="openDevicesModal(c)">Devices</button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </div>
-    </div>
 
-    <!-- ── TAB 2: PLANS MANAGEMENT ──────────────────────────────── -->
-    <div id="viewPlans" class="hidden">
-      <div class="table-card">
+      <!-- TAB 3: SUBSCRIPTION PLANS -->
+      <div v-if="currentTab === 'plans'" class="table-card">
         <div class="table-toolbar">
-          <div>
-            <h3 style="font-size: 16px; font-weight: 700; color: #0f172a;">Subscription Plans &amp; Pricing</h3>
-            <p style="font-size: 12.5px; color: var(--muted); margin-top: 2px;">Manage plans offered during approval and in the customer portal</p>
-          </div>
-          <button class="btn-action btn-approve" onclick="openAddPlanModal()">+ Add New Plan</button>
+          <h3 style="font-size: 15px; font-weight: 700;">Subscription Plans &amp; Multi-PC Tiers</h3>
+          <button class="btn-action btn-primary" @click="openAddPlanModal">+ Create New Plan</button>
         </div>
-
-        <table>
-          <thead>
-            <tr>
-              <th>Plan Name &amp; Code</th>
-              <th>Price &amp; Cycle</th>
-              <th>Duration</th>
-              <th>Authorized PCs</th>
-              <th>Subscribers</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody id="plansTableBody">
-            <tr><td colspan="6" style="text-align: center; padding: 36px; color: var(--muted);">Loading subscription plans...</td></tr>
-          </tbody>
-        </table>
-      </div>
-    </div>
-
-
-    <!-- ── TAB 4: APP RELEASES & UPDATES ───────────────────────── -->
-    <div id="viewReleases" class="hidden">
-
-      <!-- Upload New Release Form Card (Interactive 3-Artifact Modern Dropzone) -->
-      <div class="table-card" style="padding: 28px 32px; max-width: 960px; margin-bottom: 24px;">
-        <div style="margin-bottom: 24px;">
-          <div style="display: flex; align-items: center; gap: 12px;">
-            <div style="width: 36px; height: 36px; border-radius: 8px; background: #0284c7; color: #ffffff; display: flex; align-items: center; justify-content: center;">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
-            </div>
-            <div>
-              <h3 style="font-size: 18px; font-weight: 800; color: #0f172a; margin: 0; letter-spacing: -0.01em;">Deploy Electron Release Package</h3>
-              <p style="font-size: 13px; color: var(--muted); margin-top: 3px;">
-                Adheres strictly to official Electron auto-updater standards. Select or drop the 3 artifacts from <code>electron-builder</code>.
-              </p>
-            </div>
-          </div>
+        <div style="overflow-x: auto;">
+          <table>
+            <thead>
+              <tr>
+                <th>Plan Name &amp; Code</th>
+                <th>Price &amp; Billing</th>
+                <th>Validity</th>
+                <th>PC Seat Limit</th>
+                <th>Active Subscribers</th>
+                <th style="text-align: right;">Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-if="!plans.length">
+                <td colspan="6" style="text-align: center; padding: 36px; color: var(--muted);">No plans configured.</td>
+              </tr>
+              <tr v-for="p in plans" :key="p.id">
+                <td>
+                  <div style="font-weight: 700; color: #0f172a;">{{ p.name }}</div>
+                  <div style="color: var(--muted); font-size: 12px; font-family: monospace;">{{ p.code }}</div>
+                </td>
+                <td>
+                  <div style="font-weight: 700; color: #0284c7;">{{ p.price > 0 ? ('₹' + p.price) : 'Free' }}</div>
+                  <div style="color: var(--muted); font-size: 11px;">/ {{ p.billing_cycle || 'yearly' }}</div>
+                </td>
+                <td>{{ p.duration_days }} Days</td>
+                <td><strong>{{ p.max_devices }} PC{{ p.max_devices > 1 ? 's' : '' }}</strong></td>
+                <td><span class="plan-badge">{{ p.active_subscribers || 0 }} active</span></td>
+                <td style="text-align: right;">
+                  <button class="btn-action btn-reject" @click="deletePlan(p.id)">Delete</button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
         </div>
-
-        <form id="uploadReleaseForm" onsubmit="handleUploadPackage(event)">
-          <!-- 3 Interactive Artifact Dropzone Cards -->
-          <div class="artifact-grid">
-            <!-- Hidden native file inputs -->
-            <input type="file" id="newRelManifest" accept=".yml,.yaml" style="display: none;" onchange="handleManifestFileSelect(this)">
-            <input type="file" id="newRelExe" accept=".exe" style="display: none;" onchange="handleExeFileSelect(this)">
-            <input type="file" id="newRelBlockmap" accept=".blockmap" style="display: none;" onchange="handleBlockmapFileSelect(this)">
-
-            <!-- Slot 1: latest.yml Card -->
-            <div id="slotManifest" class="artifact-slot" onclick="document.getElementById('newRelManifest').click()" ondragover="handleDragOver(event, this)" ondragleave="handleDragLeave(event, this)" ondrop="handleDropFile(event, 'manifest')">
-              <div>
-                <div class="artifact-header">
-                  <span class="artifact-tag">01. Manifest</span>
-                  <span class="artifact-ext-badge">latest.yml</span>
-                </div>
-                <div class="artifact-body">
-                  <div class="artifact-icon-wrap">
-                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
-                  </div>
-                  <div class="artifact-title">Release Manifest</div>
-                  <div class="artifact-hint">Version &amp; SHA-512 hashes auto-extracted from file</div>
-                  <div class="btn-choose-file">
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-                    <span>Choose File</span>
-                  </div>
-                </div>
-              </div>
-
-              <!-- Loaded state -->
-              <div class="file-loaded-view">
-                <div class="loaded-file-card">
-                  <div class="loaded-file-meta">
-                    <span id="loadedNameManifest" class="loaded-file-name">latest.yml</span>
-                    <span class="loaded-file-sub">
-                      <span id="loadedSizeManifest">-</span>
-                      &bull;
-                      <span style="color: #16a34a; font-weight: 700;">Verified</span>
-                    </span>
-                  </div>
-                  <a href="javascript:void(0)" class="loaded-change-link" onclick="event.stopPropagation(); document.getElementById('newRelManifest').click();">Change</a>
-                </div>
-              </div>
-            </div>
-
-            <!-- Slot 2: .exe Installer Card -->
-            <div id="slotExe" class="artifact-slot" onclick="document.getElementById('newRelExe').click()" ondragover="handleDragOver(event, this)" ondragleave="handleDragLeave(event, this)" ondrop="handleDropFile(event, 'installer')">
-              <div>
-                <div class="artifact-header">
-                  <span class="artifact-tag">02. Installer</span>
-                  <span class="artifact-ext-badge">.EXE</span>
-                </div>
-                <div class="artifact-body">
-                  <div class="artifact-icon-wrap">
-                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M12 8v8"/><path d="M8 12h8"/></svg>
-                  </div>
-                  <div class="artifact-title">Setup Binary</div>
-                  <div class="artifact-hint">Compiled NSIS Windows setup installer binary</div>
-                  <div class="btn-choose-file">
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-                    <span>Choose .exe</span>
-                  </div>
-                </div>
-              </div>
-
-              <!-- Loaded state -->
-              <div class="file-loaded-view">
-                <div class="loaded-file-card">
-                  <div class="loaded-file-meta">
-                    <span id="loadedNameExe" class="loaded-file-name">ZynBill Setup.exe</span>
-                    <span class="loaded-file-sub">
-                      <span id="loadedSizeExe">-</span>
-                      &bull;
-                      <span style="color: #16a34a; font-weight: 700;">Ready</span>
-                    </span>
-                  </div>
-                  <a href="javascript:void(0)" class="loaded-change-link" onclick="event.stopPropagation(); document.getElementById('newRelExe').click();">Change</a>
-                </div>
-              </div>
-            </div>
-
-            <!-- Slot 3: .blockmap Card -->
-            <div id="slotBlockmap" class="artifact-slot" onclick="document.getElementById('newRelBlockmap').click()" ondragover="handleDragOver(event, this)" ondragleave="handleDragLeave(event, this)" ondrop="handleDropFile(event, 'blockmap')">
-              <div>
-                <div class="artifact-header">
-                  <span class="artifact-tag">03. Differential</span>
-                  <span class="artifact-ext-badge">.BLOCKMAP</span>
-                </div>
-                <div class="artifact-body">
-                  <div class="artifact-icon-wrap">
-                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
-                  </div>
-                  <div class="artifact-title">Delta Blockmap</div>
-                  <div class="artifact-hint">Enables fast 64KB block updates without 350MB re-download</div>
-                  <div class="btn-choose-file">
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-                    <span>Choose .blockmap</span>
-                  </div>
-                </div>
-              </div>
-
-              <!-- Loaded state -->
-              <div class="file-loaded-view">
-                <div class="loaded-file-card">
-                  <div class="loaded-file-meta">
-                    <span id="loadedNameBlockmap" class="loaded-file-name">Setup.exe.blockmap</span>
-                    <span class="loaded-file-sub">
-                      <span id="loadedSizeBlockmap">-</span>
-                      &bull;
-                      <span style="color: #16a34a; font-weight: 700;">Ready</span>
-                    </span>
-                  </div>
-                  <a href="javascript:void(0)" class="loaded-change-link" onclick="event.stopPropagation(); document.getElementById('newRelBlockmap').click();">Change</a>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <!-- Auto-Detected Manifest Specification Card -->
-          <div id="manifestSummaryBox" class="manifest-spec-card" style="display: none;">
-            <div class="manifest-spec-header">
-              <div style="display: flex; align-items: center; gap: 10px;">
-                <span style="display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 50%; background: #dcfce7; color: #16a34a;">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
-                </span>
-                <span style="font-size: 13.5px; font-weight: 700; color: #0f172a;">Auto-Detected Release Details</span>
-                <span id="detectedVersionBadge" class="spec-val" style="background: #0f172a; color: #38bdf8; padding: 2px 8px; border-radius: 5px;">-</span>
-              </div>
-              <span id="detectedSemverStatus" class="spec-chip"></span>
-            </div>
-
-            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 14px;">
-              <div class="spec-item">
-                <span class="spec-label">Target Installer</span>
-                <span id="detectedTargetBinary" class="spec-val">-</span>
-              </div>
-              <div class="spec-item">
-                <span class="spec-label">Release Timestamp</span>
-                <span id="detectedReleaseDate" class="spec-val">-</span>
-              </div>
-              <div class="spec-item" style="grid-column: 1 / -1;">
-                <span class="spec-label">SHA-512 Fingerprint</span>
-                <span id="detectedSha512" class="spec-val" style="font-size: 11px; word-break: break-all; color: #64748b;">-</span>
-              </div>
-            </div>
-
-            <div class="spec-chips">
-              <div class="spec-chip ready">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>
-                <span>latest.yml Parsed</span>
-              </div>
-              <div id="chkExeStatus" class="spec-chip waiting">
-                <span>Awaiting .exe</span>
-              </div>
-              <div id="chkBlockmapStatus" class="spec-chip waiting">
-                <span>Awaiting .blockmap</span>
-              </div>
-            </div>
-          </div>
-
-          <!-- Downgrade / Conflict Warning Box -->
-          <div id="downgradeWarningBox" style="display: none; background: #fffbeb; border: 1px solid #fde68a; border-radius: 8px; padding: 14px 18px; margin-bottom: 18px;">
-            <div style="display: flex; align-items: center; gap: 8px; color: #92400e; font-weight: 700; font-size: 13px;">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-              <span>Version Notice</span>
-            </div>
-            <div id="downgradeWarningText" style="font-size: 12.5px; color: #78350f; margin-top: 5px; line-height: 1.5;">
-              The auto-detected version is older than or identical to the currently active live release.
-            </div>
-            <label style="display: inline-flex; align-items: center; gap: 8px; font-size: 12.5px; color: #92400e; margin-top: 10px; cursor: pointer; font-weight: 600;">
-              <input type="checkbox" id="allowDowngradeCheckbox" onchange="checkUploadReadiness()">
-              Allow re-upload / overwrite of this version
-            </label>
-          </div>
-
-          <!-- Optional Notes -->
-          <div class="field-group" style="margin-bottom: 20px;">
-            <label class="field-label">Release Notes / Changelog (Optional)</label>
-            <textarea id="newRelNotes" class="text-control" rows="2" placeholder="Key updates, bug fixes, or enhancements in this release..." style="resize: vertical; height: auto; padding: 10px 12px;"></textarea>
-          </div>
-
-          <!-- Upload Progress -->
-          <div id="uploadProgressWrap" style="display: none; margin: 20px 0; background: #f8fafc; padding: 16px 20px; border-radius: 10px; border: 1px solid var(--border);">
-            <div style="display: flex; justify-content: space-between; font-size: 12.5px; margin-bottom: 8px;">
-              <span id="uploadStatusText" style="font-weight: 700; color: #0284c7;">Uploading deployment files...</span>
-              <span id="uploadPercentText" style="font-weight: 800; color: #0f172a; font-family: ui-monospace, monospace;">0%</span>
-            </div>
-            <div style="width: 100%; height: 8px; background: #e2e8f0; border-radius: 4px; overflow: hidden;">
-              <div id="uploadProgressBar" style="width: 0%; height: 100%; background: #0284c7; transition: width 0.2s ease;"></div>
-            </div>
-          </div>
-
-          <!-- Action Buttons -->
-          <div style="display: flex; gap: 12px; align-items: center; margin-top: 16px; flex-wrap: wrap;">
-            <button type="submit" class="btn-publish-main" id="btnUploadRelease" disabled>
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-              <span>Publish Release Package</span>
-            </button>
-            <button type="button" class="btn-action btn-secondary" onclick="resetUploadForm()" style="height: 42px; padding: 0 18px; font-size: 13px;">
-              Reset Form
-            </button>
-            <span id="uploadFeedback" style="font-size: 13px; font-weight: 600;"></span>
-          </div>
-        </form>
       </div>
 
-      <!-- Downloadable Releases Files Table -->
-      <div class="table-card">
-        <div style="padding: 18px 24px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; background: #ffffff;">
-          <div>
-            <h3 style="font-size: 15px; font-weight: 700; color: #0f172a; margin: 0;">Deployment Repository</h3>
-            <p style="font-size: 12px; color: var(--muted); margin-top: 3px;">
-              Serving <code>.exe</code>, <code>.blockmap</code>, and <code>latest.yml</code> with HTTP Range Request (RFC 7233) support for differential updates.
-            </p>
-          </div>
-          <button type="button" class="btn-action btn-secondary" onclick="loadReleases()" style="display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; font-size: 12px;">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
-            <span>Refresh List</span>
-          </button>
-        </div>
-
-        <table class="data-table">
-          <thead>
-            <tr>
-              <th style="min-width: 110px;">VERSION</th>
-              <th>WINDOWS SETUP (.EXE)</th>
-              <th>DIFFERENTIAL BLOCKMAP</th>
-              <th>MANIFEST</th>
-              <th>PUBLISHED DATE</th>
-              <th style="text-align: right; min-width: 170px;">ACTIONS</th>
-            </tr>
-          </thead>
-          <tbody id="releasesTableBody">
-            <tr><td colspan="6" style="text-align: center; color: var(--muted); padding: 32px;">Loading release files...</td></tr>
-          </tbody>
-        </table>
-      </div>
-    </div>
-
-    <!-- ── TAB 3: SMTP MAIL SETTINGS ───────────────────────────── -->
-    <div id="viewSmtp" class="hidden">
-      <div class="table-card" style="padding: 28px; max-width: 780px;">
-        <div style="margin-bottom: 20px;">
-          <h3 style="font-size: 18px; font-weight: 700; color: #0f172a;">SMTP Mail Server Configuration</h3>
-          <p style="font-size: 13px; color: var(--muted); margin-top: 4px;">
-            Configure the email server used for sending registration OTPs, PC authorization codes, password resets, and account approval notices.
+      <!-- TAB 4: SMTP CONFIGURATION -->
+      <div v-if="currentTab === 'smtp'" style="max-width: 640px; margin: 0 auto; width: 100%;">
+        <div class="table-card" style="padding: 24px;">
+          <h3 style="font-size: 16px; font-weight: 700; color: #0f172a; margin-bottom: 6px;">Outbound SMTP Configuration</h3>
+          <p style="font-size: 13px; color: var(--muted); margin-bottom: 20px;">
+            Configure your business mailer for sending OTP verification codes, license renewal alerts, and PIN resets.
           </p>
-        </div>
 
-        <form id="smtpConfigForm" onsubmit="handleSaveSmtp(event)">
-          <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 16px;">
+          <form @submit.prevent="saveSmtpConfig">
             <div class="field-group">
-              <label class="field-label">SMTP Host (Server)</label>
-              <input type="text" id="smtpHost" class="text-control" placeholder="smtp.yourdomain.in or smtp.gmail.com" required>
+              <label class="field-label">SMTP Host / Server</label>
+              <input type="text" v-model="smtp.host" class="text-control" placeholder="smtp.gmail.com or mail.yourdomain.in" required>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+              <div class="field-group">
+                <label class="field-label">Port</label>
+                <input type="number" v-model="smtp.port" class="text-control" placeholder="587 or 465" required>
+              </div>
+              <div class="field-group">
+                <label class="field-label">Security</label>
+                <select v-model="smtp.secure" class="text-control">
+                  <option :value="false">STARTTLS (Port 587)</option>
+                  <option :value="true">SSL / TLS (Port 465)</option>
+                </select>
+              </div>
             </div>
             <div class="field-group">
-              <label class="field-label">Port</label>
-              <input type="number" id="smtpPort" class="text-control" value="587" required>
+              <label class="field-label">Username / Email Address</label>
+              <input type="text" v-model="smtp.user" class="text-control" placeholder="notifications@yourdomain.in" required>
             </div>
-          </div>
+            <div class="field-group">
+              <label class="field-label">Password / App Password</label>
+              <input type="password" v-model="smtp.pass" class="text-control" placeholder="••••••••••••••••">
+            </div>
+            <div class="field-group">
+              <label class="field-label">Sender From Name</label>
+              <input type="text" v-model="smtp.from" class="text-control" placeholder="ZynBill Cloud <noreply@yourdomain.in>">
+            </div>
 
-          <div class="field-group">
-            <label class="field-label">SMTP Username / Email</label>
-            <input type="text" id="smtpUser" class="text-control" placeholder="notifications@yourdomain.com" required>
-          </div>
-
-          <div class="field-group">
-            <label class="field-label">SMTP Password / App Password</label>
-            <div class="password-input-wrap">
-              <input type="password" id="smtpPass" class="text-control" placeholder="••••••••">
-              <button type="button" class="btn-toggle-password" aria-label="Show password" title="Show password">
-                <svg class="eye-show" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
-                <svg class="eye-hide" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none;"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>
+            <div style="display: flex; gap: 12px; margin-top: 24px;">
+              <button type="submit" class="btn-action btn-primary" style="height: 42px; padding: 0 20px;" :disabled="smtpLoading">
+                {{ smtpLoading ? 'Saving...' : 'Save Configuration' }}
+              </button>
+              <button type="button" class="btn-action btn-secondary" style="height: 42px; padding: 0 16px;" @click="testSmtp">
+                Send Test Email
               </button>
             </div>
-            <span style="font-size: 11.5px; color: var(--muted);">For Gmail, use a 16-character Google App Password.</span>
-          </div>
-
-          <div class="field-group">
-            <label class="field-label">Sender Name &amp; Email (From)</label>
-            <input type="text" id="smtpFrom" class="text-control" placeholder='"ZynBill Cloud" &lt;notifications@yourdomain.in&gt;'>
-          </div>
-
-          <div style="margin: 16px 0; display: flex; align-items: center; gap: 8px;">
-            <input type="checkbox" id="smtpSecure">
-            <label for="smtpSecure" style="font-size: 13px; color: #334155; font-weight: 500;">Use SSL/TLS (Checked for port 465, uncheck for port 587 STARTTLS)</label>
-          </div>
-
-          <div style="display: flex; gap: 12px; margin-top: 24px;">
-            <button type="submit" class="btn-action btn-approve" style="padding: 10px 20px; font-size: 13px;" id="btnSaveSmtp">Save SMTP Settings</button>
-          </div>
-        </form>
-
-        <hr style="border: none; border-top: 1px solid var(--border); margin: 28px 0;" />
-
-        <div>
-          <h4 style="font-size: 14.5px; color: #0f172a; margin-bottom: 6px;">Test SMTP Connection</h4>
-          <p style="font-size: 12.5px; color: var(--muted); margin-bottom: 12px;">Send an immediate test message to verify socket handshake and authentication.</p>
-          <div style="display: flex; gap: 10px; max-width: 480px;">
-            <input type="email" id="smtpTestRecipient" class="text-control" placeholder="Recipient email address" style="flex: 1;">
-            <button type="button" class="btn-action btn-secondary" style="padding: 0 16px;" onclick="handleTestSmtp()">Send Test Email</button>
-          </div>
-          <div id="smtpTestResult" style="margin-top: 12px; font-size: 13px; display: none;"></div>
-        </div>
-      </div>
-    </div>
-
-    <!-- ── TAB 5: SYSTEM & ERROR MONITORING ─────────────────────── -->
-    <div id="viewLogs" class="hidden">
-      <!-- KPI Overview Cards -->
-      <div class="kpi-grid">
-        <div class="kpi-card">
-          <div class="kpi-label">Errors Today</div>
-          <div class="kpi-value" id="kpiErrorsToday">0</div>
-          <div class="kpi-sub">Total logged issues across services</div>
-        </div>
-        <div class="kpi-card" style="border-left: 4px solid var(--danger);">
-          <div class="kpi-label">Critical Failures</div>
-          <div class="kpi-value" id="kpiCriticalCount" style="color: #b91c1c;">0</div>
-          <div class="kpi-sub">Uncaught process exceptions &amp; crash events</div>
-        </div>
-        <div class="kpi-card" style="border-left: 4px solid #0284c7;">
-          <div class="kpi-label">Desktop App Issues</div>
-          <div class="kpi-value" id="kpiClientCount" style="color: #0284c7;">0</div>
-          <div class="kpi-sub">Client-side telemetry from Windows PCs</div>
-        </div>
-        <div class="kpi-card" style="border-left: 4px solid var(--warning);">
-          <div class="kpi-label">Server &amp; Sync Issues</div>
-          <div class="kpi-value" id="kpiServerCount" style="color: #b45309;">0</div>
-          <div class="kpi-sub">Cloud API &amp; tenant database events</div>
+          </form>
         </div>
       </div>
 
-      <!-- Error Logs Table Card -->
-      <div class="table-card">
+      <!-- TAB 5: RELEASES & UPDATES -->
+      <div v-if="currentTab === 'releases'" style="display: flex; flex-direction: column; gap: 24px;">
+        <!-- Upload New Release Form Card (Interactive 3-Artifact Modern Dropzone) -->
+        <div class="table-card" style="padding: 28px 32px;">
+          <div style="margin-bottom: 24px;">
+            <div style="display: flex; align-items: center; gap: 12px;">
+              <div style="width: 36px; height: 36px; border-radius: 8px; background: #0284c7; color: #ffffff; display: flex; align-items: center; justify-content: center;">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
+              </div>
+              <div>
+                <h3 style="font-size: 18px; font-weight: 800; color: #0f172a; margin: 0; letter-spacing: -0.01em;">Deploy Electron Release Package</h3>
+                <p style="font-size: 13px; color: var(--muted); margin-top: 3px;">
+                  Adheres strictly to official Electron auto-updater standards. Select or drop the 3 artifacts from <code>electron-builder</code>.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <form @submit.prevent="publishReleasePackage">
+            <!-- 3 Interactive Artifact Dropzone Cards -->
+            <div class="artifact-grid">
+              <!-- Hidden native file inputs -->
+              <input type="file" ref="manifestInput" accept=".yml,.yaml" style="display: none;" @change="onManifestChange">
+              <input type="file" ref="exeInput" accept=".exe" style="display: none;" @change="onExeChange">
+              <input type="file" ref="blockmapInput" accept=".blockmap" style="display: none;" @change="onBlockmapChange">
+
+              <!-- Slot 1: latest.yml Card -->
+              <div class="artifact-slot" :class="{ 'has-file': !!manifestFile, 'drag-over': dragOverSlot === 'manifest' }"
+                   @click="$refs.manifestInput && $refs.manifestInput.click()"
+                   @dragover.prevent="dragOverSlot = 'manifest'"
+                   @dragleave.prevent="dragOverSlot = null"
+                   @drop.prevent="onDropFile($event, 'manifest')">
+                <div v-if="!manifestFile">
+                  <div class="artifact-header">
+                    <span class="artifact-tag">01. Manifest</span>
+                    <span class="artifact-ext-badge">latest.yml</span>
+                  </div>
+                  <div class="artifact-body">
+                    <div class="artifact-icon-wrap">
+                      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+                    </div>
+                    <div class="artifact-title">Release Manifest</div>
+                    <div class="artifact-hint">Version &amp; SHA-512 hashes auto-extracted from file</div>
+                    <div class="btn-choose-file">
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                      <span>Choose File</span>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Loaded state -->
+                <div v-else class="file-loaded-view">
+                  <div class="artifact-header">
+                    <span class="artifact-tag">01. Manifest</span>
+                    <span class="artifact-ext-badge">latest.yml</span>
+                  </div>
+                  <div class="loaded-file-card">
+                    <div class="loaded-file-meta">
+                      <span class="loaded-file-name">{{ manifestFile.name }}</span>
+                      <span class="loaded-file-sub">
+                        <span>{{ (manifestFile.size / 1024).toFixed(1) }} KB</span>
+                        &bull;
+                        <span style="color: #16a34a; font-weight: 700;">Verified</span>
+                      </span>
+                    </div>
+                    <a href="javascript:void(0)" class="loaded-change-link" @click.stop="$refs.manifestInput && $refs.manifestInput.click()">Change</a>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Slot 2: .exe Installer Card -->
+              <div class="artifact-slot" :class="{ 'has-file': !!exeFile, 'drag-over': dragOverSlot === 'exe' }"
+                   @click="$refs.exeInput && $refs.exeInput.click()"
+                   @dragover.prevent="dragOverSlot = 'exe'"
+                   @dragleave.prevent="dragOverSlot = null"
+                   @drop.prevent="onDropFile($event, 'exe')">
+                <div v-if="!exeFile">
+                  <div class="artifact-header">
+                    <span class="artifact-tag">02. Installer</span>
+                    <span class="artifact-ext-badge">.EXE</span>
+                  </div>
+                  <div class="artifact-body">
+                    <div class="artifact-icon-wrap">
+                      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M12 8v8"/><path d="M8 12h8"/></svg>
+                    </div>
+                    <div class="artifact-title">Setup Binary</div>
+                    <div class="artifact-hint">Compiled NSIS Windows setup installer binary</div>
+                    <div class="btn-choose-file">
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                      <span>Choose .exe</span>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Loaded state -->
+                <div v-else class="file-loaded-view">
+                  <div class="artifact-header">
+                    <span class="artifact-tag">02. Installer</span>
+                    <span class="artifact-ext-badge">.EXE</span>
+                  </div>
+                  <div class="loaded-file-card">
+                    <div class="loaded-file-meta">
+                      <span class="loaded-file-name">{{ exeFile.name }}</span>
+                      <span class="loaded-file-sub">
+                        <span>{{ (exeFile.size / (1024 * 1024)).toFixed(1) }} MB</span>
+                        &bull;
+                        <span style="color: #16a34a; font-weight: 700;">Ready</span>
+                      </span>
+                    </div>
+                    <a href="javascript:void(0)" class="loaded-change-link" @click.stop="$refs.exeInput && $refs.exeInput.click()">Change</a>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Slot 3: .blockmap Card -->
+              <div class="artifact-slot" :class="{ 'has-file': !!blockmapFile, 'drag-over': dragOverSlot === 'blockmap' }"
+                   @click="$refs.blockmapInput && $refs.blockmapInput.click()"
+                   @dragover.prevent="dragOverSlot = 'blockmap'"
+                   @dragleave.prevent="dragOverSlot = null"
+                   @drop.prevent="onDropFile($event, 'blockmap')">
+                <div v-if="!blockmapFile">
+                  <div class="artifact-header">
+                    <span class="artifact-tag">03. Differential</span>
+                    <span class="artifact-ext-badge">.BLOCKMAP</span>
+                  </div>
+                  <div class="artifact-body">
+                    <div class="artifact-icon-wrap">
+                      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+                    </div>
+                    <div class="artifact-title">Delta Blockmap</div>
+                    <div class="artifact-hint">Enables fast differential updates without downloading full installer</div>
+                    <div class="btn-choose-file">
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                      <span>Choose .blockmap</span>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Loaded state -->
+                <div v-else class="file-loaded-view">
+                  <div class="artifact-header">
+                    <span class="artifact-tag">03. Differential</span>
+                    <span class="artifact-ext-badge">.BLOCKMAP</span>
+                  </div>
+                  <div class="loaded-file-card">
+                    <div class="loaded-file-meta">
+                      <span class="loaded-file-name">{{ blockmapFile.name }}</span>
+                      <span class="loaded-file-sub">
+                        <span>{{ (blockmapFile.size / 1024).toFixed(1) }} KB</span>
+                        &bull;
+                        <span style="color: #16a34a; font-weight: 700;">Ready</span>
+                      </span>
+                    </div>
+                    <a href="javascript:void(0)" class="loaded-change-link" @click.stop="$refs.blockmapInput && $refs.blockmapInput.click()">Change</a>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Auto-Detected Manifest Specification Card -->
+            <div v-if="parsedManifest" class="manifest-spec-card">
+              <div class="manifest-spec-header">
+                <div style="display: flex; align-items: center; gap: 10px;">
+                  <span style="display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 50%; background: #dcfce7; color: #16a34a;">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+                  </span>
+                  <span style="font-size: 13.5px; font-weight: 700; color: #0f172a;">Auto-Detected Release Details</span>
+                  <span class="spec-val" style="background: #0f172a; color: #38bdf8; padding: 2px 8px; border-radius: 5px;">v{{ parsedManifest.version }}</span>
+                </div>
+                <span class="spec-chip" :class="semverRelationClass">{{ semverRelationText }}</span>
+              </div>
+
+              <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 14px;">
+                <div class="spec-item">
+                  <span class="spec-label">Target Installer</span>
+                  <span class="spec-val">{{ parsedManifest.targetFile }}</span>
+                </div>
+                <div class="spec-item">
+                  <span class="spec-label">Release Timestamp</span>
+                  <span class="spec-val">{{ formatDate(parsedManifest.releaseDate) }}</span>
+                </div>
+                <div class="spec-item" style="grid-column: 1 / -1;">
+                  <span class="spec-label">SHA-512 Fingerprint</span>
+                  <span class="spec-val" style="font-size: 11px; word-break: break-all; color: #64748b;">{{ parsedManifest.sha512 || 'Not specified' }}</span>
+                </div>
+              </div>
+
+              <div class="spec-chips">
+                <div class="spec-chip ready">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>
+                  <span>latest.yml Parsed</span>
+                </div>
+                <div class="spec-chip" :class="exeFile ? 'ready' : 'waiting'">
+                  <svg v-if="exeFile" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>
+                  <span>{{ exeFile ? `Installer: ${exeFile.name} (${(exeFile.size/(1024*1024)).toFixed(1)} MB)` : 'Awaiting .exe installer' }}</span>
+                </div>
+                <div class="spec-chip" :class="blockmapFile ? 'ready' : 'waiting'">
+                  <svg v-if="blockmapFile" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>
+                  <span>{{ blockmapFile ? `Blockmap: ${(blockmapFile.size/1024).toFixed(1)} KB` : 'Awaiting .blockmap' }}</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Downgrade / Conflict Warning Box -->
+            <div v-if="parsedManifest && semverCmp <= 0" style="background: #fffbeb; border: 1px solid #fde68a; border-radius: 8px; padding: 14px 18px; margin-bottom: 18px;">
+              <div style="display: flex; align-items: center; gap: 8px; color: #92400e; font-weight: 700; font-size: 13px;">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                <span>Version Notice</span>
+              </div>
+              <div style="font-size: 12.5px; color: #78350f; margin-top: 5px; line-height: 1.5;">
+                Auto-detected version <strong>v{{ parsedManifest.version }}</strong> is {{ semverCmp === 0 ? 'IDENTICAL to' : 'OLDER than' }} active live release <strong>v{{ activeReleaseVersion }}</strong>.
+              </div>
+              <label style="display: inline-flex; align-items: center; gap: 8px; font-size: 12.5px; color: #92400e; margin-top: 10px; cursor: pointer; font-weight: 600;">
+                <input type="checkbox" v-model="allowDowngrade">
+                Allow re-upload / overwrite of this version
+              </label>
+            </div>
+
+            <!-- Optional Notes -->
+            <div class="field-group" style="margin-bottom: 20px;">
+              <label class="field-label">Release Notes / Changelog (Optional)</label>
+              <textarea v-model="uploadReleaseNotes" class="text-control" rows="2" placeholder="Key updates, bug fixes, or enhancements in this release..." style="resize: vertical; height: auto; padding: 10px 12px;"></textarea>
+            </div>
+
+            <!-- Upload Progress -->
+            <div v-if="isUploading" style="margin: 20px 0; background: #f8fafc; padding: 16px 20px; border-radius: 10px; border: 1px solid var(--border);">
+              <div style="display: flex; justify-content: space-between; font-size: 12.5px; margin-bottom: 8px;">
+                <span style="font-weight: 700; color: #0284c7;">{{ uploadStatusText }}</span>
+                <span style="font-weight: 800; color: #0f172a; font-family: ui-monospace, monospace;">{{ uploadPercent }}%</span>
+              </div>
+              <div style="width: 100%; height: 8px; background: #e2e8f0; border-radius: 4px; overflow: hidden;">
+                <div :style="{ width: uploadPercent + '%' }" style="height: 100%; background: #0284c7; transition: width 0.2s ease;"></div>
+              </div>
+            </div>
+
+            <!-- Action Buttons -->
+            <div style="display: flex; gap: 12px; align-items: center; margin-top: 16px; flex-wrap: wrap;">
+              <button type="submit" class="btn-publish-main" :disabled="!isReadyToPublish || isUploading">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                <span>{{ isUploading ? 'Publishing...' : 'Publish Release Package' }}</span>
+              </button>
+              <button type="button" class="btn-action btn-secondary" @click="resetUploadForm" :disabled="isUploading" style="height: 42px; padding: 0 18px; font-size: 13px;">
+                Reset Form
+              </button>
+              <span v-if="uploadFeedbackText" :style="{ color: uploadFeedbackError ? '#b91c1c' : '#15803d' }" style="font-size: 13px; font-weight: 600;">
+                {{ uploadFeedbackText }}
+              </span>
+            </div>
+          </form>
+        </div>
+
+        <!-- Desktop Application Releases Table -->
+        <div class="table-card">
+          <div class="table-toolbar">
+            <div>
+              <h3 style="font-size: 15px; font-weight: 700;">Desktop Application Releases</h3>
+              <p style="font-size: 12px; color: var(--muted); margin-top: 2px;">Active Distribution Version: <strong style="color: #0284c7;">v{{ activeReleaseVersion || '1.1.1' }}</strong></p>
+            </div>
+            <button class="btn-action btn-primary" @click="loadReleases">↺ Refresh Releases</button>
+          </div>
+
+          <div style="overflow-x: auto;">
+            <table>
+              <thead>
+                <tr>
+                  <th>Version</th>
+                  <th>Installer Executable (.exe)</th>
+                  <th>Blockmap Delta</th>
+                  <th>Auto-Update Status</th>
+                  <th>Release Date</th>
+                  <th style="text-align: right;">Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-if="!releases.length">
+                  <td colspan="6" style="text-align: center; padding: 36px; color: var(--muted);">No releases found on cloud server.</td>
+                </tr>
+                <tr v-for="r in releases" :key="r.version" :style="r.isActive ? 'background: #f0fdf4;' : ''">
+                  <td>
+                    <strong style="font-size: 14px; color: #0f172a;">v{{ r.version }}</strong>
+                    <span v-if="r.isActive" class="status-badge badge-active" style="margin-left: 8px;">Active Release</span>
+                  </td>
+                  <td>
+                    <div v-if="r.exe" style="font-family: monospace; font-size: 12px; font-weight: 600;">
+                      <a :href="r.exe.downloadUrl" style="color: #0284c7; text-decoration: none;">⬇ {{ r.exe.name }} ({{ r.exe.sizeMb }})</a>
+                    </div>
+                    <span v-else style="color: #dc2626; font-size: 11px;">Missing .exe</span>
+                  </td>
+                  <td>
+                    <div v-if="r.blockmap" style="font-family: monospace; font-size: 12px; color: #475569;">
+                      {{ r.blockmap.name }} ({{ r.blockmap.sizeKb }})
+                    </div>
+                    <span v-else style="color: #64748b; font-size: 11px;">Missing blockmap</span>
+                  </td>
+                  <td>
+                    <span v-if="r.isActive" style="color: #166534; font-weight: 700; font-size: 11.5px;">✓ Live in latest.yml</span>
+                    <span v-else style="color: #64748b; font-size: 11.5px;">Archived</span>
+                  </td>
+                  <td>{{ formatDate(r.releaseDate || r.updatedAt) }}</td>
+                  <td style="text-align: right;">
+                    <button v-if="!r.isActive" class="btn-action btn-secondary" style="margin-right: 6px;" @click="activateRelease(r.version)">Set Active</button>
+                    <button class="btn-action btn-reject" @click="deleteRelease(r.version)">Delete</button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- TAB 6: LIVE AUDIT LOGS -->
+      <div v-if="currentTab === 'logs'" class="table-card">
         <div class="table-toolbar">
           <div style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap;">
-            <div class="filter-tabs">
-              <button class="filter-btn active" id="logFilterAll" onclick="setLogFilter('level', '', this)">All Levels</button>
-              <button class="filter-btn" id="logFilterCritical" onclick="setLogFilter('level', 'CRITICAL', this)">Critical</button>
-              <button class="filter-btn" id="logFilterError" onclick="setLogFilter('level', 'ERROR', this)">Errors</button>
-              <button class="filter-btn" id="logFilterWarn" onclick="setLogFilter('level', 'WARN', this)">Warnings</button>
-            </div>
-            <select class="select-control" style="width: 170px; height: 34px; padding: 4px 10px; font-size: 12px;" id="logSourceSelect" onchange="setLogFilter('source', this.value)">
-              <option value="">All Sources</option>
-              <option value="server">Cloud Server</option>
-              <option value="desktop_client">Desktop App</option>
-              <option value="sync_engine">Sync Engine</option>
+            <select v-model="logFilterLevel" @change="loadLogs" class="text-control" style="width: 140px; height: 38px;">
+              <option value="">All Levels</option>
+              <option value="INFO">INFO</option>
+              <option value="WARN">WARN</option>
+              <option value="ERROR">ERROR</option>
+              <option value="CRITICAL">CRITICAL</option>
             </select>
+            <input type="text" v-model="logSearch" @input="loadLogs" class="search-input" placeholder="Filter log text...">
           </div>
-          <div style="display: flex; gap: 10px; align-items: center;">
-            <label style="display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--muted); cursor: pointer; user-select: none;">
-              <input type="checkbox" id="logAutoRefreshCheckbox" onchange="toggleLogAutoRefresh(this.checked)"> Auto-Refresh (10s)
-            </label>
-            <button type="button" class="btn-action btn-secondary" onclick="loadLogs()" style="padding: 6px 14px; font-size: 12.5px;">🔄 Refresh</button>
-            <button type="button" class="btn-action btn-danger" onclick="handleClearLogs()" style="padding: 6px 14px; font-size: 12.5px;">🗑️ Clear Logs</button>
+          <div style="display: flex; gap: 8px;">
+            <button class="btn-action btn-secondary" @click="loadLogs">↺ Refresh</button>
+            <button class="btn-action btn-reject" @click="clearLogs">Clear Logs</button>
           </div>
         </div>
 
-        <table class="data-table">
-          <thead>
-            <tr>
-              <th style="width: 150px;">Timestamp</th>
-              <th style="width: 95px;">Level</th>
-              <th style="width: 130px;">Source</th>
-              <th>Message</th>
-              <th>Origin / Version</th>
-              <th style="text-align: right; width: 100px;">Actions</th>
-            </tr>
-          </thead>
-          <tbody id="logsTableBody">
-            <tr><td colspan="6" style="text-align: center; color: var(--muted); padding: 36px;">Loading system error logs...</td></tr>
-          </tbody>
-        </table>
-      </div>
-    </div>
-
-  </div>
-
-  <!-- Review & Approve Modal -->
-  <div class="modal-backdrop hidden" id="approveModal">
-    <div class="modal-card">
-      <div class="modal-head">
-        <h3 id="approveCustomerTitle">Review &amp; Approve Customer</h3>
-        <p>Assign subscription plan, account validity, and provision tenant database.</p>
-      </div>
-
-      <div style="background: #f8fafc; border: 1px solid var(--border); border-radius: 8px; padding: 12px 16px; margin-bottom: 18px; font-size: 13px;">
-        <div><strong>Company:</strong> <span id="modalCompanyName"></span></div>
-        <div style="margin-top: 4px;"><strong>Email:</strong> <span id="modalCustomerEmail"></span></div>
-      </div>
-
-      <div class="field-group">
-        <label class="field-label">Subscription Plan</label>
-        <select class="select-control" id="modalPlanSelect">
-          <option value="Professional" selected>Professional Business</option>
-          <option value="Starter">Starter Free Trial</option>
-          <option value="Enterprise">Enterprise Multi-Store</option>
-        </select>
-      </div>
-
-      <div class="field-group">
-        <label class="field-label">Validity Period</label>
-        <select class="select-control" id="modalDurationSelect">
-          <option value="365" selected>1 Year (365 Days)</option>
-          <option value="180">6 Months (180 Days)</option>
-          <option value="90">3 Months (90 Days)</option>
-          <option value="30">1 Month Trial (30 Days)</option>
-        </select>
-      </div>
-
-      <div class="modal-actions">
-        <button type="button" class="btn-action btn-secondary" onclick="closeApproveModal()">Cancel</button>
-        <button type="button" class="btn-action btn-approve" id="btnConfirmApprove" onclick="executeApprove()">Approve &amp; Activate Account</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- Add/Edit Plan Modal -->
-  <div class="modal-backdrop hidden" id="planModal">
-    <div class="modal-card">
-      <div class="modal-head">
-        <h3 id="planModalTitle">Create Subscription Plan</h3>
-        <p>Configure plan code, pricing, validity duration, and PC limits.</p>
-      </div>
-
-      <div class="field-group">
-        <label class="field-label">Plan Name</label>
-        <input type="text" id="planName" class="text-control" placeholder="e.g. Standard Business" required>
-      </div>
-
-      <div class="field-group">
-        <label class="field-label">Price (₹)</label>
-        <input type="number" id="planPrice" class="text-control" value="2999" required>
-      </div>
-
-      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
-        <div class="field-group">
-          <label class="field-label">Duration (Days)</label>
-          <input type="number" id="planDays" class="text-control" value="365" required>
-        </div>
-        <div class="field-group">
-          <label class="field-label">Max Authorized PCs</label>
-          <input type="number" id="planDevices" class="text-control" value="2" required>
+        <div style="overflow-x: auto; max-height: 540px;">
+          <table>
+            <thead>
+              <tr>
+                <th style="width: 170px;">Timestamp</th>
+                <th style="width: 90px;">Level</th>
+                <th style="width: 130px;">Source</th>
+                <th>Message / Details</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-if="!logs.length">
+                <td colspan="4" style="text-align: center; padding: 36px; color: var(--muted);">No matching log entries found.</td>
+              </tr>
+              <tr v-for="l in logs" :key="l.id || l.timestamp">
+                <td style="font-family: monospace; font-size: 11.5px; color: #475569; white-space: nowrap;">
+                  {{ formatDateTime(l.timestamp) }}
+                </td>
+                <td>
+                  <span class="status-badge" :style="getLogLevelStyle(l.level)">{{ l.level }}</span>
+                </td>
+                <td style="font-weight: 600; font-size: 12px; color: #334155;">{{ l.source || 'server' }}</td>
+                <td style="font-family: monospace; font-size: 12px; color: #0f172a; word-break: break-word;">{{ l.message }}</td>
+              </tr>
+            </tbody>
+          </table>
         </div>
       </div>
+    </div>
 
-      <div class="field-group">
-        <label class="field-label">Description</label>
-        <input type="text" id="planDesc" class="text-control" placeholder="Short description of plan features">
-      </div>
+    <!-- Modals -->
+    <!-- Approve Customer Modal -->
+    <div class="modal-backdrop" v-if="approveModal.show" @click.self="approveModal.show = false">
+      <div class="modal-card">
+        <h3 style="font-size: 18px; font-weight: 800; color: #0f172a; margin-bottom: 8px;">Approve &amp; Activate Tenant</h3>
+        <p style="font-size: 13px; color: var(--muted); margin-bottom: 20px;">
+          Approving <strong>{{ approveModal.customer?.company_name }}</strong> activates their desktop license.
+        </p>
 
-      <div class="modal-actions">
-        <button type="button" class="btn-action btn-secondary" onclick="closePlanModal()">Cancel</button>
-        <button type="button" class="btn-action btn-approve" id="btnSavePlan" onclick="savePlan()">Save Plan</button>
+        <div class="field-group">
+          <label class="field-label">Subscription Plan</label>
+          <select v-model="approveModal.plan" class="text-control">
+            <option v-for="p in plans" :key="p.code" :value="p.code">{{ p.name }} ({{ p.max_devices }} PCs)</option>
+          </select>
+        </div>
+        <div class="field-group">
+          <label class="field-label">License Validity (Days)</label>
+          <input type="number" v-model="approveModal.validityDays" class="text-control" placeholder="365">
+        </div>
+
+        <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 24px;">
+          <button class="btn-action btn-secondary" @click="approveModal.show = false">Cancel</button>
+          <button class="btn-action btn-approve" @click="submitApproveCustomer">Confirm &amp; Activate License</button>
+        </div>
       </div>
     </div>
-  </div>
 
-  <!-- Modal: Connected Devices for Customer -->
-  <div class="modal-backdrop hidden" id="devicesModal">
-    <div class="modal-card" style="max-width: 580px;">
-      <div class="modal-head">
-        <h3 id="devicesModalTitle">Authorized Devices (PCs)</h3>
-        <p id="devicesModalSubtitle">Connected Windows terminals for this customer account.</p>
-      </div>
+    <!-- Devices Modal -->
+    <div class="modal-backdrop" v-if="devicesModal.show" @click.self="devicesModal.show = false">
+      <div class="modal-card" style="max-width: 600px;">
+        <h3 style="font-size: 18px; font-weight: 800; color: #0f172a; margin-bottom: 6px;">Authorized PC Terminals</h3>
+        <p style="font-size: 13px; color: var(--muted); margin-bottom: 16px;">
+          Customer: <strong>{{ devicesModal.customer?.company_name }}</strong> ({{ devicesModal.devices.length }} / {{ devicesModal.customer?.max_devices || 2 }} PCs)
+        </p>
 
-      <div id="adminDevicesListContainer" style="max-height: 380px; overflow-y: auto; margin-bottom: 20px;">
-        <!-- Populated dynamically -->
-      </div>
+        <div v-if="!devicesModal.devices.length" style="padding: 24px; text-align: center; color: var(--muted); font-size: 13px; background: #f8fafc; border-radius: 8px;">
+          No PC terminals linked yet.
+        </div>
+        <div v-else style="display: flex; flex-direction: column; gap: 10px; max-height: 380px; overflow-y: auto;">
+          <div v-for="d in devicesModal.devices" :key="d.token" style="display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; border: 1px solid var(--border); border-radius: 8px; background: #fff;">
+            <div>
+              <div style="font-weight: 700; color: #0f172a; font-size: 13.5px;">💻 {{ d.machine_name || 'Windows Desktop' }}</div>
+              <div style="font-size: 11.5px; color: var(--muted); margin-top: 2px;">
+                Linked: {{ formatDate(d.created_at) }} • Last Active: {{ formatDateTime(d.last_active_at) }}
+              </div>
+            </div>
+            <button class="btn-action btn-reject" style="font-size: 11.5px;" @click="revokeDevice(d.token, d.machine_name)">Revoke PC</button>
+          </div>
+        </div>
 
-      <div class="modal-actions">
-        <button type="button" class="btn-action btn-secondary" onclick="closeDevicesModal()">Close</button>
+        <div style="display: flex; justify-content: flex-end; margin-top: 20px;">
+          <button class="btn-action btn-secondary" @click="devicesModal.show = false">Close</button>
+        </div>
       </div>
     </div>
-  </div>
 
-  <!-- Error Log Details Modal -->
-  <div class="modal-backdrop hidden" id="logDetailsModal">
-    <div class="modal-card" style="max-width: 680px;">
-      <div class="modal-head">
-        <h3 id="modalLogTitle">Error Details</h3>
-        <p id="modalLogMeta" style="font-family: monospace; font-size: 12px; margin-top: 4px; color: var(--muted);"></p>
+    <!-- Add Plan Modal -->
+    <div class="modal-backdrop" v-if="planModal.show" @click.self="planModal.show = false">
+      <div class="modal-card">
+        <h3 style="font-size: 18px; font-weight: 800; color: #0f172a; margin-bottom: 8px;">Create Subscription Plan</h3>
+        <form @submit.prevent="savePlan">
+          <div class="field-group">
+            <label class="field-label">Plan Name</label>
+            <input type="text" v-model="planModal.name" class="text-control" placeholder="e.g. Enterprise Multi-Terminal" required>
+          </div>
+          <div class="field-group">
+            <label class="field-label">Plan Code</label>
+            <input type="text" v-model="planModal.code" class="text-control" placeholder="e.g. enterprise_annual" required>
+          </div>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 14px;">
+            <div class="field-group">
+              <label class="field-label">Price (₹)</label>
+              <input type="number" v-model="planModal.price" class="text-control" placeholder="4999" required>
+            </div>
+            <div class="field-group">
+              <label class="field-label">PC Terminals</label>
+              <input type="number" v-model="planModal.max_devices" class="text-control" placeholder="5" required>
+            </div>
+          </div>
+          <div class="field-group">
+            <label class="field-label">Validity (Days)</label>
+            <input type="number" v-model="planModal.duration_days" class="text-control" placeholder="365" required>
+          </div>
+
+          <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px;">
+            <button type="button" class="btn-action btn-secondary" @click="planModal.show = false">Cancel</button>
+            <button type="submit" class="btn-action btn-primary">Save Plan</button>
+          </div>
+        </form>
       </div>
-      <div style="margin-bottom: 14px;">
-        <label class="field-label">Error Message</label>
-        <div id="modalLogMessage" style="background:#f8fafc; border:1px solid var(--border); border-radius:6px; padding:10px 14px; font-size:13px; font-weight:600; color:#0f172a; word-break:break-all;"></div>
-      </div>
-      <div style="margin-bottom: 14px;">
-        <label class="field-label">Stack Trace &amp; Details</label>
-        <pre id="modalLogStack" style="background:#0f172a; color:#f8fafc; border-radius:6px; padding:12px 14px; font-size:11.5px; font-family:Consolas,monospace; max-height:260px; overflow-y:auto; white-space:pre-wrap; word-break:break-all;"></pre>
-      </div>
-      <div class="modal-actions">
-        <button type="button" class="btn-action btn-secondary" onclick="closeLogModal()">Close</button>
-      </div>
+    </div>
+
+    <!-- Toast Notification -->
+    <div v-if="toast.show" class="toast-popup" :class="toast.isError ? 'toast-error' : 'toast-success'">
+      {{ toast.message }}
     </div>
   </div>
 
   <script>
-    let adminToken = localStorage.getItem('zynbill_admin_token');
-    let allCustomers = [];
-    let currentFilter = 'all';
-    let selectedCustomerId = null;
-    let allPlans = [];
-    let currentDevicesCustomerId = null;
-    let currentDevicesCustomerName = '';
+    const { createApp, ref, reactive, computed, onMounted } = Vue;
 
-    async function openDevicesModal(customerId, companyName) {
-      currentDevicesCustomerId = customerId;
-      currentDevicesCustomerName = companyName;
-      document.getElementById('devicesModalTitle').textContent = `Authorized Terminals - ${companyName}`;
-      document.getElementById('devicesModalSubtitle').textContent = 'Manage active desktop PC activations for this customer.';
-      document.getElementById('devicesModal').classList.remove('hidden');
+    createApp({
+      setup() {
+        const authenticated = ref(false);
+        const adminEmail = ref(localStorage.getItem('zynbill_admin_email') || 'Super Admin');
+        const adminToken = ref(localStorage.getItem('zynbill_admin_token') || '');
+        const currentTab = ref('overview');
 
-      const container = document.getElementById('adminDevicesListContainer');
-      container.innerHTML = '<div style="text-align:center; padding:20px; color:var(--muted); font-size:13px;">Loading devices...</div>';
+        const stats = reactive({ total: 0, pending: 0, active: 0, suspended: 0, rejected: 0 });
+        const customers = ref([]);
+        const customerFilter = ref('all');
+        const customerSearch = ref('');
 
-      try {
-        const res = await fetch(`/api/v1/admin/customer-devices?customerId=${encodeURIComponent(customerId)}`, {
-          headers: { 'Authorization': 'Bearer ' + adminToken }
-        });
-        const data = await res.json();
-        if (!data.ok) throw new Error(data.error || 'Failed to fetch devices.');
+        const plans = ref([]);
+        const releases = ref([]);
+        const activeReleaseVersion = ref('1.1.1');
+        const logs = ref([]);
+        const logFilterLevel = ref('');
+        const logSearch = ref('');
 
-        const devices = data.devices || [];
-        if (devices.length === 0) {
-          container.innerHTML = '<div style="text-align:center; padding:28px; background:#f8fafc; border-radius:10px; color:var(--muted); font-size:13px;">No devices authorized yet for this customer.</div>';
-          return;
-        }
+        // Release Uploader Reactive State
+        const manifestInput = ref(null);
+        const exeInput = ref(null);
+        const blockmapInput = ref(null);
+        const manifestFile = ref(null);
+        const exeFile = ref(null);
+        const blockmapFile = ref(null);
+        const parsedManifest = ref(null);
+        const allowDowngrade = ref(false);
+        const uploadReleaseNotes = ref('');
+        const dragOverSlot = ref(null);
+        const isUploading = ref(false);
+        const uploadPercent = ref(0);
+        const uploadStatusText = ref('');
+        const uploadFeedbackText = ref('');
+        const uploadFeedbackError = ref(false);
 
-        container.innerHTML = devices.map(d => {
-          const lastActiveDate = new Date(d.last_active_at);
-          const isRecentlyActive = (Date.now() - lastActiveDate.getTime()) < 15 * 60 * 1000;
-          const statusBadge = isRecentlyActive
-            ? '<span style="display:inline-flex; align-items:center; gap:4px; font-size:11px; font-weight:700; color:#047857; background:#ecfdf5; padding:2px 8px; border-radius:6px;"><span style="width:6px; height:6px; border-radius:50%; background:#10b981;"></span> Online</span>'
-            : '<span style="font-size:11px; font-weight:600; color:#64748b; background:#f1f5f9; padding:2px 8px; border-radius:6px;">Sync Standby</span>';
-
-          return `
-            <div style="display:flex; justify-content:space-between; align-items:center; padding:12px 14px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:10px; margin-bottom:10px;">
-              <div style="display:flex; align-items:center; gap:12px;">
-                <div style="width:38px; height:38px; border-radius:8px; background:#e0f2fe; color:#0284c7; display:flex; align-items:center; justify-content:center; font-size:18px;">
-                  💻
-                </div>
-                <div>
-                  <div style="display:flex; align-items:center; gap:8px;">
-                    <strong style="color:#0f172a; font-size:13.5px;">${escapeHtml(d.machine_name || 'Windows Desktop')}</strong>
-                    ${statusBadge}
-                  </div>
-                  <div style="font-size:11.5px; color:var(--muted); margin-top:2px;">
-                    First Linked: ${new Date(d.created_at).toLocaleDateString([], { year:'numeric', month:'short', day:'numeric' })} • Last Active: ${lastActiveDate.toLocaleString([], { dateStyle:'short', timeStyle:'short' })}
-                  </div>
-                </div>
-              </div>
-              <button class="btn-action btn-reject" style="font-size:12px; padding:5px 12px;" onclick="adminRevokeDevice('${d.token}', '${escapeHtml(d.machine_name || 'this PC')}')">
-                Revoke PC
-              </button>
-            </div>
-          `;
-        }).join('');
-      } catch (err) {
-        container.innerHTML = `<div style="color:#dc2626; padding:14px; text-align:center; font-size:13px;">Error: ${err.message}</div>`;
-      }
-    }
-
-    function closeDevicesModal() {
-      document.getElementById('devicesModal').classList.add('hidden');
-    }
-
-    async function adminRevokeDevice(token, machineName) {
-      if (!confirm(`Are you sure you want to revoke ${machineName}? This PC will lose access to the customer account.`)) return;
-      try {
-        const res = await fetch('/api/v1/admin/revoke-device', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': 'Bearer ' + adminToken
-          },
-          body: JSON.stringify({ token })
-        });
-        const data = await res.json();
-        if (data.ok) {
-          openDevicesModal(currentDevicesCustomerId, currentDevicesCustomerName);
-          loadCustomers();
-        } else {
-          alert(data.error || 'Failed to revoke device.');
-        }
-      } catch (err) {
-        alert(err.message);
-      }
-    }
-
-    // ── Password Show / Hide Engine ───────────────────────────
-    function initPasswordToggles() {
-      document.querySelectorAll('.password-input-wrap').forEach(wrap => {
-        const input = wrap.querySelector('input');
-        const btn = wrap.querySelector('.btn-toggle-password');
-        if (!input || !btn || btn.dataset.initialized) return;
-        btn.dataset.initialized = 'true';
-        btn.addEventListener('click', (e) => {
-          e.preventDefault();
-          const isPassword = input.type === 'password';
-          input.type = isPassword ? 'text' : 'password';
-          btn.setAttribute('aria-label', isPassword ? 'Hide password' : 'Show password');
-          btn.setAttribute('title', isPassword ? 'Hide password' : 'Show password');
-          const showSvg = btn.querySelector('.eye-show');
-          const hideSvg = btn.querySelector('.eye-hide');
-          if (showSvg && hideSvg) {
-            showSvg.style.display = isPassword ? 'none' : 'block';
-            hideSvg.style.display = isPassword ? 'block' : 'none';
+        const compareSemver = (v1, v2) => {
+          if (!v1 || !v2) return 0;
+          const p1 = String(v1).replace(/^v/, '').split('.').map(n => parseInt(n, 10) || 0);
+          const p2 = String(v2).replace(/^v/, '').split('.').map(n => parseInt(n, 10) || 0);
+          for (let i = 0; i < Math.max(p1.length, p2.length); i++) {
+            const a = p1[i] || 0;
+            const b = p2[i] || 0;
+            if (a > b) return 1;
+            if (a < b) return -1;
           }
-          input.focus();
-        });
-      });
-    }
-
-    window.addEventListener('DOMContentLoaded', async () => {
-      initPasswordToggles();
-      const emailField = document.getElementById('adminEmail');
-      const passField = document.getElementById('adminPassword');
-      if (emailField) emailField.value = '';
-      if (passField) passField.value = '';
-      setTimeout(() => {
-        if (emailField) emailField.value = '';
-        if (passField) passField.value = '';
-      }, 50);
-
-      // Verify server session (cookie or stored token)
-      try {
-        const headers = {};
-        if (adminToken) headers['Authorization'] = 'Bearer ' + adminToken;
-        const res = await fetch('/api/v1/admin/customers?limit=1', {
-          headers,
-          credentials: 'same-origin'
-        });
-        const data = await res.json();
-        if (data.ok) {
-          showDashboard();
-          return;
-        }
-      } catch (_) {}
-
-      // If session invalid or expired, show login
-      handleAuthFailure();
-    });
-
-    // Multi-tab logout synchronization
-    window.addEventListener('storage', (e) => {
-      if (e.key === 'zynbill_admin_logged_out') {
-        handleAuthFailure();
-      }
-    });
-
-    window.addEventListener('hashchange', () => {
-      const hash = (window.location.hash || '').replace('#', '');
-      if (['customers', 'plans', 'smtp', 'releases', 'logs'].includes(hash)) {
-        switchMainTab(hash, false);
-      }
-    });
-
-    function switchMainTab(tab, updateHash = true) {
-      const validTabs = ['customers', 'plans', 'smtp', 'releases', 'logs'];
-      if (!validTabs.includes(tab)) tab = 'customers';
-
-      try {
-        localStorage.setItem('zynbill_admin_tab', tab);
-        if (updateHash && window.location.hash !== '#' + tab) {
-          history.replaceState(null, '', '#' + tab);
-        }
-      } catch (_) {}
-
-      document.getElementById('tabBtnCustomers').classList.toggle('active', tab === 'customers');
-      document.getElementById('tabBtnPlans').classList.toggle('active', tab === 'plans');
-      document.getElementById('tabBtnSmtp').classList.toggle('active', tab === 'smtp');
-      document.getElementById('tabBtnReleases').classList.toggle('active', tab === 'releases');
-      document.getElementById('tabBtnLogs').classList.toggle('active', tab === 'logs');
-
-      document.getElementById('viewCustomers').classList.toggle('hidden', tab !== 'customers');
-      document.getElementById('viewPlans').classList.toggle('hidden', tab !== 'plans');
-      document.getElementById('viewSmtp').classList.toggle('hidden', tab !== 'smtp');
-      document.getElementById('viewReleases').classList.toggle('hidden', tab !== 'releases');
-      document.getElementById('viewLogs').classList.toggle('hidden', tab !== 'logs');
-
-      if (tab === 'customers') loadCustomers();
-      if (tab === 'plans') loadPlans();
-      if (tab === 'smtp') loadSmtp();
-      if (tab === 'releases') loadReleases();
-      if (tab === 'logs') loadLogs();
-    }
-
-    async function handleLogin(e) {
-      e.preventDefault();
-      const email = (document.getElementById('adminEmail').value || '').trim();
-      const password = document.getElementById('adminPassword').value || '';
-      const errEl = document.getElementById('loginError');
-      errEl.style.display = 'none';
-
-      try {
-        const res = await fetch('/api/v1/admin/login', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'same-origin',
-          body: JSON.stringify({ email, password })
-        });
-        const data = await res.json();
-        if (data.ok) {
-          adminToken = data.token;
-          localStorage.setItem('zynbill_admin_token', adminToken);
-          showDashboard();
-        } else {
-          errEl.textContent = data.error || 'Login failed';
-          errEl.style.display = 'block';
-        }
-      } catch (err) {
-        errEl.textContent = 'Server connection failed';
-        errEl.style.display = 'block';
-      }
-    }
-
-    function handleAuthFailure() {
-      adminToken = null;
-      localStorage.removeItem('zynbill_admin_token');
-      document.getElementById('adminDashboard').classList.add('hidden');
-      document.getElementById('adminUserSection').style.display = 'none';
-      document.getElementById('loginCard').classList.remove('hidden');
-    }
-
-    async function handleLogout() {
-      try {
-        const headers = {};
-        if (adminToken) headers['Authorization'] = 'Bearer ' + adminToken;
-        await fetch('/api/v1/admin/logout', {
-          method: 'POST',
-          headers,
-          credentials: 'same-origin'
-        });
-      } catch (_) {}
-      localStorage.setItem('zynbill_admin_logged_out', Date.now().toString());
-      handleAuthFailure();
-    }
-
-    function showDashboard() {
-      document.getElementById('loginCard').classList.add('hidden');
-      document.getElementById('adminDashboard').classList.remove('hidden');
-      document.getElementById('adminUserSection').style.display = 'flex';
-
-      let initialTab = 'customers';
-      try {
-        const hash = (window.location.hash || '').replace('#', '');
-        const stored = localStorage.getItem('zynbill_admin_tab');
-        if (['customers', 'plans', 'smtp', 'releases', 'logs'].includes(hash)) {
-          initialTab = hash;
-        } else if (['customers', 'plans', 'smtp', 'releases', 'logs'].includes(stored)) {
-          initialTab = stored;
-        }
-      } catch (_) {}
-
-      switchMainTab(initialTab, true);
-    }
-
-    async function loadCustomers() {
-      try {
-        const res = await fetch('/api/v1/admin/customers', {
-          headers: { 'Authorization': 'Bearer ' + adminToken }
-        });
-        const data = await res.json();
-        if (!data.ok) {
-          handleLogout();
-          return;
-        }
-
-        document.getElementById('kpiTotal').textContent = data.stats.total;
-        document.getElementById('kpiPending').textContent = data.stats.pending;
-        document.getElementById('kpiActive').textContent = data.stats.active;
-        document.getElementById('kpiOther').textContent = data.stats.suspended + data.stats.rejected;
-        document.getElementById('pendingCountBadge').textContent = data.stats.pending;
-
-        allCustomers = data.customers || [];
-        renderCustomerTable();
-      } catch (err) {
-        console.error('Failed to load customers:', err);
-      }
-    }
-
-    function renderCustomerTable() {
-      const tbody = document.getElementById('customerTableBody');
-      const filtered = allCustomers.filter(c => {
-        if (currentFilter === 'all') return true;
-        return c.status === currentFilter;
-      });
-
-      if (filtered.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="6" style="text-align: center; padding: 36px; color: var(--muted);">No customers found in this category.</td></tr>`;
-        return;
-      }
-
-      tbody.innerHTML = filtered.map(c => {
-        let badgeClass = 'badge-pending';
-        let badgeLabel = 'Pending Review';
-        if (c.status === 'pending_verification') { badgeClass = 'badge-otp'; badgeLabel = 'Pending OTP'; }
-        else if (c.status === 'active') { badgeClass = 'badge-active'; badgeLabel = 'Active'; }
-        else if (c.status === 'suspended') { badgeClass = 'badge-suspended'; badgeLabel = 'Suspended'; }
-        else if (c.status === 'rejected') { badgeClass = 'badge-rejected'; badgeLabel = 'Rejected'; }
-
-        const validStr = c.valid_until ? new Date(c.valid_until).toLocaleDateString([], { year: 'numeric', month: 'short', day: 'numeric' }) : 'Not set';
-
-        return `
-          <tr>
-            <td>
-              <div style="font-weight: 700; color: #0f172a;">${escapeHtml(c.company_name)}</div>
-              <div style="color: var(--muted); font-size: 12px; margin-top: 2px;">Prop: ${escapeHtml(c.owner_name)}</div>
-            </td>
-            <td>
-              <div>${escapeHtml(c.email)}</div>
-              <div style="color: var(--muted); font-size: 12px; margin-top: 2px;">${escapeHtml(c.phone || 'No phone')}</div>
-            </td>
-            <td>
-              <div>${escapeHtml(c.state || 'Kerala')}</div>
-              <div style="color: var(--muted); font-size: 11.5px; font-family: monospace;">${escapeHtml(c.gstin || 'Unregistered')}</div>
-            </td>
-            <td>
-              <span class="plan-badge">${escapeHtml(c.plan || 'Professional')}</span>
-              <div style="color: var(--muted); font-size: 11.5px; margin-top: 4px;">Expires: ${validStr}</div>
-              <div style="margin-top: 5px;">
-                <span class="badge" style="background:#eff6ff; color:#1d4ed8; font-weight:700; font-size:11px; padding:2px 8px; border-radius:6px; cursor:pointer;" onclick="openDevicesModal('${c.id}', '${escapeHtml(c.company_name)}')" title="View connected PC terminals">
-                  💻 ${c.active_devices || 0} / ${c.max_devices || 2} PCs
-                </span>
-              </div>
-            </td>
-            <td>
-              <span class="status-badge ${badgeClass}">${badgeLabel}</span>
-            </td>
-            <td>
-              <div style="display: flex; gap: 6px;">
-                ${c.status === 'pending_approval' || c.status === 'pending_verification' ? `
-                  <button class="btn-action btn-approve" onclick="openApproveModal('${c.id}', '${escapeHtml(c.company_name)}', '${escapeHtml(c.email)}')">Review &amp; Approve</button>
-                  <button class="btn-action btn-reject" onclick="handleReject('${c.id}')">Reject</button>
-                ` : c.status === 'active' ? `
-                  <button class="btn-action btn-secondary" onclick="toggleStatus('${c.id}', 'suspended')">Suspend</button>
-                  <button class="btn-action btn-secondary" onclick="openApproveModal('${c.id}', '${escapeHtml(c.company_name)}', '${escapeHtml(c.email)}')">Renew</button>
-                  <button class="btn-action btn-secondary" onclick="openDevicesModal('${c.id}', '${escapeHtml(c.company_name)}')">Devices</button>
-                ` : c.status === 'suspended' ? `
-                  <button class="btn-action btn-approve" onclick="toggleStatus('${c.id}', 'active')">Activate</button>
-                ` : `
-                  <button class="btn-action btn-secondary" onclick="openApproveModal('${c.id}', '${escapeHtml(c.company_name)}', '${escapeHtml(c.email)}')">Re-Review</button>
-                `}
-              </div>
-            </td>
-          </tr>
-        `;
-      }).join('');
-    }
-
-    function setFilter(filter) {
-      currentFilter = filter;
-      document.querySelectorAll('.filter-btn').forEach(btn => {
-        btn.classList.toggle('active', btn.getAttribute('data-filter') === filter);
-      });
-      renderCustomerTable();
-    }
-
-    function handleSearch() {
-      const q = document.getElementById('searchInput').value.toLowerCase();
-      const filtered = allCustomers.filter(c => 
-        c.company_name?.toLowerCase().includes(q) ||
-        c.owner_name?.toLowerCase().includes(q) ||
-        c.email?.toLowerCase().includes(q) ||
-        c.phone?.includes(q)
-      );
-      renderCustomTable(filtered);
-    }
-
-    function renderCustomTable(customers) {
-      const tbody = document.getElementById('customerTableBody');
-      if (customers.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="6" style="text-align: center; padding: 36px; color: var(--muted);">No matching customers found.</td></tr>`;
-        return;
-      }
-      tbody.innerHTML = customers.map(c => {
-        let badgeClass = 'badge-pending';
-        let badgeLabel = 'Pending Review';
-        if (c.status === 'pending_verification') { badgeClass = 'badge-otp'; badgeLabel = 'Pending OTP'; }
-        else if (c.status === 'active') { badgeClass = 'badge-active'; badgeLabel = 'Active'; }
-        else if (c.status === 'suspended') { badgeClass = 'badge-suspended'; badgeLabel = 'Suspended'; }
-        else if (c.status === 'rejected') { badgeClass = 'badge-rejected'; badgeLabel = 'Rejected'; }
-        const validStr = c.valid_until ? new Date(c.valid_until).toLocaleDateString([], { year: 'numeric', month: 'short', day: 'numeric' }) : 'Not set';
-
-        return `
-          <tr>
-            <td>
-              <div style="font-weight: 700; color: #0f172a;">${escapeHtml(c.company_name)}</div>
-              <div style="color: var(--muted); font-size: 12px; margin-top: 2px;">Prop: ${escapeHtml(c.owner_name)}</div>
-            </td>
-            <td>
-              <div>${escapeHtml(c.email)}</div>
-              <div style="color: var(--muted); font-size: 12px; margin-top: 2px;">${escapeHtml(c.phone || 'No phone')}</div>
-            </td>
-            <td>
-              <div>${escapeHtml(c.state || 'Kerala')}</div>
-              <div style="color: var(--muted); font-size: 11.5px; font-family: monospace;">${escapeHtml(c.gstin || 'Unregistered')}</div>
-            </td>
-            <td>
-              <span class="plan-badge">${escapeHtml(c.plan || 'Professional')}</span>
-              <div style="color: var(--muted); font-size: 11.5px; margin-top: 4px;">Expires: ${validStr}</div>
-            </td>
-            <td><span class="status-badge ${badgeClass}">${badgeLabel}</span></td>
-            <td>
-              <div style="display: flex; gap: 6px;">
-                ${c.status === 'pending_approval' || c.status === 'pending_verification' ? `
-                  <button class="btn-action btn-approve" onclick="openApproveModal('${c.id}', '${escapeHtml(c.company_name)}', '${escapeHtml(c.email)}')">Review &amp; Approve</button>
-                ` : `
-                  <button class="btn-action btn-secondary" onclick="openApproveModal('${c.id}', '${escapeHtml(c.company_name)}', '${escapeHtml(c.email)}')">Manage</button>
-                `}
-              </div>
-            </td>
-          </tr>
-        `;
-      }).join('');
-    }
-
-    function openApproveModal(id, company, email) {
-      selectedCustomerId = id;
-      document.getElementById('modalCompanyName').textContent = company;
-      document.getElementById('modalCustomerEmail').textContent = email;
-      
-      // Populate plans select
-      const select = document.getElementById('modalPlanSelect');
-      if (allPlans.length > 0) {
-        select.innerHTML = allPlans.map(p => `
-          <option value="${escapeHtml(p.code)}">${escapeHtml(p.name)} (₹${p.price})</option>
-        `).join('');
-      }
-
-      document.getElementById('approveModal').classList.remove('hidden');
-    }
-
-    function closeApproveModal() {
-      document.getElementById('approveModal').classList.add('hidden');
-      selectedCustomerId = null;
-    }
-
-    async function executeApprove() {
-      if (!selectedCustomerId) return;
-      const plan = document.getElementById('modalPlanSelect').value;
-      const durationDays = document.getElementById('modalDurationSelect').value;
-
-      const btn = document.getElementById('btnConfirmApprove');
-      btn.disabled = true;
-      btn.textContent = 'Approving & Provisioning Tenant...';
-
-      try {
-        const res = await fetch(`/api/v1/admin/customers/${selectedCustomerId}/approve`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': 'Bearer ' + adminToken
-          },
-          body: JSON.stringify({ plan, durationDays })
-        });
-        const data = await res.json();
-        if (data.ok) {
-          closeApproveModal();
-          await loadCustomers();
-          alert('Account approved, tenant provisioned, and activation email dispatched via SMTP!');
-        } else {
-          alert(data.error || 'Approval failed');
-        }
-      } catch (err) {
-        alert('Network error during approval');
-      } finally {
-        btn.disabled = false;
-        btn.textContent = 'Approve & Activate Account';
-      }
-    }
-
-    async function handleReject(id) {
-      const reason = prompt('Enter rejection reason for this customer:');
-      if (reason === null) return;
-
-      try {
-        const res = await fetch(`/api/v1/admin/customers/${id}/reject`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': 'Bearer ' + adminToken
-          },
-          body: JSON.stringify({ reason: reason || 'Requirements not met' })
-        });
-        const data = await res.json();
-        if (data.ok) {
-          await loadCustomers();
-        } else {
-          alert(data.error || 'Rejection failed');
-        }
-      } catch (err) {
-        alert('Network error');
-      }
-    }
-
-    async function toggleStatus(id, newStatus) {
-      if (!confirm(`Are you sure you want to set customer status to ${newStatus}?`)) return;
-
-      try {
-        const res = await fetch(`/api/v1/admin/customers/${id}/status`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': 'Bearer ' + adminToken
-          },
-          body: JSON.stringify({ status: newStatus })
-        });
-        const data = await res.json();
-        if (data.ok) {
-          await loadCustomers();
-        } else {
-          alert(data.error || 'Status update failed');
-        }
-      } catch (err) {
-        alert('Network error');
-      }
-    }
-
-    // ── PLANS MANAGEMENT ──────────────────────────────────────
-    async function loadPlans() {
-      try {
-        const res = await fetch('/api/v1/admin/plans', {
-          headers: { 'Authorization': 'Bearer ' + adminToken }
-        });
-        const data = await res.json();
-        if (data.ok) {
-          allPlans = data.plans || [];
-          renderPlansTable();
-        }
-      } catch (err) {
-        console.error('Failed to load plans:', err);
-      }
-    }
-
-    function renderPlansTable() {
-      const tbody = document.getElementById('plansTableBody');
-      if (allPlans.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="6" style="text-align: center; padding: 36px; color: var(--muted);">No plans found.</td></tr>`;
-        return;
-      }
-
-      tbody.innerHTML = allPlans.map(p => `
-        <tr>
-          <td>
-            <div style="font-weight: 700; color: #0f172a;">${escapeHtml(p.name)}</div>
-            <div style="color: var(--muted); font-size: 12px; margin-top: 2px;">Code: <strong style="font-family: monospace;">${escapeHtml(p.code)}</strong></div>
-          </td>
-          <td>
-            <div style="font-weight: 700; color: #0284c7;">₹${Number(p.price).toLocaleString()}</div>
-            <div style="color: var(--muted); font-size: 11.5px; text-transform: uppercase;">/${escapeHtml(p.billing_cycle)}</div>
-          </td>
-          <td>${p.duration_days} Days</td>
-          <td>${p.max_devices} PC${p.max_devices > 1 ? 's' : ''}</td>
-          <td>
-            <span class="plan-badge">${p.active_subscribers || 0} active</span>
-          </td>
-          <td>
-            <button class="btn-action btn-reject" onclick="deletePlan('${p.id}')">Delete</button>
-          </td>
-        </tr>
-      `).join('');
-    }
-
-    function openAddPlanModal() {
-      document.getElementById('planName').value = '';
-      const pCodeEl = document.getElementById('planCode'); if (pCodeEl) pCodeEl.value = '';
-      document.getElementById('planPrice').value = '2999';
-      document.getElementById('planDays').value = '365';
-      document.getElementById('planDevices').value = '2';
-      document.getElementById('planDesc').value = '';
-      document.getElementById('planModal').classList.remove('hidden');
-    }
-
-    function closePlanModal() {
-      document.getElementById('planModal').classList.add('hidden');
-    }
-
-    async function savePlan() {
-      const name = document.getElementById('planName').value.trim();
-      const pCodeEl = document.getElementById('planCode'); const code = pCodeEl ? pCodeEl.value.trim() : (name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || ('plan_' + Date.now()));
-      const price = parseFloat(document.getElementById('planPrice').value || 0);
-      const duration_days = parseInt(document.getElementById('planDays').value || 365, 10);
-      const max_devices = parseInt(document.getElementById('planDevices').value || 2, 10);
-      const description = document.getElementById('planDesc').value.trim();
-
-      if (!name) {
-        alert('Plan Name and Plan Code are required.');
-        return;
-      }
-
-      try {
-        const res = await fetch('/api/v1/admin/plans', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': 'Bearer ' + adminToken
-          },
-          body: JSON.stringify({ name, code, price, duration_days, max_devices, description, billing_cycle: 'yearly' })
-        });
-        const data = await res.json();
-        if (data.ok) {
-          closePlanModal();
-          loadPlans();
-        } else {
-          alert(data.error || 'Failed to save plan');
-        }
-      } catch (err) {
-        alert(err.message);
-      }
-    }
-
-    async function deletePlan(id) {
-      if (!confirm('Are you sure you want to delete this subscription plan?')) return;
-      try {
-        const res = await fetch(`/api/v1/admin/plans/${id}`, {
-          method: 'DELETE',
-          headers: { 'Authorization': 'Bearer ' + adminToken }
-        });
-        const data = await res.json();
-        if (data.ok) loadPlans();
-        else alert(data.error || 'Failed to delete plan');
-      } catch (err) {
-        alert(err.message);
-      }
-    }
-
-    // ── SMTP MANAGEMENT ───────────────────────────────────────
-    async function loadSmtp() {
-      try {
-        const res = await fetch('/api/v1/admin/smtp', {
-          headers: { 'Authorization': 'Bearer ' + adminToken }
-        });
-        const data = await res.json();
-        if (data.ok && data.config) {
-          const c = data.config;
-          document.getElementById('smtpHost').value = c.host || '';
-          document.getElementById('smtpPort').value = c.port || 587;
-          document.getElementById('smtpUser').value = c.user || '';
-          document.getElementById('smtpPass').value = c.passMasked || '';
-          document.getElementById('smtpFrom').value = c.from || '';
-          document.getElementById('smtpSecure').checked = Boolean(c.secure);
-        }
-      } catch (err) {
-        console.error('Failed to load SMTP:', err);
-      }
-    }
-
-    async function handleSaveSmtp(e) {
-      e.preventDefault();
-      const host = document.getElementById('smtpHost').value.trim();
-      const port = document.getElementById('smtpPort').value.trim();
-      const user = document.getElementById('smtpUser').value.trim();
-      const pass = document.getElementById('smtpPass').value;
-      const from = document.getElementById('smtpFrom').value.trim();
-      const secure = document.getElementById('smtpSecure').checked;
-
-      const btn = document.getElementById('btnSaveSmtp');
-      btn.disabled = true;
-      btn.textContent = 'Saving...';
-
-      try {
-        const res = await fetch('/api/v1/admin/smtp', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': 'Bearer ' + adminToken
-          },
-          body: JSON.stringify({ host, port, user, pass, from, secure })
-        });
-        const data = await res.json();
-        if (data.ok) {
-          alert('SMTP settings saved successfully!');
-        } else {
-          alert(data.error || 'Could not save SMTP settings.');
-        }
-      } catch (err) {
-        alert(err.message);
-      } finally {
-        btn.disabled = false;
-        btn.textContent = 'Save SMTP Settings';
-      }
-    }
-
-    async function handleTestSmtp() {
-      const testEmail = document.getElementById('smtpTestRecipient').value.trim();
-      const resEl = document.getElementById('smtpTestResult');
-      resEl.style.display = 'block';
-
-      if (!testEmail) {
-        resEl.innerHTML = '<span style="color:#dc2626;">Please enter a recipient email to test.</span>';
-        return;
-      }
-
-      resEl.innerHTML = '<span style="color:#0284c7;">Connecting to SMTP server and transmitting test email...</span>';
-
-      try {
-        const res = await fetch('/api/v1/admin/smtp/test', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': 'Bearer ' + adminToken
-          },
-          body: JSON.stringify({ testEmail })
-        });
-        const data = await res.json();
-        if (data.ok) {
-          resEl.innerHTML = `<span style="color:#16a34a; font-weight:700;">✓ Success: ${escapeHtml(data.message)}</span>`;
-        } else {
-          resEl.innerHTML = `<span style="color:#dc2626; font-weight:600;">✗ Test Failed: ${escapeHtml(data.error)}</span>`;
-        }
-      } catch (err) {
-        resEl.innerHTML = `<span style="color:#dc2626;">Network error: ${escapeHtml(err.message)}</span>`;
-      }
-    }
-
-    function escapeHtml(str) {
-      return String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-    }
-
-    // ── Releases Management JS ──────────────────────────────────────
-    let currentActiveReleaseVersion = '1.1.1';
-    let parsedManifestData = null;
-
-    function compareSemver(v1, v2) {
-      const p1 = String(v1 || '').split('.').map(n => parseInt(n, 10) || 0);
-      const p2 = String(v2 || '').split('.').map(n => parseInt(n, 10) || 0);
-      for (let i = 0; i < Math.max(p1.length, p2.length); i++) {
-        const a = p1[i] || 0;
-        const b = p2[i] || 0;
-        if (a > b) return 1;
-        if (a < b) return -1;
-      }
-      return 0;
-    }
-
-    // Drag and drop helpers
-    function handleDragOver(e, el) {
-      e.preventDefault();
-      e.stopPropagation();
-      el.classList.add('drag-over');
-    }
-
-    function handleDragLeave(e, el) {
-      e.preventDefault();
-      e.stopPropagation();
-      el.classList.remove('drag-over');
-    }
-
-    function handleDropFile(e, preferredType) {
-      e.preventDefault();
-      e.stopPropagation();
-      const slotEl = e.currentTarget;
-      if (slotEl) slotEl.classList.remove('drag-over');
-
-      const files = e.dataTransfer?.files;
-      if (!files || files.length === 0) return;
-
-      for (let i = 0; i < files.length; i++) {
-        const file = files[i];
-        const name = file.name.toLowerCase();
-        if (name.endsWith('.yml') || name.endsWith('.yaml')) {
-          assignFileToInput('newRelManifest', file);
-          handleManifestFileSelect(document.getElementById('newRelManifest'));
-        } else if (name.endsWith('.blockmap')) {
-          assignFileToInput('newRelBlockmap', file);
-          handleBlockmapFileSelect(document.getElementById('newRelBlockmap'));
-        } else if (name.endsWith('.exe')) {
-          assignFileToInput('newRelExe', file);
-          handleExeFileSelect(document.getElementById('newRelExe'));
-        }
-      }
-    }
-
-    function assignFileToInput(inputId, file) {
-      const input = document.getElementById(inputId);
-      if (!input) return;
-      try {
-        const dt = new DataTransfer();
-        dt.items.add(file);
-        input.files = dt.files;
-      } catch (_) {}
-    }
-
-    // 1. Auto-Parse latest.yml Manifest (No manual version typing)
-    function handleManifestFileSelect(input) {
-      const file = input.files[0];
-      const slot = document.getElementById('slotManifest');
-      if (!file) {
-        parsedManifestData = null;
-        if (slot) slot.classList.remove('has-file');
-        document.getElementById('manifestSummaryBox').style.display = 'none';
-        checkUploadReadiness();
-        return;
-      }
-
-      if (slot) {
-        slot.classList.add('has-file');
-        document.getElementById('loadedNameManifest').textContent = file.name;
-        document.getElementById('loadedSizeManifest').textContent = (file.size / 1024).toFixed(1) + ' KB';
-      }
-
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        const text = e.target.result;
-        const verMatch = text.match(/^\s*version:\s*['"]?([0-9A-Za-z.-]+)['"]?/m);
-        const pathMatch = text.match(/^\s*path:\s*['"]?([^\r\n'"]+)['"]?/m) || text.match(/url:\s*['"]?([^\r\n'"]+)['"]?/m);
-        const shaMatch = text.match(/^\s*sha512:\s*['"]?([^\r\n'"]+)['"]?/m);
-        const dateMatch = text.match(/^\s*releaseDate:\s*['"]?([^\r\n'"]+)['"]?/m);
-
-        if (!verMatch) {
-          alert('Could not parse "version" from latest.yml. Please make sure this is an authentic electron-builder manifest.');
-          input.value = '';
-          if (slot) slot.classList.remove('has-file');
-          parsedManifestData = null;
-          document.getElementById('manifestSummaryBox').style.display = 'none';
-          checkUploadReadiness();
-          return;
-        }
-
-        const version = verMatch[1];
-        const targetFile = pathMatch ? pathMatch[1].trim() : `ZynBill Setup ${version}.exe`;
-        const sha512 = shaMatch ? shaMatch[1].trim() : '';
-        const releaseDate = dateMatch ? dateMatch[1].trim() : new Date().toISOString();
-
-        parsedManifestData = {
-          version,
-          targetFile,
-          sha512,
-          releaseDate,
-          fileObj: file
+          return 0;
         };
 
-        // Populate Auto-Detected Display Panel
-        document.getElementById('detectedVersionBadge').textContent = 'v' + version;
-        document.getElementById('detectedTargetBinary').textContent = targetFile;
-        document.getElementById('detectedSha512').textContent = sha512 ? (sha512.substring(0, 36) + '...') : 'Not specified';
-        document.getElementById('detectedReleaseDate').textContent = new Date(releaseDate).toLocaleString();
-        document.getElementById('manifestSummaryBox').style.display = 'block';
+        const semverCmp = computed(() => {
+          if (!parsedManifest.value || !parsedManifest.value.version) return 0;
+          return compareSemver(parsedManifest.value.version, activeReleaseVersion.value || '1.1.1');
+        });
 
-        checkUploadReadiness();
-      };
-      reader.readAsText(file);
-    }
+        const semverRelationClass = computed(() => {
+          return semverCmp.value > 0 ? 'ready' : 'waiting';
+        });
 
-    // 2. Setup Installer (.exe) Select Handler
-    function handleExeFileSelect(input) {
-      const file = input.files[0];
-      const slot = document.getElementById('slotExe');
-      if (!file) {
-        if (slot) slot.classList.remove('has-file');
-        checkUploadReadiness();
-        return;
-      }
-      if (slot) {
-        slot.classList.add('has-file');
-        document.getElementById('loadedNameExe').textContent = file.name;
-        document.getElementById('loadedSizeExe').textContent = (file.size / (1024 * 1024)).toFixed(1) + ' MB';
-      }
-      checkUploadReadiness();
-    }
+        const semverRelationText = computed(() => {
+          if (!parsedManifest.value) return '';
+          const active = activeReleaseVersion.value || '1.1.1';
+          if (semverCmp.value > 0) return `Upgrade: v${active} → v${parsedManifest.value.version}`;
+          if (semverCmp.value === 0) return `IDENTICAL to active (v${active})`;
+          return `OLDER than active (v${active})`;
+        });
 
-    // 3. Differential Blockmap (.blockmap) Select Handler
-    function handleBlockmapFileSelect(input) {
-      const file = input.files[0];
-      const slot = document.getElementById('slotBlockmap');
-      if (!file) {
-        if (slot) slot.classList.remove('has-file');
-        checkUploadReadiness();
-        return;
-      }
-      if (slot) {
-        slot.classList.add('has-file');
-        document.getElementById('loadedNameBlockmap').textContent = file.name;
-        document.getElementById('loadedSizeBlockmap').textContent = (file.size / 1024).toFixed(1) + ' KB';
-      }
-      checkUploadReadiness();
-    }
+        const isReadyToPublish = computed(() => {
+          if (!parsedManifest.value || !exeFile.value || !blockmapFile.value) return false;
+          if (semverCmp.value <= 0 && !allowDowngrade.value) return false;
+          return true;
+        });
 
-    // Check All 3 Artifacts for Deployment Readiness
-    function checkUploadReadiness() {
-      const uploadBtn = document.getElementById('btnUploadRelease');
-      const exeInput = document.getElementById('newRelExe');
-      const blockmapInput = document.getElementById('newRelBlockmap');
-      const downgradeWarningBox = document.getElementById('downgradeWarningBox');
-      const downgradeWarningText = document.getElementById('downgradeWarningText');
-      const allowDowngrade = document.getElementById('allowDowngradeCheckbox')?.checked || false;
+        const processManifestFile = (file) => {
+          if (!file) return;
+          manifestFile.value = file;
+          const reader = new FileReader();
+          reader.onload = (e) => {
+            const text = e.target.result || '';
+            const verMatch = text.match(/^\s*version:\s*['"]?([0-9A-Za-z.-]+)['"]?/m);
+            const pathMatch = text.match(/^\s*path:\s*['"]?([^\r\n'"]+)['"]?/m) || text.match(/url:\s*['"]?([^\r\n'"]+)['"]?/m);
+            const shaMatch = text.match(/^\s*sha512:\s*['"]?([^\r\n'"]+)['"]?/m);
+            const dateMatch = text.match(/^\s*releaseDate:\s*['"]?([^\r\n'"]+)['"]?/m);
 
-      const chkExe = document.getElementById('chkExeStatus');
-      const chkBlockmap = document.getElementById('chkBlockmapStatus');
-      const semverStatus = document.getElementById('detectedSemverStatus');
-
-      if (!uploadBtn) return;
-
-      const hasManifest = !!parsedManifestData;
-      const exeFile = exeInput?.files[0];
-      const blockmapFile = blockmapInput?.files[0];
-
-      if (chkExe) {
-        if (exeFile) {
-          const sizeMb = (exeFile.size / (1024 * 1024)).toFixed(1);
-          chkExe.className = 'spec-chip ready';
-          chkExe.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg> <span>Installer: ${escapeHtml(exeFile.name)} (${sizeMb} MB)</span>`;
-        } else {
-          chkExe.className = 'spec-chip waiting';
-          chkExe.innerHTML = `<span>Awaiting .exe installer</span>`;
-        }
-      }
-
-      if (chkBlockmap) {
-        if (blockmapFile) {
-          const sizeKb = (blockmapFile.size / 1024).toFixed(1);
-          chkBlockmap.className = 'spec-chip ready';
-          chkBlockmap.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg> <span>Blockmap: ${sizeKb} KB</span>`;
-        } else {
-          chkBlockmap.className = 'spec-chip waiting';
-          chkBlockmap.innerHTML = `<span>Awaiting .blockmap</span>`;
-        }
-      }
-
-      if (!hasManifest) {
-        if (downgradeWarningBox) downgradeWarningBox.style.display = 'none';
-        uploadBtn.disabled = true;
-        return;
-      }
-
-      const version = parsedManifestData.version;
-      const cmp = compareSemver(version, currentActiveReleaseVersion);
-
-      if (cmp > 0) {
-        if (semverStatus) {
-          semverStatus.className = 'spec-chip ready';
-          semverStatus.innerHTML = `<span>Upgrade: v${currentActiveReleaseVersion} &rarr; v${version}</span>`;
-        }
-        if (downgradeWarningBox) downgradeWarningBox.style.display = 'none';
-      } else {
-        const relation = cmp === 0 ? 'IDENTICAL to' : 'OLDER than';
-        if (semverStatus) {
-          semverStatus.className = 'spec-chip waiting';
-          semverStatus.innerHTML = `<span>${relation} active (v${currentActiveReleaseVersion})</span>`;
-        }
-        if (downgradeWarningBox) {
-          downgradeWarningBox.style.display = 'block';
-          if (downgradeWarningText) {
-            downgradeWarningText.innerHTML = `Auto-detected version <strong>v${escapeHtml(version)}</strong> is ${relation} active live release <strong>v${escapeHtml(currentActiveReleaseVersion)}</strong>.`;
-          }
-        }
-      }
-
-      const isBlockedByDowngrade = cmp <= 0 && !allowDowngrade;
-      const isReady = hasManifest && !!exeFile && !!blockmapFile && !isBlockedByDowngrade;
-      uploadBtn.disabled = !isReady;
-    }
-
-    function resetUploadForm() {
-      document.getElementById('uploadReleaseForm').reset();
-      parsedManifestData = null;
-      document.getElementById('manifestSummaryBox').style.display = 'none';
-      document.getElementById('uploadProgressWrap').style.display = 'none';
-      document.getElementById('uploadFeedback').textContent = '';
-      document.getElementById('slotManifest')?.classList.remove('has-file');
-      document.getElementById('slotExe')?.classList.remove('has-file');
-      document.getElementById('slotBlockmap')?.classList.remove('has-file');
-      checkUploadReadiness();
-    }
-
-    // 4. Sequential 3-File Upload Pipeline
-    async function handleUploadPackage(e) {
-      e.preventDefault();
-      if (!parsedManifestData) {
-        alert('Please select latest.yml to auto-detect release metadata.');
-        return;
-      }
-
-      const exeInput = document.getElementById('newRelExe');
-      const blockmapInput = document.getElementById('newRelBlockmap');
-      const exeFile = exeInput?.files[0];
-      const blockmapFile = blockmapInput?.files[0];
-      const manifestFile = parsedManifestData.fileObj;
-      const allowDowngrade = document.getElementById('allowDowngradeCheckbox')?.checked || false;
-      const notes = document.getElementById('newRelNotes')?.value.trim() || '';
-
-      if (!exeFile) {
-        alert('Please select the .exe setup installer file.');
-        return;
-      }
-      if (!blockmapFile) {
-        alert('Please select the .blockmap differential update file.');
-        return;
-      }
-
-      const version = parsedManifestData.version;
-      const uploadBtn = document.getElementById('btnUploadRelease');
-      const progressWrap = document.getElementById('uploadProgressWrap');
-      const progressBar = document.getElementById('uploadProgressBar');
-      const percentText = document.getElementById('uploadPercentText');
-      const statusText = document.getElementById('uploadStatusText');
-      const feedback = document.getElementById('uploadFeedback');
-
-      uploadBtn.disabled = true;
-      progressWrap.style.display = 'block';
-      feedback.textContent = '';
-
-      function uploadSingleFile(file, fileType, stepNum, totalSteps) {
-        return new Promise((resolve, reject) => {
-          const xhr = new XMLHttpRequest();
-          const url = `/api/v1/admin/releases/upload?version=${encodeURIComponent(version)}&filename=${encodeURIComponent(file.name)}&fileType=${fileType}&stage=true&notes=${encodeURIComponent(notes)}`;
-          xhr.open('POST', url, true);
-          xhr.timeout = 30 * 60 * 1000;
-          xhr.setRequestHeader('Authorization', 'Bearer ' + adminToken);
-          xhr.setRequestHeader('Content-Type', 'application/octet-stream');
-
-          xhr.upload.onprogress = (ev) => {
-            if (ev.lengthComputable) {
-              const filePct = Math.round((ev.loaded / ev.total) * 100);
-              const overallPct = Math.round(((stepNum - 1) / totalSteps) * 90 + (filePct / totalSteps) * 0.9);
-              progressBar.style.width = overallPct + '%';
-              percentText.textContent = overallPct + '%';
-              statusText.textContent = `[${stepNum}/${totalSteps}] Staging ${file.name} (${(ev.loaded/(1024*1024)).toFixed(1)} MB / ${(ev.total/(1024*1024)).toFixed(1)} MB)...`;
+            if (!verMatch) {
+              alert('Could not parse "version" from latest.yml. Please make sure this is an authentic electron-builder manifest.');
+              manifestFile.value = null;
+              parsedManifest.value = null;
+              return;
             }
-          };
 
-          xhr.onload = () => {
-            let resp = {};
-            try { resp = JSON.parse(xhr.responseText); } catch (_) {}
-            if (xhr.status === 200 && resp.ok) {
-              resolve(resp);
+            const version = verMatch[1];
+            const targetFile = pathMatch ? pathMatch[1].trim() : `ZynBill Setup ${version}.exe`;
+            const sha512 = shaMatch ? shaMatch[1].trim() : '';
+            const releaseDate = dateMatch ? dateMatch[1].trim() : new Date().toISOString();
+
+            parsedManifest.value = {
+              version,
+              targetFile,
+              sha512,
+              releaseDate
+            };
+          };
+          reader.readAsText(file);
+        };
+
+        const onManifestChange = (e) => {
+          const file = e.target.files && e.target.files[0];
+          if (file) processManifestFile(file);
+        };
+
+        const onExeChange = (e) => {
+          const file = e.target.files && e.target.files[0];
+          if (file) exeFile.value = file;
+        };
+
+        const onBlockmapChange = (e) => {
+          const file = e.target.files && e.target.files[0];
+          if (file) blockmapFile.value = file;
+        };
+
+        const onDropFile = (e, targetSlot) => {
+          dragOverSlot.value = null;
+          const files = Array.from(e.dataTransfer?.files || []);
+          if (!files.length) return;
+
+          for (const file of files) {
+            const name = file.name.toLowerCase();
+            if (name.endsWith('.yml') || name.endsWith('.yaml')) {
+              processManifestFile(file);
+            } else if (name.endsWith('.blockmap')) {
+              blockmapFile.value = file;
+            } else if (name.endsWith('.exe')) {
+              exeFile.value = file;
+            } else if (targetSlot === 'manifest') {
+              processManifestFile(file);
+            } else if (targetSlot === 'installer' || targetSlot === 'exe') {
+              exeFile.value = file;
+            } else if (targetSlot === 'blockmap') {
+              blockmapFile.value = file;
+            }
+          }
+        };
+
+        const resetUploadForm = () => {
+          manifestFile.value = null;
+          exeFile.value = null;
+          blockmapFile.value = null;
+          parsedManifest.value = null;
+          allowDowngrade.value = false;
+          uploadReleaseNotes.value = '';
+          isUploading.value = false;
+          uploadPercent.value = 0;
+          uploadStatusText.value = '';
+          uploadFeedbackText.value = '';
+          uploadFeedbackError.value = false;
+          if (manifestInput.value) manifestInput.value.value = '';
+          if (exeInput.value) exeInput.value.value = '';
+          if (blockmapInput.value) blockmapInput.value.value = '';
+        };
+
+        const uploadSingleFile = (file, fileType, stepNum, totalSteps, version, notes) => {
+          return new Promise((resolve, reject) => {
+            const xhr = new XMLHttpRequest();
+            const url = `/api/v1/admin/releases/upload?version=${encodeURIComponent(version)}&filename=${encodeURIComponent(file.name)}&fileType=${fileType}&stage=true&notes=${encodeURIComponent(notes)}`;
+            xhr.open('POST', url, true);
+            xhr.timeout = 30 * 60 * 1000;
+            xhr.setRequestHeader('Authorization', 'Bearer ' + adminToken.value);
+            xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+
+            xhr.upload.onprogress = (ev) => {
+              if (ev.lengthComputable) {
+                const filePct = Math.round((ev.loaded / ev.total) * 100);
+                const overallPct = Math.round(((stepNum - 1) / totalSteps) * 90 + (filePct / totalSteps) * 0.9);
+                uploadPercent.value = overallPct;
+                uploadStatusText.value = `[${stepNum}/${totalSteps}] Staging ${file.name} (${(ev.loaded / (1024 * 1024)).toFixed(1)} MB / ${(ev.total / (1024 * 1024)).toFixed(1)} MB)...`;
+              }
+            };
+
+            xhr.onload = () => {
+              let resp = {};
+              try { resp = JSON.parse(xhr.responseText); } catch (_) {}
+              if (xhr.status === 200 && resp.ok) {
+                resolve(resp);
+              } else {
+                reject(new Error(resp.error || xhr.statusText || `Upload failed with status ${xhr.status}`));
+              }
+            };
+
+            xhr.onerror = () => reject(new Error('Network error during file upload. Check server connectivity.'));
+            xhr.ontimeout = () => reject(new Error('Upload timed out after 30 minutes.'));
+
+            xhr.send(file);
+          });
+        };
+
+        const publishReleasePackage = async () => {
+          if (!parsedManifest.value) {
+            alert('Please select latest.yml to auto-detect release metadata.');
+            return;
+          }
+          if (!exeFile.value) {
+            alert('Please select the .exe setup installer file.');
+            return;
+          }
+          if (!blockmapFile.value) {
+            alert('Please select the .blockmap differential update file.');
+            return;
+          }
+
+          const version = parsedManifest.value.version;
+          const notes = uploadReleaseNotes.value.trim();
+
+          isUploading.value = true;
+          uploadPercent.value = 0;
+          uploadFeedbackText.value = '';
+          uploadFeedbackError.value = false;
+
+          try {
+            // 1. Upload latest.yml
+            uploadStatusText.value = '[1/3] Staging latest.yml manifest...';
+            await uploadSingleFile(manifestFile.value, 'manifest', 1, 3, version, notes);
+
+            // 2. Upload .exe
+            uploadStatusText.value = `[2/3] Staging ${exeFile.value.name}...`;
+            await uploadSingleFile(exeFile.value, 'installer', 2, 3, version, notes);
+
+            // 3. Upload .blockmap
+            uploadStatusText.value = `[3/3] Staging ${blockmapFile.value.name}...`;
+            await uploadSingleFile(blockmapFile.value, 'blockmap', 3, 3, version, notes);
+
+            // 4. Atomically publish
+            uploadPercent.value = 95;
+            uploadStatusText.value = 'Verifying SHA-512 checksum & atomically publishing release...';
+
+            const pubRes = await fetch('/api/v1/admin/releases/publish', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': 'Bearer ' + adminToken.value
+              },
+              body: JSON.stringify({ version, notes })
+            });
+
+            const pubData = await pubRes.json();
+            if (!pubRes.ok || !pubData.ok) {
+              throw new Error(pubData.error || 'Failed to atomically publish release.');
+            }
+
+            uploadPercent.value = 100;
+            uploadStatusText.value = `Version v${version} validated and live in production!`;
+            uploadFeedbackError.value = false;
+            uploadFeedbackText.value = `✓ Release v${version} successfully published! SHA-512 verified.`;
+            showToast(`Release v${version} is now published and active!`);
+
+            resetUploadForm();
+            loadReleases();
+          } catch (err) {
+            uploadStatusText.value = 'Upload / Publish failed';
+            uploadFeedbackError.value = true;
+            uploadFeedbackText.value = 'Error: ' + err.message;
+            showToast(err.message, true);
+          } finally {
+            isUploading.value = false;
+          }
+        };
+
+        const smtp = reactive({ host: '', port: 587, secure: false, user: '', pass: '', from: '' });
+        const smtpLoading = ref(false);
+
+        const loginForm = reactive({ email: '', password: '', loading: false, error: '' });
+        const approveModal = reactive({ show: false, customer: null, plan: 'professional', validityDays: 365 });
+        const devicesModal = reactive({ show: false, customer: null, devices: [] });
+        const planModal = reactive({ show: false, name: '', code: '', price: 2999, max_devices: 2, duration_days: 365 });
+
+        const toast = reactive({ show: false, message: '', isError: false });
+        const showToast = (message, isError = false) => {
+          toast.message = message;
+          toast.isError = isError;
+          toast.show = true;
+          setTimeout(() => { toast.show = false; }, 4000);
+        };
+
+        const formatDate = (d) => {
+          if (!d) return 'Never / Not set';
+          try { return new Date(d).toLocaleDateString([], { year: 'numeric', month: 'short', day: 'numeric' }); }
+          catch (_) { return d; }
+        };
+
+        const formatDateTime = (d) => {
+          if (!d) return '-';
+          try { return new Date(d).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }); }
+          catch (_) { return d; }
+        };
+
+        const getStatusBadgeClass = (s) => {
+          if (s === 'active') return 'badge-active';
+          if (s === 'pending_verification') return 'badge-otp';
+          if (s === 'suspended') return 'badge-suspended';
+          if (s === 'rejected') return 'badge-rejected';
+          return 'badge-pending';
+        };
+
+        const getStatusBadgeLabel = (s) => {
+          if (s === 'active') return 'Active';
+          if (s === 'pending_verification') return 'Pending OTP';
+          if (s === 'suspended') return 'Suspended';
+          if (s === 'rejected') return 'Rejected';
+          return 'Pending Review';
+        };
+
+        const getLogLevelStyle = (lvl) => {
+          if (lvl === 'CRITICAL' || lvl === 'ERROR') return 'background: #fee2e2; color: #991b1b;';
+          if (lvl === 'WARN') return 'background: #fef3c7; color: #92400e;';
+          return 'background: #e0f2fe; color: #0369a1;';
+        };
+
+        const filteredCustomers = computed(() => {
+          let list = customers.value;
+          if (customerFilter.value !== 'all') {
+            list = list.filter(c => c.status === customerFilter.value);
+          }
+          if (customerSearch.value.trim()) {
+            const q = customerSearch.value.trim().toLowerCase();
+            list = list.filter(c => [c.company_name, c.owner_name, c.email, c.phone, c.gstin].filter(Boolean).some(v => String(v).toLowerCase().includes(q)));
+          }
+          return list;
+        });
+
+        const checkAdminAuth = async () => {
+          if (!adminToken.value) {
+            authenticated.value = false;
+            return;
+          }
+          try {
+            const res = await fetch('/api/v1/admin/customers?limit=1', {
+              headers: { 'Authorization': 'Bearer ' + adminToken.value }
+            });
+            if (res.ok) {
+              authenticated.value = true;
+              loadAllAdminData();
             } else {
-              reject(new Error(resp.error || xhr.statusText || `Upload failed with status ${xhr.status}`));
+              handleLogout();
             }
-          };
-
-          xhr.onerror = () => reject(new Error('Network error during file upload. Check server connectivity.'));
-          xhr.ontimeout = () => reject(new Error('Upload timed out after 30 minutes.'));
-
-          xhr.send(file);
-        });
-      }
-
-      try {
-        // Step 1: Upload latest.yml to staging
-        statusText.textContent = '[1/3] Staging latest.yml manifest...';
-        await uploadSingleFile(manifestFile, 'manifest', 1, 3);
-
-        // Step 2: Upload .exe installer to staging
-        statusText.textContent = `[2/3] Staging ${exeFile.name}...`;
-        await uploadSingleFile(exeFile, 'installer', 2, 3);
-
-        // Step 3: Upload .blockmap to staging
-        statusText.textContent = `[3/3] Staging ${blockmapFile.name}...`;
-        await uploadSingleFile(blockmapFile, 'blockmap', 3, 3);
-
-        // Step 4: Atomic Release Verification & Publishing
-        progressBar.style.width = '95%';
-        percentText.textContent = '95%';
-        statusText.textContent = 'Verifying SHA-512 checksum & atomically publishing release...';
-
-        const pubRes = await fetch('/api/v1/admin/releases/publish', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': 'Bearer ' + adminToken
-          },
-          body: JSON.stringify({ version, notes })
-        });
-
-        const pubData = await pubRes.json();
-        if (!pubRes.ok || !pubData.ok) {
-          throw new Error(pubData.error || 'Failed to atomically publish release.');
-        }
-
-        progressBar.style.width = '100%';
-        percentText.textContent = '100%';
-        statusText.textContent = `Version v${version} validated and live in production!`;
-        feedback.style.color = '#15803d';
-        feedback.textContent = `✓ Release v${version} successfully published! SHA-512 verified.`;
-
-        resetUploadForm();
-        loadReleases();
-      } catch (err) {
-        statusText.textContent = 'Upload / Publish failed';
-        feedback.style.color = '#b91c1c';
-        feedback.textContent = 'Error: ' + err.message;
-      } finally {
-        uploadBtn.disabled = false;
-      }
-    }
-
-    // 5. Load and Display All Uploaded Releases Grouped by Version
-    async function loadReleases() {
-      try {
-        const res = await fetch('/api/v1/admin/releases', {
-          headers: { 'Authorization': 'Bearer ' + adminToken }
-        });
-        if (res.status === 401) {
-          handleLogout();
-          return;
-        }
-        const data = await res.json();
-        if (!data.ok) {
-          console.warn('Releases endpoint returned error:', data.error);
-          return;
-        }
-
-        currentActiveReleaseVersion = data.activeVersion || '1.1.1';
-        checkUploadReadiness();
-
-        const tbody = document.getElementById('releasesTableBody');
-        const versions = data.versions || [];
-
-        if (versions.length === 0) {
-          tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: var(--muted); padding: 36px;">No releases uploaded yet. Upload a 3-file package above.</td></tr>';
-          return;
-        }
-
-        tbody.innerHTML = versions.map(v => {
-          const isActive = v.isActive;
-          const exeInfo = v.exe ? `
-            <div style="font-weight: 600; color: #0f172a; font-family: ui-monospace, monospace; font-size: 12px;">${escapeHtml(v.exe.name)}</div>
-            <div style="font-size: 11.5px; color: #64748b; margin-top: 3px; display: flex; align-items: center; gap: 8px;">
-              <span>${escapeHtml(v.exe.sizeMb)}</span>
-              &bull;
-              <a href="${escapeHtml(v.exe.downloadUrl)}" style="color: #0284c7; text-decoration: none; font-weight: 600; display: inline-flex; align-items: center; gap: 3px;">
-                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-                Download
-              </a>
-            </div>
-          ` : `<span class="badge" style="background: #fee2e2; color: #991b1b; font-size: 11px;">Missing .exe</span>`;
-
-          const blockmapInfo = v.blockmap ? `
-            <div style="font-weight: 600; color: #334155; font-family: ui-monospace, monospace; font-size: 12px;">${escapeHtml(v.blockmap.name)}</div>
-            <div style="font-size: 11.5px; color: #64748b; margin-top: 3px; display: flex; align-items: center; gap: 8px;">
-              <span>${escapeHtml(v.blockmap.sizeKb)}</span>
-              &bull;
-              <a href="${escapeHtml(v.blockmap.downloadUrl)}" style="color: #0284c7; text-decoration: none; font-weight: 600; display: inline-flex; align-items: center; gap: 3px;">
-                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-                Blockmap
-              </a>
-            </div>
-          ` : `<span class="badge" style="background: #fef3c7; color: #92400e; font-size: 11px;">Missing .blockmap</span>`;
-
-          const manifestInfo = isActive ?
-            `<span class="badge" style="background: #ecfdf5; color: #047857; border: 1px solid #a7f3d0; font-size: 11px; font-weight: 700;">Active Manifest</span>` :
-            (v.hasArchivedManifest ? `<span class="badge" style="background: #f8fafc; color: #475569; border: 1px solid #e2e8f0; font-size: 11px;">Archived</span>` : `<span style="color: var(--muted); font-size: 12px;">—</span>`);
-
-          const dateStr = v.releaseDate || v.updatedAt ? new Date(v.releaseDate || v.updatedAt).toLocaleString() : '—';
-
-          const activateBtn = !isActive ? `
-            <button type="button" class="btn-action btn-secondary" style="padding: 4px 10px; font-size: 11.5px; margin-right: 6px;" onclick="activateReleaseVersion('${escapeHtml(v.version)}')">Set as Active</button>
-          ` : '';
-
-          const deleteBtn = `
-            <button type="button" class="btn-action btn-reject" style="padding: 4px 10px; font-size: 11.5px;" onclick="deleteReleaseVersion('${escapeHtml(v.version)}')">Delete</button>
-          `;
-
-          return `
-            <tr style="${isActive ? 'background: #f8fafc;' : ''}">
-              <td>
-                <div style="display: flex; align-items: center; gap: 8px;">
-                  <span style="background: #0f172a; color: #38bdf8; font-family: ui-monospace, monospace; font-size: 12px; font-weight: 700; padding: 3px 8px; border-radius: 5px;">v${escapeHtml(v.version)}</span>
-                  ${isActive ? '<span class="badge" style="background: #ecfdf5; color: #047857; font-size: 10px; font-weight: 700; border: 1px solid #a7f3d0;"><span style="display:inline-block; width:6px; height:6px; border-radius:50%; background:#10b981; margin-right:4px;"></span>ACTIVE LIVE</span>' : ''}
-                </div>
-              </td>
-              <td>${exeInfo}</td>
-              <td>${blockmapInfo}</td>
-              <td>${manifestInfo}</td>
-              <td style="font-size: 12px; color: #64748b;">${escapeHtml(dateStr)}</td>
-              <td style="text-align: right; white-space: nowrap;">
-                ${activateBtn}
-                ${deleteBtn}
-              </td>
-            </tr>
-          `;
-        }).join('');
-      } catch (err) {
-        console.error('Failed to load releases:', err);
-      }
-    }
-
-    async function activateReleaseVersion(version) {
-      if (!confirm(`Are you sure you want to set v${version} as the active live release? Client applications checking for updates will target this version.`)) {
-        return;
-      }
-      try {
-        const res = await fetch('/api/v1/admin/releases/activate', {
-          method: 'POST',
-          headers: {
-            'Authorization': 'Bearer ' + adminToken,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({ version })
-        });
-        const data = await res.json();
-        if (data.ok) {
-          alert(`v${version} is now the active live release!`);
-          loadReleases();
-        } else {
-          alert(data.error || 'Failed to activate release.');
-        }
-      } catch (err) {
-        alert('Network error: ' + err.message);
-      }
-    }
-
-    async function deleteReleaseVersion(version) {
-      if (!confirm(`Are you sure you want to delete all deployment files for version v${version}? This will remove its .exe, .blockmap, and manifest files. This action cannot be undone.`)) {
-        return;
-      }
-      try {
-        const res = await fetch('/api/v1/admin/releases/version?version=' + encodeURIComponent(version), {
-          method: 'DELETE',
-          headers: { 'Authorization': 'Bearer ' + adminToken }
-        });
-        const data = await res.json();
-        if (data.ok) {
-          alert(`Version v${version} deployment files removed.`);
-          loadReleases();
-        } else {
-          alert(data.error || 'Failed to delete release.');
-        }
-      } catch (err) {
-        alert('Network error: ' + err.message);
-      }
-    }
-
-    // ── Error Monitoring JS ──────────────────────────────────────────
-    let currentLogs = [];
-    let logFilterLevel = '';
-    let logFilterSource = '';
-    let logAutoRefreshInterval = null;
-
-    function setLogFilter(type, value, btnEl) {
-      if (type === 'level') {
-        logFilterLevel = value;
-        document.querySelectorAll('#viewLogs .filter-btn').forEach(b => b.classList.remove('active'));
-        if (btnEl) btnEl.classList.add('active');
-      } else if (type === 'source') {
-        logFilterSource = value;
-      }
-      loadLogs();
-    }
-
-    function toggleLogAutoRefresh(enabled) {
-      if (logAutoRefreshInterval) {
-        clearInterval(logAutoRefreshInterval);
-        logAutoRefreshInterval = null;
-      }
-      if (enabled) {
-        logAutoRefreshInterval = setInterval(() => {
-          const viewLogs = document.getElementById('viewLogs');
-          if (viewLogs && !viewLogs.classList.contains('hidden')) {
-            loadLogs(true);
+          } catch (_) {
+            authenticated.value = false;
           }
-        }, 10000);
-      }
-    }
+        };
 
-    async function loadLogs(isSilent = false) {
-      try {
-        const params = new URLSearchParams();
-        if (logFilterLevel) params.append('level', logFilterLevel);
-        if (logFilterSource) params.append('source', logFilterSource);
-        params.append('limit', '150');
+        const handleLogin = async () => {
+          loginForm.error = '';
+          loginForm.loading = true;
+          try {
+            const res = await fetch('/api/v1/admin/login', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ email: loginForm.email.trim(), password: loginForm.password.trim() })
+            });
+            const data = await res.json();
+            if (!res.ok || !data.ok) throw new Error(data.error || 'Admin login failed.');
 
-        const res = await fetch('/api/v1/admin/logs?' + params.toString(), {
-          headers: { 'Authorization': 'Bearer ' + adminToken }
-        });
-        if (res.status === 401) {
-          handleLogout();
-          return;
-        }
-        const data = await res.json();
-        if (!data.ok) return;
+            adminToken.value = data.token;
+            adminEmail.value = data.user?.email || loginForm.email;
+            localStorage.setItem('zynbill_admin_token', data.token);
+            localStorage.setItem('zynbill_admin_email', adminEmail.value);
+            authenticated.value = true;
+            loadAllAdminData();
+            showToast('Super Admin authenticated successfully.');
+          } catch (err) {
+            loginForm.error = err.message;
+          } finally {
+            loginForm.loading = false;
+          }
+        };
 
-        currentLogs = data.logs || [];
-        const stats = data.stats || {};
+        const handleLogout = async () => {
+          try {
+            if (adminToken.value) {
+              await fetch('/api/v1/admin/logout', {
+                method: 'POST',
+                headers: { 'Authorization': 'Bearer ' + adminToken.value }
+              });
+            }
+          } catch (_) {}
+          adminToken.value = '';
+          authenticated.value = false;
+          localStorage.removeItem('zynbill_admin_token');
+        };
 
-        // Render KPI Counters
-        document.getElementById('kpiErrorsToday').textContent = stats.totalToday || 0;
-        document.getElementById('kpiCriticalCount').textContent = stats.criticalCount || 0;
-        document.getElementById('kpiClientCount').textContent = stats.clientCount || 0;
-        document.getElementById('kpiServerCount').textContent = stats.serverCount || 0;
+        const loadCustomers = async () => {
+          if (!adminToken.value) return;
+          try {
+            const res = await fetch('/api/v1/admin/customers', {
+              headers: { 'Authorization': 'Bearer ' + adminToken.value }
+            });
+            const data = await res.json();
+            if (data.ok) {
+              customers.value = data.customers || [];
+              if (data.stats) Object.assign(stats, data.stats);
+            }
+          } catch (err) {
+            console.error('Failed to load customers:', err);
+          }
+        };
 
-        // Render Table Body
-        const tbody = document.getElementById('logsTableBody');
-        if (currentLogs.length === 0) {
-          tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: var(--muted); padding: 36px;">✓ No error logs found for current filters. System running cleanly.</td></tr>';
-          return;
-        }
+        const loadPlans = async () => {
+          if (!adminToken.value) return;
+          try {
+            const res = await fetch('/api/v1/admin/plans', {
+              headers: { 'Authorization': 'Bearer ' + adminToken.value }
+            });
+            const data = await res.json();
+            if (data.ok) {
+              plans.value = data.plans || [];
+            }
+          } catch (err) {
+            console.error('Failed to load plans:', err);
+          }
+        };
 
-        tbody.innerHTML = currentLogs.map(l => {
-          let badgeBg = '#f1f5f9';
-          let badgeColor = '#475569';
-          if (l.level === 'CRITICAL') { badgeBg = '#fee2e2'; badgeColor = '#991b1b'; }
-          else if (l.level === 'ERROR') { badgeBg = '#fef2f2'; badgeColor = '#dc2626'; }
-          else if (l.level === 'WARN') { badgeBg = '#fef3c7'; badgeColor = '#b45309'; }
-          else if (l.level === 'INFO') { badgeBg = '#e0f2fe'; badgeColor = '#0369a1'; }
+        const loadSmtp = async () => {
+          if (!adminToken.value) return;
+          try {
+            const res = await fetch('/api/v1/admin/smtp', {
+              headers: { 'Authorization': 'Bearer ' + adminToken.value }
+            });
+            const data = await res.json();
+            if (data.ok && data.smtp) {
+              Object.assign(smtp, data.smtp);
+            }
+          } catch (_) {}
+        };
 
-          let sourceLabel = l.source;
-          if (l.source === 'desktop_client') sourceLabel = '🖥️ Desktop App';
-          else if (l.source === 'server') sourceLabel = '☁️ Cloud Server';
-          else if (l.source === 'sync_engine') sourceLabel = '🔄 Sync Engine';
+        const loadReleases = async () => {
+          if (!adminToken.value) return;
+          try {
+            const res = await fetch('/api/v1/admin/releases', {
+              headers: { 'Authorization': 'Bearer ' + adminToken.value }
+            });
+            const data = await res.json();
+            if (data.ok) {
+              releases.value = data.versions || [];
+              activeReleaseVersion.value = data.activeVersion || '1.1.1';
+            }
+          } catch (_) {}
+        };
 
-          const timeStr = new Date(l.created_at).toLocaleTimeString([], { hour:'2-digit', minute:'2-digit', second:'2-digit' });
-          const dateStr = new Date(l.created_at).toLocaleDateString();
+        const loadLogs = async () => {
+          if (!adminToken.value) return;
+          try {
+            const params = new URLSearchParams({ limit: '100' });
+            if (logFilterLevel.value) params.set('level', logFilterLevel.value);
+            if (logSearch.value.trim()) params.set('search', logSearch.value.trim());
 
-          const originInfo = l.client_version ? ('v' + l.client_version) : (l.endpoint || '-');
+            const res = await fetch('/api/v1/admin/logs?' + params.toString(), {
+              headers: { 'Authorization': 'Bearer ' + adminToken.value }
+            });
+            const data = await res.json();
+            if (data.ok) {
+              logs.value = data.logs || [];
+            }
+          } catch (_) {}
+        };
 
-          return `
-            <tr>
-              <td style="font-size:12px; color:var(--muted);">${dateStr} ${timeStr}</td>
-              <td><span class="badge" style="background:${badgeBg}; color:${badgeColor}; font-weight:700; font-size:11px;">${escapeHtml(l.level)}</span></td>
-              <td><span style="font-weight:600; font-size:12.5px;">${escapeHtml(sourceLabel)}</span></td>
-              <td style="max-width:340px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:500;" title="${escapeHtml(l.message)}">
-                ${escapeHtml(l.message)}
-              </td>
-              <td style="font-size:12px; color:var(--muted); font-family:monospace;">${escapeHtml(originInfo)}</td>
-              <td style="text-align: right;">
-                <button type="button" class="btn-action btn-secondary" style="padding:4px 10px; font-size:12px;" onclick="openLogDetails('${escapeHtml(l.id)}')">View Details</button>
-              </td>
-            </tr>
-          `;
-        }).join('');
-      } catch (err) {
-        console.error('Failed to load error logs:', err);
-      }
-    }
-
-    function openLogDetails(logId) {
-      const log = currentLogs.find(l => l.id === logId);
-      if (!log) return;
-
-      document.getElementById('modalLogTitle').textContent = `Log Entry: ${log.level} (${log.source})`;
-      document.getElementById('modalLogMeta').textContent = `ID: ${log.id} • ${new Date(log.created_at).toLocaleString()} • Origin: ${log.endpoint || '-'} • Version: ${log.client_version || '-'}`;
-      document.getElementById('modalLogMessage').textContent = log.message;
-      document.getElementById('modalLogStack').textContent = log.stack || 'No stack trace captured.';
-
-      document.getElementById('logDetailsModal').classList.remove('hidden');
-    }
-
-    function closeLogModal() {
-      document.getElementById('logDetailsModal').classList.add('hidden');
-    }
-
-    async function handleClearLogs() {
-      if (!confirm('Are you sure you want to clear all error logs? This cannot be undone.')) return;
-      try {
-        const res = await fetch('/api/v1/admin/logs', {
-          method: 'DELETE',
-          headers: { 'Authorization': 'Bearer ' + adminToken }
-        });
-        if (res.status === 401) { handleLogout(); return; }
-        const data = await res.json();
-        if (data.ok) {
+        const loadAllAdminData = () => {
+          loadCustomers();
+          loadPlans();
+          loadSmtp();
+          loadReleases();
           loadLogs();
-        } else {
-          alert('Failed to clear logs.');
-        }
-      } catch (err) {
-        alert(err.message);
-      }
-    }
+        };
 
+        const openApproveModal = (c) => {
+          approveModal.customer = c;
+          approveModal.plan = c.plan || 'professional';
+          approveModal.validityDays = 365;
+          approveModal.show = true;
+        };
+
+        const submitApproveCustomer = async () => {
+          if (!approveModal.customer) return;
+          try {
+            const res = await fetch(`/api/v1/admin/customers/${approveModal.customer.id}/approve`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': 'Bearer ' + adminToken.value
+              },
+              body: JSON.stringify({ plan: approveModal.plan, validityDays: approveModal.validityDays })
+            });
+            const data = await res.json();
+            if (data.ok) {
+              showToast(`Tenant ${approveModal.customer.company_name} approved and activated.`);
+              approveModal.show = false;
+              loadCustomers();
+            } else {
+              showToast(data.error || 'Failed to approve tenant.', true);
+            }
+          } catch (err) {
+            showToast(err.message, true);
+          }
+        };
+
+        const toggleCustomerStatus = async (c, newStatus) => {
+          try {
+            const res = await fetch(`/api/v1/admin/customers/${c.id}/status`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': 'Bearer ' + adminToken.value
+              },
+              body: JSON.stringify({ status: newStatus })
+            });
+            const data = await res.json();
+            if (data.ok) {
+              showToast(`Customer status updated to ${newStatus}.`);
+              loadCustomers();
+            } else {
+              showToast(data.error || 'Could not update status.', true);
+            }
+          } catch (err) {
+            showToast(err.message, true);
+          }
+        };
+
+        const openDevicesModal = async (c) => {
+          devicesModal.customer = c;
+          devicesModal.devices = [];
+          devicesModal.show = true;
+          try {
+            const res = await fetch(`/api/v1/admin/customer-devices?customerId=${encodeURIComponent(c.id)}`, {
+              headers: { 'Authorization': 'Bearer ' + adminToken.value }
+            });
+            const data = await res.json();
+            if (data.ok) {
+              devicesModal.devices = data.devices || [];
+            }
+          } catch (err) {
+            showToast(err.message, true);
+          }
+        };
+
+        const revokeDevice = async (token, machineName) => {
+          if (!confirm(`Are you sure you want to revoke ${machineName || 'this PC'}?`)) return;
+          try {
+            const res = await fetch('/api/v1/admin/revoke-device', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': 'Bearer ' + adminToken.value
+              },
+              body: JSON.stringify({ token })
+            });
+            const data = await res.json();
+            if (data.ok) {
+              showToast('Device revoked.');
+              if (devicesModal.customer) openDevicesModal(devicesModal.customer);
+              loadCustomers();
+            } else {
+              showToast(data.error || 'Could not revoke device.', true);
+            }
+          } catch (err) {
+            showToast(err.message, true);
+          }
+        };
+
+        const openAddPlanModal = () => {
+          planModal.name = '';
+          planModal.code = '';
+          planModal.price = 2999;
+          planModal.max_devices = 2;
+          planModal.duration_days = 365;
+          planModal.show = true;
+        };
+
+        const savePlan = async () => {
+          try {
+            const res = await fetch('/api/v1/admin/plans', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': 'Bearer ' + adminToken.value
+              },
+              body: JSON.stringify({
+                name: planModal.name.trim(),
+                code: planModal.code.trim() || planModal.name.toLowerCase().replace(/[^a-z0-9]+/g, '_'),
+                price: parseFloat(planModal.price || 0),
+                duration_days: parseInt(planModal.duration_days || 365, 10),
+                max_devices: parseInt(planModal.max_devices || 2, 10),
+                billing_cycle: 'yearly'
+              })
+            });
+            const data = await res.json();
+            if (data.ok) {
+              showToast('Subscription plan saved.');
+              planModal.show = false;
+              loadPlans();
+            } else {
+              showToast(data.error || 'Failed to save plan.', true);
+            }
+          } catch (err) {
+            showToast(err.message, true);
+          }
+        };
+
+        const deletePlan = async (id) => {
+          if (!confirm('Are you sure you want to delete this subscription plan?')) return;
+          try {
+            const res = await fetch(`/api/v1/admin/plans/${id}`, {
+              method: 'DELETE',
+              headers: { 'Authorization': 'Bearer ' + adminToken.value }
+            });
+            const data = await res.json();
+            if (data.ok) {
+              showToast('Plan deleted.');
+              loadPlans();
+            } else {
+              showToast(data.error || 'Could not delete plan.', true);
+            }
+          } catch (err) {
+            showToast(err.message, true);
+          }
+        };
+
+        const saveSmtpConfig = async () => {
+          smtpLoading.value = true;
+          try {
+            const res = await fetch('/api/v1/admin/smtp', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': 'Bearer ' + adminToken.value
+              },
+              body: JSON.stringify(smtp)
+            });
+            const data = await res.json();
+            if (data.ok) {
+              showToast('SMTP mailer configuration saved.');
+            } else {
+              showToast(data.error || 'Could not save SMTP settings.', true);
+            }
+          } catch (err) {
+            showToast(err.message, true);
+          } finally {
+            smtpLoading.value = false;
+          }
+        };
+
+        const testSmtp = async () => {
+          const testRecipient = prompt('Enter an email address to send a test message:', adminEmail.value);
+          if (!testRecipient) return;
+          showToast('Dispatching test message via SMTP...');
+          try {
+            const res = await fetch('/api/v1/admin/smtp/test', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': 'Bearer ' + adminToken.value
+              },
+              body: JSON.stringify({ to: testRecipient.trim() })
+            });
+            const data = await res.json();
+            if (data.ok) {
+              showToast('Test email sent successfully! Check inbox/spam.');
+            } else {
+              showToast(data.error || 'SMTP test failed.', true);
+            }
+          } catch (err) {
+            showToast(err.message, true);
+          }
+        };
+
+        const activateRelease = async (version) => {
+          try {
+            const res = await fetch('/api/v1/admin/releases/activate', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': 'Bearer ' + adminToken.value
+              },
+              body: JSON.stringify({ version })
+            });
+            const data = await res.json();
+            if (data.ok) {
+              showToast(`Release v${version} is now the active distribution.`);
+              loadReleases();
+            } else {
+              showToast(data.error || 'Could not activate version.', true);
+            }
+          } catch (err) {
+            showToast(err.message, true);
+          }
+        };
+
+        const deleteRelease = async (version) => {
+          if (!confirm(`Are you sure you want to delete release v${version}?`)) return;
+          try {
+            const res = await fetch(`/api/v1/admin/releases/version?version=${encodeURIComponent(version)}`, {
+              method: 'DELETE',
+              headers: { 'Authorization': 'Bearer ' + adminToken.value }
+            });
+            const data = await res.json();
+            if (data.ok) {
+              showToast(`Release v${version} deleted.`);
+              loadReleases();
+            } else {
+              showToast(data.error || 'Could not delete release.', true);
+            }
+          } catch (err) {
+            showToast(err.message, true);
+          }
+        };
+
+        const clearLogs = async () => {
+          if (!confirm('Are you sure you want to clear system audit logs?')) return;
+          try {
+            const res = await fetch('/api/v1/admin/logs', {
+              method: 'DELETE',
+              headers: { 'Authorization': 'Bearer ' + adminToken.value }
+            });
+            const data = await res.json();
+            if (data.ok) {
+              showToast('Audit logs cleared.');
+              loadLogs();
+            }
+          } catch (err) {
+            showToast(err.message, true);
+          }
+        };
+
+        onMounted(() => {
+          checkAdminAuth();
+        });
+
+        return {
+          authenticated,
+          adminEmail,
+          currentTab,
+          stats,
+          customers,
+          customerFilter,
+          customerSearch,
+          filteredCustomers,
+          plans,
+          releases,
+          activeReleaseVersion,
+          logs,
+          logFilterLevel,
+          logSearch,
+          smtp,
+          smtpLoading,
+          loginForm,
+          approveModal,
+          devicesModal,
+          planModal,
+          toast,
+          formatDate,
+          formatDateTime,
+          getStatusBadgeClass,
+          getStatusBadgeLabel,
+          getLogLevelStyle,
+          handleLogin,
+          handleLogout,
+          loadCustomers,
+          loadPlans,
+          loadReleases,
+          loadLogs,
+          openApproveModal,
+          submitApproveCustomer,
+          toggleCustomerStatus,
+          openDevicesModal,
+          revokeDevice,
+          openAddPlanModal,
+          savePlan,
+          deletePlan,
+          saveSmtpConfig,
+          testSmtp,
+          activateRelease,
+          deleteRelease,
+          clearLogs,
+          manifestInput,
+          exeInput,
+          blockmapInput,
+          manifestFile,
+          exeFile,
+          blockmapFile,
+          parsedManifest,
+          allowDowngrade,
+          uploadReleaseNotes,
+          dragOverSlot,
+          isUploading,
+          uploadPercent,
+          uploadStatusText,
+          uploadFeedbackText,
+          uploadFeedbackError,
+          semverCmp,
+          semverRelationClass,
+          semverRelationText,
+          isReadyToPublish,
+          onManifestChange,
+          onExeChange,
+          onBlockmapChange,
+          onDropFile,
+          resetUploadForm,
+          publishReleasePackage
+        };
+      }
+    }).mount('#app');
   </script>
 </body>
 </html>
