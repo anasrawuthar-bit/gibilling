@@ -7198,10 +7198,82 @@ function getSyncStatus(companyId) {
   };
 }
 
+function backfillSyncOutbox(companyId) {
+  return inDatabaseTransaction(() => {
+    const company = syncCompany(companyId);
+    let backfilled = 0;
+
+    // 1. Backfill Parties
+    const unrecordedParties = all(
+      `SELECT p.id, p.name, p.phone, p.email, p.type AS party_type, p.gstin, p.state, p.opening_balance AS balance, p.sync_id AS syncId, p.sync_version AS syncVersion
+       FROM parties p
+       WHERE p.company_id = ? AND p.deleted_at IS NULL
+         AND NOT EXISTS (SELECT 1 FROM sync_outbox o WHERE o.company_id = p.company_id AND o.entity_type IN ('party', 'parties') AND o.entity_id = CAST(p.id AS TEXT))`,
+      [company.id]
+    );
+    unrecordedParties.forEach((p) => {
+      recordSyncEvent(company.id, "party", p.id, "upsert", p);
+      backfilled++;
+    });
+
+    // 2. Backfill Items
+    const unrecordedItems = all(
+      `SELECT i.id, i.name, i.sku, i.category, i.sale_price AS salePrice, i.purchase_price AS purchasePrice, i.tax_rate AS taxRate, i.opening_stock AS stockQty, i.sync_id AS syncId, i.sync_version AS syncVersion
+       FROM items i
+       WHERE i.company_id = ? AND i.deleted_at IS NULL
+         AND NOT EXISTS (SELECT 1 FROM sync_outbox o WHERE o.company_id = i.company_id AND o.entity_type IN ('item', 'items') AND o.entity_id = CAST(i.id AS TEXT))`,
+      [company.id]
+    );
+    unrecordedItems.forEach((item) => {
+      recordSyncEvent(company.id, "item", item.id, "upsert", item);
+      backfilled++;
+    });
+
+    // 3. Backfill Units
+    const unrecordedUnits = all(
+      `SELECT u.id, u.name, u.sync_id AS syncId, u.sync_version AS syncVersion
+       FROM units u
+       WHERE u.company_id = ? AND u.deleted_at IS NULL
+         AND NOT EXISTS (SELECT 1 FROM sync_outbox o WHERE o.company_id = u.company_id AND o.entity_type IN ('unit', 'units') AND o.entity_id = CAST(u.id AS TEXT))`,
+      [company.id]
+    );
+    unrecordedUnits.forEach((u) => {
+      recordSyncEvent(company.id, "unit", u.id, "upsert", u);
+      backfilled++;
+    });
+
+    // 4. Backfill Item Categories
+    const unrecordedCategories = all(
+      `SELECT c.id, c.name, c.sync_id AS syncId, c.sync_version AS syncVersion
+       FROM item_categories c
+       WHERE c.company_id = ? AND c.deleted_at IS NULL
+         AND NOT EXISTS (SELECT 1 FROM sync_outbox o WHERE o.company_id = c.company_id AND o.entity_type IN ('item_category', 'item_categories') AND o.entity_id = CAST(c.id AS TEXT))`,
+      [company.id]
+    );
+    unrecordedCategories.forEach((c) => {
+      recordSyncEvent(company.id, "item_category", c.id, "upsert", c);
+      backfilled++;
+    });
+
+    return backfilled;
+  });
+}
+
 function claimSyncOutbox(limit = 50, companyId) {
   return inDatabaseTransaction(() => {
     const company = syncCompany(companyId);
     const now = new Date().toISOString();
+
+    // Check if there are any pending/retry events; if none, check if backfill needed
+    let countPending = Number(one(
+      `SELECT COUNT(*) AS c FROM sync_outbox WHERE company_id = ? AND status IN ('pending', 'retry')`,
+      [company.id]
+    )?.c || 0);
+
+    if (countPending === 0) {
+      backfillSyncOutbox(company.id);
+    }
+
     const rows = all(
       `SELECT * FROM sync_outbox
        WHERE company_id = ? AND status IN ('pending', 'retry')
@@ -7282,18 +7354,116 @@ function applySyncPull({ changes = [], cursor = null, companyId } = {}) {
 }
 
 function applyRemoteMasterChange(companyId, change) {
+  const supportedTypes = ["unit", "units", "item_category", "item_categories", "party", "parties", "item", "items"];
   if (!change || typeof change.eventId !== 'string' || !change.eventId || typeof change.entityId !== 'string' || !change.entityId ||
-      !["unit", "item_category"].includes(change.entityType) || change.operation !== 'upsert' ||
+      !supportedTypes.includes(change.entityType) || change.operation !== 'upsert' ||
       !Number.isSafeInteger(change.serverVersion) || change.serverVersion < 1 ||
-      typeof change.payload?.name !== 'string' || !change.payload.name.trim() ||
-      (change.companyId !== undefined && change.companyId !== companyId)) throw new Error("Invalid or unsupported remote master change.");
+      (change.companyId !== undefined && change.companyId !== companyId)) {
+    throw new Error("Invalid or unsupported remote master change.");
+  }
   const received = one("SELECT company_id FROM sync_inbox WHERE event_id = ?", [change.eventId]);
   if (received && received.company_id !== companyId) throw new Error("Remote event belongs to another company.");
   if (received) return;
-  const table = change.entityType === "unit" ? "units" : "item_categories";
+
+  const serverVersion = Math.max(1, Number(change.serverVersion || 1));
+
+  // 1. Party Synchronization
+  if (change.entityType === "party" || change.entityType === "parties") {
+    const p = change.payload || {};
+    const pName = String(p.name || "Unnamed").trim();
+    const pPhone = String(p.phone || "").trim();
+    const pEmail = String(p.email || "").trim();
+    const pGstin = String(p.gstin || "").trim();
+    const pState = String(p.state || "Kerala").trim();
+    const pBalance = Number(p.balance || 0);
+    const pType = String(p.party_type || p.type || "party").trim();
+
+    const local = one(
+      `SELECT id, name, phone, sync_version AS syncVersion FROM parties
+       WHERE company_id = ? AND (sync_id = ? OR (name = ? AND phone = ?))`,
+      [companyId, change.entityId, pName, pPhone]
+    );
+    const pending = one(
+      `SELECT id FROM sync_outbox
+       WHERE company_id = ? AND entity_type IN ('party', 'parties') AND entity_id = ? AND status IN ('pending','uploading','retry')`,
+      [companyId, change.entityId]
+    );
+
+    if (local && pending) {
+      insertSyncConflict({ company_id: companyId, entity_type: "party", entity_id: change.entityId, base_version: local.syncVersion, payload_json: JSON.stringify(local) }, serverVersion, change.payload);
+    } else if (!local && change.operation !== "delete") {
+      run(
+        `INSERT INTO parties (company_id, name, type, phone, email, gstin, state, opening_balance, opening_balance_type, created_at, sync_id, sync_version, origin_device_id, sync_updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [companyId, pName, pType, pPhone, pEmail, pGstin, pState, pBalance, pBalance < 0 ? 'payable' : 'receivable', new Date().toISOString(), change.entityId, serverVersion, change.deviceId || null, new Date().toISOString()]
+      );
+    } else if (local && serverVersion >= Number(local.syncVersion || 0)) {
+      if (change.operation === "delete") {
+        run(`UPDATE parties SET deleted_at = ?, sync_version = ?, sync_updated_at = ? WHERE id = ?`, [new Date().toISOString(), serverVersion, new Date().toISOString(), local.id]);
+      } else {
+        run(
+          `UPDATE parties SET name = ?, phone = ?, email = ?, gstin = ?, state = ?, sync_id = COALESCE(sync_id, ?), sync_version = ?, sync_updated_at = ? WHERE id = ?`,
+          [pName, pPhone, pEmail, pGstin, pState, change.entityId, serverVersion, new Date().toISOString(), local.id]
+        );
+      }
+    }
+    run("INSERT OR REPLACE INTO sync_inbox (event_id, company_id, entity_type, entity_id, server_version, applied_at) VALUES (?, ?, ?, ?, ?, ?)",
+      [change.eventId, companyId, "party", change.entityId, serverVersion, new Date().toISOString()]);
+    return;
+  }
+
+  // 2. Item Synchronization
+  if (change.entityType === "item" || change.entityType === "items") {
+    const it = change.payload || {};
+    const itName = String(it.name || "Item").trim();
+    const itSku = String(it.sku || "").trim();
+    const itCat = String(it.category || "").trim();
+    const itSalePrice = Number(it.sale_price || it.salePrice || 0);
+    const itPurchPrice = Number(it.purchase_price || it.purchasePrice || 0);
+    const itTaxRate = Number(it.tax_rate || it.taxRate || 0);
+    const itStock = Number(it.stock_qty || it.stockQty || 0);
+
+    const local = one(
+      `SELECT id, name, sku, sync_version AS syncVersion FROM items
+       WHERE company_id = ? AND (sync_id = ? OR name = ?)`,
+      [companyId, change.entityId, itName]
+    );
+    const pending = one(
+      `SELECT id FROM sync_outbox
+       WHERE company_id = ? AND entity_type IN ('item', 'items') AND entity_id = ? AND status IN ('pending','uploading','retry')`,
+      [companyId, change.entityId]
+    );
+
+    if (local && pending) {
+      insertSyncConflict({ company_id: companyId, entity_type: "item", entity_id: change.entityId, base_version: local.syncVersion, payload_json: JSON.stringify(local) }, serverVersion, change.payload);
+    } else if (!local && change.operation !== "delete") {
+      run(
+        `INSERT INTO items (company_id, name, sku, category, sale_price, purchase_price, tax_rate, opening_stock, created_at, sync_id, sync_version, origin_device_id, sync_updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [companyId, itName, itSku, itCat, itSalePrice, itPurchPrice, itTaxRate, itStock, new Date().toISOString(), change.entityId, serverVersion, change.deviceId || null, new Date().toISOString()]
+      );
+    } else if (local && serverVersion >= Number(local.syncVersion || 0)) {
+      if (change.operation === "delete") {
+        run(`UPDATE items SET deleted_at = ?, sync_version = ?, sync_updated_at = ? WHERE id = ?`, [new Date().toISOString(), serverVersion, new Date().toISOString(), local.id]);
+      } else {
+        run(
+          `UPDATE items SET name = ?, sku = ?, category = ?, sale_price = ?, purchase_price = ?, tax_rate = ?, sync_id = COALESCE(sync_id, ?), sync_version = ?, sync_updated_at = ? WHERE id = ?`,
+          [itName, itSku, itCat, itSalePrice, itPurchPrice, itTaxRate, change.entityId, serverVersion, new Date().toISOString(), local.id]
+        );
+      }
+    }
+    run("INSERT OR REPLACE INTO sync_inbox (event_id, company_id, entity_type, entity_id, server_version, applied_at) VALUES (?, ?, ?, ?, ?, ?)",
+      [change.eventId, companyId, "item", change.entityId, serverVersion, new Date().toISOString()]);
+    return;
+  }
+
+  // 3. Unit & Item Category Synchronization
+  if (typeof change.payload?.name !== 'string' || !change.payload.name.trim()) {
+    throw new Error("Invalid or unsupported remote master change.");
+  }
+  const table = (change.entityType === "unit" || change.entityType === "units") ? "units" : "item_categories";
   const local = one(`SELECT id, name, sync_version AS syncVersion FROM ${table} WHERE company_id = ? AND sync_id = ?`, [companyId, change.entityId]);
   const pending = one(`SELECT id FROM sync_outbox WHERE company_id = ? AND entity_type = ? AND entity_id = ? AND status IN ('pending','uploading','retry')`, [companyId, change.entityType, change.entityId]);
-  const serverVersion = Math.max(1, Number(change.serverVersion || 1));
 
   if (local && pending) {
     insertSyncConflict({ company_id: companyId, entity_type: change.entityType, entity_id: change.entityId, base_version: local.syncVersion, payload_json: JSON.stringify(local) }, serverVersion, change.payload);

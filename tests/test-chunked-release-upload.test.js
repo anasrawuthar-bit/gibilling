@@ -46,8 +46,9 @@ function makeRequest(method, reqPath, headers = {}, bodyStreamOrBuffer = null) {
   });
 }
 
-async function run() {
-  console.log('Testing chunked release upload system...');
+  // Backup current latest.yml
+  const downloadsLatestYml = path.join(__dirname, '..', 'server', 'public', 'downloads', 'latest.yml');
+  const originalLatestContent = fs.existsSync(downloadsLatestYml) ? fs.readFileSync(downloadsLatestYml, 'utf8') : null;
 
   // 1. Login as Super Admin
   const adminEmail = process.env.SUPER_ADMIN_EMAIL || 'admin@anas.in';
@@ -186,6 +187,9 @@ async function run() {
   try {
     const pubRelDir = path.join(__dirname, '..', 'server', 'public', 'downloads', 'releases', dummyInstallerVersion);
     if (fs.existsSync(pubRelDir)) fs.rmSync(pubRelDir, { recursive: true, force: true });
+    if (originalLatestContent && fs.existsSync(downloadsLatestYml)) {
+      fs.writeFileSync(downloadsLatestYml, originalLatestContent, 'utf8');
+    }
   } catch (_) {}
 
   console.log('\nAll Chunked Upload Verification Tests Passed Successfully!');

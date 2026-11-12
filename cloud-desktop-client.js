@@ -363,6 +363,11 @@ class CloudSyncWidget {
     this.bindNetworkListeners();
     await this.refreshStatus();
 
+    // If activated and online, trigger background sync (which auto-restores if local database is empty)
+    if (CloudLicenseManager.isActivated() && navigator.onLine) {
+      setTimeout(() => this.triggerSyncNow(), 1500);
+    }
+
     // Check plan & sync status every 30 seconds
     setInterval(() => this.refreshStatus(), 30000);
   }
@@ -591,25 +596,66 @@ class CloudSyncWidget {
     }
   }
 
-  static async triggerSyncNow() {
+  static async triggerSyncNow(forceRestore = false) {
     if (this.isSyncing) return;
     this.isSyncing = true;
     this.setStatus("syncing");
 
     try {
+      const lic = CloudLicenseManager.getLicense();
+      const sUrl = CloudLicenseManager.getServerUrl();
+
+      // Check current local database state
+      let localState = null;
+      try {
+        if (window.giDB?.getState) {
+          localState = await window.giDB.getState();
+        }
+      } catch (_) {}
+
+      const localPartiesCount = (localState?.parties || []).length;
+      const localInvoicesCount = (localState?.transactions || []).length;
+      const isLocalEmpty = localPartiesCount === 0 && localInvoicesCount === 0;
+
+      // If local database is empty OR forceRestore is requested, check if cloud has an existing backup snapshot
+      if ((isLocalEmpty || forceRestore) && lic && lic.token && navigator.onLine && window.giCloud?.getTenantBackupStatus && window.giCloud?.restoreTenantBackup) {
+        try {
+          const bkpStatus = await window.giCloud.getTenantBackupStatus({ token: lic.token, serverUrl: sUrl });
+          if (bkpStatus && bkpStatus.ok && bkpStatus.hasBackup && bkpStatus.latest) {
+            const counts = bkpStatus.latest.recordCounts || {};
+            const totalCloudRecords = (counts.invoices || 0) + (counts.parties || 0) + (counts.items || 0);
+            if (totalCloudRecords > 0) {
+              console.log("[CloudSync] Restoring verified cloud backup snapshot...", counts);
+              if (typeof showToast === "function") showToast("Syncing business data from cloud...", "info");
+              const restoreRes = await window.giCloud.restoreTenantBackup({ token: lic.token, serverUrl: sUrl });
+              if (restoreRes && restoreRes.ok) {
+                localStorage.setItem(CLOUD_STORAGE_KEYS.LAST_SYNC, new Date().toISOString());
+                if (typeof showToast === "function") {
+                  showToast(`Cloud data restored! (${counts.invoices || 0} Invoices, ${counts.parties || 0} Parties, ${counts.items || 0} Items)`, "success");
+                }
+                setTimeout(() => window.location.reload(), 1200);
+                return;
+              }
+            }
+          }
+        } catch (restoreErr) {
+          console.warn("Auto-restore check note:", restoreErr.message);
+        }
+      }
+
+      // 1. Run delta sync (outbox push & inbox pull)
       if (window.giDB?.syncNow) {
         await window.giDB.syncNow();
       } else {
         await new Promise(r => setTimeout(r, 600));
       }
 
-      // Automatically sync complete encrypted database snapshot to cloud
-      const lic = CloudLicenseManager.getLicense();
-      if (lic && lic.token && navigator.onLine && window.giCloud?.uploadTenantBackup) {
+      // 2. If local database has records, automatically update cloud backup snapshot
+      if (!isLocalEmpty && lic && lic.token && navigator.onLine && window.giCloud?.uploadTenantBackup) {
         try {
           await window.giCloud.uploadTenantBackup({
             token: lic.token,
-            serverUrl: CloudLicenseManager.getServerUrl()
+            serverUrl: sUrl
           });
         } catch (bErr) {
           console.warn("Background cloud backup sync note:", bErr.message);
@@ -627,6 +673,18 @@ class CloudSyncWidget {
     } finally {
       this.isSyncing = false;
     }
+  }
+
+  static async triggerCloudRestore() {
+    const lic = CloudLicenseManager.getLicense();
+    if (!lic || !lic.token || !navigator.onLine) {
+      if (typeof showToast === "function") showToast("Cannot restore: Check internet connection or cloud login.", "warning");
+      return;
+    }
+    const confirmed = confirm("Are you sure you want to download and restore the latest cloud business backup? Any unsynced local data will be updated to match the cloud state.");
+    if (!confirmed) return;
+
+    await this.triggerSyncNow(true);
   }
 
   static async triggerBackupNow() {

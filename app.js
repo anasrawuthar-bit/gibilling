@@ -17246,6 +17246,77 @@ function bindFeatureActions() {
       handleBankAccountAction(button.dataset.bankAction, button.dataset.bankId);
     });
   });
+  // ── Cloud Multi-Device Sync & Restore Hub Actions ──
+  const btnCloudSyncNow = elements.featureView.querySelector("#btnCloudSyncNow");
+  const btnCloudRestore = elements.featureView.querySelector("#btnCloudRestoreSnapshot");
+  const btnCloudBackupUpload = elements.featureView.querySelector("#btnCloudBackupUpload");
+  const tenantNameEl = elements.featureView.querySelector("#cloudSyncTenantName");
+  const detailsTextEl = elements.featureView.querySelector("#cloudSyncDetailsText");
+  const countsBadgeEl = elements.featureView.querySelector("#cloudSyncCountsBadge");
+
+  if (btnCloudSyncNow || btnCloudRestore || btnCloudBackupUpload) {
+    if (typeof CloudLicenseManager !== "undefined") {
+      const lic = CloudLicenseManager.getLicense();
+      const sUrl = CloudLicenseManager.getServerUrl();
+      if (tenantNameEl) tenantNameEl.textContent = `${lic.companyName || "ZynBill Workspace"} (${lic.email || "Active"})`;
+
+      if (window.giCloud?.getTenantBackupStatus && lic?.token) {
+        window.giCloud.getTenantBackupStatus({ token: lic.token, serverUrl: sUrl }).then((res) => {
+          if (res && res.ok && res.hasBackup && res.latest) {
+            const counts = res.latest.recordCounts || {};
+            if (detailsTextEl) {
+              const ts = res.latest.timestamp ? new Date(res.latest.timestamp).toLocaleString() : "Recently";
+              detailsTextEl.textContent = `Latest Cloud Snapshot: ${ts} (${((res.latest.sizeBytes || 0) / 1024).toFixed(1)} KB)`;
+            }
+            if (countsBadgeEl) {
+              countsBadgeEl.innerHTML = `
+                <span style="background:#e0f2fe; color:#0369a1; padding:3px 8px; border-radius:4px;">${counts.invoices || 0} Invoices</span>
+                <span style="background:#f0fdf4; color:#166534; padding:3px 8px; border-radius:4px;">${counts.parties || 0} Parties</span>
+                <span style="background:#fef3c7; color:#92400e; padding:3px 8px; border-radius:4px;">${counts.items || 0} Items</span>
+              `;
+            }
+          } else {
+            if (detailsTextEl) detailsTextEl.textContent = "No cloud snapshot created yet. Click 'Backup to Cloud' to create one.";
+          }
+        }).catch((e) => {
+          if (detailsTextEl) detailsTextEl.textContent = "Could not check cloud backup: " + (e.message || "Offline");
+        });
+      }
+    }
+
+    btnCloudSyncNow?.addEventListener("click", async () => {
+      if (typeof CloudSyncWidget !== "undefined") {
+        btnCloudSyncNow.disabled = true;
+        btnCloudSyncNow.textContent = "Syncing...";
+        try {
+          await CloudSyncWidget.triggerSyncNow();
+        } finally {
+          btnCloudSyncNow.disabled = false;
+          btnCloudSyncNow.innerHTML = "<span>🔄</span><span>Sync Now</span>";
+        }
+      }
+    });
+
+    btnCloudRestore?.addEventListener("click", async () => {
+      if (typeof CloudSyncWidget !== "undefined") {
+        await CloudSyncWidget.triggerCloudRestore();
+      }
+    });
+
+    btnCloudBackupUpload?.addEventListener("click", async () => {
+      if (typeof CloudSyncWidget !== "undefined") {
+        btnCloudBackupUpload.disabled = true;
+        btnCloudBackupUpload.textContent = "Uploading...";
+        try {
+          await CloudSyncWidget.triggerBackupNow();
+        } finally {
+          btnCloudBackupUpload.disabled = false;
+          btnCloudBackupUpload.innerHTML = "<span>☁️</span><span>Backup to Cloud</span>";
+        }
+      }
+    });
+  }
+
   elements.featureView.querySelector("[data-action='backup-db']")?.addEventListener("click", async () => {
     const status = elements.featureView.querySelector("#backupStatus");
     if (!window.giDB?.createBackup) {
@@ -23153,14 +23224,53 @@ function syncTemplate() {
       <header class="sync-header-clean">
         <div>
           <p class="muted-label">Utilities</p>
-          <h1>Backup &amp; Restore</h1>
-          <p class="sync-header-sub">Keep your accounting and business records safe with quick file exports and local snapshot recovery.</p>
+          <h1>Cloud Sync, Backup &amp; Restore</h1>
+          <p class="sync-header-sub">Keep your accounting and business records safe with real-time cloud multi-device sync, encrypted snapshots, and local exports.</p>
         </div>
         <div class="sync-last-backup-badge sync-last-backup-badge--${lastBackupTone}">
           <span class="sync-badge-indicator"></span>
-          <span>Last Backup: <strong id="syncLastBackup">${escapeHtml(lastBackupFmt)}</strong></span>
+          <span>Last Local Backup: <strong id="syncLastBackup">${escapeHtml(lastBackupFmt)}</strong></span>
         </div>
       </header>
+
+      <!-- Section 0: Cloud Account & Multi-Device Sync Hub -->
+      <section class="sync-card" style="margin-bottom:20px; border-left: 4px solid #0284c7; background: #f8fafc;">
+        <div class="sync-card-head sync-card-head--split">
+          <div style="display:flex;align-items:center;gap:12px;">
+            <div style="width:38px;height:38px;border-radius:10px;background:#e0f2fe;display:flex;align-items:center;justify-content:center;color:#0284c7;font-size:20px;">
+              ☁️
+            </div>
+            <div>
+              <h2 class="sync-card-title">ZynBill Cloud &amp; Multi-Device Sync</h2>
+              <p class="sync-card-sub" id="cloudSyncStatusSubtext">Synchronize parties, purchases, and invoices across all your computers seamlessly.</p>
+            </div>
+          </div>
+          <div class="sync-head-controls" style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+            <button class="primary-button square compact-button" id="btnCloudSyncNow" type="button" style="display:inline-flex;align-items:center;gap:6px;">
+              <span>🔄</span>
+              <span>Sync Now</span>
+            </button>
+            <button class="secondary-button compact-button" id="btnCloudRestoreSnapshot" type="button" style="display:inline-flex;align-items:center;gap:6px; color:#0369a1; border-color:#0284c7; font-weight:700;" title="Download and restore latest cloud database snapshot to this PC">
+              <span>📥</span>
+              <span>Restore from Cloud</span>
+            </button>
+            <button class="secondary-button compact-button" id="btnCloudBackupUpload" type="button" style="display:inline-flex;align-items:center;gap:6px;" title="Push local database snapshot to cloud">
+              <span>☁️</span>
+              <span>Backup to Cloud</span>
+            </button>
+          </div>
+        </div>
+        <div class="sync-card-body" id="cloudSyncDetailsBox" style="padding:14px 18px; background:#ffffff; border-radius:8px; margin-top:12px; border:1px solid #e2e8f0; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
+          <div style="display:flex; align-items:center; gap:12px;">
+            <div style="font-size:24px;" id="cloudSyncStatusIcon">⚡</div>
+            <div>
+              <div style="font-weight:600; font-size:13.5px; color:#0f172a;" id="cloudSyncAccountTitle">Cloud Connected: <span id="cloudSyncTenantName">Loading...</span></div>
+              <div style="font-size:12px; color:#64748b; margin-top:2px;" id="cloudSyncDetailsText">Checking latest cloud database snapshot...</div>
+            </div>
+          </div>
+          <div id="cloudSyncCountsBadge" style="display:flex; gap:8px; font-size:12px; color:#334155; font-weight:600;"></div>
+        </div>
+      </section>
 
       <!-- Section 1: Export & Restore Quick Actions -->
       <section class="sync-cards-grid">
