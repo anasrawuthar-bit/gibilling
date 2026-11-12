@@ -4498,6 +4498,7 @@ function bindTransactionEditor() {
   form?.addEventListener("change", updateTransactionEditorDirtyState);
   form?.addEventListener("keydown", handleTransactionEditorKeys);
   form?.addEventListener("mousedown", handleEditorLookupAction);
+  form?.addEventListener("click", handleEditorLookupAction);
   elements.featureView.querySelector(".editor-table-wrap")?.addEventListener("scroll", hideEditorLookupPanels);
   form?.addEventListener("focusin", (event) => {
     if (event.target.matches('input[type="number"]:not([readonly])')) {
@@ -5899,6 +5900,13 @@ function appPrompt(title, message, defaultValue = "") {
 function clearInlineErrors(scope) {
   scope.querySelectorAll(".field-error").forEach((node) => node.remove());
   scope.querySelectorAll(".invalid-field").forEach((node) => node.classList.remove("invalid-field"));
+}
+
+function clearInlineError(field) {
+  if (!field) return;
+  field.classList.remove("invalid-field");
+  const target = field.closest("label") || field.parentElement;
+  target?.querySelectorAll(".field-error").forEach((node) => node.remove());
 }
 
 function setInlineError(field, message) {
@@ -7766,7 +7774,7 @@ function handleEditorLookupAction(event) {
   const partyButton = event.target.closest("[data-editor-party-id]");
   if (partyButton) {
     event.preventDefault();
-    const party = (state.parties || []).find((item) => Number(item.id) === Number(partyButton.dataset.editorPartyId));
+    const party = (state.parties || []).find((item) => String(item.id) === String(partyButton.dataset.editorPartyId) || Number(item.id) === Number(partyButton.dataset.editorPartyId));
     if (party) selectTransactionParty(party);
     return;
   }
@@ -7835,6 +7843,36 @@ function renderPartyLookupPanel(source = "party") {
     ${query && !exact ? `<button class="lookup-add-button" type="button" data-editor-add-party data-source="${source}">+ ${escapeHtml(addText)}</button>` : ""}
   `;
   panel.classList.toggle("hidden", !panel.innerHTML.trim());
+  if (!panel.classList.contains("hidden")) {
+    input.setAttribute("aria-expanded", "true");
+    input.onkeydown = panel.onkeydown = (event) => {
+      if (panel.classList.contains("hidden")) return;
+      if (event.key === "Escape" || event.key === "Tab") {
+        hideEditorLookupPanels();
+        if (event.key === "Escape") { event.preventDefault(); input.focus(); }
+        return;
+      }
+      const buttons = [...panel.querySelectorAll("button")];
+      if (!buttons.length) return;
+      const active = panel.querySelector(".keyboard-active");
+      let index = buttons.indexOf(active);
+      if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+        event.preventDefault();
+        index = (index + (event.key === "ArrowDown" ? 1 : -1) + buttons.length) % buttons.length;
+        buttons.forEach((button, i) => button.classList.toggle("keyboard-active", i === index));
+        buttons[index].scrollIntoView({ block: "nearest" });
+      } else if (event.key === "Enter" && event.target === input) {
+        event.preventDefault();
+        event.stopPropagation();
+        handleEditorLookupAction({ target: active || buttons[0], preventDefault() {} });
+      }
+    };
+    panel.querySelectorAll("button").forEach((button) => {
+      button.onclick = (event) => {
+        handleEditorLookupAction(event);
+      };
+    });
+  }
 }
 
 function positionFloatingItemLookup(field, panel) {
