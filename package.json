@@ -35,6 +35,12 @@
     "appId": "com.zynbill.desktop",
     "productName": "ZynBill",
     "compression": "maximum",
+    "publish": [
+      {
+        "provider": "generic",
+        "url": "https://dir.anasrawuthar.in/downloads"
+      }
+    ],
     "directories": {
       "output": "dist"
     },

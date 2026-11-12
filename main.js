@@ -23,7 +23,7 @@ let tray = null;
 let isQuitting = false;
 
 let syncConfig = {
-  serverUrl: process.env.CLOUD_SERVER_URL || "http://localhost:4000",
+  serverUrl: process.env.CLOUD_SERVER_URL || "https://dir.anasrawuthar.in",
   token: "",
   enabled: false
 };
@@ -566,6 +566,14 @@ function setUpdateStatus(state, message, extra = {}) {
 
 function setupAutoUpdater() {
   if (!autoUpdater) return;
+  try {
+    autoUpdater.setFeedURL({
+      provider: "generic",
+      url: "https://dir.anasrawuthar.in/downloads"
+    });
+  } catch (feedErr) {
+    console.warn("[AutoUpdater] Generic feed configuration notice:", feedErr?.message || feedErr);
+  }
   autoUpdater.autoDownload = false;
   autoUpdater.autoInstallOnAppQuit = false;
 
@@ -1527,7 +1535,7 @@ function isAuthorizedHost(hostname, ip) {
 }
 
 function resolveCloudServerUrl(candidate) {
-  const defaultUrl = syncConfig.serverUrl || process.env.CLOUD_SERVER_URL || "http://localhost:4000";
+  const defaultUrl = syncConfig.serverUrl || process.env.CLOUD_SERVER_URL || "https://dir.anasrawuthar.in";
   const raw = (candidate && typeof candidate === "string" && candidate.trim())
     ? candidate.trim()
     : defaultUrl;
@@ -1555,7 +1563,7 @@ function resolveCloudServerUrl(candidate) {
     }
     return parsed.origin;
   } catch (_) {
-    return "http://localhost:4000";
+    return "https://dir.anasrawuthar.in";
   }
 }
 

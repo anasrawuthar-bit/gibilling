@@ -16708,8 +16708,9 @@ function bindFeatureActions() {
           }
         }
 
-        const cloudSettings = (typeof CloudLicenseManager !== "undefined") ? CloudLicenseManager.getSettings() : {};
-        const serverUrl = cloudSettings.serverUrl || "http://localhost:4000";
+        const serverUrl = (typeof CloudLicenseManager !== "undefined" && typeof CloudLicenseManager.getServerUrl === "function")
+          ? CloudLicenseManager.getServerUrl()
+          : "https://dir.anasrawuthar.in";
 
         let data = null;
         let isOk = false;

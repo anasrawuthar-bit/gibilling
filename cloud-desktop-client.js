@@ -24,7 +24,17 @@ const CLOUD_STORAGE_KEYS = {
 // ── 1. Cloud License & Grace Period Manager ───────────────────────────
 class CloudLicenseManager {
   static getServerUrl() {
-    return localStorage.getItem(CLOUD_STORAGE_KEYS.SERVER_URL) || "http://localhost:4000";
+    const stored = localStorage.getItem(CLOUD_STORAGE_KEYS.SERVER_URL);
+    if (stored && stored.trim() && !stored.includes("localhost:4000")) {
+      return stored.trim();
+    }
+    return "https://dir.anasrawuthar.in";
+  }
+
+  static getSettings() {
+    return {
+      serverUrl: this.getServerUrl()
+    };
   }
 
   static setServerUrl(url) {
@@ -1137,7 +1147,7 @@ class ActivationUiController {
 
     regLink?.addEventListener("click", (e) => {
       e.preventDefault();
-      const sUrl = document.getElementById("activationServerUrl")?.value || "http://localhost:4000";
+      const sUrl = document.getElementById("activationServerUrl")?.value || CloudLicenseManager.getServerUrl();
       const regUrl = `${sUrl.replace(/\/$/, "")}/register.html`;
       if (window.giApp?.openExternal) window.giApp.openExternal(regUrl);
       else window.open(regUrl, "_blank");
@@ -1148,7 +1158,7 @@ class ActivationUiController {
       e.preventDefault();
       const email = document.getElementById("activationEmail")?.value?.trim();
       const password = document.getElementById("activationPassword")?.value?.trim();
-      const serverUrl = document.getElementById("activationServerUrl")?.value?.trim() || "http://localhost:4000";
+      const serverUrl = document.getElementById("activationServerUrl")?.value?.trim() || CloudLicenseManager.getServerUrl();
       const errorEl = document.getElementById("activationErrorMsg");
       const submitBtn = document.getElementById("activationSubmitBtn");
 
