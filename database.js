@@ -728,6 +728,7 @@ function migrateUnitsAndCategoriesUpgrade() {
 
   try { db.run(`ALTER TABLE items ADD COLUMN category_id INTEGER;`); } catch (_) {}
   try { db.run(`ALTER TABLE items ADD COLUMN unit_id INTEGER;`); } catch (_) {}
+  try { db.run(`ALTER TABLE items ADD COLUMN barcodes TEXT;`); } catch (_) {}
 
   const allCompanies = all("SELECT id FROM companies");
   for (const company of allCompanies) {
@@ -1742,7 +1743,7 @@ function getState() {
       [currentCompany.id, currentCompany.id, currentCompany.id, currentCompany.id, currentCompany.id],
     ),
     items: all(
-      `SELECT i.id, i.name, i.item_type AS itemType, i.sku, i.category, i.unit,
+      `SELECT i.id, i.name, i.item_type AS itemType, i.sku, COALESCE(i.barcodes, '') AS barcodes, i.category, i.unit,
         i.hsn_sac AS hsnSac, i.sale_price AS salePrice, i.sale_tax_type AS saleTaxType,
         i.purchase_price AS purchasePrice, i.purchase_tax_type AS purchaseTaxType,
         i.tax_rate AS taxRate, COALESCE(i.tax_type, '') AS taxType, i.discount, i.opening_stock AS openingStock,
@@ -1777,7 +1778,19 @@ function getState() {
          )
        ORDER BY i.id DESC`,
       [currentCompany.id, currentCompany.id],
-    ),
+    ).map((item) => {
+      let b = [];
+      if (item.barcodes) {
+        try {
+          b = item.barcodes.startsWith("[") ? JSON.parse(item.barcodes) : item.barcodes.split(/[,;\s]+/).filter(Boolean);
+        } catch (_) {
+          b = String(item.barcodes).split(/[,;\s]+/).filter(Boolean);
+        }
+      }
+      if (!Array.isArray(b)) b = [];
+      if (!b.length && item.sku) b = [item.sku];
+      return { ...item, barcodes: b };
+    }),
     units: getUnitsList(),
     itemCategories: getCategoriesWithHierarchy(),
     bankAccounts: all(
@@ -3493,6 +3506,13 @@ function createItem({
     ],
   );
   const itemRecord = one("SELECT id FROM items WHERE company_id = ? AND LOWER(name) = LOWER(?)", [company.id, name]);
+  if (itemRecord?.id && arguments[0] && arguments[0].barcodes !== undefined) {
+    const rawCodes = arguments[0].barcodes;
+    const barcodesJson = Array.isArray(rawCodes) ? JSON.stringify(rawCodes) : (rawCodes ? String(rawCodes) : "");
+    try {
+      run("UPDATE items SET barcodes = ? WHERE company_id = ? AND id = ?", [barcodesJson, company.id, itemRecord.id]);
+    } catch (_) {}
+  }
   recordAuditLog(company.id, "CREATE", "item", itemRecord ? itemRecord.id : name, name, { salePrice, purchasePrice, taxRate, unit });
   if (itemRecord?.id) {
     try {
@@ -3618,6 +3638,13 @@ function updateItemUnsafe({
     run("UPDATE transactions SET item = ? WHERE company_id = ? AND item = ?", [cleanName, company.id, existing.name]);
   }
 
+  if (arguments[0] && arguments[0].barcodes !== undefined) {
+    const rawCodes = arguments[0].barcodes;
+    const barcodesJson = Array.isArray(rawCodes) ? JSON.stringify(rawCodes) : (rawCodes ? String(rawCodes) : "");
+    try {
+      run("UPDATE items SET barcodes = ? WHERE company_id = ? AND id = ?", [barcodesJson, company.id, id]);
+    } catch (_) {}
+  }
   recordAuditLog(company.id, "UPDATE", "item", id, cleanName, { salePrice, purchasePrice, taxRate, unit });
   try {
     ensureMasterSyncIdentity("items", id);
@@ -5547,7 +5574,10 @@ function validateInvoiceMasterData(companyId, entry) {
     ? one("SELECT id, type FROM parties WHERE company_id = ? AND LOWER(name) = LOWER(?)", [companyId, partyName])
     : null;
 
-  const walkIn = entry.type === 'sale' && !entry.partyId && !partyName && entry.paymentType === 'cash' && (entry.supplyType || 'b2c') === 'b2c';
+  const walkIn = entry.type === 'sale' && !entry.partyId && !partyName && entry.paymentType === 'cash';
+  if (walkIn && (!entry.partyGstin || !entry.partyGstin.trim())) {
+    entry.supplyType = 'b2c';
+  }
   if ((!existingParty && !walkIn) || (entry.partyId && Number(existingParty?.id) !== Number(entry.partyId))) {
     throw new Error(`Please select an existing ${entry.type === "purchase" ? "supplier" : "customer"} before saving this invoice.`);
   }

@@ -3406,7 +3406,7 @@ function computeNextDocumentNumber(type, docDate = new Date(), series = null) {
   let effectiveSeries = series;
   if (type === "sale" && !effectiveSeries) {
     const activeTab = (transactionEditorTabs[type] || []).find((tab) => tab.id === activeTransactionEditorTabId);
-    effectiveSeries = activeTab?.draft?.supplyType || (activeTab?.draft?.partyGstin ? "b2b" : "b2b");
+    effectiveSeries = activeTab?.draft?.supplyType || (activeTab?.draft?.partyGstin ? "b2b" : "b2c");
   }
   const prefix = getDocumentTypePrefix(type, effectiveSeries);
   const startNo = type === "sale"
@@ -3561,7 +3561,7 @@ function transactionEditorTemplate(type = getTransactionEditorType()) {
     : (activeTab?.draft?.state !== undefined ? activeTab.draft.state : (state.businessSettings?.state || "Kerala"));
   const currentSupplyType = isEditing
     ? (editRecord?.supplyType || (editRecord?.partyGstin ? "b2b" : "b2c"))
-    : (activeTab?.draft?.supplyType || (activeTab?.draft?.partyGstin ? "b2b" : "b2b"));
+    : (activeTab?.draft?.supplyType || (activeTab?.draft?.partyGstin ? "b2b" : "b2c"));
   let initialInvoiceNo = "";
   if (isEditing) {
     initialInvoiceNo = editRecord?.invoiceNo || editRecord?.quoteNo || editRecord?.creditNo || editRecord?.debitNo || "";
@@ -3999,7 +3999,7 @@ function populateTransactionEditorDraft(draft) {
     if (draft.invoiceNo && draft.invoiceNo.toLowerCase() !== "auto" && !isDraftDuplicate) {
       invoiceNoInput.value = draft.invoiceNo;
     } else {
-      const draftSeries = draft.supplyType || (draftGstin ? "b2b" : "b2b");
+      const draftSeries = draft.supplyType || (draftGstin ? "b2b" : "b2c");
       invoiceNoInput.value = computeNextDocumentNumber(editorType, draft.invoiceDate || new Date(), draftSeries);
     }
   }
@@ -4386,9 +4386,24 @@ function bindTransactionEditor() {
   });
   elements.featureView.querySelectorAll("[data-payment-mode]").forEach((button) => {
     button.addEventListener("click", () => {
+      const mode = button.dataset.paymentMode;
       const toggle = elements.featureView.querySelector("#editorPaymentQuickToggle");
-      toggle.checked = button.dataset.paymentMode === "cash";
-      toggle.dispatchEvent(new Event("change", { bubbles: true }));
+      const paymentType = elements.featureView.querySelector("#editorPaymentType");
+      const paymentAmount = elements.featureView.querySelector("#editorReceived");
+      if (toggle) toggle.checked = mode === "cash";
+      if (paymentType) paymentType.value = mode;
+      if (paymentAmount) paymentAmount.dataset.manualPayment = "";
+      if (mode === "cash") {
+        const supplySelect = elements.featureView.querySelector('[name="supplyType"]');
+        const party = getSelectedTransactionParty();
+        if (supplySelect && (!party || !party.gstin) && supplySelect.value === "b2b") {
+          supplySelect.value = "b2c";
+          supplySelect.dispatchEvent(new Event("change", { bubbles: true }));
+        }
+      }
+      syncEditorPaymentQuickToggle();
+      syncEditorPartyRequirement();
+      recalcTransactionEditor();
     });
   });
   elements.featureView.querySelector("#editorReceived")?.addEventListener("input", () => {
@@ -8343,15 +8358,17 @@ function syncEditorPartyRequirement() {
   const isSaleReturn = editorType === "saleReturn";
   const isPurchaseReturn = editorType === "purchaseReturn";
   const isReturn = isSaleReturn || isPurchaseReturn;
-  const optional = editorType === 'sale' && elements.featureView.querySelector('#editorPaymentType')?.value === 'cash' && elements.featureView.querySelector('[name="supplyType"]')?.value === 'b2c';
+  const isCashSale = editorType === 'sale' && elements.featureView.querySelector('#editorPaymentType')?.value === 'cash';
+  const optional = isCashSale;
   if (partyInput) {
     partyInput.required = false;
     partyInput.setAttribute("aria-required", String(!optional));
-    partyInput.placeholder = meta.partyPlaceholder;
+    partyInput.placeholder = optional ? "Name or phone (optional)" : meta.partyPlaceholder;
+    if (optional) clearInlineError(partyInput);
   }
   if (marker) marker.textContent = optional ? '(optional)' : '*';
   if (hint) {
-    hint.textContent = meta.partyRequiredHint;
+    hint.textContent = !optional && editorType === 'sale' ? "Customer is required for credit sales" : meta.partyRequiredHint;
   }
 }
 
@@ -8525,13 +8542,13 @@ function renderItemLookupPanel(field) {
   };
   panel.querySelectorAll("button").forEach((button) => {
     button.onclick = (event) => {
-      if (event.detail === 0) handleEditorLookupAction(event);
+      handleEditorLookupAction(event);
     };
   });
 }
 
 function itemLookupButton(item) {
-  const allBarcodes = Array.isArray(item.barcodes) && item.barcodes.length ? item.barcodes : (item.sku ? [item.sku] : []);
+  const allBarcodes = getAllItemBarcodes(item);
   const barcodeSnippet = allBarcodes.length ? `Barcode: ${allBarcodes.join(", ")}` : "";
   const details = [barcodeSnippet, item.category, item.unit ? `Unit ${item.unit}` : ""].filter(Boolean).join(" - ") || "No item details";
   const service = item.itemType === "service";
@@ -8583,15 +8600,30 @@ function isExpenseItem(item) {
   );
 }
 
+function getAllItemBarcodes(item) {
+  if (!item) return [];
+  const list = [];
+  if (Array.isArray(item.barcodes)) {
+    list.push(...item.barcodes);
+  } else if (typeof item.barcodes === "string" && item.barcodes.trim()) {
+    list.push(...item.barcodes.split(/[,;\s]+/));
+  }
+  if (typeof item.barcode === "string" && item.barcode.trim()) {
+    list.push(...item.barcode.split(/[,;\s]+/));
+  }
+  if (item.sku) list.push(item.sku);
+  if (item.code) list.push(item.code);
+  if (item.itemCode) list.push(item.itemCode);
+  return list.map((b) => String(b || "").trim()).filter(Boolean);
+}
+
 function findItemByBarcode(barcode) {
   const clean = String(barcode || "").trim().toLowerCase();
   if (!clean) return null;
   return (state.items || []).find((item) => {
-    if (item.sku && String(item.sku).trim().toLowerCase() === clean) return true;
-    if (Array.isArray(item.barcodes)) {
-      return item.barcodes.some((bc) => String(bc).trim().toLowerCase() === clean);
-    }
-    return false;
+    if (Array.isArray(item.barcodes) && item.barcodes.some((bc) => String(bc).trim().toLowerCase() === clean)) return true;
+    const codes = getAllItemBarcodes(item);
+    return codes.some((code) => code.toLowerCase() === clean);
   }) || null;
 }
 
@@ -8600,12 +8632,13 @@ function searchItemsForLookup(query) {
   const items = (state.items || []).filter((item) => !isExpenseItem(item));
   if (!cleanQuery) return items;
   return items.filter((item) => {
-    const itemBarcodes = Array.isArray(item.barcodes) ? item.barcodes : (item.sku ? [item.sku] : []);
-    const barcodeMatch = itemBarcodes.some((bc) => String(bc).toLowerCase().includes(cleanQuery));
+    const itemBarcodes = getAllItemBarcodes(item);
+    const barcodeMatch = itemBarcodes.some((bc) => bc.toLowerCase().includes(cleanQuery));
     if (barcodeMatch) return true;
     return [
       item.name,
       item.sku,
+      item.code,
       item.category,
       item.unit,
     ].filter(Boolean).join(" ").toLowerCase().includes(cleanQuery);
@@ -8784,6 +8817,28 @@ function handleTransactionEditorKeys(event) {
   const target = event.target;
   if (event.key !== "Enter" || event.shiftKey || event.altKey || event.ctrlKey || event.metaKey) return;
   if (!target.matches(".editor-table input, .editor-table select, #editorReceived")) return;
+
+  if (target.matches('[name="item"]')) {
+    const row = target.closest("tr");
+    const val = target.value.trim();
+    if (val) {
+      const barcodeItem = findItemByBarcode(val);
+      if (barcodeItem) {
+        event.preventDefault();
+        event.stopPropagation();
+        selectTransactionItem(row, barcodeItem, { fromBarcodeScan: true });
+        return;
+      }
+      const exactItem = findItemByName(val);
+      if (exactItem) {
+        event.preventDefault();
+        event.stopPropagation();
+        selectTransactionItem(row, exactItem, { fromBarcodeScan: true });
+        return;
+      }
+    }
+  }
+
   event.preventDefault();
   focusNextTransactionField(target);
 }
@@ -9330,14 +9385,18 @@ function recalcTransactionEditor() {
       const sub1 = Number(slab.subTaxes[0]?.rate || 0);
       const sub2 = Number(slab.subTaxes[1]?.rate || 0);
       const totalSub = sub1 + sub2 > 0 ? (sub1 + sub2) : taxRate;
-      cgstTotal += taxAmount * (sub1 / totalSub);
-      sgstTotal += taxAmount * (sub2 / totalSub);
+      if (taxAmount > 0 && totalSub > 0) {
+        cgstTotal += taxAmount * (sub1 / totalSub);
+        sgstTotal += taxAmount * (sub2 / totalSub);
+      }
     } else {
       const sub1 = slab ? Number(slab.subTax1Rate !== undefined ? slab.subTax1Rate : slab.cgst) : taxRate / 2;
       const sub2 = slab ? Number(slab.subTax2Rate !== undefined ? slab.subTax2Rate : slab.sgst) : taxRate / 2;
       const totalSub = sub1 + sub2 > 0 ? (sub1 + sub2) : taxRate;
-      cgstTotal += taxAmount * (sub1 / totalSub);
-      sgstTotal += taxAmount * (sub2 / totalSub);
+      if (taxAmount > 0 && totalSub > 0) {
+        cgstTotal += taxAmount * (sub1 / totalSub);
+        sgstTotal += taxAmount * (sub2 / totalSub);
+      }
     }
     grandTotal += (amount + lineCessAmount);
     row.dataset.lineTax = (taxAmount + lineCessAmount).toFixed(2);
@@ -9351,9 +9410,9 @@ function recalcTransactionEditor() {
   elements.featureView.querySelector("#editorSubtotal").textContent = subtotal.toFixed(2);
   elements.featureView.querySelector("#editorDiscountTotal").textContent = discountTotal.toFixed(2);
   elements.featureView.querySelector("#editorTaxTotal").textContent = taxTotal.toFixed(2);
-  elements.featureView.querySelector("#editorCgstTotal").textContent = cgstTotal.toFixed(2);
-  elements.featureView.querySelector("#editorSgstTotal").textContent = sgstTotal.toFixed(2);
-  elements.featureView.querySelector("#editorIgstTotal").textContent = igstTotal.toFixed(2);
+  elements.featureView.querySelector("#editorCgstTotal").textContent = (Number.isFinite(cgstTotal) ? cgstTotal : 0).toFixed(2);
+  elements.featureView.querySelector("#editorSgstTotal").textContent = (Number.isFinite(sgstTotal) ? sgstTotal : 0).toFixed(2);
+  elements.featureView.querySelector("#editorIgstTotal").textContent = (Number.isFinite(igstTotal) ? igstTotal : 0).toFixed(2);
 
   const cessWrap = elements.featureView.querySelector("#editorCessWrapper");
   const cessValEl = elements.featureView.querySelector("#editorCessTotal");
@@ -9470,8 +9529,11 @@ function renderTransactionSmartChecks(grandTotal = null, received = null) {
     checks.push({ type: "danger", text: `${meta.noun} needs a ${meta.partyLabel.toLowerCase()} name.` });
   } else if (isEstimate && partyName.trim() && !party) {
     checks.push({ type: "info", text: `${partyName} will be kept on this ${meta.noun.toLowerCase()}; convert when confirmed.` });
-  } else if (!isEstimate && !hasSelectedParty && !(editorType === 'sale' && paymentType === 'cash' && supplyType === 'b2c' && !partyName.trim())) {
+  } else if (!isEstimate && !hasSelectedParty && !(editorType === 'sale' && paymentType === 'cash' && !partyName.trim())) {
     checks.push({ type: "danger", text: `${isPurchaseDoc ? "Purchase" : "Sale"} billing needs an existing ${isPurchaseDoc ? "supplier" : "customer"}. Select one or add it first.` });
+  }
+  if (editorType === "sale" && paymentType === "credit" && !hasSelectedParty) {
+    checks.push({ type: "danger", text: "Customer is required for credit sales. Select one or add customer first." });
   }
   if (party) {
     const balance = Number(party.balance ?? party.openingBalance ?? 0);
@@ -10305,7 +10367,11 @@ function validateTransactionEditorSelections() {
   const isSaleReturn = editorType === "saleReturn";
   const isPurchaseReturn = editorType === "purchaseReturn";
   const isReturn = isSaleReturn || isPurchaseReturn;
-  const walkIn = editorType === 'sale' && !partyName && !party && supplyType === 'b2c' && elements.featureView.querySelector('[name="paymentType"]')?.value === 'cash';
+  const isCashSale = elements.featureView.querySelector('[name="paymentType"]')?.value === 'cash';
+  const walkIn = editorType === 'sale' && !partyName && !party && isCashSale;
+  if (walkIn && supplyTypeInput && supplyTypeInput.value === 'b2b') {
+    supplyTypeInput.value = 'b2c';
+  }
   const requiresExistingParty = (isReturn || !isEstimate) && !walkIn;
 
   if (isEstimate && !partyName) {
