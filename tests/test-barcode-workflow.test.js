@@ -36,4 +36,11 @@ test("Barcode Workflow - Purchase Entry, Sales Scan, and Auto-Jump Verification"
     assert.strictEqual(malayalamRegex.test(appJs), false, "app.js must contain zero Malayalam characters");
     assert.strictEqual(malayalamRegex.test(indexHtml), false, "index.html must contain zero Malayalam characters");
   });
+
+  await t.test("6. Default GST Tax Rate when adding an item is the first option (None), not 18%", () => {
+    assert.ok(indexHtml.includes('<option value="None" selected>None</option>'), "index.html must have 'None' (the first option) selected by default");
+    assert.strictEqual(indexHtml.includes('<option value="GST@18%" selected>'), false, "index.html must NOT have GST@18% selected by default");
+    assert.ok(appJs.includes("taxRateSelect.selectedIndex = 0"), "openEntryModal must default taxRate select to index 0 on new item");
+    assert.strictEqual(appJs.includes('targetOptions.includes("GST@18%") ? "GST@18%" : "None"'), false, "updateItemTaxRateOptions must not hardcode GST@18% default");
+  });
 });

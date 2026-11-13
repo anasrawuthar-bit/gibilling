@@ -2936,6 +2936,11 @@ function openEntryModal(type, record = null, options = {}) {
       setItemTypeChip("product");
       const openingStockValue = elements.entryForm.querySelector('[name="openingStockValue"]');
       if (openingStockValue) delete openingStockValue.dataset.manualEdit;
+      const taxRateSelect = elements.entryForm.querySelector('[name="taxRate"]');
+      if (taxRateSelect && taxRateSelect.options.length > 0) {
+        taxRateSelect.selectedIndex = 0;
+        taxRateSelect.value = taxRateSelect.options[0].value;
+      }
     }
     updateItemSummaryPills();
   }
@@ -11174,7 +11179,7 @@ function updateItemTaxRateOptions(isService) {
   if (!hasExact) {
     const num = parseTaxRate(currentVal);
     const hasSameRate = targetOptions.find((opt) => parseTaxRate(opt) === num && (opt.startsWith("GST@") || opt === "None" || opt === "Exempt"));
-    selectedVal = hasSameRate || (targetOptions.includes("GST@18%") ? "GST@18%" : "None");
+    selectedVal = hasSameRate || (targetOptions.length ? targetOptions[0] : "None");
   }
 
   select.innerHTML = targetOptions
