@@ -82,6 +82,8 @@ contextBridge.exposeInMainWorld("giDB", {
 contextBridge.exposeInMainWorld("giApp", {
   getVersion: () => ipcRenderer.invoke("app:get-version"),
   getSystemInfo: () => ipcRenderer.invoke("app:get-system-info"),
+  getAutoStart: () => ipcRenderer.invoke("system:get-autostart"),
+  setAutoStart: (enable) => ipcRenderer.invoke("system:set-autostart", enable),
   exportPdf: (payload) => ipcRenderer.invoke("app:export-pdf", payload),
   exportReportPdf: (payload) => ipcRenderer.invoke("report:export-pdf", payload),
   saveTempPdf: (payload) => ipcRenderer.invoke("whatsapp:save-temp-pdf", payload),

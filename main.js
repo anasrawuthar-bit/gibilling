@@ -186,10 +186,25 @@ function createMainWindow() {
     return { action: "deny" };
   });
 
+  window.on("close", (event) => {
+    if (!isQuitting) {
+      event.preventDefault();
+      window.hide();
+      if (tray && process.platform === "win32") {
+        try {
+          tray.displayBalloon({
+            title: "ZynBill",
+            content: "ZynBill is still running in the background. Click the tray icon to open.",
+          });
+        } catch (_) {}
+      }
+      return false;
+    }
+  });
+
   window.on("closed", () => {
     if (mainWindow === window) mainWindow = null;
-    if (process.platform !== "darwin") {
-      isQuitting = true;
+    if (process.platform !== "darwin" && isQuitting) {
       if (tray && !tray.isDestroyed()) {
         tray.destroy();
         tray = null;
@@ -712,6 +727,35 @@ function registerDatabaseHandlers() {
     version: app.getVersion(),
   }));
   
+  ipcMain.handle("system:get-autostart", () => {
+    try {
+      if (app && typeof app.getLoginItemSettings === "function") {
+        const settings = app.getLoginItemSettings();
+        return { openAtLogin: Boolean(settings.openAtLogin) };
+      }
+    } catch (err) {
+      console.warn("Failed to get auto-start settings:", err.message);
+    }
+    return { openAtLogin: false };
+  });
+
+  ipcMain.handle("system:set-autostart", (_event, enable) => {
+    try {
+      if (app && typeof app.setLoginItemSettings === "function") {
+        app.setLoginItemSettings({
+          openAtLogin: Boolean(enable),
+          openAsHidden: false,
+        });
+        const settings = app.getLoginItemSettings();
+        return { success: true, openAtLogin: Boolean(settings.openAtLogin) };
+      }
+    } catch (err) {
+      console.warn("Failed to set auto-start settings:", err.message);
+      return { success: false, error: err.message };
+    }
+    return { success: false, openAtLogin: false };
+  });
+
   ipcMain.handle("backup:get-settings", () => {
     const configPath = path.join(app.getPath("userData"), "backup_config.json");
     let autoBackupOnExit = true;

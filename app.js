@@ -2250,9 +2250,6 @@ function bindEvents() {
 
   window.addEventListener("gi-refresh", refreshCurrentView);
   window.addEventListener("beforeunload", (event) => {
-    if (localStorage.getItem("gi_auto_backup_on_exit") === "true" && window.giDB?.createSnapshot) {
-      window.giDB.createSnapshot().catch(() => {});
-    }
     if (!shouldBlockTransactionEditorLeave()) return;
     event.preventDefault();
     event.returnValue = "You have unsaved invoice changes.";
@@ -16986,6 +16983,51 @@ function bindFeatureActions() {
   elements.featureView.querySelector('[data-action="goto-cash-bank"]')?.addEventListener("click", () => {
     showView("cash");
   });
+  // Auto-Start & Background Settings
+  const autoStartCheck = elements.featureView.querySelector("#settingsAutoStartCheckbox");
+  const autoStartBadge = elements.featureView.querySelector("#settingsAutoStartBadge");
+  const autoStartText = elements.featureView.querySelector("#settingsAutoStartStatusText");
+  if (autoStartCheck && window.giApp?.getAutoStart) {
+    window.giApp.getAutoStart().then((res) => {
+      const isEnabled = Boolean(res?.openAtLogin);
+      autoStartCheck.checked = isEnabled;
+      if (autoStartBadge) {
+        autoStartBadge.textContent = isEnabled ? "✓ Auto-Start Active" : "Startup Disabled";
+        autoStartBadge.style.background = isEnabled ? "#ecfdf5" : "#f1f5f9";
+        autoStartBadge.style.color = isEnabled ? "#047857" : "#64748b";
+      }
+      if (autoStartText) {
+        autoStartText.textContent = isEnabled ? "Enabled" : "Disabled";
+      }
+    }).catch(() => {
+      if (autoStartBadge) {
+        autoStartBadge.textContent = "Unavailable";
+      }
+    });
+
+    autoStartCheck.addEventListener("change", async () => {
+      const wantEnable = autoStartCheck.checked;
+      try {
+        if (window.giApp?.setAutoStart) {
+          const res = await window.giApp.setAutoStart(wantEnable);
+          const isEnabled = Boolean(res?.openAtLogin);
+          autoStartCheck.checked = isEnabled;
+          if (autoStartBadge) {
+            autoStartBadge.textContent = isEnabled ? "✓ Auto-Start Active" : "Startup Disabled";
+            autoStartBadge.style.background = isEnabled ? "#ecfdf5" : "#f1f5f9";
+            autoStartBadge.style.color = isEnabled ? "#047857" : "#64748b";
+          }
+          if (autoStartText) {
+            autoStartText.textContent = isEnabled ? "Enabled" : "Disabled";
+          }
+          showToast(`Startup launch ${isEnabled ? "enabled" : "disabled"}.`);
+        }
+      } catch (err) {
+        showToast("Failed to update startup configuration: " + err.message);
+      }
+    });
+  }
+
   // Security & Cloud License Settings Actions
   elements.featureView.querySelector("#btnSettingsEnablePin")?.addEventListener("click", () => {
     if (typeof PinUiController !== "undefined") PinUiController.showSetupModal();
@@ -34570,7 +34612,43 @@ function settingsSecurityTemplate() {
     </header>
 
     <div class="settings-form-grid">
-      <!-- 1. Quick PIN Security -->
+      <!-- 1. Auto-Start & Background Behavior -->
+      <section class="settings-card" style="grid-column: 1 / -1;">
+        <div class="settings-card-head">
+          <div style="display:flex;align-items:center;gap:12px;">
+            <div style="width:38px;height:38px;border-radius:10px;background:#f0f9ff;border:1px solid #bae6fd;display:flex;align-items:center;justify-content:center;color:#0284c7;font-size:18px;">
+              ⚡
+            </div>
+            <div>
+              <h3 style="margin:0;font-size:15px;color:#0f172a;">Startup &amp; Background Execution</h3>
+              <p style="margin:2px 0 0;font-size:12.5px;color:#64748b;">Keep ZynBill running in the background for continuous cloud synchronization, printing, and instant access.</p>
+            </div>
+          </div>
+          <span class="badge" id="settingsAutoStartBadge" style="background:#ecfdf5;color:#047857;font-weight:700;">
+            Checking...
+          </span>
+        </div>
+
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:14px;padding:16px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;margin-top:14px;">
+          <div>
+            <div style="font-weight:600;font-size:13.5px;color:#0f172a;">Launch ZynBill at System Startup</div>
+            <div style="font-size:12px;color:#64748b;margin-top:2px;">
+              Automatically launch ZynBill when Windows starts up. Closing the window keeps it active in the system tray.
+            </div>
+          </div>
+          <div style="display:flex;align-items:center;gap:10px;">
+            <label class="sync-toggle-label" style="cursor:pointer;" title="Launch ZynBill when Windows starts">
+              <input type="checkbox" id="settingsAutoStartCheckbox" class="sync-toggle-input">
+              <span class="sync-toggle-track">
+                <span class="sync-toggle-thumb"></span>
+              </span>
+              <span class="sync-toggle-text" id="settingsAutoStartStatusText" style="font-weight:600;font-size:13px;color:#334155;">Disabled</span>
+            </label>
+          </div>
+        </div>
+      </section>
+
+      <!-- 2. Quick PIN Security -->
       <section class="settings-card" style="grid-column: 1 / -1;">
         <div class="settings-card-head">
           <div style="display:flex;align-items:center;gap:12px;">
