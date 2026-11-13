@@ -235,7 +235,8 @@ class WhatsAppService {
               continue;
             }
 
-            const cleanPhone = remoteJid.replace(/@s\.whatsapp\.net/, "").replace(/\D/g, "");
+            // Clean phone number: strip :device and @domain safely (e.g. "919048253862:0@s.whatsapp.net" -> "919048253862")
+            const cleanPhone = remoteJid.split(":")[0].split("@")[0].replace(/\D/g, "");
             const isFromMe = Boolean(m.key?.fromMe);
 
             // Extract message content safely

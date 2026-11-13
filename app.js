@@ -536,7 +536,7 @@ const elements = {
   appVersionBadge: document.getElementById("appVersionBadge") || document.querySelector(".app-version-badge"),
 };
 
-let currentAppVersion = "1.1.6";
+let currentAppVersion = "1.1.7";
 
 async function refreshAppVersion() {
   try {
@@ -32189,31 +32189,78 @@ function initWhatsAppEventListener() {
 }
 initWhatsAppEventListener();
 
+function deduplicateChatMessages(list) {
+  if (!Array.isArray(list)) return [];
+  const seen = new Set();
+  const deduped = [];
+  for (const m of list) {
+    if (!m) continue;
+    const textSnippet = String(m.text || "").trim();
+    // Unique fingerprint: if server message ID exists, use it; otherwise group by sender + text
+    const fp = m.id && !m.id.startsWith("bulk-rem-") && !m.id.startsWith("msg-init-") ? m.id : `${m.from}:${textSnippet}`;
+    if (!seen.has(fp)) {
+      seen.add(fp);
+      deduped.push(m);
+    }
+  }
+  return deduped;
+}
+
 function handleWhatsAppIncomingMessage(inboundMsg) {
   if (!inboundMsg || !inboundMsg.phone) return;
   const rawPhone = String(inboundMsg.phone).replace(/\D/g, "");
   if (!rawPhone) return;
 
   const last10 = rawPhone.slice(-10);
+
+  // If the message is an echo from me, prevent duplicate bubble display
+  if (inboundMsg.from === "me") {
+    for (const key in (whatsappConnectState.chats || {})) {
+      const list = whatsappConnectState.chats[key];
+      const existing = list.find((m) => m.id === inboundMsg.id || (m.from === "me" && String(m.text || "").trim() === String(inboundMsg.text || "").trim()));
+      if (existing) {
+        if (inboundMsg.id && (!existing.id || existing.id.startsWith("bulk-rem-") || existing.id.startsWith("msg-"))) {
+          existing.id = inboundMsg.id;
+        }
+        return; // Already recorded locally, skip duplicate!
+      }
+    }
+  }
+
+  // 1. Search in real database parties by phone last 10 digits
   let matchedParty = (state.parties || []).find((p) => {
-    const pPhone = String(p.phone || "").replace(/\D/g, "");
-    return pPhone.endsWith(last10);
+    const pPhone = String(p.phone || "").replace(/\D/g, "").slice(-10);
+    return (last10.length >= 7 && pPhone.length >= 7 && (pPhone === last10 || pPhone.endsWith(last10) || last10.endsWith(pPhone)));
   });
 
+  // 2. Search in real database parties by pushName
+  if (!matchedParty && inboundMsg.pushName) {
+    const cleanPush = inboundMsg.pushName.trim().toLowerCase();
+    matchedParty = (state.parties || []).find((p) => (p.name || "").trim().toLowerCase() === cleanPush);
+  }
+
+  // 3. Search in directParties by phone
   if (!matchedParty) {
     matchedParty = (whatsappConnectState.directParties || []).find((p) => {
-      const pPhone = String(p.phone || "").replace(/\D/g, "");
-      return pPhone.endsWith(last10);
+      const pPhone = String(p.phone || "").replace(/\D/g, "").slice(-10);
+      return (last10.length >= 7 && pPhone.length >= 7 && (pPhone === last10 || pPhone.endsWith(last10) || last10.endsWith(pPhone)));
     });
   }
 
-  // If new customer messaging, register into directParties
+  // 4. Search in directParties by pushName
+  if (!matchedParty && inboundMsg.pushName) {
+    const cleanPush = inboundMsg.pushName.trim().toLowerCase();
+    matchedParty = (whatsappConnectState.directParties || []).find((p) => (p.name || "").trim().toLowerCase() === cleanPush);
+  }
+
+  // 5. If completely new, create new directParty
   if (!matchedParty) {
     matchedParty = {
-      id: "direct-" + rawPhone,
+      id: "direct-" + (last10 || rawPhone),
       name: inboundMsg.pushName || ("+" + inboundMsg.phone),
       phone: inboundMsg.phone,
       balance: 0,
+      isDirect: true,
     };
     whatsappConnectState.directParties = whatsappConnectState.directParties || [];
     whatsappConnectState.directParties.unshift(matchedParty);
@@ -32223,8 +32270,11 @@ function handleWhatsAppIncomingMessage(inboundMsg) {
   whatsappConnectState.chats = whatsappConnectState.chats || {};
   whatsappConnectState.chats[pKey] = whatsappConnectState.chats[pKey] || [];
 
-  // Deduplicate
-  if (inboundMsg.id && whatsappConnectState.chats[pKey].some((m) => m.id === inboundMsg.id)) {
+  // Deduplicate against existing messages in this thread
+  const existingDup = whatsappConnectState.chats[pKey].some(
+    (m) => m.id === inboundMsg.id || (m.from === inboundMsg.from && String(m.text || "").trim() === String(inboundMsg.text || "").trim())
+  );
+  if (existingDup) {
     return;
   }
 
@@ -32236,6 +32286,7 @@ function handleWhatsAppIncomingMessage(inboundMsg) {
     status: "received",
   };
   whatsappConnectState.chats[pKey].push(newMsg);
+  whatsappConnectState.chats[pKey] = deduplicateChatMessages(whatsappConnectState.chats[pKey]);
   saveWhatsAppConnectState();
 
   if (currentView === "whatsapp") {
@@ -32304,15 +32355,78 @@ function saveWhatsAppConnectState() {
   } catch (_) {}
 }
 
-function getWhatsAppActiveParty() {
+function getWhatsAppAllParties() {
   const parties = state.parties || [];
   const directParties = whatsappConnectState.directParties || [];
-  const allParties = [...directParties, ...parties];
+
+  const knownPhones = new Set();
+  const knownNames = new Set();
+
+  for (const p of parties) {
+    const pPhone = String(p.phone || "").replace(/\D/g, "").slice(-10);
+    if (pPhone.length >= 7) knownPhones.add(pPhone);
+    if (p.name) knownNames.add(p.name.trim().toLowerCase());
+  }
+
+  // Clean up directParties: if a directParty matches an existing real party, merge its chats and remove it from directParties!
+  const cleanDirect = [];
+  for (const dp of directParties) {
+    const dpPhone = String(dp.phone || "").replace(/\D/g, "").slice(-10);
+    const dpName = (dp.name || "").trim().toLowerCase();
+    const isPhoneMatch = dpPhone.length >= 7 && knownPhones.has(dpPhone);
+    const isNameMatch = dpName && knownNames.has(dpName);
+
+    if (isPhoneMatch || isNameMatch) {
+      // Merge chats into the real party
+      const realParty = parties.find((p) => {
+        const pPh = String(p.phone || "").replace(/\D/g, "").slice(-10);
+        return (isPhoneMatch && pPh === dpPhone) || (isNameMatch && (p.name || "").trim().toLowerCase() === dpName);
+      });
+      if (realParty) {
+        const dpKey = String(dp.id || dp.name);
+        const realKey = String(realParty.id || realParty.name);
+        if (dpKey !== realKey && whatsappConnectState.chats?.[dpKey]) {
+          whatsappConnectState.chats[realKey] = whatsappConnectState.chats[realKey] || [];
+          for (const m of whatsappConnectState.chats[dpKey]) {
+            if (!whatsappConnectState.chats[realKey].some((ex) => ex.id === m.id || (ex.text === m.text && ex.from === m.from))) {
+              whatsappConnectState.chats[realKey].push(m);
+            }
+          }
+          whatsappConnectState.chats[realKey] = deduplicateChatMessages(whatsappConnectState.chats[realKey]);
+          delete whatsappConnectState.chats[dpKey];
+        }
+      }
+    } else {
+      cleanDirect.push(dp);
+    }
+  }
+
+  if (cleanDirect.length !== directParties.length) {
+    whatsappConnectState.directParties = cleanDirect;
+    saveWhatsAppConnectState();
+  }
+
+  return [...cleanDirect, ...parties];
+}
+
+function getWhatsAppActiveParty() {
+  const allParties = getWhatsAppAllParties();
   if (!allParties.length) {
     return null;
   }
   if (whatsappConnectState.activePartyId) {
-    const p = allParties.find((item) => String(item.id) === String(whatsappConnectState.activePartyId));
+    let p = allParties.find((item) => String(item.id) === String(whatsappConnectState.activePartyId));
+    if (!p) {
+      // If activePartyId was a merged direct party, find the target real party
+      const directClean = String(whatsappConnectState.activePartyId).replace(/^direct-/, "").slice(-10);
+      if (directClean.length >= 7) {
+        p = allParties.find((item) => String(item.phone || "").replace(/\D/g, "").endsWith(directClean));
+        if (p) {
+          whatsappConnectState.activePartyId = p.id;
+          saveWhatsAppConnectState();
+        }
+      }
+    }
     if (p) return p;
   }
   const partyWithBal = allParties.find((item) => (Number(item.balance) || 0) > 0);
@@ -32656,6 +32770,7 @@ function ensureDefaultWhatsAppChatsForParty(party) {
   if (!party) return [];
   const partyKey = String(party.id || party.name || "default");
   if (whatsappConnectState.chats && whatsappConnectState.chats[partyKey] && whatsappConnectState.chats[partyKey].length) {
+    whatsappConnectState.chats[partyKey] = deduplicateChatMessages(whatsappConnectState.chats[partyKey]);
     return whatsappConnectState.chats[partyKey];
   }
   whatsappConnectState.chats = whatsappConnectState.chats || {};
@@ -32852,29 +32967,35 @@ function openWhatsAppBulkRemindersModal() {
       const cleanPhone = formatWhatsAppPhoneNumber(p.phone);
       const reminderText = formatDirectPaymentReminder(p);
 
+      let sendRes = null;
       if (cleanPhone && window.giApp?.whatsappSendMessage) {
         try {
-          await window.giApp.whatsappSendMessage({
+          sendRes = await window.giApp.whatsappSendMessage({
             phone: cleanPhone,
             message: reminderText,
           });
-          successCount++;
+          if (sendRes?.success || sendRes?.messageId) {
+            successCount++;
+          }
         } catch (sendErr) {
           console.warn(`Could not send reminder to ${p.name}:`, sendErr);
         }
       }
 
-      // Record in local chat history
+      // Record in local chat history (guarded against duplicates)
       const pKey = String(p.id || p.name);
       whatsappConnectState.chats = whatsappConnectState.chats || {};
       whatsappConnectState.chats[pKey] = whatsappConnectState.chats[pKey] || [];
-      whatsappConnectState.chats[pKey].push({
-        id: "bulk-rem-" + Date.now() + "-" + i,
-        text: reminderText,
-        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        from: "me",
-        status: "delivered",
-      });
+      const msgId = sendRes?.messageId || ("bulk-rem-" + Date.now() + "-" + i);
+      if (!whatsappConnectState.chats[pKey].some(m => m.id === msgId || (m.from === "me" && m.text === reminderText))) {
+        whatsappConnectState.chats[pKey].push({
+          id: msgId,
+          text: reminderText,
+          time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          from: "me",
+          status: "delivered",
+        });
+      }
 
       // Anti-ban rate limit delay (4.5s safe delay)
       if (i < total - 1) {
@@ -32973,9 +33094,7 @@ async function renderWhatsAppPairingQr() {
 
 function whatsappConnectTemplate() {
   const isConnected = Boolean(whatsappConnectState.connected);
-  const parties = state.parties || [];
-  const directParties = whatsappConnectState.directParties || [];
-  const allParties = [...directParties, ...parties];
+  const allParties = getWhatsAppAllParties();
   const activeParty = getWhatsAppActiveParty() || allParties[0] || { id: "demo-1", name: "Walk-in Customer", phone: "", balance: 0 };
 
   if (!isConnected) {
@@ -33084,7 +33203,7 @@ function whatsappConnectTemplate() {
   const latestInvoice = getPartyLatestInvoice(currentActiveParty);
   const cleanPhone = String(currentActiveParty.phone || "").replace(/\D/g, "");
   const hasValidPhone = cleanPhone.length >= 7;
-  const messages = hasValidPhone ? ensureDefaultWhatsAppChatsForParty(currentActiveParty) : [];
+  const messages = hasValidPhone ? deduplicateChatMessages(ensureDefaultWhatsAppChatsForParty(currentActiveParty)) : [];
   const balanceDue = Number(currentActiveParty.balance || currentActiveParty.receivable || 0);
 
   return `
@@ -33167,16 +33286,6 @@ function whatsappConnectTemplate() {
                   ${balanceDue > 0 ? `&bull; <span style="color:#dc2626;font-weight:600;">Due: ${formatCurrency(balanceDue)}</span>` : ""}
                 </div>
               </div>
-            </div>
-            <div class="wa-chat-header-actions">
-              ${hasValidPhone ? `
-                <a href="https://web.whatsapp.com/send?phone=${formatWhatsAppPhoneNumber(cleanPhone)}" target="_blank" class="outline-mini-button" style="text-decoration:none;display:inline-flex;align-items:center;gap:6px;font-size:11.5px;color:#128c7e;border-color:#128c7e;">
-                  <svg class="gi-icon" style="width:13px;height:13px;fill:currentColor;"><use href="#gi-whatsapp"></use></svg> WhatsApp Web
-                </a>
-                <a href="whatsapp://send?phone=${formatWhatsAppPhoneNumber(cleanPhone)}" target="_blank" class="outline-mini-button" style="text-decoration:none;display:inline-flex;align-items:center;gap:4px;font-size:11.5px;">
-                  Open Desktop
-                </a>
-              ` : ""}
             </div>
           </header>
 

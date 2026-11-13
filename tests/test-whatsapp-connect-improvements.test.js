@@ -42,4 +42,14 @@ test("WhatsApp Connect - Dynamic UPI Links, Two-Way Sync, and Bulk Reminders Ver
     assert.ok(stylesCss.includes(".wa-check-icon.wa-read"), "styles.css must have .wa-check-icon.wa-read");
     assert.ok(stylesCss.includes(".wa-check-icon.wa-delivered"), "styles.css must have .wa-check-icon.wa-delivered");
   });
+
+  await t.test("7. WhatsApp Web / Open Desktop header buttons are removed from chat window", () => {
+    assert.strictEqual(appJs.includes('<div class="wa-chat-header-actions">'), false, "Chat header must not contain wa-chat-header-actions");
+  });
+
+  await t.test("8. Inbound message deduplication and single-thread party merging are active", () => {
+    assert.ok(appJs.includes("function getWhatsAppAllParties"), "app.js must define getWhatsAppAllParties");
+    assert.ok(appJs.includes("function deduplicateChatMessages"), "app.js must define deduplicateChatMessages");
+    assert.ok(wsJs.includes('remoteJid.split(":")[0].split("@")[0]'), "whatsapp-service.js must cleanly strip device and domain from remoteJid");
+  });
 });
