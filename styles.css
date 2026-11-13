@@ -16792,8 +16792,239 @@ textarea:focus-visible {
 .transaction-editor .editor-table th:nth-child(7) { width: 90px; text-align: right; }
 .transaction-editor .editor-table th:nth-child(8) { width: 100px; text-align: right; }
 .purchase-editor .editor-table th.col-barcode,
-.purchase-editor .editor-table td.editor-barcode-cell { width: 130px; text-align: left; }
+.purchase-editor .editor-table td.editor-barcode-cell { width: 155px; text-align: left; }
 .purchase-editor .editor-table td.editor-barcode-cell input { border: 1px solid #d5dde5; border-radius: 4px; background: #fff; padding: 4px 6px; font-size: 12px; }
+.editor-barcode-wrap {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  position: relative;
+  width: 100%;
+}
+.editor-barcode-wrap input {
+  flex: 1;
+  min-width: 0;
+}
+.btn-barcode-scan-modal {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border-radius: 4px;
+  border: 1px solid #cbd5e1;
+  background: #f1f5f9;
+  color: #2563eb;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: all 0.15s ease;
+}
+.btn-barcode-scan-modal:hover {
+  background: #dbeafe;
+  border-color: #2563eb;
+  color: #1d4ed8;
+}
+
+/* Multi-Barcode Unit Scanner Modal */
+.multi-barcode-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 2500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(15, 23, 42, 0.6);
+  backdrop-filter: blur(3px);
+  padding: 16px;
+}
+.multi-barcode-modal {
+  background: #ffffff;
+  border-radius: 14px;
+  width: 100%;
+  max-width: 520px;
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+  overflow: hidden;
+  animation: modalPopIn 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.multi-barcode-header {
+  padding: 16px 20px;
+  background: #0f172a;
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.multi-barcode-header-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.multi-barcode-icon {
+  font-size: 24px;
+}
+.multi-barcode-header h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  color: #ffffff;
+}
+.multi-barcode-subtitle {
+  font-size: 11.5px;
+  color: #94a3b8;
+  display: block;
+  margin-top: 2px;
+}
+.multi-barcode-body {
+  padding: 16px 20px;
+  overflow-y: auto;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.multi-barcode-fast-scan-bar {
+  background: #f0fdf4;
+  border: 1.5px dashed #22c55e;
+  border-radius: 10px;
+  padding: 12px 14px;
+}
+.fast-scan-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #15803d;
+  margin-bottom: 6px;
+}
+.pulse-scan-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #22c55e;
+  box-shadow: 0 0 0 rgba(34, 197, 94, 0.4);
+  animation: pulseDot 1.4s infinite;
+}
+@keyframes pulseDot {
+  0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.7); }
+  70% { transform: scale(1); box-shadow: 0 0 0 6px rgba(34, 197, 94, 0); }
+  100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(34, 197, 94, 0); }
+}
+.fast-scan-input-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.fast-scan-icon {
+  position: absolute;
+  left: 10px;
+  font-size: 14px;
+  pointer-events: none;
+}
+.fast-scan-input {
+  width: 100%;
+  height: 38px;
+  padding-left: 32px;
+  border-radius: 6px;
+  border: 1px solid #86efac;
+  font-size: 13.5px;
+  font-family: monospace, sans-serif;
+  font-weight: 600;
+  background: #ffffff;
+}
+.fast-scan-input:focus {
+  border-color: #16a34a;
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.2);
+}
+.multi-barcode-stats-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+  color: #64748b;
+  padding: 0 2px;
+}
+.multi-barcode-count-badge {
+  background: #e2e8f0;
+  color: #0f172a;
+  padding: 3px 10px;
+  border-radius: 12px;
+  font-weight: 700;
+  font-size: 11px;
+}
+.multi-barcode-slots-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 240px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+.multi-barcode-slot-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 6px 10px;
+  transition: all 0.2s ease;
+}
+.multi-barcode-slot-row.scan-success {
+  background: #f0fdf4;
+  border-color: #86efac;
+}
+.slot-unit-badge {
+  font-size: 11px;
+  font-weight: 700;
+  color: #475569;
+  min-width: 55px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.slot-input {
+  flex: 1;
+  height: 32px;
+  font-family: monospace, sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+  padding: 4px 8px;
+}
+.slot-input:focus {
+  border-color: #2563eb;
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.2);
+}
+.slot-delete-btn {
+  background: none;
+  border: none;
+  color: #94a3b8;
+  font-size: 16px;
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 4px;
+  line-height: 1;
+}
+.slot-delete-btn:hover {
+  color: #ef4444;
+  background: #fee2e2;
+}
+.multi-barcode-footer {
+  padding: 12px 20px;
+  background: #f8fafc;
+  border-top: 1px solid #e2e8f0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+}
 .transaction-editor .editor-table th:last-child,
 .transaction-editor .editor-table td:last-child { width: 110px; min-width: 100px; text-align: right; font-variant-numeric: tabular-nums; }
 .transaction-editor .editor-table td { height: 44px; }

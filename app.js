@@ -3934,7 +3934,16 @@ function editorRowTemplate(index, item = "", description = "", qty = "", price =
       </td>
       <td class="editor-item-field"><div class="editor-item-cell"><input name="item" value="${escapeHtml(item)}" placeholder="${isPurchase ? "Search item name" : "Scan barcode or search item"}" autocomplete="off"><div class="editor-lookup-panel editor-item-lookup hidden"></div><small class="row-smart-hint"></small><div class="purchase-price-history"></div></div></td>
       <td><details class="editor-row-description" ${description ? "open" : ""}><summary>Description</summary><input name="description" aria-label="Item description" value="${escapeHtml(description)}" placeholder="Optional description"></details></td>
-      ${isPurchase ? `<td class="editor-barcode-cell"><input name="barcode" class="form-input compact-input" placeholder="Scan/Type Barcode" value="${escapeHtml(barcode)}" autocomplete="off" title="Scan or type barcode(s) for this item"></td>` : ""}
+      ${isPurchase ? `
+        <td class="editor-barcode-cell">
+          <div class="editor-barcode-wrap">
+            <input name="barcode" class="form-input compact-input" placeholder="Scan/Type Barcode" value="${escapeHtml(barcode)}" autocomplete="off" title="Scan or type barcode(s) for this item">
+            <button type="button" class="btn-barcode-scan-modal" data-action="open-barcode-scan-modal" title="Scan multiple barcodes for each unit" aria-label="Scan barcodes">
+              <svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor"><path d="M2 4h2v16H2V4zm3 0h1v16H5V4zm3 0h2v16H8V4zm3 0h1v16h-1V4zm2 0h2v16h-2V4zm3 0h1v16h-1V4zm2 0h3v16h-3V4z"/></svg>
+            </button>
+          </div>
+        </td>
+      ` : ""}
       <td><input name="qty" aria-label="Quantity" placeholder="0" type="number" min="0" step="0.01" value="${qty}"></td>
       <td><select name="unit">${editorUnitOptionsMarkup()}</select></td>
       <td><input name="price" aria-label="Unit price" placeholder="0.00" type="number" min="0" step="0.01" value="${price}"></td>
@@ -7788,13 +7797,32 @@ function bindTransactionEditorRows() {
     field.addEventListener("focus", () => renderItemLookupPanel(field));
     field.addEventListener("change", () => applyEditorItemIntelligence(field.closest("tr")));
   });
+  elements.featureView.querySelectorAll('#transactionRows [data-action="open-barcode-scan-modal"]').forEach((btn) => {
+    if (btn.dataset.scanBound) return;
+    btn.dataset.scanBound = "true";
+    btn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const row = btn.closest("tr");
+      if (row) openPurchaseMultiBarcodeModal(row);
+    });
+  });
   elements.featureView.querySelectorAll('#transactionRows [name="barcode"]').forEach((field) => {
     if (field.dataset.barcodeBound) return;
     field.dataset.barcodeBound = "true";
+    field.addEventListener("dblclick", () => {
+      const row = field.closest("tr");
+      if (row) openPurchaseMultiBarcodeModal(row);
+    });
     field.addEventListener("keydown", (e) => {
       if (e.key === "Enter") {
         e.preventDefault();
         const row = field.closest("tr");
+        const qtyVal = Number(row?.querySelector('[name="qty"]')?.value || 1);
+        if (qtyVal > 1 && !field.value.includes(",")) {
+          openPurchaseMultiBarcodeModal(row);
+          return;
+        }
         const qtyField = row?.querySelector('[name="qty"]');
         if (qtyField) {
           qtyField.focus();
@@ -7825,6 +7853,255 @@ function bindTransactionEditorRows() {
       recalcTransactionEditor();
     };
   });
+}
+
+function openPurchaseMultiBarcodeModal(row) {
+  if (!row) return;
+  document.getElementById("multiBarcodeModalBackdrop")?.remove();
+
+  const itemInput = row.querySelector('[name="item"]');
+  const qtyInput = row.querySelector('[name="qty"]');
+  const barcodeInput = row.querySelector('[name="barcode"]');
+
+  const itemName = (itemInput?.value || "").trim() || "Selected Item";
+  const currentQty = Math.max(1, Math.round(Number(qtyInput?.value || 1)));
+  const existingBarcodes = String(barcodeInput?.value || "")
+    .split(/[\s,;]+/)
+    .map((c) => c.trim())
+    .filter(Boolean);
+
+  const initialSlotsCount = Math.max(existingBarcodes.length, currentQty);
+
+  const backdrop = document.createElement("div");
+  backdrop.id = "multiBarcodeModalBackdrop";
+  backdrop.className = "modal-backdrop multi-barcode-modal-backdrop";
+  backdrop.innerHTML = `
+    <div class="multi-barcode-modal" role="dialog" aria-modal="true" aria-labelledby="multiBarcodeTitle">
+      <header class="multi-barcode-header">
+        <div class="multi-barcode-header-info">
+          <div class="multi-barcode-icon">🏷️</div>
+          <div>
+            <h3 id="multiBarcodeTitle">Scan Barcodes &bull; ${escapeHtml(itemName)}</h3>
+            <span class="multi-barcode-subtitle">Scan or enter individual barcodes for each unit. Hands-free auto-advance active.</span>
+          </div>
+        </div>
+        <button type="button" class="close-button" id="multiBarcodeCloseBtn" aria-label="Close">&times;</button>
+      </header>
+
+      <div class="multi-barcode-body">
+        <div class="multi-barcode-fast-scan-bar">
+          <label for="multiBarcodeFastInput" class="fast-scan-label">
+            <span class="pulse-scan-dot"></span>
+            <strong>Scanner Ready:</strong> Point barcode scanner &amp; scan units continuously
+          </label>
+          <div class="fast-scan-input-wrap">
+            <span class="fast-scan-icon">⚡</span>
+            <input type="text" id="multiBarcodeFastInput" class="form-input fast-scan-input" placeholder="Scan barcode here (Scanner auto-fills and jumps)..." autocomplete="off">
+          </div>
+        </div>
+
+        <div class="multi-barcode-stats-bar">
+          <span id="multiBarcodeCountBadge" class="multi-barcode-count-badge">0 / ${initialSlotsCount} Scanned</span>
+          <span class="multi-barcode-tip">Tip: Press Enter or scan to advance to the next unit automatically.</span>
+        </div>
+
+        <div class="multi-barcode-slots-list" id="multiBarcodeSlotsList"></div>
+
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-top:4px;">
+          <button type="button" class="btn-outline-secondary" id="multiBarcodeAddSlotBtn" style="font-size:12px; padding:6px 12px; border:1px dashed #cbd5e1; border-radius:6px; background:#fff; cursor:pointer;">
+            + Add Another Unit Slot
+          </button>
+          <button type="button" class="text-button" id="multiBarcodeClearBtn" style="font-size:11.5px; color:#ef4444; background:none; border:none; cursor:pointer;">
+            Clear All
+          </button>
+        </div>
+      </div>
+
+      <footer class="multi-barcode-footer">
+        <button type="button" class="secondary-button" id="multiBarcodeCancelBtn">Cancel (Esc)</button>
+        <button type="button" class="primary-button" id="multiBarcodeApplyBtn">Done &amp; Apply Barcodes</button>
+      </footer>
+    </div>
+  `;
+
+  document.body.appendChild(backdrop);
+
+  const slotsList = backdrop.querySelector("#multiBarcodeSlotsList");
+  const fastInput = backdrop.querySelector("#multiBarcodeFastInput");
+  const countBadge = backdrop.querySelector("#multiBarcodeCountBadge");
+
+  function updateSlotsSummary() {
+    const inputs = Array.from(slotsList.querySelectorAll(".slot-input"));
+    const filledCount = inputs.filter((inp) => inp.value.trim().length > 0).length;
+    countBadge.textContent = `${filledCount} / ${inputs.length} Scanned`;
+    if (filledCount >= inputs.length && inputs.length > 0) {
+      countBadge.style.background = "#dcfce7";
+      countBadge.style.color = "#15803d";
+    } else {
+      countBadge.style.background = "#e2e8f0";
+      countBadge.style.color = "#0f172a";
+    }
+  }
+
+  function renumberSlots() {
+    const rows = Array.from(slotsList.querySelectorAll(".multi-barcode-slot-row"));
+    rows.forEach((r, idx) => {
+      const badge = r.querySelector(".slot-unit-badge");
+      if (badge) badge.textContent = `Unit #${idx + 1}`;
+    });
+    updateSlotsSummary();
+  }
+
+  function createSlotRow(val = "") {
+    const slotIdx = slotsList.children.length + 1;
+    const rowEl = document.createElement("div");
+    rowEl.className = "multi-barcode-slot-row";
+    if (val.trim()) rowEl.classList.add("scan-success");
+    rowEl.innerHTML = `
+      <span class="slot-unit-badge">Unit #${slotIdx}</span>
+      <input type="text" class="slot-input" placeholder="Barcode for unit #${slotIdx}" value="${escapeHtml(val)}" autocomplete="off">
+      <button type="button" class="slot-delete-btn" title="Delete this slot">&times;</button>
+    `;
+
+    const inp = rowEl.querySelector(".slot-input");
+    const delBtn = rowEl.querySelector(".slot-delete-btn");
+
+    inp.addEventListener("input", () => {
+      rowEl.classList.toggle("scan-success", inp.value.trim().length > 0);
+      updateSlotsSummary();
+    });
+
+    inp.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        const allInps = Array.from(slotsList.querySelectorAll(".slot-input"));
+        const myIndex = allInps.indexOf(inp);
+        if (myIndex < allInps.length - 1) {
+          allInps[myIndex + 1].focus();
+          allInps[myIndex + 1].select();
+        } else {
+          const newRow = createSlotRow();
+          const nextInp = newRow.querySelector(".slot-input");
+          nextInp?.focus();
+        }
+      }
+    });
+
+    delBtn.addEventListener("click", () => {
+      rowEl.remove();
+      renumberSlots();
+    });
+
+    slotsList.appendChild(rowEl);
+    renumberSlots();
+    return rowEl;
+  }
+
+  for (let i = 0; i < initialSlotsCount; i++) {
+    createSlotRow(existingBarcodes[i] || "");
+  }
+
+  fastInput?.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      const code = fastInput.value.trim();
+      if (!code) return;
+
+      const allInputs = Array.from(slotsList.querySelectorAll(".slot-input"));
+      let targetInput = allInputs.find((inp) => !inp.value.trim());
+      let targetRow = null;
+
+      if (!targetInput) {
+        targetRow = createSlotRow(code);
+        targetInput = targetRow.querySelector(".slot-input");
+      } else {
+        targetInput.value = code;
+        targetRow = targetInput.closest(".multi-barcode-slot-row");
+      }
+
+      if (targetRow) {
+        targetRow.classList.add("scan-success");
+        targetRow.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      }
+
+      fastInput.value = "";
+      updateSlotsSummary();
+
+      const remaining = Array.from(slotsList.querySelectorAll(".slot-input")).filter((inp) => !inp.value.trim());
+      if (remaining.length === 0) {
+        const applyBtn = backdrop.querySelector("#multiBarcodeApplyBtn");
+        if (applyBtn) {
+          applyBtn.style.transform = "scale(1.04)";
+          setTimeout(() => { applyBtn.style.transform = ""; }, 180);
+        }
+      }
+      fastInput.focus();
+    }
+  });
+
+  backdrop.querySelector("#multiBarcodeAddSlotBtn")?.addEventListener("click", () => {
+    const newRow = createSlotRow();
+    newRow.querySelector(".slot-input")?.focus();
+  });
+
+  backdrop.querySelector("#multiBarcodeClearBtn")?.addEventListener("click", () => {
+    slotsList.querySelectorAll(".slot-input").forEach((inp) => {
+      inp.value = "";
+      inp.closest(".multi-barcode-slot-row")?.classList.remove("scan-success");
+    });
+    updateSlotsSummary();
+    fastInput?.focus();
+  });
+
+  const close = () => {
+    backdrop.remove();
+  };
+
+  backdrop.querySelector("#multiBarcodeCloseBtn")?.addEventListener("click", close);
+  backdrop.querySelector("#multiBarcodeCancelBtn")?.addEventListener("click", close);
+  backdrop.addEventListener("click", (e) => {
+    if (e.target === backdrop) close();
+  });
+
+  const doApply = () => {
+    const allInputs = Array.from(slotsList.querySelectorAll(".slot-input"));
+    const collected = allInputs.map((inp) => inp.value.trim()).filter(Boolean);
+
+    if (collected.length > 0) {
+      if (barcodeInput) {
+        barcodeInput.value = collected.join(", ");
+      }
+      if (qtyInput && collected.length > Number(qtyInput.value || 0)) {
+        qtyInput.value = collected.length;
+      }
+      recalcTransactionEditor();
+      showToast(`${collected.length} barcode(s) saved for "${itemName}".`);
+    } else {
+      if (barcodeInput) barcodeInput.value = "";
+      showToast("Barcodes cleared for this item.");
+    }
+    close();
+
+    const priceField = row.querySelector('[name="price"]');
+    if (priceField) {
+      priceField.focus();
+      priceField.select();
+    }
+  };
+
+  backdrop.querySelector("#multiBarcodeApplyBtn")?.addEventListener("click", doApply);
+
+  backdrop.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+      e.preventDefault();
+      close();
+    } else if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      doApply();
+    }
+  });
+
+  setTimeout(() => fastInput?.focus(), 60);
 }
 
 function getTransactionEditorType() {
