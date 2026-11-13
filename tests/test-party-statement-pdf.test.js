@@ -59,6 +59,18 @@ test('Party Statement PDF & Draft Mechanism Verification', () => {
   assert.ok(res.filename.startsWith('Statement_anas_'), 'Filename must start with Statement_anas_');
   assert.ok(res.filename.endsWith('.pdf'), 'Filename must end with .pdf');
   assert.ok(res.summaryMessage.includes('Dear *anas*'), 'Summary message must address party');
+
+  // Verify custom date range calculations
+  vm.runInContext('customRes = calculatePartyStatementData(state.parties[0], { preset: "custom", from: "2026-10-01", to: "2026-11-13" });', context);
+  const customRes = context.customRes;
+  assert.ok(customRes, 'calculatePartyStatementData must support custom date range');
+  assert.ok(customRes.periodText.includes('2026-10-01') && customRes.periodText.includes('2026-11-13'), 'periodText must reflect custom date range');
+
+  // Verify that custom range UI elements exist in openWhatsAppStatementPickerModal
+  assert.ok(appJs.includes('id="waCustomRangeCard"'), 'Modal must include waCustomRangeCard');
+  assert.ok(appJs.includes('id="waStmtFromDate"'), 'Modal must include From Date picker');
+  assert.ok(appJs.includes('id="waStmtToDate"'), 'Modal must include To Date picker');
+  assert.ok(appJs.includes('id="waSubmitCustomRangeBtn"'), 'Modal must include submit button for custom range');
 });
 
 test('CSS .wa-quick-pills-bar allows unclipped popovers', () => {

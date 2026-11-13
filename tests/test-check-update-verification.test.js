@@ -34,13 +34,13 @@ function compareSemver(latestVersion, currentVersion) {
   return isNewer;
 }
 
-test('1. Cloud updates check endpoint returns correct v1.1.7 metadata', async () => {
-  const res = await fetchUrl(`${BASE_URL}/api/v1/updates/check?version=1.1.6&platform=win32&arch=x64`);
+test('1. Cloud updates check endpoint returns correct v1.1.8 metadata', async () => {
+  const res = await fetchUrl(`${BASE_URL}/api/v1/updates/check?version=1.1.7&platform=win32&arch=x64`);
   assert.strictEqual(res.status, 200, 'Endpoint should return 200 OK');
   const json = JSON.parse(res.body);
   assert.strictEqual(json.ok, true, 'Response ok should be true');
-  assert.strictEqual(json.latestVersion, '1.1.7', 'Latest version must be 1.1.7');
-  assert.ok(json.fileName.includes('1.1.7'), 'File name should contain 1.1.7');
+  assert.strictEqual(json.latestVersion, '1.1.8', 'Latest version must be 1.1.8');
+  assert.ok(json.fileName.includes('1.1.8'), 'File name should contain 1.1.8');
   assert.strictEqual(json.downloadUrl, '/api/v1/download/app', 'Download URL should be /api/v1/download/app');
   assert.ok(json.releaseNotes && json.releaseNotes.length > 0, 'Release notes must be present');
 });
@@ -51,21 +51,21 @@ test('2. Installer download endpoint is accessible and returns complete binary',
   assert.strictEqual(res.headers['content-type'], 'application/octet-stream', 'Should be octet-stream');
   const length = parseInt(res.headers['content-length'], 10);
   assert.ok(length > 100000000, `Binary size must be ~120MB, got: ${length}`);
-  assert.ok(res.headers['content-disposition'].includes('ZynBill Setup 1.1.7.exe'), 'Content disposition header must name installer');
+  assert.ok(res.headers['content-disposition'].includes('ZynBill Setup 1.1.8.exe'), 'Content disposition header must name installer');
 });
 
 test('3. Generic auto-updater manifest latest.yml is valid and accessible', async () => {
   const res = await fetchUrl(`${BASE_URL}/downloads/latest.yml`);
   assert.strictEqual(res.status, 200, 'latest.yml must be 200 OK');
-  assert.ok(res.body.includes('version: 1.1.7'), 'latest.yml must declare version 1.1.7');
+  assert.ok(res.body.includes('version: 1.1.8'), 'latest.yml must declare version 1.1.8');
   assert.ok(res.body.includes('sha512:'), 'latest.yml must declare sha512 checksum');
   assert.ok(res.body.includes('path:'), 'latest.yml must specify installer binary path');
 });
 
 test('4. Semver update logic accurately identifies update availability', () => {
-  assert.strictEqual(compareSemver('1.1.7', '1.1.0'), true, '1.1.7 is newer than 1.1.0');
-  assert.strictEqual(compareSemver('1.1.7', '1.1.5'), true, '1.1.7 is newer than 1.1.5');
-  assert.strictEqual(compareSemver('1.1.7', '1.1.6'), true, '1.1.7 is newer than 1.1.6');
-  assert.strictEqual(compareSemver('1.1.7', '1.1.7'), false, '1.1.7 is up to date on 1.1.7');
-  assert.strictEqual(compareSemver('1.1.7', '1.1.8'), false, '1.1.7 is older than future 1.1.8');
+  assert.strictEqual(compareSemver('1.1.8', '1.1.0'), true, '1.1.8 is newer than 1.1.0');
+  assert.strictEqual(compareSemver('1.1.8', '1.1.6'), true, '1.1.8 is newer than 1.1.6');
+  assert.strictEqual(compareSemver('1.1.8', '1.1.7'), true, '1.1.8 is newer than 1.1.7');
+  assert.strictEqual(compareSemver('1.1.8', '1.1.8'), false, '1.1.8 is up to date on 1.1.8');
+  assert.strictEqual(compareSemver('1.1.8', '1.1.9'), false, '1.1.8 is older than future 1.1.9');
 });

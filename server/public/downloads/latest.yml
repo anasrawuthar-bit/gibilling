@@ -1,8 +1,8 @@
-version: 1.1.7
+version: 1.1.8
 files:
-  - url: ZynBill Setup 1.1.7.exe
-    sha512: 5IS3R37tqNbzN4TNXf+nBVI8uB73wD42kmaPL8CiaWX986QVJouJgROtq0bcbJHxIQBZ7qN68/2D3j9S+MJTKg==
-    size: 120336468
-path: ZynBill Setup 1.1.7.exe
-sha512: 5IS3R37tqNbzN4TNXf+nBVI8uB73wD42kmaPL8CiaWX986QVJouJgROtq0bcbJHxIQBZ7qN68/2D3j9S+MJTKg==
-releaseDate: '2026-11-13T10:06:32.794Z'
+  - url: ZynBill Setup 1.1.8.exe
+    sha512: 9TdNdpWLufexsVF6V9RohOEOdgLAzP/+EW1rknq4wdZNEj8zaSi27UhGlXaBVhS7sr08AFil1ATt3J4xOIR5Bw==
+    size: 120337235
+path: ZynBill Setup 1.1.8.exe
+sha512: 9TdNdpWLufexsVF6V9RohOEOdgLAzP/+EW1rknq4wdZNEj8zaSi27UhGlXaBVhS7sr08AFil1ATt3J4xOIR5Bw==
+releaseDate: '2026-11-13T11:42:29.270Z'

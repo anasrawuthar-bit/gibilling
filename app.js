@@ -536,7 +536,7 @@ const elements = {
   appVersionBadge: document.getElementById("appVersionBadge") || document.querySelector(".app-version-badge"),
 };
 
-let currentAppVersion = "1.1.7";
+let currentAppVersion = "1.1.8";
 
 async function refreshAppVersion() {
   try {
@@ -32557,14 +32557,15 @@ async function draftWhatsAppLatestBill(party, invoice) {
   showToast(`Invoice #${docNo} PDF drafted into message box!`);
 }
 
-async function draftWhatsAppStatement(party, preset = "all") {
+async function draftWhatsAppStatement(party, presetOrOptions = "all") {
   const targetParty = typeof party === "object" ? party : (state.parties || []).find((p) => String(p.id) === String(party) || p.name === party);
   if (!targetParty) {
     showToast("Please select a customer first.");
     return;
   }
   showToast("Generating Party Statement PDF...");
-  const stmt = calculatePartyStatementData(targetParty, { preset });
+  const options = typeof presetOrOptions === "object" && presetOrOptions ? presetOrOptions : { preset: presetOrOptions };
+  const stmt = calculatePartyStatementData(targetParty, options);
   if (!stmt) {
     showToast("Failed to calculate statement.");
     return;
@@ -32627,6 +32628,10 @@ function openWhatsAppStatementPickerModal(party) {
 
   const netBal = Number(targetParty.balance || targetParty.receivable || 0);
 
+  const today = new Date().toISOString().slice(0, 10);
+  const defaultFrom = today.slice(0, 8) + "01"; // 1st of current month
+  const defaultTo = today;
+
   const backdrop = document.createElement("div");
   backdrop.id = "waStatementModalBackdrop";
   backdrop.className = "whatsapp-modal-backdrop";
@@ -32643,7 +32648,7 @@ function openWhatsAppStatementPickerModal(party) {
         <button type="button" id="waStatementCloseBtn" style="background:none;border:none;font-size:24px;color:#ffffff;cursor:pointer;line-height:1;">&times;</button>
       </header>
 
-      <div style="padding:16px 20px;background:#f8fafc;">
+      <div style="padding:16px 20px;background:#f8fafc;max-height:75vh;overflow-y:auto;">
         <div style="background:#ffffff;border:1px solid #e2e8f0;border-radius:10px;padding:12px 14px;margin-bottom:14px;display:flex;justify-content:space-between;align-items:center;">
           <div>
             <div style="font-size:11px;color:#64748b;font-weight:600;text-transform:uppercase;">Customer / Party</div>
@@ -32677,6 +32682,41 @@ function openWhatsAppStatementPickerModal(party) {
               </div>
             </div>
           `).join("")}
+
+          <!-- Custom Date Range Card -->
+          <div class="wa-statement-custom-card" id="waCustomRangeCard" style="display:flex;flex-direction:column;gap:8px;padding:12px 14px;background:#ffffff;border:1.5px solid #e2e8f0;border-radius:10px;transition:all 0.15s ease;">
+            <div style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;" id="waCustomRangeToggleRow">
+              <div style="display:flex;align-items:center;gap:10px;">
+                <span style="font-size:18px;">🗓️</span>
+                <div>
+                  <div style="display:flex;align-items:center;gap:6px;">
+                    <strong style="font-size:13.5px;color:#0f172a;">Custom Date Range (കസ്റ്റം പീരിയഡ്)</strong>
+                    <span style="font-size:10px;font-weight:700;background:#fef3c7;color:#b45309;padding:1px 6px;border-radius:4px;">Custom</span>
+                  </div>
+                  <span style="font-size:11.5px;color:#64748b;">Specify exact start date &amp; end date</span>
+                </div>
+              </div>
+              <div style="display:flex;align-items:center;gap:4px;color:#2563eb;font-weight:600;font-size:12px;" id="waCustomRangeToggleLabel">
+                <span>Select Dates</span> ▾
+              </div>
+            </div>
+
+            <div id="waCustomRangeCollapse" class="hidden" style="margin-top:6px;padding-top:10px;border-top:1px dashed #e2e8f0;display:flex;flex-direction:column;gap:10px;">
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+                <div>
+                  <label style="font-size:11px;font-weight:600;color:#64748b;display:block;margin-bottom:4px;">From Date (ആരംഭം)</label>
+                  <input type="date" id="waStmtFromDate" class="form-input" value="${defaultFrom}" style="padding:7px 10px;font-size:13px;border:1px solid #cbd5e1;border-radius:6px;width:100%;outline:none;" />
+                </div>
+                <div>
+                  <label style="font-size:11px;font-weight:600;color:#64748b;display:block;margin-bottom:4px;">To Date (അവസാനം)</label>
+                  <input type="date" id="waStmtToDate" class="form-input" value="${defaultTo}" style="padding:7px 10px;font-size:13px;border:1px solid #cbd5e1;border-radius:6px;width:100%;outline:none;" />
+                </div>
+              </div>
+              <button type="button" id="waSubmitCustomRangeBtn" class="sale-button" style="width:100%;justify-content:center;padding:9px 16px;font-size:13px;font-weight:600;background:#2563eb;color:#ffffff;border-radius:6px;display:flex;align-items:center;gap:6px;cursor:pointer;">
+                <span>Draft Custom Statement PDF</span> &rarr;
+              </button>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -32687,6 +32727,7 @@ function openWhatsAppStatementPickerModal(party) {
   backdrop.querySelector("#waStatementCloseBtn")?.addEventListener("click", close);
   backdrop.addEventListener("click", (e) => { if (e.target === backdrop) close(); });
 
+  // Standard preset period clicks
   backdrop.querySelectorAll(".wa-statement-period-card").forEach((card) => {
     card.addEventListener("click", async () => {
       const period = card.getAttribute("data-period") || "all";
@@ -32695,6 +32736,46 @@ function openWhatsAppStatementPickerModal(party) {
       close();
       await draftWhatsAppStatement(targetParty, period);
     });
+  });
+
+  // Custom date range handlers
+  const customCard = backdrop.querySelector("#waCustomRangeCard");
+  const customToggleRow = backdrop.querySelector("#waCustomRangeToggleRow");
+  const customCollapse = backdrop.querySelector("#waCustomRangeCollapse");
+  const customToggleLabel = backdrop.querySelector("#waCustomRangeToggleLabel");
+  const submitCustomBtn = backdrop.querySelector("#waSubmitCustomRangeBtn");
+  const fromInput = backdrop.querySelector("#waStmtFromDate");
+  const toInput = backdrop.querySelector("#waStmtToDate");
+
+  customToggleRow?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const isHidden = customCollapse.classList.contains("hidden");
+    if (isHidden) {
+      customCollapse.classList.remove("hidden");
+      customToggleLabel.innerHTML = "<span>Hide</span> ▴";
+      customCard.style.borderColor = "#2563eb";
+      fromInput?.focus();
+    } else {
+      customCollapse.classList.add("hidden");
+      customToggleLabel.innerHTML = "<span>Select Dates</span> ▾";
+      customCard.style.borderColor = "#e2e8f0";
+    }
+  });
+
+  submitCustomBtn?.addEventListener("click", async (e) => {
+    e.stopPropagation();
+    const fromVal = fromInput?.value || "";
+    const toVal = toInput?.value || "";
+
+    if (fromVal && toVal && fromVal > toVal) {
+      showToast("From Date cannot be later than To Date.");
+      return;
+    }
+
+    submitCustomBtn.disabled = true;
+    submitCustomBtn.style.opacity = "0.6";
+    close();
+    await draftWhatsAppStatement(targetParty, { preset: "custom", from: fromVal, to: toVal });
   });
 }
 
@@ -33352,6 +33433,9 @@ function whatsappConnectTemplate() {
                   <button type="button" class="wa-period-item" data-period="all">
                     <span class="period-dot"></span> <strong>All Time</strong> (Full Ledger)
                   </button>
+                  <button type="button" class="wa-period-item" data-period="custom" style="color:#b45309;">
+                    <span class="period-dot" style="background:#b45309;"></span> <strong>Custom Date Range...</strong> (കസ്റ്റം പീരിയഡ്)
+                  </button>
                 </div>
               </div>
               <button type="button" class="wa-quick-pill accent" data-wa-quick="reminder" title="Draft Pending Payment Reminder">
@@ -33692,7 +33776,11 @@ function bindWhatsAppConnectActions() {
       e.stopPropagation();
       const period = btn.getAttribute("data-period") || "all";
       stmtPeriodMenu.classList.add("hidden");
-      draftWhatsAppStatement(activeParty, period);
+      if (period === "custom") {
+        openWhatsAppStatementPickerModal(activeParty);
+      } else {
+        draftWhatsAppStatement(activeParty, period);
+      }
     });
   });
 
