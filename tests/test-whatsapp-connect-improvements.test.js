@@ -52,4 +52,15 @@ test("WhatsApp Connect - Dynamic UPI Links, Two-Way Sync, and Bulk Reminders Ver
     assert.ok(appJs.includes("function deduplicateChatMessages"), "app.js must define deduplicateChatMessages");
     assert.ok(wsJs.includes('remoteJid.split(":")[0].split("@")[0]'), "whatsapp-service.js must cleanly strip device and domain from remoteJid");
   });
+
+  await t.test("9. Compact message bubble and no ticks for incoming contacts preview", () => {
+    // Bubble padding and compact styles
+    assert.ok(stylesCss.includes(".wa-message-bubble {"), "styles.css must style .wa-message-bubble");
+    assert.ok(!stylesCss.includes(".wa-message-bubble {\n  max-width: 65%;\n  padding: 8px 12px;"), "Message bubble must not have large legacy 8px 12px padding");
+    assert.ok(stylesCss.includes("padding: 6px 9px 5px 9px;"), "Message bubble must use compact padding");
+    
+    // Left contacts list must NOT show ticks for incoming messages
+    assert.ok(appJs.includes("Received incoming message from customer: Do NOT show ticks!"), "Incoming message handler must not add check icon to sidebar");
+    assert.ok(appJs.includes("lastMsg.from === \"me\""), "Sidebar contacts list must only show tick icon when last message was sent by me");
+  });
 });

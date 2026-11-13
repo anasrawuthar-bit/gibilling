@@ -536,7 +536,7 @@ const elements = {
   appVersionBadge: document.getElementById("appVersionBadge") || document.querySelector(".app-version-badge"),
 };
 
-let currentAppVersion = "1.1.8";
+let currentAppVersion = "1.1.9";
 
 async function refreshAppVersion() {
   try {
@@ -32307,7 +32307,8 @@ function handleWhatsAppIncomingMessage(inboundMsg) {
     if (partyItemEl) {
       const previewEl = partyItemEl.querySelector(".wa-party-preview");
       if (previewEl) {
-        previewEl.innerHTML = `<span class="wa-check-icon">&#10003;&#10003;</span> <span>${escapeHtml(inboundMsg.text || "Message")}</span>`;
+        // Received incoming message from customer: Do NOT show ticks!
+        previewEl.innerHTML = `<span>${escapeHtml(inboundMsg.text || "Message")}</span>`;
       }
       const timeEl = partyItemEl.querySelector(".wa-party-time");
       if (timeEl) {
@@ -32451,33 +32452,12 @@ function renderWhatsAppMessageBubble(m) {
   const isRead = m.status === "read";
   const isDelivered = m.status === "delivered" || isRead;
   const tickClass = isRead ? "wa-read" : isDelivered ? "wa-delivered" : "wa-sent";
-  return `
-    <div class="wa-message-bubble ${isMe ? "sent" : "received"} ${hasAttachment ? "has-attachment" : ""}" data-msg-id="${escapeHtml(m.id || "")}">
-      ${hasAttachment ? `
-        <div class="wa-bubble-doc-card" data-doc-path="${escapeHtml(m.attachment.path || "")}" title="Click to open ${escapeHtml(m.attachment.name || "document")}">
-          <div class="wa-doc-icon-badge">
-            <svg viewBox="0 0 24 24" width="22" height="22" fill="#ef4444">
-              <path d="M20 2H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-8.5 7.5c0 .83-.67 1.5-1.5 1.5H9v2H7.5V7H10c.83 0 1.5.67 1.5 1.5v1zm5 2c0 .83-.67 1.5-1.5 1.5h-2.5V7H15c.83 0 1.5.67 1.5 1.5v3zm4-3H19v1h1.5V11H19v2h-1.5V7h3v1.5zM9 9.5h1v-1H9v1zM4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm10 5.5h1v-3h-1v3z"/>
-            </svg>
-          </div>
-          <div class="wa-doc-info">
-            <div class="wa-doc-name">${escapeHtml(m.attachment.name || "Document.pdf")}</div>
-            <div class="wa-doc-meta">${escapeHtml(m.attachment.size || "PDF Document")} &bull; Click to open</div>
-          </div>
-          <button type="button" class="wa-doc-action-btn" title="Open PDF">
-            <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
-              <path d="M19 19H5V5h7V3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2v-7h-2v7zM14 3v2h3.59l-9.83 9.83 1.41 1.41L19 6.41V10h2V3h-7z"/>
-            </svg>
-          </button>
-        </div>
-      ` : ""}
-      ${m.text ? `<div class="wa-bubble-text">${escapeHtml(m.text)}</div>` : ""}
-      <div class="wa-bubble-footer">
-        <span>${escapeHtml(m.time || "12:46 PM")}</span>
-        ${isMe ? `<span class="wa-check-icon ${tickClass}">&#10003;&#10003;</span>` : ""}
-      </div>
-    </div>
-  `;
+  const timeStr = m.time || new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  const docHtml = hasAttachment ? `<div class="wa-bubble-doc-card" data-doc-path="${escapeHtml(m.attachment.path || "")}" title="Click to open ${escapeHtml(m.attachment.name || "document")}"><div class="wa-doc-icon-badge"><svg viewBox="0 0 24 24" width="22" height="22" fill="#ef4444"><path d="M20 2H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-8.5 7.5c0 .83-.67 1.5-1.5 1.5H9v2H7.5V7H10c.83 0 1.5.67 1.5 1.5v1zm5 2c0 .83-.67 1.5-1.5 1.5h-2.5V7H15c.83 0 1.5.67 1.5 1.5v3zm4-3H19v1h1.5V11H19v2h-1.5V7h3v1.5zM9 9.5h1v-1H9v1zM4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm10 5.5h1v-3h-1v3z"/></svg></div><div class="wa-doc-info"><div class="wa-doc-name">${escapeHtml(m.attachment.name || "Document.pdf")}</div><div class="wa-doc-meta">${escapeHtml(m.attachment.size || "PDF Document")} &bull; Click to open</div></div><button type="button" class="wa-doc-action-btn" title="Open PDF"><svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M19 19H5V5h7V3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2v-7h-2v7zM14 3v2h3.59l-9.83 9.83 1.41 1.41L19 6.41V10h2V3h-7z"/></svg></button></div>` : "";
+  const textHtml = m.text ? `<div class="wa-bubble-text">${escapeHtml(m.text)}</div>` : "";
+  const tickHtml = isMe ? `<span class="wa-check-icon ${tickClass}">&#10003;&#10003;</span>` : "";
+
+  return `<div class="wa-message-bubble ${isMe ? "sent" : "received"} ${hasAttachment ? "has-attachment" : ""}" data-msg-id="${escapeHtml(m.id || "")}">${docHtml}${textHtml}<div class="wa-bubble-footer"><span>${escapeHtml(timeStr)}</span>${tickHtml}</div></div>`;
 }
 
 async function generateTempInvoicePdf(inv, party) {
@@ -33333,6 +33313,13 @@ function whatsappConnectTemplate() {
                 ? (lastMsg ? lastMsg.text.replace(/\n+/g, " ") : (p.balance > 0 ? `Pending: ${formatCurrency(p.balance)}` : "Start conversation"))
                 : "";
               const initials = (p.name || "C").trim().slice(0, 2).toUpperCase();
+              let tickHtml = "";
+              if (lastMsg && lastMsg.from === "me") {
+                const isRead = lastMsg.status === "read";
+                const isDelivered = lastMsg.status === "delivered" || isRead;
+                const tickClass = isRead ? "wa-read" : isDelivered ? "wa-delivered" : "wa-sent";
+                tickHtml = `<span class="wa-check-icon ${tickClass}">&#10003;&#10003;</span> `;
+              }
               return `
                 <li class="wa-party-item ${isActive ? "active" : ""}" data-wa-party-id="${escapeHtml(String(p.id))}">
                   <div class="wa-party-avatar">${escapeHtml(initials)}</div>
@@ -33343,8 +33330,7 @@ function whatsappConnectTemplate() {
                     </div>
                     <div class="wa-party-preview">
                       ${pHasPhone ? `
-                        <span class="wa-check-icon">&#10003;&#10003;</span>
-                        <span>${escapeHtml(previewText)}</span>
+                        ${tickHtml}<span>${escapeHtml(previewText)}</span>
                       ` : `
                         <span class="wa-no-phone-tag">⚠️ No phone number</span>
                       `}
@@ -33963,6 +33949,18 @@ function bindWhatsAppConnectActions() {
         }
       }
       scrollArea.scrollTop = scrollArea.scrollHeight;
+    }
+
+    const partyItemEl = view.querySelector(`[data-wa-party-id="${currentActiveParty.id}"]`);
+    if (partyItemEl) {
+      const previewEl = partyItemEl.querySelector(".wa-party-preview");
+      if (previewEl) {
+        previewEl.innerHTML = `<span class="wa-check-icon wa-delivered">&#10003;&#10003;</span> <span>${escapeHtml(text || (draftAttachment ? draftAttachment.name : "Document"))}</span>`;
+      }
+      const timeEl = partyItemEl.querySelector(".wa-party-time");
+      if (timeEl) {
+        timeEl.textContent = timeStr;
+      }
     }
 
     showToast(draftAttachment ? "Document sent successfully!" : "Message sent via WhatsApp!");
