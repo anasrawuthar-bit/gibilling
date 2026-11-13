@@ -18658,6 +18658,20 @@ textarea:focus-visible {
   font-weight: bold;
 }
 
+.wa-check-icon.wa-sent,
+.wa-check-icon.wa-delivered {
+  color: #8696a0;
+}
+
+.wa-check-icon.wa-read {
+  color: #53bdeb;
+}
+
+.wa-bulk-party-item:hover {
+  background: #f1f5f9 !important;
+  border-color: #cbd5e1 !important;
+}
+
 .wa-chat-window-pane {
   flex: 1;
   display: flex;

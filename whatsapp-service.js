@@ -223,6 +223,73 @@ class WhatsAppService {
         }
       });
 
+      // Listen for incoming and outgoing message events (Two-way chat sync)
+      sock.ev.on("messages.upsert", async ({ messages, type }) => {
+        if (!messages || !Array.isArray(messages)) return;
+        for (const m of messages) {
+          try {
+            if (!m.message) continue;
+            const remoteJid = m.key?.remoteJid || "";
+            // Skip group messages, broadcast status updates
+            if (!remoteJid || remoteJid.includes("@g.us") || remoteJid.includes("status@broadcast")) {
+              continue;
+            }
+
+            const cleanPhone = remoteJid.replace(/@s\.whatsapp\.net/, "").replace(/\D/g, "");
+            const isFromMe = Boolean(m.key?.fromMe);
+
+            // Extract message content safely
+            const msgContent = m.message?.ephemeralMessage?.message ||
+                               m.message?.viewOnceMessage?.message ||
+                               m.message?.viewOnceMessageV2?.message ||
+                               m.message;
+
+            const text = msgContent?.conversation ||
+                         msgContent?.extendedTextMessage?.text ||
+                         msgContent?.imageMessage?.caption ||
+                         msgContent?.videoMessage?.caption ||
+                         msgContent?.documentMessage?.caption ||
+                         (msgContent?.imageMessage ? "📷 Photo" : "") ||
+                         (msgContent?.documentMessage ? "📄 Document" : "") ||
+                         (msgContent?.audioMessage ? "🎵 Voice Note" : "") ||
+                         (msgContent?.contactMessage ? "👤 Contact Card" : "") ||
+                         (msgContent?.locationMessage ? "📍 Location" : "") || "";
+
+            const msgId = m.key?.id || `msg-${Date.now()}`;
+            const timestamp = m.messageTimestamp ? Number(m.messageTimestamp) * 1000 : Date.now();
+            const timeStr = new Date(timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+            const pushName = m.pushName || "";
+
+            this.notifyRenderer("whatsapp:message-received", {
+              id: msgId,
+              phone: cleanPhone,
+              from: isFromMe ? "me" : "them",
+              text,
+              time: timeStr,
+              timestamp,
+              pushName,
+            });
+          } catch (mErr) {
+            console.warn("[WhatsAppService] Error processing inbound message:", mErr);
+          }
+        }
+      });
+
+      // Listen for delivery & read receipt status updates (Single ✓, Double ✓✓, Blue ✓✓)
+      sock.ev.on("messages.update", async (updates) => {
+        if (!updates || !Array.isArray(updates)) return;
+        for (const u of updates) {
+          try {
+            if (u.key?.id && typeof u.update?.status !== "undefined") {
+              this.notifyRenderer("whatsapp:message-status", {
+                id: u.key.id,
+                status: u.update.status, // 2: server ack, 3: delivery ack, 4: read ack
+              });
+            }
+          } catch (_) {}
+        }
+      });
+
       this.isStarting = false;
       return { success: true, status: this.status };
     } catch (err) {

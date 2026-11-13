@@ -1,6 +1,6 @@
 {
   "name": "zynbill",
-  "version": "1.1.5",
+  "version": "1.1.6",
   "description": "ZynBill desktop app",
   "productName": "ZynBill",
   "main": "main.js",

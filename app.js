@@ -536,7 +536,7 @@ const elements = {
   appVersionBadge: document.getElementById("appVersionBadge") || document.querySelector(".app-version-badge"),
 };
 
-let currentAppVersion = "1.1.5";
+let currentAppVersion = "1.1.6";
 
 async function refreshAppVersion() {
   try {
@@ -3847,6 +3847,12 @@ function transactionEditorTemplate(type = getTransactionEditorType()) {
             <label class="editor-grand-total-line">Grand Total <input id="editorGrandTotal" class="form-input" readonly></label>
             ${isEstimate ? '<div class="editor-quote-note">No stock or ledger posting until converted.</div><input id="editorReceived" class="hidden" type="number" value="0">' : `<label class="editor-paid-line">${paymentLabel} <input id="editorReceived" class="form-input" type="number" min="0" step="0.01" value="0"></label>
             <strong>${type === "purchase" ? "Amount Payable" : "Balance Due"} <span id="editorBalance">0</span></strong>`}
+            ${type === "sale" ? `
+              <label style="display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:#16a34a;cursor:pointer;margin-top:6px;" title="Automatically send invoice PDF to customer via WhatsApp upon saving">
+                <input type="checkbox" id="editorAutoWhatsAppCheck" ${Boolean(state.businessSettings?.whatsappSettings?.autoShareSales) ? "checked" : ""}>
+                <svg class="gi-icon" style="width:13px;height:13px;fill:currentColor;"><use href="#gi-whatsapp"></use></svg> Send on WhatsApp
+              </label>
+            ` : ""}
           </aside>
         </section>
           <footer class="transaction-editor-actions compact-editor-actions">
@@ -3858,6 +3864,7 @@ function transactionEditorTemplate(type = getTransactionEditorType()) {
               <details class="editor-split-menu" id="editorSaveSplitMenu">
                 <summary aria-label="Save options" title="More save options"></summary>
                 <div>
+                  <button data-save-mode="whatsapp" type="submit" style="color:#16a34a;"><svg class="gi-icon" style="width:13px;height:13px;fill:currentColor;margin-right:6px;"><use href="#gi-whatsapp"></use></svg> Save &amp; WhatsApp</button>
                   ${isEditing ? "" : `<button data-save-mode="new" type="submit">${icon("plus")} Save &amp; New</button>`}
                   <button data-editor-action="draft" type="button">${icon("file-plus")} Save Draft</button>
                 </div>
@@ -9165,6 +9172,7 @@ async function saveTransactionEditor(event) {
   event.preventDefault();
   if (isTransactionEditorSaving) return;
   const saveMode = event.submitter?.dataset.saveMode || "close";
+  const shouldWhatsApp = saveMode === "whatsapp" || Boolean(event.currentTarget.querySelector("#editorAutoWhatsAppCheck")?.checked);
   clearInlineErrors(event.currentTarget);
   const form = new FormData(event.currentTarget);
   const invoiceNoInput = event.currentTarget.querySelector('[name="invoiceNo"]');
@@ -9184,7 +9192,7 @@ async function saveTransactionEditor(event) {
     return;
   }
   const editorType = getTransactionEditorType();
-  let printPreview = saveMode === "print" ? buildInvoicePreviewData() : null;
+  let printPreview = (saveMode === "print" || shouldWhatsApp) ? buildInvoicePreviewData() : null;
   const missingCustomField = customFieldsForModule(editorType).find((field) => {
     if (!field.required) return false;
     const input = event.currentTarget.querySelector(`[name="customField:${field.fieldKey}"]`);
@@ -9454,8 +9462,9 @@ async function saveTransactionEditor(event) {
         isTransaction: true,
       });
     }
-    if (editorType === "sale") {
-      autoSendBillViaSystemWhatsApp(transaction, printPreview);
+    if (editorType === "sale" || shouldWhatsApp) {
+      if (shouldWhatsApp) transaction._sendWhatsApp = true;
+      autoSendBillViaSystemWhatsApp(transaction, printPreview || buildInvoicePreviewData());
     }
     if (saveMode === "print") {
       openInvoicePreviewModal(printPreview);
@@ -31309,18 +31318,25 @@ Thank you,
   openWhatsAppShareModal(reminderRecord, "paymentReminder");
 }
 
-function autoSendBillViaSystemWhatsApp(transaction, preview = null) {
+async function autoSendBillViaSystemWhatsApp(transaction, preview = null) {
   try {
     const business = state.businessSettings || defaultBusinessSettings();
-    if (business.whatsappSettings?.autoShareSales !== true) {
+    const shouldSend = Boolean(business.whatsappSettings?.autoShareSales || transaction._sendWhatsApp);
+    if (!shouldSend) {
       return; // Respect user preference: Do not open WhatsApp automatically unless explicitly enabled
     }
     let phone = String(transaction.phone || preview?.phone || "").replace(/\D/g, "");
-    if (!phone && (transaction.partyId || transaction.party)) {
-      const party = (state.parties || []).find((p) => (transaction.partyId && String(p.id) === String(transaction.partyId)) || (transaction.party && p.name === transaction.party));
-      if (party?.phone) phone = String(party.phone).replace(/\D/g, "");
+    let partyObj = null;
+    if (transaction.partyId || transaction.party) {
+      partyObj = (state.parties || []).find((p) => (transaction.partyId && String(p.id) === String(transaction.partyId)) || (transaction.party && p.name === transaction.party));
+      if (!phone && partyObj?.phone) phone = String(partyObj.phone).replace(/\D/g, "");
     }
-    if (!phone || phone.length < 10) return;
+    if (!phone || phone.length < 7) {
+      if (transaction._sendWhatsApp) {
+        showToast("Cannot send WhatsApp: Customer phone number is missing.");
+      }
+      return;
+    }
     if (phone.length === 10) phone = "91" + phone;
     else if (phone.startsWith("0") && phone.length === 11) phone = "91" + phone.slice(1);
 
@@ -31330,11 +31346,72 @@ function autoSendBillViaSystemWhatsApp(transaction, preview = null) {
     const balance = typeof transaction.received === "number" ? Math.max(0, total - transaction.received) : 0;
     const docDate = transaction.date ? formatDate(transaction.date) : formatDate(new Date().toISOString());
 
-    const message = `Dear *${partyName}*,\n\nThank you for your business with *${business.businessName || state.activeCompany || "Our Business"}*!\n\n📄 *Invoice No:* #${docNo}\n📅 *Date:* ${docDate}\n💰 *Total Amount:* ₹${formatCurrency(total).replace(/[₹\s]/g, "")}\n${balance > 0 ? `💳 *Balance Due:* ₹${formatCurrency(balance).replace(/[₹\s]/g, "")}` : `✅ *Payment Status:* Paid in Full`}\n\nWarm regards,\n*${business.businessName || state.activeCompany || "Our Business"}*`;
+    const bank = (state.bankAccounts || []).find((b) => b.isDefault || b.upiId) || (state.bankAccounts || [])[0] || {};
+    const upiId = bank.upiId || business.bankDetails?.upiId || "";
+    const cleanBizName = (business.businessName || state.activeCompany || "Our Business").replace(/[^a-zA-Z0-9 ]/g, "").trim();
 
-    const desktopUrl = `whatsapp://send?phone=${phone}&text=${encodeURIComponent(message)}`;
-    if (window.giApp?.openExternal) {
-      window.giApp.openExternal(desktopUrl).catch(() => {});
+    const lines = [
+      `Dear *${partyName}*,`,
+      ``,
+      `Thank you for your business with *${business.businessName || state.activeCompany || "Our Business"}*!`,
+      `📄 *Invoice No:* #${docNo}`,
+      `📅 *Date:* ${docDate}`,
+      `💰 *Total Amount:* ₹${formatCurrency(total).replace(/[₹\s]/g, "")}`,
+      balance > 0 ? `💳 *Balance Due:* ₹${formatCurrency(balance).replace(/[₹\s]/g, "")}` : `✅ *Payment Status:* Paid in Full`,
+    ];
+    if (upiId && balance > 0) {
+      const upiLink = `upi://pay?pa=${encodeURIComponent(upiId)}&pn=${encodeURIComponent(cleanBizName)}&am=${balance.toFixed(2)}&cu=INR&tn=${encodeURIComponent("Invoice " + docNo)}`;
+      lines.push(`💳 *UPI ID:* ${upiId}`);
+      lines.push(`📲 *Pay in 1 Tap (UPI):* ${upiLink}`);
+    }
+    lines.push(`\nWarm regards,\n*${business.businessName || state.activeCompany || "Our Business"}*`);
+    const message = lines.join("\n");
+
+    // If native Baileys WhatsApp is connected, send PDF directly!
+    if (whatsappConnectState?.connected && window.giApp?.whatsappSendMessage) {
+      showToast(`Sending Tax Invoice #${docNo} via WhatsApp...`);
+      let pdfPath = null;
+      let pdfName = `Invoice_${String(docNo).replace(/[^a-zA-Z0-9_-]/g, "_")}.pdf`;
+      try {
+        const invData = preview || transaction;
+        const resPdf = await generateTempInvoicePdf(invData, partyObj || { name: partyName, phone });
+        if (resPdf?.filePath) {
+          pdfPath = resPdf.filePath;
+          pdfName = resPdf.filename;
+        }
+      } catch (pdfErr) {
+        console.warn("Could not generate invoice PDF for WhatsApp auto-send:", pdfErr);
+      }
+
+      const res = await window.giApp.whatsappSendMessage({
+        phone,
+        message,
+        pdfPath,
+        pdfName
+      });
+
+      if (res?.success || res?.messageId) {
+        const pKey = String(partyObj?.id || partyObj?.name || partyName || phone);
+        whatsappConnectState.chats = whatsappConnectState.chats || {};
+        whatsappConnectState.chats[pKey] = whatsappConnectState.chats[pKey] || [];
+        whatsappConnectState.chats[pKey].push({
+          id: res.messageId || ("msg-" + Date.now()),
+          text: message,
+          time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+          from: "me",
+          status: "delivered",
+          attachment: pdfPath ? { name: pdfName, path: pdfPath, size: `Tax Invoice • ₹${total}`, type: "pdf" } : null,
+        });
+        saveWhatsAppConnectState();
+        showToast(`Tax Invoice #${docNo} sent to ${partyName} via WhatsApp!`);
+      } else {
+        showToast("WhatsApp auto-send note: " + (res?.error || "Sent locally"));
+      }
+    } else {
+      const desktopUrl = `whatsapp://send?phone=${phone}&text=${encodeURIComponent(message)}`;
+      if (window.giApp?.openExternal) {
+        window.giApp.openExternal(desktopUrl).catch(() => {});
+      }
     }
   } catch (err) {
     console.warn("Auto-send via WhatsApp Desktop skipped:", err);
@@ -31825,6 +31902,11 @@ function formatDirectPaymentReminder(party, options = {}) {
   ];
   if (upiId) {
     lines.push(`💳 *UPI Payment ID:* ${upiId}`);
+    if (balance > 0) {
+      const cleanBizName = (businessName || "ZynBill").replace(/[^a-zA-Z0-9 ]/g, "").trim();
+      const upiLink = `upi://pay?pa=${encodeURIComponent(upiId)}&pn=${encodeURIComponent(cleanBizName)}&am=${balance.toFixed(2)}&cu=INR&tn=${encodeURIComponent("Payment to " + cleanBizName)}`;
+      lines.push(`📲 *Pay in 1-Click via UPI:* ${upiLink}`);
+    }
   }
   lines.push(`Kindly arrange to clear this balance at your earliest convenience. Thank you!`);
   return lines.join("\n");
@@ -31854,6 +31936,9 @@ function formatDirectInvoiceMessage(party, invoice = null) {
   ];
   if (upiId && balanceDue > 0) {
     lines.push(`🔗 *UPI ID:* ${upiId}`);
+    const cleanBizName = (businessName || "ZynBill").replace(/[^a-zA-Z0-9 ]/g, "").trim();
+    const upiLink = `upi://pay?pa=${encodeURIComponent(upiId)}&pn=${encodeURIComponent(cleanBizName)}&am=${balanceDue.toFixed(2)}&cu=INR&tn=${encodeURIComponent("Invoice " + invoiceNo)}`;
+    lines.push(`📲 *Pay in 1-Click via UPI:* ${upiLink}`);
   }
   lines.push(`Please find your invoice copy attached. Thank you for your business!`);
   return lines.join("\n");
@@ -32087,8 +32172,131 @@ function initWhatsAppEventListener() {
       }
     }).catch(() => {});
   }
+
+  // Two-way chat sync: Listen for inbound customer messages
+  if (window.giApp?.onWhatsAppMessageReceived) {
+    window.giApp.onWhatsAppMessageReceived((inboundMsg) => {
+      handleWhatsAppIncomingMessage(inboundMsg);
+    });
+  }
+
+  // Delivery / Read status updates
+  if (window.giApp?.onWhatsAppMessageStatus) {
+    window.giApp.onWhatsAppMessageStatus((statusUpdate) => {
+      handleWhatsAppMessageStatus(statusUpdate);
+    });
+  }
 }
 initWhatsAppEventListener();
+
+function handleWhatsAppIncomingMessage(inboundMsg) {
+  if (!inboundMsg || !inboundMsg.phone) return;
+  const rawPhone = String(inboundMsg.phone).replace(/\D/g, "");
+  if (!rawPhone) return;
+
+  const last10 = rawPhone.slice(-10);
+  let matchedParty = (state.parties || []).find((p) => {
+    const pPhone = String(p.phone || "").replace(/\D/g, "");
+    return pPhone.endsWith(last10);
+  });
+
+  if (!matchedParty) {
+    matchedParty = (whatsappConnectState.directParties || []).find((p) => {
+      const pPhone = String(p.phone || "").replace(/\D/g, "");
+      return pPhone.endsWith(last10);
+    });
+  }
+
+  // If new customer messaging, register into directParties
+  if (!matchedParty) {
+    matchedParty = {
+      id: "direct-" + rawPhone,
+      name: inboundMsg.pushName || ("+" + inboundMsg.phone),
+      phone: inboundMsg.phone,
+      balance: 0,
+    };
+    whatsappConnectState.directParties = whatsappConnectState.directParties || [];
+    whatsappConnectState.directParties.unshift(matchedParty);
+  }
+
+  const pKey = String(matchedParty.id || matchedParty.name || rawPhone);
+  whatsappConnectState.chats = whatsappConnectState.chats || {};
+  whatsappConnectState.chats[pKey] = whatsappConnectState.chats[pKey] || [];
+
+  // Deduplicate
+  if (inboundMsg.id && whatsappConnectState.chats[pKey].some((m) => m.id === inboundMsg.id)) {
+    return;
+  }
+
+  const newMsg = {
+    id: inboundMsg.id || `msg-${Date.now()}`,
+    text: inboundMsg.text,
+    time: inboundMsg.time || new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+    from: inboundMsg.from || "them",
+    status: "received",
+  };
+  whatsappConnectState.chats[pKey].push(newMsg);
+  saveWhatsAppConnectState();
+
+  if (currentView === "whatsapp") {
+    const active = getWhatsAppActiveParty();
+    if (active && (String(active.id) === String(matchedParty.id) || String(active.phone).replace(/\D/g, "").endsWith(last10))) {
+      const scrollArea = document.getElementById("waChatMessagesScroll");
+      if (scrollArea) {
+        const tempDiv = document.createElement("div");
+        tempDiv.innerHTML = renderWhatsAppMessageBubble(newMsg).trim();
+        const bubbleEl = tempDiv.firstElementChild;
+        if (bubbleEl) {
+          scrollArea.appendChild(bubbleEl);
+          scrollArea.scrollTop = scrollArea.scrollHeight;
+        }
+      }
+    }
+    const partyItemEl = document.querySelector(`[data-wa-party-id="${matchedParty.id}"]`);
+    if (partyItemEl) {
+      const previewEl = partyItemEl.querySelector(".wa-party-preview");
+      if (previewEl) {
+        previewEl.innerHTML = `<span class="wa-check-icon">&#10003;&#10003;</span> <span>${escapeHtml(inboundMsg.text || "Message")}</span>`;
+      }
+      const timeEl = partyItemEl.querySelector(".wa-party-time");
+      if (timeEl) {
+        timeEl.textContent = inboundMsg.time || "Just now";
+      }
+    }
+  } else {
+    const snippet = (inboundMsg.text || "New message").slice(0, 45);
+    showToast(`💬 WhatsApp from ${matchedParty.name}: "${snippet}"`);
+  }
+}
+
+function handleWhatsAppMessageStatus(statusUpdate) {
+  if (!statusUpdate?.id) return;
+  let found = false;
+  for (const pKey in (whatsappConnectState.chats || {})) {
+    const list = whatsappConnectState.chats[pKey];
+    for (const m of list) {
+      if (m.id === statusUpdate.id) {
+        m.status = statusUpdate.status >= 4 ? "read" : statusUpdate.status >= 2 ? "delivered" : "sent";
+        found = true;
+        break;
+      }
+    }
+    if (found) break;
+  }
+  if (found) {
+    saveWhatsAppConnectState();
+    if (currentView === "whatsapp") {
+      const scroll = document.getElementById("waChatMessagesScroll");
+      const bubble = scroll?.querySelector(`[data-msg-id="${statusUpdate.id}"]`);
+      if (bubble) {
+        const check = bubble.querySelector(".wa-check-icon");
+        if (check) {
+          check.className = "wa-check-icon " + (statusUpdate.status >= 4 ? "wa-read" : "wa-delivered");
+        }
+      }
+    }
+  }
+}
 
 function saveWhatsAppConnectState() {
   try {
@@ -32126,9 +32334,11 @@ function getPartyLatestInvoice(party) {
 function renderWhatsAppMessageBubble(m) {
   const isMe = m.from === "me";
   const hasAttachment = Boolean(m.attachment);
-  const isDelivered = m.status === "delivered";
+  const isRead = m.status === "read";
+  const isDelivered = m.status === "delivered" || isRead;
+  const tickClass = isRead ? "wa-read" : isDelivered ? "wa-delivered" : "wa-sent";
   return `
-    <div class="wa-message-bubble ${isMe ? "sent" : "received"} ${hasAttachment ? "has-attachment" : ""}">
+    <div class="wa-message-bubble ${isMe ? "sent" : "received"} ${hasAttachment ? "has-attachment" : ""}" data-msg-id="${escapeHtml(m.id || "")}">
       ${hasAttachment ? `
         <div class="wa-bubble-doc-card" data-doc-path="${escapeHtml(m.attachment.path || "")}" title="Click to open ${escapeHtml(m.attachment.name || "document")}">
           <div class="wa-doc-icon-badge">
@@ -32150,7 +32360,7 @@ function renderWhatsAppMessageBubble(m) {
       ${m.text ? `<div class="wa-bubble-text">${escapeHtml(m.text)}</div>` : ""}
       <div class="wa-bubble-footer">
         <span>${escapeHtml(m.time || "12:46 PM")}</span>
-        ${isMe ? `<span class="wa-check-icon ${isDelivered ? "wa-delivered" : ""}">&#10003;&#10003;</span>` : ""}
+        ${isMe ? `<span class="wa-check-icon ${tickClass}">&#10003;&#10003;</span>` : ""}
       </div>
     </div>
   `;
@@ -32477,6 +32687,215 @@ function ensureDefaultWhatsAppChatsForParty(party) {
   return initialMsgs;
 }
 
+function openWhatsAppBulkRemindersModal() {
+  document.getElementById("waBulkReminderModalBackdrop")?.remove();
+
+  const business = state.businessSettings || defaultBusinessSettings();
+  const bank = (state.bankAccounts || []).find((b) => b.isDefault || b.upiId) || (state.bankAccounts || [])[0] || {};
+  const upiId = bank.upiId || business.bankDetails?.upiId || "";
+
+  // Filter parties with positive balance and valid phone number
+  const overdueParties = (state.parties || []).filter((p) => {
+    const bal = Number(p.balance ?? p.receivable ?? 0);
+    const cleanPhone = String(p.phone || "").replace(/\D/g, "");
+    return bal > 0 && cleanPhone.length >= 7;
+  }).sort((a, b) => Number(b.balance || 0) - Number(a.balance || 0));
+
+  if (!overdueParties.length) {
+    showToast("No customers with outstanding balances and phone numbers found.");
+    return;
+  }
+
+  const totalOutstanding = overdueParties.reduce((acc, p) => acc + Number(p.balance || 0), 0);
+
+  const backdrop = document.createElement("div");
+  backdrop.id = "waBulkReminderModalBackdrop";
+  backdrop.className = "whatsapp-modal-backdrop";
+  backdrop.innerHTML = `
+    <div class="whatsapp-modal" role="dialog" aria-modal="true" style="max-width:560px;width:95%;border-radius:16px;overflow:hidden;box-shadow:0 20px 40px rgba(0,0,0,0.25);">
+      <header class="whatsapp-modal-header" style="background:#075e54;color:#ffffff;padding:16px 20px;display:flex;align-items:center;justify-content:space-between;">
+        <div style="display:flex;align-items:center;gap:12px;">
+          <span style="font-size:24px;">🔔</span>
+          <div>
+            <h3 style="margin:0;font-size:16px;font-weight:700;color:#ffffff;">Batch Payment Reminders</h3>
+            <span style="font-size:12px;opacity:0.9;">Safe, staggered payment reminders with dynamic 1-tap UPI links</span>
+          </div>
+        </div>
+        <button type="button" id="waBulkCloseBtn" style="background:none;border:none;font-size:24px;color:#ffffff;cursor:pointer;line-height:1;">&times;</button>
+      </header>
+
+      <div style="padding:16px 20px;background:#f8fafc;max-height:65vh;overflow-y:auto;">
+        <div style="background:#ffffff;border:1px solid #e2e8f0;border-radius:10px;padding:12px 16px;margin-bottom:14px;display:flex;justify-content:space-between;align-items:center;">
+          <div>
+            <div style="font-size:11px;color:#64748b;font-weight:600;text-transform:uppercase;">Eligible Debtors</div>
+            <strong style="font-size:16px;color:#0f172a;" id="waBulkCountDisplay">${overdueParties.length} Parties</strong>
+          </div>
+          <div style="text-align:right;">
+            <div style="font-size:11px;color:#64748b;font-weight:600;text-transform:uppercase;">Total Outstanding</div>
+            <strong style="font-size:16px;color:#ef4444;" id="waBulkTotalDisplay">${formatCurrency(totalOutstanding)}</strong>
+          </div>
+        </div>
+
+        <div style="background:#fef3c7;border:1px solid #fde68a;border-radius:8px;padding:10px 12px;font-size:12px;color:#92400e;margin-bottom:14px;display:flex;align-items:flex-start;gap:8px;">
+          <span>🛡️</span>
+          <div>
+            <strong>Anti-Ban Protection Active:</strong> Reminders are dispatched sequentially with safe 4-5 second intervals to protect your business WhatsApp from spam flags.
+            ${upiId ? `<br>💳 <em>Dynamic 1-Tap UPI link will be included for instant customer payment.</em>` : ""}
+          </div>
+        </div>
+
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+          <label style="display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:#334155;cursor:pointer;">
+            <input type="checkbox" id="waBulkSelectAll" checked>
+            <span>Select All (${overdueParties.length})</span>
+          </label>
+          <span style="font-size:11px;color:#64748b;">Uncheck parties you wish to skip</span>
+        </div>
+
+        <div class="wa-bulk-list" style="display:flex;flex-direction:column;gap:6px;">
+          ${overdueParties.map((p) => {
+            const bal = Number(p.balance || 0);
+            return `
+              <label class="wa-bulk-party-item" style="display:flex;align-items:center;justify-content:space-between;background:#ffffff;border:1px solid #e2e8f0;border-radius:8px;padding:10px 12px;cursor:pointer;">
+                <div style="display:flex;align-items:center;gap:10px;">
+                  <input type="checkbox" class="wa-bulk-check" data-party-id="${p.id}" checked>
+                  <div>
+                    <strong style="font-size:13px;color:#0f172a;display:block;">${escapeHtml(p.name)}</strong>
+                    <span style="font-size:11.5px;color:#64748b;">${escapeHtml(p.phone || "")}</span>
+                  </div>
+                </div>
+                <div style="text-align:right;">
+                  <strong style="font-size:13px;color:#dc2626;">${formatCurrency(bal)}</strong>
+                </div>
+              </label>
+            `;
+          }).join("")}
+        </div>
+
+        <div id="waBulkProgressWrap" class="hidden" style="margin-top:14px;padding:12px;background:#ffffff;border:1px solid #cbd5e1;border-radius:8px;">
+          <div style="display:flex;justify-content:space-between;font-size:12px;font-weight:600;margin-bottom:6px;">
+            <span id="waBulkProgressStatus">Starting batch...</span>
+            <span id="waBulkProgressPct">0%</span>
+          </div>
+          <div style="width:100%;height:8px;background:#e2e8f0;border-radius:4px;overflow:hidden;">
+            <div id="waBulkProgressBar" style="width:0%;height:100%;background:#16a34a;transition:width 0.3s ease;"></div>
+          </div>
+        </div>
+      </div>
+
+      <footer style="padding:14px 20px;background:#ffffff;border-top:1px solid #e2e8f0;display:flex;justify-content:space-between;align-items:center;">
+        <button type="button" class="outline-mini-button" id="waBulkCancelBtn" style="padding:8px 16px;">Cancel</button>
+        <button type="button" class="sale-button" id="waBulkStartBtn" style="padding:8px 20px;display:inline-flex;align-items:center;gap:6px;background:#16a34a;">
+          <span>🚀</span> <span id="waBulkStartBtnText">Send Reminders (${overdueParties.length})</span>
+        </button>
+      </footer>
+    </div>
+  `;
+  document.body.appendChild(backdrop);
+
+  const close = () => backdrop.remove();
+  backdrop.querySelector("#waBulkCloseBtn")?.addEventListener("click", close);
+  backdrop.querySelector("#waBulkCancelBtn")?.addEventListener("click", close);
+
+  const selectAll = backdrop.querySelector("#waBulkSelectAll");
+  const checkboxes = backdrop.querySelectorAll(".wa-bulk-check");
+  const startBtn = backdrop.querySelector("#waBulkStartBtn");
+  const startBtnText = backdrop.querySelector("#waBulkStartBtnText");
+
+  const updateSelectedState = () => {
+    const checked = Array.from(checkboxes).filter(c => c.checked);
+    startBtnText.textContent = `Send Reminders (${checked.length})`;
+    startBtn.disabled = checked.length === 0;
+    startBtn.style.opacity = checked.length === 0 ? "0.5" : "1";
+    selectAll.checked = checked.length === checkboxes.length;
+  };
+
+  selectAll?.addEventListener("change", () => {
+    checkboxes.forEach(c => c.checked = selectAll.checked);
+    updateSelectedState();
+  });
+
+  checkboxes.forEach(c => {
+    c.addEventListener("change", updateSelectedState);
+  });
+
+  startBtn?.addEventListener("click", async () => {
+    const checkedBoxes = Array.from(checkboxes).filter(c => c.checked);
+    if (!checkedBoxes.length) return;
+
+    const selectedParties = checkedBoxes.map(cb => {
+      const pId = cb.getAttribute("data-party-id");
+      return overdueParties.find(p => String(p.id) === String(pId));
+    }).filter(Boolean);
+
+    startBtn.disabled = true;
+    startBtn.style.opacity = "0.5";
+    selectAll.disabled = true;
+    checkboxes.forEach(c => c.disabled = true);
+
+    const progressWrap = backdrop.querySelector("#waBulkProgressWrap");
+    const progressStatus = backdrop.querySelector("#waBulkProgressStatus");
+    const progressPct = backdrop.querySelector("#waBulkProgressPct");
+    const progressBar = backdrop.querySelector("#waBulkProgressBar");
+    progressWrap?.classList.remove("hidden");
+
+    let successCount = 0;
+    const total = selectedParties.length;
+
+    for (let i = 0; i < total; i++) {
+      const p = selectedParties[i];
+      const pct = Math.round(((i + 1) / total) * 100);
+      progressStatus.textContent = `Sending reminder ${i + 1} of ${total} to ${p.name}...`;
+      progressPct.textContent = `${pct}%`;
+      progressBar.style.width = `${pct}%`;
+
+      const cleanPhone = formatWhatsAppPhoneNumber(p.phone);
+      const reminderText = formatDirectPaymentReminder(p);
+
+      if (cleanPhone && window.giApp?.whatsappSendMessage) {
+        try {
+          await window.giApp.whatsappSendMessage({
+            phone: cleanPhone,
+            message: reminderText,
+          });
+          successCount++;
+        } catch (sendErr) {
+          console.warn(`Could not send reminder to ${p.name}:`, sendErr);
+        }
+      }
+
+      // Record in local chat history
+      const pKey = String(p.id || p.name);
+      whatsappConnectState.chats = whatsappConnectState.chats || {};
+      whatsappConnectState.chats[pKey] = whatsappConnectState.chats[pKey] || [];
+      whatsappConnectState.chats[pKey].push({
+        id: "bulk-rem-" + Date.now() + "-" + i,
+        text: reminderText,
+        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        from: "me",
+        status: "delivered",
+      });
+
+      // Anti-ban rate limit delay (4.5s safe delay)
+      if (i < total - 1) {
+        await new Promise(r => setTimeout(r, 4500));
+      }
+    }
+
+    saveWhatsAppConnectState();
+    progressStatus.textContent = `Completed! ${successCount} of ${total} reminders sent.`;
+    showToast(`Bulk Reminders: ${successCount} reminders sent safely!`);
+
+    setTimeout(() => {
+      close();
+      if (currentView === "whatsapp") {
+        elements.featureView.innerHTML = whatsappConnectTemplate();
+        bindFeatureActions();
+      }
+    }, 1500);
+  });
+}
+
 async function renderWhatsAppPairingQr() {
   const container = elements.featureView?.querySelector("#waPairingQrContainer");
   if (!container) return;
@@ -32677,6 +33096,9 @@ function whatsappConnectTemplate() {
           <span class="wa-status-pill online"><span class="wa-status-dot"></span> Connected: ${escapeHtml(whatsappConnectState.currentUser?.phone ? ("+" + whatsappConnectState.currentUser.phone) : (whatsappConnectState.currentUser?.name || "Linked Device"))}</span>
         </div>
         <div class="wa-connect-actions">
+          <button type="button" class="outline-mini-button" id="waBulkReminderTopBtn" title="Send safe, automated payment reminders to all overdue parties" style="color:#b45309;border-color:#fde68a;background:#fffbeb;display:inline-flex;align-items:center;gap:5px;font-weight:600;">
+            <span style="font-size:13px;">🔔</span> Bulk Reminders
+          </button>
           <button type="button" class="outline-mini-button" data-wa-action="disconnect" title="Log out from WhatsApp" style="color:#dc2626;border-color:#fecaca;background:#fff5f5;display:inline-flex;align-items:center;gap:4px;">
             <svg class="gi-icon" style="width:13px;height:13px;color:#dc2626;"><use href="#gi-x"></use></svg> Disconnect
           </button>
@@ -33018,6 +33440,11 @@ function bindWhatsAppConnectActions() {
       bindFeatureActions();
       showToast("WhatsApp Disconnected.");
     });
+  });
+
+  // 2b. Bulk Reminders Modal Trigger
+  view.querySelector("#waBulkReminderTopBtn")?.addEventListener("click", () => {
+    openWhatsAppBulkRemindersModal();
   });
 
   // 3. Search Filter

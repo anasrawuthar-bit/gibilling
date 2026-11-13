@@ -101,6 +101,18 @@ contextBridge.exposeInMainWorld("giApp", {
     ipcRenderer.on("whatsapp:status-update", handler);
     return () => ipcRenderer.removeListener("whatsapp:status-update", handler);
   },
+  onWhatsAppMessageReceived: (callback) => {
+    if (typeof callback !== "function") return () => {};
+    const handler = (_event, data) => callback(data);
+    ipcRenderer.on("whatsapp:message-received", handler);
+    return () => ipcRenderer.removeListener("whatsapp:message-received", handler);
+  },
+  onWhatsAppMessageStatus: (callback) => {
+    if (typeof callback !== "function") return () => {};
+    const handler = (_event, data) => callback(data);
+    ipcRenderer.on("whatsapp:message-status", handler);
+    return () => ipcRenderer.removeListener("whatsapp:message-status", handler);
+  },
 });
 
 contextBridge.exposeInMainWorld("giCloud", {
