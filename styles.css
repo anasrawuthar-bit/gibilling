@@ -18765,8 +18765,11 @@ textarea:focus-visible {
   padding: 8px 16px;
   background: #f0f2f5;
   border-top: 1px solid #e9edef;
-  overflow-x: auto;
+  overflow: visible;
+  flex-wrap: wrap;
   flex-shrink: 0;
+  position: relative;
+  z-index: 20;
 }
 
 .wa-quick-pill {

@@ -536,7 +536,7 @@ const elements = {
   appVersionBadge: document.getElementById("appVersionBadge") || document.querySelector(".app-version-badge"),
 };
 
-let currentAppVersion = "1.1.4";
+let currentAppVersion = "1.1.5";
 
 async function refreshAppVersion() {
   try {
@@ -32233,10 +32233,14 @@ async function draftWhatsAppLatestBill(party, invoice) {
   showToast(`Invoice #${docNo} PDF drafted into message box!`);
 }
 
-async function draftWhatsAppStatement(party, preset = "thisMonth") {
-  if (!party) return;
+async function draftWhatsAppStatement(party, preset = "all") {
+  const targetParty = typeof party === "object" ? party : (state.parties || []).find((p) => String(p.id) === String(party) || p.name === party);
+  if (!targetParty) {
+    showToast("Please select a customer first.");
+    return;
+  }
   showToast("Generating Party Statement PDF...");
-  const stmt = calculatePartyStatementData(party, { preset });
+  const stmt = calculatePartyStatementData(targetParty, { preset });
   if (!stmt) {
     showToast("Failed to calculate statement.");
     return;
@@ -32257,7 +32261,7 @@ async function draftWhatsAppStatement(party, preset = "thisMonth") {
   whatsappConnectState.draftAttachment = {
     name: stmt.filename,
     path: pdfPath,
-    size: `Statement PDF • ${stmt.periodText || "This Month"}`,
+    size: `Statement PDF • ${stmt.periodText || "All Time"}`,
     type: "pdf"
   };
 
@@ -32274,12 +32278,100 @@ async function draftWhatsAppStatement(party, preset = "thisMonth") {
   }
 
   if (input) {
-    input.value = formatDirectStatementMessage(party, stmt);
+    input.value = formatDirectStatementMessage(targetParty, stmt);
     autoExpandWaInput(input);
     input.focus();
   }
 
   showToast(`Statement (${stmt.periodText}) drafted into message box!`);
+}
+
+function openWhatsAppStatementPickerModal(party) {
+  const targetParty = typeof party === "object" ? party : (state.parties || []).find((p) => String(p.id) === String(party) || p.name === party);
+  if (!targetParty) {
+    showToast("Please select a party first.");
+    return;
+  }
+  document.getElementById("waStatementModalBackdrop")?.remove();
+
+  const periods = [
+    { id: "all", label: "All Time (Complete Ledger)", desc: "Full chronological transaction statement & closing balance", badge: "Recommended" },
+    { id: "thisMonth", label: "This Month", desc: "Current month's transactions", badge: "Current" },
+    { id: "thisFinancialYear", label: "Current Financial Year", desc: "All transactions in current financial year", badge: "FY" },
+    { id: "lastMonth", label: "Last Month", desc: "Previous month's transactions", badge: "Past" }
+  ];
+
+  const netBal = Number(targetParty.balance || targetParty.receivable || 0);
+
+  const backdrop = document.createElement("div");
+  backdrop.id = "waStatementModalBackdrop";
+  backdrop.className = "whatsapp-modal-backdrop";
+  backdrop.innerHTML = `
+    <div class="whatsapp-modal" role="dialog" aria-modal="true" style="max-width:520px;border-radius:16px;overflow:hidden;box-shadow:0 20px 40px rgba(0,0,0,0.25);">
+      <header class="whatsapp-modal-header" style="background:#075e54;color:#ffffff;padding:16px 20px;display:flex;align-items:center;justify-content:space-between;">
+        <div style="display:flex;align-items:center;gap:12px;">
+          <span style="font-size:24px;">📊</span>
+          <div>
+            <h3 style="margin:0;font-size:16px;font-weight:700;color:#ffffff;">Party Statement (PDF)</h3>
+            <span style="font-size:12px;opacity:0.9;">Choose statement period for <strong>${escapeHtml(targetParty.name || "Customer")}</strong></span>
+          </div>
+        </div>
+        <button type="button" id="waStatementCloseBtn" style="background:none;border:none;font-size:24px;color:#ffffff;cursor:pointer;line-height:1;">&times;</button>
+      </header>
+
+      <div style="padding:16px 20px;background:#f8fafc;">
+        <div style="background:#ffffff;border:1px solid #e2e8f0;border-radius:10px;padding:12px 14px;margin-bottom:14px;display:flex;justify-content:space-between;align-items:center;">
+          <div>
+            <div style="font-size:11px;color:#64748b;font-weight:600;text-transform:uppercase;">Customer / Party</div>
+            <strong style="font-size:14px;color:#0f172a;">${escapeHtml(targetParty.name || "Customer")}</strong>
+            <span style="font-size:12px;color:#64748b;margin-left:6px;">(${escapeHtml(targetParty.phone || "No phone")})</span>
+          </div>
+          <div style="text-align:right;">
+            <div style="font-size:11px;color:#64748b;font-weight:600;text-transform:uppercase;">Current Net Balance</div>
+            <strong style="font-size:15px;color:${netBal < 0 ? '#0284c7' : '#ef4444'};">
+              ${escapeHtml(formatCurrency(Math.abs(netBal)))} ${netBal < 0 ? 'Cr' : 'Dr'}
+            </strong>
+          </div>
+        </div>
+
+        <div style="font-size:12.5px;font-weight:700;color:#334155;margin-bottom:8px;">Select Period to Draft:</div>
+        <div style="display:flex;flex-direction:column;gap:8px;" id="waStatementPeriodOptions">
+          ${periods.map((p) => `
+            <div class="wa-statement-period-card" data-period="${p.id}" style="display:flex;align-items:center;justify-content:space-between;padding:12px 14px;background:#ffffff;border:1.5px solid #e2e8f0;border-radius:10px;cursor:pointer;transition:all 0.15s ease;">
+              <div style="display:flex;align-items:center;gap:10px;">
+                <span style="font-size:18px;">📅</span>
+                <div>
+                  <div style="display:flex;align-items:center;gap:6px;">
+                    <strong style="font-size:13.5px;color:#0f172a;">${p.label}</strong>
+                    <span style="font-size:10px;font-weight:700;background:#e0f2fe;color:#0369a1;padding:1px 6px;border-radius:4px;">${p.badge}</span>
+                  </div>
+                  <span style="font-size:11.5px;color:#64748b;">${p.desc}</span>
+                </div>
+              </div>
+              <div style="display:flex;align-items:center;gap:6px;color:#2563eb;font-weight:600;font-size:12px;">
+                <span>Draft PDF</span> &rarr;
+              </div>
+            </div>
+          `).join("")}
+        </div>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(backdrop);
+
+  const close = () => backdrop.remove();
+  backdrop.querySelector("#waStatementCloseBtn")?.addEventListener("click", close);
+  backdrop.addEventListener("click", (e) => { if (e.target === backdrop) close(); });
+
+  backdrop.querySelectorAll(".wa-statement-period-card").forEach((card) => {
+    card.addEventListener("click", async () => {
+      const period = card.getAttribute("data-period") || "all";
+      card.style.opacity = "0.5";
+      card.style.pointerEvents = "none";
+      close();
+      await draftWhatsAppStatement(targetParty, period);
+    });
+  });
 }
 
 function openWhatsAppInvoicePickerModal(party) {
@@ -33052,13 +33144,17 @@ function bindWhatsAppConnectActions() {
 
   stmtPillBtn?.addEventListener("click", (e) => {
     e.stopPropagation();
-    stmtPeriodMenu?.classList.toggle("hidden");
+    if (activeParty) {
+      openWhatsAppStatementPickerModal(activeParty);
+    } else {
+      showToast("Please select a customer first.");
+    }
   });
 
   stmtPeriodMenu?.querySelectorAll(".wa-period-item").forEach((btn) => {
     btn.addEventListener("click", (e) => {
       e.stopPropagation();
-      const period = btn.getAttribute("data-period") || "thisMonth";
+      const period = btn.getAttribute("data-period") || "all";
       stmtPeriodMenu.classList.add("hidden");
       draftWhatsAppStatement(activeParty, period);
     });
@@ -33118,7 +33214,11 @@ function bindWhatsAppConnectActions() {
 
   view.querySelector("#waAttachStatement")?.addEventListener("click", () => {
     popover?.classList.add("hidden");
-    draftWhatsAppStatement(activeParty, "thisMonth");
+    if (activeParty) {
+      openWhatsAppStatementPickerModal(activeParty);
+    } else {
+      showToast("Please select a customer first.");
+    }
   });
 
   view.querySelector("#waAttachCustomFile")?.addEventListener("click", async () => {

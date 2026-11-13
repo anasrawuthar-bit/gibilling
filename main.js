@@ -1126,7 +1126,10 @@ function registerDatabaseHandlers() {
     try {
       printWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
       const policy = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:; object-src 'none'; base-uri 'none'">`;
-      await printWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(policy + htmlContent)}`);
+      const finalHtml = htmlContent.includes("<head>")
+        ? htmlContent.replace("<head>", `<head>${policy}`)
+        : `${policy}${htmlContent}`;
+      await printWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(finalHtml)}`);
       const pdfData = await printWindow.webContents.printToPDF({
         printBackground: true,
         pageSize: "A4",
