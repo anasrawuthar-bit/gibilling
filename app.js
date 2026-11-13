@@ -536,7 +536,7 @@ const elements = {
   appVersionBadge: document.getElementById("appVersionBadge") || document.querySelector(".app-version-badge"),
 };
 
-let currentAppVersion = "1.1.9";
+let currentAppVersion = "1.2.0";
 
 async function refreshAppVersion() {
   try {
@@ -3757,6 +3757,7 @@ function transactionEditorTemplate(type = getTransactionEditorType()) {
                   <th>#</th>
                   <th>Item</th>
                   <th>Description</th>
+                  ${type === "purchase" ? '<th class="col-barcode">Barcode</th>' : ""}
                   <th>Qty</th>
                   <th>Unit</th>
                   <th>Price</th>
@@ -3770,7 +3771,7 @@ function transactionEditorTemplate(type = getTransactionEditorType()) {
               </tbody>
               <tfoot>
                 <tr>
-                  <td colspan="3">Total Qty</td>
+                  <td colspan="${type === "purchase" ? 4 : 3}">Total Qty</td>
                   <td id="editorQtyTotal">0</td>
                   <td colspan="${taxEnabled ? 4 : 3}">Total</td>
                   <td id="editorTableTotal">0</td>
@@ -3917,16 +3918,18 @@ function transactionCustomFieldControl(field, value = "") {
   return `<label>${label}<input class="form-input" name="${escapeHtml(name)}" type="${inputType}" value="${escapeHtml(value)}" ${required}></label>`;
 }
 
-function editorRowTemplate(index, item = "", description = "", qty = "", price = "") {
+function editorRowTemplate(index, item = "", description = "", qty = "", price = "", barcode = "") {
   const taxEnabled = state.businessSettings?.enableTax !== false;
+  const isPurchase = getTransactionEditorType() === "purchase";
   return `
     <tr>
       <td class="row-num-cell">
         <span class="row-num-text">${index}</span>
         <button class="row-delete-button" type="button" aria-label="Remove item row" title="Delete row">${icon("trash")}</button>
       </td>
-      <td class="editor-item-field"><div class="editor-item-cell"><input name="item" value="${escapeHtml(item)}" placeholder="Search item or SKU" autocomplete="off"><div class="editor-lookup-panel editor-item-lookup hidden"></div><small class="row-smart-hint"></small><div class="purchase-price-history"></div></div></td>
+      <td class="editor-item-field"><div class="editor-item-cell"><input name="item" value="${escapeHtml(item)}" placeholder="${isPurchase ? "Search item name" : "Scan barcode or search item"}" autocomplete="off"><div class="editor-lookup-panel editor-item-lookup hidden"></div><small class="row-smart-hint"></small><div class="purchase-price-history"></div></div></td>
       <td><details class="editor-row-description" ${description ? "open" : ""}><summary>Description</summary><input name="description" aria-label="Item description" value="${escapeHtml(description)}" placeholder="Optional description"></details></td>
+      ${isPurchase ? `<td class="editor-barcode-cell"><input name="barcode" class="form-input compact-input" placeholder="Scan/Type Barcode" value="${escapeHtml(barcode)}" autocomplete="off" title="Scan or type barcode(s) for this item"></td>` : ""}
       <td><input name="qty" aria-label="Quantity" placeholder="0" type="number" min="0" step="0.01" value="${qty}"></td>
       <td><select name="unit">${editorUnitOptionsMarkup()}</select></td>
       <td><input name="price" aria-label="Unit price" placeholder="0.00" type="number" min="0" step="0.01" value="${price}"></td>
@@ -4042,11 +4045,16 @@ function populateTransactionEditorDraft(draft) {
       row.description || "",
       row.qty || "",
       row.price ?? "",
+      row.barcode || "",
     )).join("");
     bindTransactionEditorRows();
     [...body.querySelectorAll("tr")].forEach((rowElement, index) => {
       const row = rows[index] || {};
       const itemInput = rowElement.querySelector('[name="item"]');
+      const barcodeInput = rowElement.querySelector('[name="barcode"]');
+      if (barcodeInput && row.barcode) {
+        barcodeInput.value = row.barcode;
+      }
       const matchedItem = findItemByName(row.item) || (row.itemId ? (state.items || []).find((item) => Number(item.id) === Number(row.itemId)) : null);
       if (itemInput && matchedItem && matchedItem.name === itemInput.value) {
         itemInput.dataset.selectedItemId = matchedItem.id;
@@ -4570,6 +4578,7 @@ function captureTransactionEditorSnapshot() {
     item: row.querySelector('[name="item"]')?.value || "",
     selectedItemId: row.querySelector('[name="item"]')?.dataset.selectedItemId || "",
     description: row.querySelector('[name="description"]')?.value || "",
+    barcode: row.querySelector('[name="barcode"]')?.value || "",
     qty: row.querySelector('[name="qty"]')?.value || "",
     unit: row.querySelector('[name="unit"]')?.value || "",
     price: row.querySelector('[name="price"]')?.value || "",
@@ -4721,6 +4730,7 @@ function collectCurrentTransactionDraft() {
       item: row.querySelector('[name="item"]')?.value.trim() || "",
       itemId: row.querySelector('[name="item"]')?.dataset.selectedItemId || "",
       description: row.querySelector('[name="description"]')?.value.trim() || "",
+      barcode: row.querySelector('[name="barcode"]')?.value?.trim() || "",
       qty: row.querySelector('[name="qty"]')?.value || "",
       unit: row.querySelector('[name="unit"]')?.value || "",
       price: row.querySelector('[name="price"]')?.value || "",
@@ -7773,6 +7783,21 @@ function bindTransactionEditorRows() {
     field.addEventListener("focus", () => renderItemLookupPanel(field));
     field.addEventListener("change", () => applyEditorItemIntelligence(field.closest("tr")));
   });
+  elements.featureView.querySelectorAll('#transactionRows [name="barcode"]').forEach((field) => {
+    if (field.dataset.barcodeBound) return;
+    field.dataset.barcodeBound = "true";
+    field.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        const row = field.closest("tr");
+        const qtyField = row?.querySelector('[name="qty"]');
+        if (qtyField) {
+          qtyField.focus();
+          qtyField.select();
+        }
+      }
+    });
+  });
   elements.featureView.querySelectorAll(".row-delete-button").forEach((button) => {
     if (button.dataset.deleteBound) return;
     button.dataset.deleteBound = "true";
@@ -8138,7 +8163,15 @@ function openTransactionPartyCreate(source) {
 
 function handleEditorItemLookupInput(field) {
   const row = field.closest("tr");
-  const item = findItemByName(field.value);
+  const val = field.value.trim();
+
+  const barcodeMatchedItem = findItemByBarcode(val);
+  if (barcodeMatchedItem) {
+    selectTransactionItem(row, barcodeMatchedItem, { fromBarcodeScan: true });
+    return;
+  }
+
+  const item = findItemByName(val);
   if (item) {
     selectTransactionItem(row, item, { keepLookupOpen: true });
   } else {
@@ -8156,7 +8189,7 @@ function renderItemLookupPanel(field) {
   const query = field.value.trim();
   const results = searchItemsForLookup(query);
   const matches = results.slice(0, 50);
-  const exact = findItemByName(query);
+  const exact = findItemByName(query) || findItemByBarcode(query);
 
   if (!query && !matches.length) {
     panel.classList.add("hidden");
@@ -8197,6 +8230,17 @@ function renderItemLookupPanel(field) {
     } else if (event.key === "Enter" && event.target === field) {
       event.preventDefault();
       event.stopPropagation();
+      const currentQuery = field.value.trim();
+      const barcodeItem = findItemByBarcode(currentQuery);
+      if (barcodeItem) {
+        selectTransactionItem(row, barcodeItem, { fromBarcodeScan: true });
+        return;
+      }
+      const exactItem = findItemByName(currentQuery);
+      if (exactItem) {
+        selectTransactionItem(row, exactItem, { fromBarcodeScan: true });
+        return;
+      }
       handleEditorLookupAction({ target: active || buttons[0], preventDefault() {} });
     }
   };
@@ -8208,7 +8252,9 @@ function renderItemLookupPanel(field) {
 }
 
 function itemLookupButton(item) {
-  const details = [item.sku ? `SKU ${item.sku}` : "", item.category, item.unit ? `Unit ${item.unit}` : ""].filter(Boolean).join(" - ") || "No item details";
+  const allBarcodes = Array.isArray(item.barcodes) && item.barcodes.length ? item.barcodes : (item.sku ? [item.sku] : []);
+  const barcodeSnippet = allBarcodes.length ? `Barcode: ${allBarcodes.join(", ")}` : "";
+  const details = [barcodeSnippet, item.category, item.unit ? `Unit ${item.unit}` : ""].filter(Boolean).join(" - ") || "No item details";
   const service = item.itemType === "service";
   const stock = Number(item.currentStock || 0);
   const isPurchase = getTransactionEditorType() === "purchase";
@@ -8258,16 +8304,63 @@ function isExpenseItem(item) {
   );
 }
 
+function findItemByBarcode(barcode) {
+  const clean = String(barcode || "").trim().toLowerCase();
+  if (!clean) return null;
+  return (state.items || []).find((item) => {
+    if (item.sku && String(item.sku).trim().toLowerCase() === clean) return true;
+    if (Array.isArray(item.barcodes)) {
+      return item.barcodes.some((bc) => String(bc).trim().toLowerCase() === clean);
+    }
+    return false;
+  }) || null;
+}
+
 function searchItemsForLookup(query) {
   const cleanQuery = String(query || "").trim().toLowerCase();
   const items = (state.items || []).filter((item) => !isExpenseItem(item));
   if (!cleanQuery) return items;
-  return items.filter((item) => [
-    item.name,
-    item.sku,
-    item.category,
-    item.unit,
-  ].filter(Boolean).join(" ").toLowerCase().includes(cleanQuery));
+  return items.filter((item) => {
+    const itemBarcodes = Array.isArray(item.barcodes) ? item.barcodes : (item.sku ? [item.sku] : []);
+    const barcodeMatch = itemBarcodes.some((bc) => String(bc).toLowerCase().includes(cleanQuery));
+    if (barcodeMatch) return true;
+    return [
+      item.name,
+      item.sku,
+      item.category,
+      item.unit,
+    ].filter(Boolean).join(" ").toLowerCase().includes(cleanQuery);
+  });
+}
+
+function jumpToNextTransactionRow(currentRow) {
+  const body = elements.featureView?.querySelector("#transactionRows");
+  if (!body) return;
+  hideEditorLookupPanels();
+
+  const allRows = Array.from(body.querySelectorAll("tr"));
+  const currentIndex = allRows.indexOf(currentRow);
+
+  let targetRow = null;
+  for (let i = currentIndex + 1; i < allRows.length; i++) {
+    const rowItemInput = allRows[i].querySelector('[name="item"]');
+    if (!rowItemInput?.value.trim()) {
+      targetRow = allRows[i];
+      break;
+    }
+  }
+  if (!targetRow) {
+    targetRow = addTransactionEditorRow();
+  }
+  if (targetRow) {
+    const nextItemInput = targetRow.querySelector('[name="item"]');
+    if (nextItemInput) {
+      setTimeout(() => {
+        nextItemInput.focus();
+        nextItemInput.select();
+      }, 30);
+    }
+  }
 }
 
 function selectTransactionItem(row, item, options = {}) {
@@ -8275,9 +8368,29 @@ function selectTransactionItem(row, item, options = {}) {
   if (!row || !itemInput) return;
   itemInput.value = item.name || "";
   itemInput.dataset.selectedItemId = item.id;
+
+  const qtyInput = row.querySelector('[name="qty"]');
+  if (qtyInput && (!qtyInput.value || Number(qtyInput.value) <= 0)) {
+    qtyInput.value = "1";
+  }
+
+  const barcodeInput = row.querySelector('[name="barcode"]');
+  if (barcodeInput && !barcodeInput.value) {
+    const existingCodes = Array.isArray(item.barcodes) ? item.barcodes : (item.sku ? [item.sku] : []);
+    if (existingCodes.length > 0) {
+      barcodeInput.value = existingCodes.join(", ");
+    }
+  }
+
   if (!options.keepLookupOpen) hideEditorLookupPanels();
   applyEditorItemIntelligence(row);
-  ensureNextEmptyTransactionRow(row);
+  recalcTransactionEditor();
+
+  if (options.fromBarcodeScan) {
+    jumpToNextTransactionRow(row);
+  } else {
+    ensureNextEmptyTransactionRow(row);
+  }
 }
 
 function getSelectedTransactionItem(row) {
@@ -9221,6 +9334,7 @@ async function saveTransactionEditor(event) {
     const rows = validation.rows.map(({ row, item }) => ({
       item: row.querySelector('[name="item"]')?.value?.trim() || item.name || "",
       description: row.querySelector('[name="description"]')?.value?.trim() || "",
+      barcode: row.querySelector('[name="barcode"]')?.value?.trim() || "",
       qty: Number(row.querySelector('[name="qty"]')?.value || 0),
       unit: row.querySelector('[name="unit"]')?.value || item.unit || "Pcs",
       price: Number(row.querySelector('[name="price"]')?.value || 0),
@@ -9334,6 +9448,31 @@ async function saveTransactionEditor(event) {
     } else {
       state.transactions.unshift(transaction);
       saveState();
+    }
+
+    if (editorType === "purchase") {
+      for (const r of rows) {
+        if (r.barcode && r.itemId) {
+          const it = (state.items || []).find((i) => Number(i.id) === Number(r.itemId));
+          if (it) {
+            it.barcodes = Array.isArray(it.barcodes) ? it.barcodes : (it.sku ? [it.sku] : []);
+            const parsedCodes = r.barcode.split(/[\s,;]+/).map((c) => c.trim()).filter(Boolean);
+            let hasNew = false;
+            parsedCodes.forEach((c) => {
+              if (!it.barcodes.includes(c)) {
+                it.barcodes.push(c);
+                hasNew = true;
+              }
+            });
+            if (!it.sku && parsedCodes.length > 0) it.sku = parsedCodes[0];
+            if (hasNew && window.giDB?.updateItem) {
+              try {
+                await window.giDB.updateItem({ ...it });
+              } catch (_) {}
+            }
+          }
+        }
+      }
     }
 
     const targetPartyId = validation.party?.id;
@@ -32670,7 +32809,7 @@ function openWhatsAppStatementPickerModal(party) {
                 <span style="font-size:18px;">🗓️</span>
                 <div>
                   <div style="display:flex;align-items:center;gap:6px;">
-                    <strong style="font-size:13.5px;color:#0f172a;">Custom Date Range (കസ്റ്റം പീരിയഡ്)</strong>
+                    <strong style="font-size:13.5px;color:#0f172a;">Custom Date Range</strong>
                     <span style="font-size:10px;font-weight:700;background:#fef3c7;color:#b45309;padding:1px 6px;border-radius:4px;">Custom</span>
                   </div>
                   <span style="font-size:11.5px;color:#64748b;">Specify exact start date &amp; end date</span>
@@ -32684,11 +32823,11 @@ function openWhatsAppStatementPickerModal(party) {
             <div id="waCustomRangeCollapse" class="hidden" style="margin-top:6px;padding-top:10px;border-top:1px dashed #e2e8f0;display:flex;flex-direction:column;gap:10px;">
               <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
                 <div>
-                  <label style="font-size:11px;font-weight:600;color:#64748b;display:block;margin-bottom:4px;">From Date (ആരംഭം)</label>
+                  <label style="font-size:11px;font-weight:600;color:#64748b;display:block;margin-bottom:4px;">From Date</label>
                   <input type="date" id="waStmtFromDate" class="form-input" value="${defaultFrom}" style="padding:7px 10px;font-size:13px;border:1px solid #cbd5e1;border-radius:6px;width:100%;outline:none;" />
                 </div>
                 <div>
-                  <label style="font-size:11px;font-weight:600;color:#64748b;display:block;margin-bottom:4px;">To Date (അവസാനം)</label>
+                  <label style="font-size:11px;font-weight:600;color:#64748b;display:block;margin-bottom:4px;">To Date</label>
                   <input type="date" id="waStmtToDate" class="form-input" value="${defaultTo}" style="padding:7px 10px;font-size:13px;border:1px solid #cbd5e1;border-radius:6px;width:100%;outline:none;" />
                 </div>
               </div>
@@ -33420,7 +33559,7 @@ function whatsappConnectTemplate() {
                     <span class="period-dot"></span> <strong>All Time</strong> (Full Ledger)
                   </button>
                   <button type="button" class="wa-period-item" data-period="custom" style="color:#b45309;">
-                    <span class="period-dot" style="background:#b45309;"></span> <strong>Custom Date Range...</strong> (കസ്റ്റം പീരിയഡ്)
+                    <span class="period-dot" style="background:#b45309;"></span> <strong>Custom Date Range...</strong>
                   </button>
                 </div>
               </div>

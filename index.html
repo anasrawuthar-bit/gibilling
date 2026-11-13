@@ -796,15 +796,8 @@
                       <button class="mini-action-button" type="button" data-action="quick-add-unit" title="Add new unit">+</button>
                     </div>
                   </div>
-                  <div class="party-field-group">
-                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px;">
-                      <span class="field-label" id="itemSkuLabel">Barcode / SKU</span>
-                      <button class="link-button" type="button" data-action="generate-item-barcode" id="generateBarcodeBtn" style="font-size:11.5px;font-weight:600;color:#0c65c2;padding:0;background:none;border:none;cursor:pointer;" title="Auto-generate barcode">Auto-Generate</button>
-                    </div>
-                    <div class="entry-inline-action">
-                      <input id="itemSkuInput" name="sku" placeholder="Barcode / SKU" autocomplete="off">
-                      <button class="mini-action-button" type="button" data-action="print-single-item-barcode" id="printBarcodeBtn" title="Print barcode label for this item"><svg class="gi-icon" style="width:13px;height:13px;"><use href="#gi-printer"></use></svg></button>
-                    </div>
+                  <div class="party-field-group" id="itemSkuFieldGroup" style="display:none !important;" aria-hidden="true">
+                    <input id="itemSkuInput" name="sku" type="hidden" autocomplete="off">
                   </div>
                   <label class="party-field-group">
                     <span class="field-label"><span id="hsnSacLabel">HSN Code</span></span>

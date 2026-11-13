@@ -16791,6 +16791,9 @@ textarea:focus-visible {
 .transaction-editor .editor-table th:nth-child(6) { width: 92px; text-align: right; }
 .transaction-editor .editor-table th:nth-child(7) { width: 90px; text-align: right; }
 .transaction-editor .editor-table th:nth-child(8) { width: 100px; text-align: right; }
+.purchase-editor .editor-table th.col-barcode,
+.purchase-editor .editor-table td.editor-barcode-cell { width: 130px; text-align: left; }
+.purchase-editor .editor-table td.editor-barcode-cell input { border: 1px solid #d5dde5; border-radius: 4px; background: #fff; padding: 4px 6px; font-size: 12px; }
 .transaction-editor .editor-table th:last-child,
 .transaction-editor .editor-table td:last-child { width: 110px; min-width: 100px; text-align: right; font-variant-numeric: tabular-nums; }
 .transaction-editor .editor-table td { height: 44px; }
