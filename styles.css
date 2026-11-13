@@ -18720,10 +18720,10 @@ textarea:focus-visible {
 .wa-chat-messages-scroll {
   flex: 1;
   overflow-y: auto;
-  padding: 18px 24px;
+  padding: 14px 18px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 3px;
 }
 
 .wa-date-pill {
@@ -18741,13 +18741,15 @@ textarea:focus-visible {
 
 .wa-message-bubble {
   max-width: 65%;
-  padding: 6px 9px 5px 9px;
+  min-width: 52px;
+  padding: 5px 8px 4px 8px;
   border-radius: 7.5px;
   font-size: 13.5px;
   line-height: 1.35;
   position: relative;
   box-shadow: 0 1px 0.5px rgba(11,20,26,.13);
   word-break: break-word;
+  display: flow-root;
 }
 
 .wa-message-bubble.sent {
@@ -18765,15 +18767,17 @@ textarea:focus-visible {
 }
 
 .wa-bubble-footer {
-  display: flex;
-  justify-content: flex-end;
+  display: inline-flex;
   align-items: center;
   gap: 3px;
-  font-size: 10.5px;
+  float: right;
+  margin-left: 7px;
+  margin-top: 3px;
+  font-size: 10px;
   color: #667781;
-  margin-top: 2px;
   line-height: 1;
   user-select: none;
+  white-space: nowrap;
 }
 
 .wa-quick-pills-bar {
@@ -22176,6 +22180,7 @@ button.secondary-button.wa-btn:hover {
 }
 
 .wa-bubble-text {
+  display: inline;
   font-size: 13.5px;
   line-height: 1.35;
   white-space: pre-wrap;
@@ -22185,6 +22190,7 @@ button.secondary-button.wa-btn:hover {
 }
 
 .wa-message-bubble.has-attachment .wa-bubble-text {
+  display: block;
   margin-top: 4px;
 }
 

@@ -265,7 +265,7 @@ class WhatsAppService {
               id: msgId,
               phone: cleanPhone,
               from: isFromMe ? "me" : "them",
-              text,
+              text: String(text || "").trim(),
               time: timeStr,
               timestamp,
               pushName,

@@ -4,10 +4,10 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 test("WhatsApp Connect - Dynamic UPI Links, Two-Way Sync, and Bulk Reminders Verification", async (t) => {
-  const appJs = fs.readFileSync(path.join(__dirname, "..", "app.js"), "utf8");
-  const wsJs = fs.readFileSync(path.join(__dirname, "..", "whatsapp-service.js"), "utf8");
-  const preloadJs = fs.readFileSync(path.join(__dirname, "..", "preload.js"), "utf8");
-  const stylesCss = fs.readFileSync(path.join(__dirname, "..", "styles.css"), "utf8");
+  const appJs = fs.readFileSync(path.join(__dirname, "..", "app.js"), "utf8").replace(/\r\n/g, "\n");
+  const wsJs = fs.readFileSync(path.join(__dirname, "..", "whatsapp-service.js"), "utf8").replace(/\r\n/g, "\n");
+  const preloadJs = fs.readFileSync(path.join(__dirname, "..", "preload.js"), "utf8").replace(/\r\n/g, "\n");
+  const stylesCss = fs.readFileSync(path.join(__dirname, "..", "styles.css"), "utf8").replace(/\r\n/g, "\n");
 
   await t.test("1. Two-way messaging and read receipts are registered in Baileys socket", () => {
     assert.ok(wsJs.includes('sock.ev.on("messages.upsert"'), "whatsapp-service.js must listen for messages.upsert");
@@ -57,10 +57,30 @@ test("WhatsApp Connect - Dynamic UPI Links, Two-Way Sync, and Bulk Reminders Ver
     // Bubble padding and compact styles
     assert.ok(stylesCss.includes(".wa-message-bubble {"), "styles.css must style .wa-message-bubble");
     assert.ok(!stylesCss.includes(".wa-message-bubble {\n  max-width: 65%;\n  padding: 8px 12px;"), "Message bubble must not have large legacy 8px 12px padding");
-    assert.ok(stylesCss.includes("padding: 6px 9px 5px 9px;"), "Message bubble must use compact padding");
+    assert.ok(stylesCss.includes("padding: 5px 8px 4px 8px;"), "Message bubble must use compact padding");
+    assert.ok(stylesCss.includes("display: flow-root;"), "Message bubble must use display: flow-root for compact float clearing");
+    assert.ok(stylesCss.includes("display: inline;"), "wa-bubble-text must be inline so timestamp sits on the same line for short text");
+    assert.ok(stylesCss.includes("float: right;"), "wa-bubble-footer must float right for tight inline alignment");
     
     // Left contacts list must NOT show ticks for incoming messages
     assert.ok(appJs.includes("Received incoming message from customer: Do NOT show ticks!"), "Incoming message handler must not add check icon to sidebar");
     assert.ok(appJs.includes("lastMsg.from === \"me\""), "Sidebar contacts list must only show tick icon when last message was sent by me");
+  });
+
+  await t.test("10. Payment reminder is blocked when balance due is zero or negative", () => {
+    // formatDirectPaymentReminder must return empty string for zero/negative balance
+    assert.ok(appJs.includes("if (balance <= 0) {\n    return \"\";"), "formatDirectPaymentReminder must return empty string when balance <= 0");
+
+    // openWhatsAppPaymentReminder must block zero balance
+    assert.ok(appJs.includes("is already settled (₹0.00)."), "openWhatsAppPaymentReminder must block zero balance invoices/parties");
+
+    // Quick pill click handler must block zero balance
+    assert.ok(appJs.includes("Cannot draft reminder: Customer has no outstanding balance due (₹0.00)."), "Quick pill must block drafting when balance <= 0");
+
+    // Quick pill UI must indicate No Due when balance is 0
+    assert.ok(appJs.includes("No Due (₹0.00)"), "Quick pill must render No Due (₹0.00) disabled state when balance is zero");
+
+    // Initial demo messages must NOT include payment reminder if party has no balance
+    assert.ok(appJs.includes("const bal = Number(party.balance ?? party.receivable ?? 0);\n  if (bal > 0) {"), "Initial messages must only add reminder when balance > 0");
   });
 });

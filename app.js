@@ -536,7 +536,7 @@ const elements = {
   appVersionBadge: document.getElementById("appVersionBadge") || document.querySelector(".app-version-badge"),
 };
 
-let currentAppVersion = "1.2.0";
+let currentAppVersion = "1.2.1";
 
 async function refreshAppVersion() {
   try {
@@ -31413,8 +31413,14 @@ function openWhatsAppPaymentReminder(partyOrId, invoice = null) {
     : Math.max(0, Number(party?.balance || party?.receivable || 0));
 
   const invoiceNo = invoice?.invoiceNo || "";
-  const dueDate = invoice?.dueDate || "";
   const partyName = party?.name || invoice?.party || "Customer";
+
+  if (balance <= 0) {
+    showToast(`Cannot send reminder: ${invoice ? `Invoice #${invoiceNo || "INV"} is already settled (₹0.00).` : `${partyName} has no outstanding balance due (₹0.00).`}`);
+    return;
+  }
+
+  const dueDate = invoice?.dueDate || "";
   const recipientPhone = party?.phone || invoice?.phone || "";
 
   // Dynamic UPI Link
@@ -32024,13 +32030,17 @@ function formatWhatsAppPhoneNumber(phone) {
 }
 
 function formatDirectPaymentReminder(party, options = {}) {
+  const balance = Number(options.balance ?? party?.balance ?? party?.receivable ?? 0);
+  if (balance <= 0) {
+    return "";
+  }
+
   const business = state.businessSettings || defaultBusinessSettings();
   const businessName = business.businessName || state.activeCompany || "Our Business";
   const bank = (state.bankAccounts || []).find((b) => b.isDefault || b.upiId) || (state.bankAccounts || [])[0] || {};
   const upiId = bank.upiId || business.bankDetails?.upiId || "";
 
   const partyName = party?.name || "Valued Customer";
-  const balance = Number(options.balance ?? party?.balance ?? party?.receivable ?? 0);
   const formattedBal = formatCurrency(balance);
   const dueDate = options.dueDate || "";
 
@@ -32593,10 +32603,11 @@ function renderWhatsAppMessageBubble(m) {
   const tickClass = isRead ? "wa-read" : isDelivered ? "wa-delivered" : "wa-sent";
   const timeStr = m.time || new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   const docHtml = hasAttachment ? `<div class="wa-bubble-doc-card" data-doc-path="${escapeHtml(m.attachment.path || "")}" title="Click to open ${escapeHtml(m.attachment.name || "document")}"><div class="wa-doc-icon-badge"><svg viewBox="0 0 24 24" width="22" height="22" fill="#ef4444"><path d="M20 2H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-8.5 7.5c0 .83-.67 1.5-1.5 1.5H9v2H7.5V7H10c.83 0 1.5.67 1.5 1.5v1zm5 2c0 .83-.67 1.5-1.5 1.5h-2.5V7H15c.83 0 1.5.67 1.5 1.5v3zm4-3H19v1h1.5V11H19v2h-1.5V7h3v1.5zM9 9.5h1v-1H9v1zM4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm10 5.5h1v-3h-1v3z"/></svg></div><div class="wa-doc-info"><div class="wa-doc-name">${escapeHtml(m.attachment.name || "Document.pdf")}</div><div class="wa-doc-meta">${escapeHtml(m.attachment.size || "PDF Document")} &bull; Click to open</div></div><button type="button" class="wa-doc-action-btn" title="Open PDF"><svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M19 19H5V5h7V3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2v-7h-2v7zM14 3v2h3.59l-9.83 9.83 1.41 1.41L19 6.41V10h2V3h-7z"/></svg></button></div>` : "";
-  const textHtml = m.text ? `<div class="wa-bubble-text">${escapeHtml(m.text)}</div>` : "";
+  const rawText = (m.text || "").trim();
+  const textHtml = rawText ? `<span class="wa-bubble-text">${escapeHtml(rawText)}</span>` : "";
   const tickHtml = isMe ? `<span class="wa-check-icon ${tickClass}">&#10003;&#10003;</span>` : "";
 
-  return `<div class="wa-message-bubble ${isMe ? "sent" : "received"} ${hasAttachment ? "has-attachment" : ""}" data-msg-id="${escapeHtml(m.id || "")}">${docHtml}${textHtml}<div class="wa-bubble-footer"><span>${escapeHtml(timeStr)}</span>${tickHtml}</div></div>`;
+  return `<div class="wa-message-bubble ${isMe ? "sent" : "received"} ${hasAttachment ? "has-attachment" : ""}" data-msg-id="${escapeHtml(m.id || "")}">${docHtml}${textHtml}<span class="wa-bubble-footer"><span class="wa-bubble-time">${escapeHtml(timeStr)}</span>${tickHtml}</span></div>`;
 }
 
 async function generateTempInvoicePdf(inv, party) {
@@ -32976,27 +32987,34 @@ function ensureDefaultWhatsAppChatsForParty(party) {
   whatsappConnectState.chats = whatsappConnectState.chats || {};
 
   const latestInv = getPartyLatestInvoice(party);
-  const initialMsgs = [
-    {
+  const initialMsgs = [];
+  if (latestInv) {
+    initialMsgs.push({
       id: "msg-init-1",
       text: formatDirectInvoiceMessage(party, latestInv),
       time: "12:46 PM",
       from: "me",
       status: "delivered",
-      attachment: latestInv ? {
+      attachment: {
         name: `${String(latestInv.invoiceNo || "Invoice").replace(/[^a-zA-Z0-9_-]/g, "_")}.pdf`,
         size: "82 KB • PDF Document",
         type: "pdf"
-      } : null,
-    },
-    {
-      id: "msg-init-2",
-      text: formatDirectPaymentReminder(party),
-      time: "12:47 PM",
-      from: "me",
-      status: "delivered",
+      },
+    });
+  }
+  const bal = Number(party.balance ?? party.receivable ?? 0);
+  if (bal > 0) {
+    const reminderTxt = formatDirectPaymentReminder(party);
+    if (reminderTxt) {
+      initialMsgs.push({
+        id: "msg-init-2",
+        text: reminderTxt,
+        time: "12:47 PM",
+        from: "me",
+        status: "delivered",
+      });
     }
-  ];
+  }
   whatsappConnectState.chats[partyKey] = initialMsgs;
   saveWhatsAppConnectState();
   return initialMsgs;
@@ -33166,6 +33184,10 @@ function openWhatsAppBulkRemindersModal() {
 
       const cleanPhone = formatWhatsAppPhoneNumber(p.phone);
       const reminderText = formatDirectPaymentReminder(p);
+      if (!reminderText) {
+        console.warn(`[Bulk Reminders] Skipping ${p.name} due to zero balance.`);
+        continue;
+      }
 
       let sendRes = null;
       if (cleanPhone && window.giApp?.whatsappSendMessage) {
@@ -33563,9 +33585,21 @@ function whatsappConnectTemplate() {
                   </button>
                 </div>
               </div>
-              <button type="button" class="wa-quick-pill accent" data-wa-quick="reminder" title="Draft Pending Payment Reminder">
-                <span>🔔 Payment Reminder</span>
-              </button>
+              ${(() => {
+                const partyBal = Number(currentActiveParty.balance ?? currentActiveParty.receivable ?? 0);
+                if (partyBal > 0) {
+                  return `
+                    <button type="button" class="wa-quick-pill accent" data-wa-quick="reminder" title="Draft Pending Payment Reminder (${escapeHtml(formatCurrency(partyBal))})">
+                      <span>🔔 Payment Reminder</span>
+                    </button>
+                  `;
+                }
+                return `
+                  <button type="button" class="wa-quick-pill disabled" data-wa-quick="reminder" title="No outstanding balance due for this party (₹0.00)" style="opacity:0.6;cursor:not-allowed;">
+                    <span>🔔 No Due (₹0.00)</span>
+                  </button>
+                `;
+              })()}
               
             </div>
 
@@ -33925,7 +33959,17 @@ function bindWhatsAppConnectActions() {
   // 10. Payment Reminder Quick Pill (Compact in-chat draft)
   view.querySelector("[data-wa-quick='reminder']")?.addEventListener("click", () => {
     if (!input || !activeParty) return;
-    input.value = formatDirectPaymentReminder(activeParty);
+    const due = Number(activeParty.balance ?? activeParty.receivable ?? 0);
+    if (due <= 0) {
+      showToast("Cannot draft reminder: Customer has no outstanding balance due (₹0.00).");
+      return;
+    }
+    const reminderTxt = formatDirectPaymentReminder(activeParty);
+    if (!reminderTxt) {
+      showToast("Cannot draft reminder: Customer has no outstanding balance due (₹0.00).");
+      return;
+    }
+    input.value = reminderTxt;
     autoExpandWaInput(input);
     input.focus();
     showToast("Payment reminder drafted into message box.");
