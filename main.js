@@ -1068,7 +1068,13 @@ function registerDatabaseHandlers() {
   ipcMain.handle("db:get-tax-entries", (_event, filter) => database.getTaxEntries(filter));
   ipcMain.handle("db:save-journal-voucher", (_event, payload) => database.saveJournalVoucher(payload));
   ipcMain.handle("sync:get-status", () => syncService.getStatus());
-  ipcMain.handle("sync:run", () => syncService.syncNow());
+  ipcMain.handle("sync:run", async () => {
+    try {
+      return await syncService.syncNow();
+    } catch (err) {
+      return { ok: false, deferred: true, error: err.message || "Sync deferred" };
+    }
+  });
   ipcMain.handle("sync:configure", (_event, config = {}) => {
     if (config.serverUrl) {
       syncConfig.serverUrl = config.serverUrl;

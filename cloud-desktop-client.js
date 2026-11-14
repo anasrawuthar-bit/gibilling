@@ -655,7 +655,11 @@ class CloudSyncWidget {
 
       // 1. Run delta sync (outbox push & inbox pull)
       if (window.giDB?.syncNow) {
-        await window.giDB.syncNow();
+        const syncRes = await window.giDB.syncNow();
+        if (syncRes && syncRes.deferred) {
+          this.setStatus(navigator.onLine ? "error" : "offline");
+          return;
+        }
       } else {
         await new Promise(r => setTimeout(r, 600));
       }
