@@ -7497,23 +7497,24 @@ function applyRemoteMasterChange(companyId, change) {
   if (typeof change.payload?.name !== 'string' || !change.payload.name.trim()) {
     throw new Error("Invalid or unsupported remote master change.");
   }
+  const cleanName = String(change.payload?.name || "").trim();
   const table = (change.entityType === "unit" || change.entityType === "units") ? "units" : "item_categories";
-  const local = one(`SELECT id, name, sync_version AS syncVersion FROM ${table} WHERE company_id = ? AND sync_id = ?`, [companyId, change.entityId]);
+  const local = one(`SELECT id, name, sync_version AS syncVersion FROM ${table} WHERE company_id = ? AND (sync_id = ? OR LOWER(name) = LOWER(?))`, [companyId, change.entityId, cleanName]);
   const pending = one(`SELECT id FROM sync_outbox WHERE company_id = ? AND entity_type = ? AND entity_id = ? AND status IN ('pending','uploading','retry')`, [companyId, change.entityType, change.entityId]);
 
   if (local && pending) {
     insertSyncConflict({ company_id: companyId, entity_type: change.entityType, entity_id: change.entityId, base_version: local.syncVersion, payload_json: JSON.stringify(local) }, serverVersion, change.payload);
   } else if (!local && change.operation !== "delete") {
     run(`INSERT INTO ${table} (company_id, name, created_at, sync_id, sync_version, origin_device_id, sync_updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [companyId, String(change.payload?.name || "").trim(), new Date().toISOString(), change.entityId, serverVersion, change.deviceId || null, new Date().toISOString()]);
+      [companyId, cleanName, new Date().toISOString(), change.entityId, serverVersion, change.deviceId || null, new Date().toISOString()]);
   } else if (local && serverVersion > Number(local.syncVersion || 0)) {
     if (change.operation === "delete") {
       run(`UPDATE ${table} SET deleted_at = ?, sync_version = ?, sync_updated_at = ? WHERE id = ?`, [new Date().toISOString(), serverVersion, new Date().toISOString(), local.id]);
     } else {
-      run(`UPDATE ${table} SET name = ?, sync_version = ?, sync_updated_at = ? WHERE id = ?`, [String(change.payload?.name || local.name).trim(), serverVersion, new Date().toISOString(), local.id]);
+      run(`UPDATE ${table} SET name = ?, sync_id = COALESCE(sync_id, ?), sync_version = ?, sync_updated_at = ? WHERE id = ?`, [cleanName || local.name, change.entityId, serverVersion, new Date().toISOString(), local.id]);
     }
   }
-  run("INSERT INTO sync_inbox (event_id, company_id, entity_type, entity_id, server_version, applied_at) VALUES (?, ?, ?, ?, ?, ?)",
+  run("INSERT OR REPLACE INTO sync_inbox (event_id, company_id, entity_type, entity_id, server_version, applied_at) VALUES (?, ?, ?, ?, ?, ?)",
     [change.eventId, companyId, change.entityType, change.entityId, serverVersion, new Date().toISOString()]);
 }
 
