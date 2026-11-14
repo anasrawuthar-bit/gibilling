@@ -231,6 +231,12 @@ function showMainWindow() {
 }
 
 function createTrayIcon() {
+  if (process.platform === "win32") {
+    const icoPath = path.join(__dirname, "assets", "icon.ico");
+    if (fs.existsSync(icoPath)) {
+      return nativeImage.createFromPath(icoPath);
+    }
+  }
   const iconPath = path.join(__dirname, "assets", "zynbill-32.png");
   if (fs.existsSync(iconPath)) {
     return nativeImage.createFromPath(iconPath);

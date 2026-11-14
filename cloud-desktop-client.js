@@ -398,7 +398,7 @@ class CloudSyncWidget {
       if (isOnline) this.triggerSyncNow();
     });
 
-    syncNowBtn?.addEventListener("click", () => this.triggerSyncNow());
+    syncNowBtn?.addEventListener("click", () => this.triggerSyncNow(false, true));
     backupBtn?.addEventListener("click", () => this.triggerBackupNow());
 
     // Clicking the plan pill navigates directly to Settings -> Subscription Plan
@@ -606,7 +606,7 @@ class CloudSyncWidget {
     }
   }
 
-  static async triggerSyncNow(forceRestore = false) {
+  static async triggerSyncNow(forceRestore = false, isUserInitiated = false) {
     if (this.isSyncing) return;
     this.isSyncing = true;
     this.setStatus("syncing");
@@ -675,11 +675,11 @@ class CloudSyncWidget {
       localStorage.setItem(CLOUD_STORAGE_KEYS.LAST_SYNC, new Date().toISOString());
       await CloudLicenseManager.syncLicenseWithServer();
       this.setStatus("online", 0);
-      if (typeof showToast === "function") showToast("Cloud synchronization completed.", "success");
+      if (isUserInitiated && typeof showToast === "function") showToast("Cloud synchronization completed.", "success");
     } catch (err) {
       console.warn("Sync error:", err);
       this.setStatus(navigator.onLine ? "error" : "offline");
-      if (typeof showToast === "function") showToast("Sync deferred: will retry automatically.", "warning");
+      if (isUserInitiated && typeof showToast === "function") showToast("Sync deferred: will retry automatically.", "warning");
     } finally {
       this.isSyncing = false;
     }

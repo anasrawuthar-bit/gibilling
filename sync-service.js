@@ -100,7 +100,13 @@ class HttpSyncAdapter {
       },
       body: JSON.stringify({ events, companyId, deviceId })
     });
-    const data = await res.json();
+    const text = await res.text();
+    let data;
+    try {
+      data = JSON.parse(text);
+    } catch (_) {
+      throw Object.assign(new Error(`Server returned unexpected response (${res.status} ${res.statusText || ""})`), { code: "SERVER_ERROR", status: res.status });
+    }
     if (!data.ok) {
       throw Object.assign(new Error(data.error || "Sync push failed."), { code: data.code || "SERVER_ERROR" });
     }
@@ -129,7 +135,13 @@ class HttpSyncAdapter {
         "Authorization": `Bearer ${token}`
       }
     });
-    const data = await res.json();
+    const text = await res.text();
+    let data;
+    try {
+      data = JSON.parse(text);
+    } catch (_) {
+      throw Object.assign(new Error(`Server returned unexpected response (${res.status} ${res.statusText || ""})`), { code: "SERVER_ERROR", status: res.status });
+    }
     if (!data.ok) {
       throw Object.assign(new Error(data.error || "Sync pull failed."), { code: data.code || "SERVER_ERROR" });
     }
