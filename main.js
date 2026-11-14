@@ -156,7 +156,13 @@ function createMainWindow() {
     if (window.isMinimized()) window.restore();
     if (!window.isMaximized()) window.maximize();
     window.show();
-    window.focus();
+    try {
+      window.setAlwaysOnTop(true);
+      window.focus();
+      window.setAlwaysOnTop(false);
+    } catch (_) {
+      window.focus();
+    }
     console.log("ZynBill window is active and displayed.");
   };
 
@@ -225,7 +231,13 @@ function showMainWindow() {
   if (mainWindow.isMinimized()) mainWindow.restore();
   if (!mainWindow.isVisible()) mainWindow.show();
   mainWindow.show();
-  mainWindow.focus();
+  try {
+    mainWindow.setAlwaysOnTop(true);
+    mainWindow.focus();
+    mainWindow.setAlwaysOnTop(false);
+  } catch (_) {
+    mainWindow.focus();
+  }
   if (typeof mainWindow.moveTop === "function") mainWindow.moveTop();
   scheduleInputFocus(mainWindow);
 }
