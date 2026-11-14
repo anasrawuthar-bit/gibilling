@@ -170,6 +170,7 @@ async function initDatabase(userDataPath, options = {}) {
     enforceForeignKeys(db);
     ensureDebitNoteSchema();
     ensureItemTaxTypeColumn();
+    ensureItemBarcodesColumn();
     ensurePartyAdditionalAddressesColumn();
     ensureShippingAddressColumns();
     seedDefaults();
@@ -1543,6 +1544,11 @@ function ensureDebitNoteSchema() {
     END;
   `);
   addColumnIfMissing("stock_movements", "debit_note_id", "TEXT");
+}
+
+function ensureItemBarcodesColumn() {
+  if (!db) return;
+  addColumnIfMissing("items", "barcodes", "TEXT");
 }
 
 function ensureItemTaxTypeColumn() {
