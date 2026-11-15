@@ -364,7 +364,7 @@
       <form @submit.prevent="handleLogin">
         <div class="field-group">
           <label class="field-label">Registered Email</label>
-          <input type="email" v-model="loginForm.email" class="text-control" required placeholder="name@yourcompany.com" autocomplete="username">
+          <input type="email" v-model="loginForm.email" class="text-control" required placeholder="Registered Email" autocomplete="username">
         </div>
         <div class="field-group">
           <div style="display: flex; justify-content: space-between; align-items: center;">
@@ -372,7 +372,7 @@
             <a href="#" @click.prevent="openForgotPasswordModal" style="font-size: 12px; color: var(--primary); text-decoration: none;">Forgot Password?</a>
           </div>
           <div class="password-input-wrap">
-            <input :type="loginForm.showPassword ? 'text' : 'password'" v-model="loginForm.password" class="text-control" required placeholder="Enter password" autocomplete="current-password">
+            <input :type="loginForm.showPassword ? 'text' : 'password'" v-model="loginForm.password" class="text-control" required placeholder="Password" autocomplete="current-password">
             <button type="button" class="btn-toggle-password" @click="loginForm.showPassword = !loginForm.showPassword" :title="loginForm.showPassword ? 'Hide password' : 'Show password'">
               <span v-if="loginForm.showPassword">👁️</span>
               <span v-else>🔒</span>
@@ -414,7 +414,7 @@
             <div class="card-title" style="color:#0369a1; font-size:18px; margin-bottom:4px;">
               <span>💻</span> Download ZynBill Desktop Application
             </div>
-            <p style="font-size:13.5px; color:#334155;">Latest Windows release (v1.1.1) with offline local SQLite storage and cloud auto-sync.</p>
+            <p style="font-size:13.5px; color:#334155;">Latest Windows release <span v-if="latestAppVersion">(v{{ latestAppVersion }})</span> with offline local SQLite storage and cloud auto-sync.</p>
           </div>
           <div>
             <a href="/api/v1/download/app" class="btn-download">
@@ -647,7 +647,7 @@
         <div v-if="forgotModal.step === 1">
           <div class="field-group">
             <label class="field-label">Registered Email</label>
-            <input type="email" v-model="forgotModal.email" class="text-control" placeholder="name@yourcompany.com">
+            <input type="email" v-model="forgotModal.email" class="text-control" placeholder="Registered Email">
           </div>
           <div v-if="forgotModal.error" style="color:#dc2626; font-size:12px; margin-bottom:12px;">{{ forgotModal.error }}</div>
           <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:20px;">
@@ -661,7 +661,7 @@
         <div v-else>
           <div class="field-group">
             <label class="field-label">6-Digit Verification Code</label>
-            <input type="text" v-model="forgotModal.otp" class="text-control" placeholder="123456" maxlength="6" style="letter-spacing:4px; font-weight:700; font-size:16px; text-align:center;">
+            <input type="text" v-model="forgotModal.otp" class="text-control" placeholder="Verification Code" maxlength="6" style="letter-spacing:4px; font-weight:700; font-size:16px; text-align:center;">
           </div>
           <div class="field-group">
             <label class="field-label">New Password</label>
@@ -723,7 +723,7 @@
         <div v-else>
           <div class="field-group">
             <label class="field-label">Enter 6-Digit Code</label>
-            <input type="text" v-model="pinModal.otp" class="text-control" placeholder="123456" maxlength="6" style="letter-spacing:4px; font-weight:700; font-size:16px; text-align:center;">
+            <input type="text" v-model="pinModal.otp" class="text-control" placeholder="Verification Code" maxlength="6" style="letter-spacing:4px; font-weight:700; font-size:16px; text-align:center;">
           </div>
           <div v-if="pinModal.error" style="color:#dc2626; font-size:12px; margin-bottom:12px;">{{ pinModal.error }}</div>
           <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:20px;">
@@ -781,6 +781,7 @@
         const customer = ref(null);
         const devices = ref([]);
         const token = ref(localStorage.getItem('zynbill_portal_token') || '');
+        const latestAppVersion = ref('');
 
         const reports = reactive({
           totalSales: 0,
@@ -1132,6 +1133,14 @@
 
         onMounted(() => {
           checkAuthSession();
+          fetch('/api/v1/app/version')
+            .then(res => res.json())
+            .then(data => {
+              if (data?.ok && data.latestVersion) {
+                latestAppVersion.value = data.latestVersion;
+              }
+            })
+            .catch(() => {});
         });
 
         return {
@@ -1139,6 +1148,7 @@
           authenticated,
           customer,
           devices,
+          latestAppVersion,
           reports,
           loginForm,
           forgotModal,

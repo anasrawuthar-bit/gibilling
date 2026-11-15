@@ -23758,106 +23758,68 @@ function syncTemplate() {
 
   return `
     <section class="sync-page sync-page-revamp">
-
       <!-- Header -->
       <header class="sync-header-clean">
         <div>
           <p class="muted-label">Utilities</p>
-          <h1>Cloud Sync, Backup &amp; Restore</h1>
-          <p class="sync-header-sub">Keep your accounting and business records safe with real-time cloud multi-device sync, encrypted snapshots, and local exports.</p>
+          <h1>Cloud Sync &amp; Backup</h1>
+          <p class="sync-header-sub">Manage real-time cloud synchronization, automated local backups, and data restoration.</p>
         </div>
         <div class="sync-last-backup-badge sync-last-backup-badge--${lastBackupTone}">
           <span class="sync-badge-indicator"></span>
-          <span>Last Local Backup: <strong id="syncLastBackup">${escapeHtml(lastBackupFmt)}</strong></span>
+          <span>Last Backup: <strong id="syncLastBackup">${escapeHtml(lastBackupFmt)}</strong></span>
         </div>
       </header>
 
-      <!-- Section 0: Cloud Account & Multi-Device Sync Hub -->
-      <section class="sync-card" style="margin-bottom:20px; border-left: 4px solid #0284c7; background: #f8fafc;">
+      <!-- 1. Cloud Synchronization Hub -->
+      <section class="sync-card" style="margin-bottom:16px;">
         <div class="sync-card-head sync-card-head--split">
           <div style="display:flex;align-items:center;gap:12px;">
             <div style="width:38px;height:38px;border-radius:10px;background:#e0f2fe;display:flex;align-items:center;justify-content:center;color:#0284c7;font-size:20px;">
               ☁️
             </div>
             <div>
-              <h2 class="sync-card-title">ZynBill Cloud &amp; Multi-Device Sync</h2>
-              <p class="sync-card-sub" id="cloudSyncStatusSubtext">Synchronize parties, purchases, and invoices across all your computers seamlessly.</p>
+              <h2 class="sync-card-title">Cloud Synchronization</h2>
+              <p class="sync-card-sub" id="cloudSyncStatusSubtext">Real-time sync across all your authorized terminals and devices.</p>
             </div>
           </div>
-          <div class="sync-head-controls" style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
-            <button class="primary-button square compact-button" id="btnCloudSyncNow" type="button" style="display:inline-flex;align-items:center;gap:6px;">
+          <div class="sync-head-controls">
+            <button class="primary-button compact-button" id="btnCloudSyncNow" type="button" style="display:inline-flex;align-items:center;gap:6px;">
               <span>🔄</span>
               <span>Sync Now</span>
-            </button>
-            <button class="secondary-button compact-button" id="btnCloudRestoreSnapshot" type="button" style="display:inline-flex;align-items:center;gap:6px; color:#0369a1; border-color:#0284c7; font-weight:700;" title="Download and restore latest cloud database snapshot to this PC">
-              <span>📥</span>
-              <span>Restore from Cloud</span>
             </button>
             <button class="secondary-button compact-button" id="btnCloudBackupUpload" type="button" style="display:inline-flex;align-items:center;gap:6px;" title="Push local database snapshot to cloud">
               <span>☁️</span>
               <span>Backup to Cloud</span>
             </button>
+            <button class="secondary-button compact-button" id="btnCloudRestoreSnapshot" type="button" style="display:inline-flex;align-items:center;gap:6px;" title="Download and restore latest cloud database snapshot">
+              <span>📥</span>
+              <span>Restore from Cloud</span>
+            </button>
           </div>
         </div>
-        <div class="sync-card-body" id="cloudSyncDetailsBox" style="padding:14px 18px; background:#ffffff; border-radius:8px; margin-top:12px; border:1px solid #e2e8f0; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
+        <div class="sync-card-body" style="padding:14px 20px; background:#f8fafc; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
           <div style="display:flex; align-items:center; gap:12px;">
-            <div style="font-size:24px;" id="cloudSyncStatusIcon">⚡</div>
+            <div style="font-size:22px;" id="cloudSyncStatusIcon">⚡</div>
             <div>
-              <div style="font-weight:600; font-size:13.5px; color:#0f172a;" id="cloudSyncAccountTitle">Cloud Connected: <span id="cloudSyncTenantName">Loading...</span></div>
+              <div style="font-weight:600; font-size:13.5px; color:#0f172a;" id="cloudSyncAccountTitle">Connected Account: <span id="cloudSyncTenantName">Loading...</span></div>
               <div style="font-size:12px; color:#64748b; margin-top:2px;" id="cloudSyncDetailsText">Checking latest cloud database snapshot...</div>
             </div>
           </div>
-          <div id="cloudSyncCountsBadge" style="display:flex; gap:8px; font-size:12px; color:#334155; font-weight:600;"></div>
+          <div id="cloudSyncCountsBadge" style="display:flex; gap:8px; font-size:12px; font-weight:600;"></div>
         </div>
       </section>
 
-      <!-- Section 1: Export & Restore Quick Actions -->
-      <section class="sync-cards-grid">
-        <div class="sync-action-box">
-          <div class="sync-action-box-main">
-            <div class="sync-action-icon blue">
-              <svg class="gi-icon" style="width:20px;height:20px;"><use href="#gi-arrow-down"></use></svg>
-            </div>
-            <div class="sync-action-box-info">
-              <h3>Export Backup (.zyn)</h3>
-              <p>Download a complete standalone backup file of your company data to your PC, USB drive, or folder.</p>
-            </div>
-          </div>
-          <button class="primary-button square" data-action="backup-db" type="button">
-            <svg class="gi-icon" style="width:14px;height:14px;margin-right:6px;"><use href="#gi-arrow-down"></use></svg>
-            Export Backup File
-          </button>
-        </div>
-
-        <div class="sync-action-box">
-          <div class="sync-action-box-main">
-            <div class="sync-action-icon green">
-              <svg class="gi-icon" style="width:20px;height:20px;"><use href="#gi-arrow-up"></use></svg>
-            </div>
-            <div class="sync-action-box-info">
-              <h3>Restore from Backup (.zyn)</h3>
-              <p>Restore your data from an existing .zyn file. An automatic safety snapshot is saved before restoring.</p>
-            </div>
-          </div>
-          <button class="secondary-button square" data-action="restore-db" type="button">
-            <svg class="gi-icon" style="width:14px;height:14px;margin-right:6px;"><use href="#gi-arrow-up"></use></svg>
-            Restore Backup File…
-          </button>
-        </div>
-      </section>
-
-      <p class="sync-status-line" id="backupStatus"></p>
-
-      <!-- Section 2: Local Auto-Backup on Exit (Max 5 Copies) -->
-      <section class="sync-card">
+      <!-- 2. Local Backup & Snapshot Controls -->
+      <section class="sync-card" style="margin-bottom:16px;">
         <div class="sync-card-head sync-card-head--split">
           <div style="display:flex;align-items:center;gap:12px;">
             <div style="width:38px;height:38px;border-radius:10px;background:#eff6ff;display:flex;align-items:center;justify-content:center;color:#2563eb;font-size:20px;">
-              📁
+              💾
             </div>
             <div>
-              <h2 class="sync-card-title">Local Auto-Backup on Exit</h2>
-              <p class="sync-card-sub">Automatic backups saved locally to C:\ZynBill\Backups with rolling 5-file retention.</p>
+              <h2 class="sync-card-title">Local Database Backups</h2>
+              <p class="sync-card-sub">Export standalone backup files or restore from an existing .zyn database file.</p>
             </div>
           </div>
           <div class="sync-head-controls">
@@ -23868,53 +23830,55 @@ function syncTemplate() {
               </span>
               <span class="sync-toggle-text" id="autoBackupToggleText">Auto-Backup on Exit (${autoBackupEnabled ? "Enabled" : "Disabled"})</span>
             </label>
-
+            <button class="secondary-button compact-button" data-action="run-backup-now" type="button" style="display:inline-flex;align-items:center;gap:6px;">
+              <svg class="gi-icon" style="width:13px;height:13px;"><use href="#gi-arrow-down"></use></svg>
+              <span>Backup Now</span>
+            </button>
+            <button class="secondary-button compact-button" data-action="backup-db" type="button" style="display:inline-flex;align-items:center;gap:6px;">
+              <span>📤</span>
+              <span>Export .zyn</span>
+            </button>
+            <button class="secondary-button compact-button" data-action="restore-db" type="button" style="display:inline-flex;align-items:center;gap:6px;">
+              <span>📥</span>
+              <span>Restore .zyn</span>
+            </button>
             <button class="secondary-button compact-button" data-action="open-backup-folder" type="button" title="Open Backup Folder in File Explorer" style="display:inline-flex;align-items:center;gap:6px;">
               <span>📁</span>
               <span>Open Folder</span>
             </button>
-            <button class="primary-button square compact-button" data-action="run-backup-now" type="button" style="display:inline-flex;align-items:center;gap:6px;">
-              <svg class="gi-icon" style="width:14px;height:14px;"><use href="#gi-arrow-down"></use></svg>
-              <span>+ Backup Now</span>
-            </button>
           </div>
         </div>
-        <div class="sync-card-body" style="padding:16px 20px;background:#f8fafc;border-radius:8px;margin-top:12px;border:1px solid #e2e8f0;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;">
-          <div style="display:flex;align-items:center;gap:12px;">
-            <div style="font-size:22px;">💾</div>
-            <div>
-              <div style="font-weight:600;font-size:13px;color:#1e293b;">Default Backup Location: <code id="backupFolderPathText" style="background:#e2e8f0;padding:2px 8px;border-radius:4px;font-family:monospace;font-size:12px;color:#0f172a;">C:\ZynBill\Backups</code></div>
-              <div style="font-size:12px;color:#64748b;margin-top:3px;">Rolling storage limit: <strong>Maximum 5 backup copies</strong> kept. Older files are deleted automatically when new backups are created.</div>
-            </div>
+        <div class="sync-card-body" style="padding:12px 20px; background:#f8fafc; font-size:12.5px; color:#64748b; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+          <div>
+            <span>Storage Folder: </span><code id="backupFolderPathText" style="background:#e2e8f0;padding:2px 8px;border-radius:4px;font-family:monospace;font-size:12px;color:#0f172a;">C:\ZynBill\Backups</code>
           </div>
-          <button class="secondary-button compact-button" data-action="open-backup-folder" type="button" style="display:inline-flex;align-items:center;gap:6px;">
-            <span>📁</span>
-            <span>Open in File Explorer</span>
-          </button>
+          <div>Rolling retention: <strong>Latest 5 backup files</strong> kept automatically.</div>
         </div>
       </section>
 
-      <!-- Section 3: Available Backups & 1-Click Restore -->
-      <section class="sync-card" style="margin-top:20px;">
+      <!-- 3. Local Backups List & 1-Click Restore -->
+      <section class="sync-card">
         <div class="sync-card-head sync-card-head--split">
           <div style="display:flex;align-items:center;gap:12px;">
             <div style="width:38px;height:38px;border-radius:10px;background:#f0fdf4;display:flex;align-items:center;justify-content:center;color:#16a34a;font-size:20px;">
-              💾
+              📋
             </div>
             <div>
-              <h2 class="sync-card-title">Local Backups &amp; 1-Click Restore</h2>
-              <p class="sync-card-sub">All database snapshots and backups found on this PC. 1-click restore with automated pre-restore protection.</p>
+              <h2 class="sync-card-title">Available Backups on this PC</h2>
+              <p class="sync-card-sub">Select any backup to restore. A safety snapshot is automatically created before restoring.</p>
             </div>
           </div>
           <button class="secondary-button compact-button" data-action="refresh-backups-list" type="button" style="display:inline-flex;align-items:center;gap:6px;">
             <span>🔄</span>
-            <span>Refresh List</span>
+            <span>Refresh</span>
           </button>
         </div>
-        <div class="sync-card-body" id="localBackupsListContainer" style="margin-top:12px;padding:0;overflow:hidden;border:1px solid #e2e8f0;border-radius:8px;">
+        <div class="sync-card-body" id="localBackupsListContainer" style="padding:0;overflow:hidden;">
           <div style="padding:24px;text-align:center;color:#64748b;font-size:13px;">Loading available backups...</div>
         </div>
       </section>
+
+      <p class="sync-status-line" id="backupStatus"></p>
 
     </section>
   `;
@@ -30788,19 +30752,19 @@ function settingsCompanyProfileTemplate() {
           <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(220px, 1fr));gap:16px;">
             <div class="settings-field-group" style="margin-bottom:0;">
               <label>Bank Name</label>
-              <input class="form-input" name="bankName" value="${escapeHtml(settings.bankDetails?.bankName || "")}" placeholder="e.g. State Bank of India">
+              <input class="form-input" name="bankName" value="${escapeHtml(settings.bankDetails?.bankName || "")}" placeholder="Bank Name">
             </div>
             <div class="settings-field-group" style="margin-bottom:0;">
               <label>Account Number</label>
-              <input class="form-input" name="accountNo" value="${escapeHtml(settings.bankDetails?.accountNo || "")}" placeholder="e.g. 123456789012">
+              <input class="form-input" name="accountNo" value="${escapeHtml(settings.bankDetails?.accountNo || "")}" placeholder="Account Number">
             </div>
             <div class="settings-field-group" style="margin-bottom:0;">
               <label>IFSC Code</label>
-              <input class="form-input" name="ifsc" value="${escapeHtml(settings.bankDetails?.ifsc || "")}" placeholder="e.g. SBIN0001234" maxlength="11" style="text-transform:uppercase;">
+              <input class="form-input" name="ifsc" value="${escapeHtml(settings.bankDetails?.ifsc || "")}" placeholder="IFSC Code" maxlength="11" style="text-transform:uppercase;">
             </div>
             <div class="settings-field-group" style="margin-bottom:0;">
               <label>UPI ID (VPA)</label>
-              <input class="form-input" name="upiId" value="${escapeHtml(settings.bankDetails?.upiId || "")}" placeholder="e.g. merchant@upi">
+              <input class="form-input" name="upiId" value="${escapeHtml(settings.bankDetails?.upiId || "")}" placeholder="UPI ID (VPA)">
             </div>
           </div>
           <small class="field-hint" style="margin-top:10px;display:block;">Default bank and UPI ID printed on tax invoices and used for generating dynamic payment QR codes.</small>
@@ -33922,7 +33886,7 @@ function whatsappConnectTemplate() {
                     <label style="font-size:12px;font-weight:600;color:#334155;display:block;margin-bottom:6px;">Mobile / WhatsApp Number *</label>
                     <div style="display:flex;align-items:center;border:1px solid #cbd5e1;border-radius:8px;overflow:hidden;background:#ffffff;">
                       <span style="background:#f1f5f9;color:#475569;font-weight:600;font-size:13px;padding:9px 12px;border-right:1px solid #cbd5e1;">+91</span>
-                      <input type="tel" id="waInlinePhoneInput" class="form-input" placeholder="e.g. 9846515684" maxlength="15" required style="border:none;box-shadow:none;padding:9px 12px;font-size:14px;font-weight:600;width:100%;outline:none;" />
+                      <input type="tel" id="waInlinePhoneInput" class="form-input" placeholder="Mobile / WhatsApp Number" maxlength="15" required style="border:none;box-shadow:none;padding:9px 12px;font-size:14px;font-weight:600;width:100%;outline:none;" />
                     </div>
                   </div>
                   <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:#475569;cursor:pointer;">
@@ -34050,12 +34014,12 @@ function whatsappConnectTemplate() {
               <label style="font-size:12px;font-weight:600;color:#334155;display:block;margin-bottom:6px;">WhatsApp Phone Number *</label>
               <div style="display:flex;align-items:center;border:1px solid #cbd5e1;border-radius:8px;overflow:hidden;background:#ffffff;">
                 <span style="background:#f1f5f9;color:#475569;font-weight:600;font-size:13px;padding:9px 12px;border-right:1px solid #cbd5e1;">+91</span>
-                <input type="tel" id="waDirectPhoneInput" class="form-input" placeholder="e.g. 9846515684" maxlength="15" required style="border:none;box-shadow:none;padding:9px 12px;font-size:14px;font-weight:600;width:100%;outline:none;" />
+                <input type="tel" id="waDirectPhoneInput" class="form-input" placeholder="WhatsApp Phone Number" maxlength="15" required style="border:none;box-shadow:none;padding:9px 12px;font-size:14px;font-weight:600;width:100%;outline:none;" />
               </div>
             </div>
             <div>
               <label style="font-size:12px;font-weight:600;color:#334155;display:block;margin-bottom:6px;">Customer Name (Optional)</label>
-              <input type="text" id="waDirectNameInput" class="form-input" placeholder="e.g. Walk-in Customer" style="width:100%;padding:9px 12px;font-size:13px;" />
+              <input type="text" id="waDirectNameInput" class="form-input" placeholder="Customer Name" style="width:100%;padding:9px 12px;font-size:13px;" />
             </div>
             <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:10px;">
               <button type="button" class="outline-mini-button" id="waNewChatModalCancel" style="padding:8px 16px;">Cancel</button>
