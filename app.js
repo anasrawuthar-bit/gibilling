@@ -29093,12 +29093,12 @@ function lowStockReport() {
       item.name,
       item.sku || "-",
       item.category || "-",
-      `<span class="${stock < 0 ? "stock-negative" : ""}">${formatQuantity(stock)} ${item.unit || "PCS"}</span>`,
-      `${formatQuantity(minAlert)} ${item.unit || "PCS"}`,
-      `${formatQuantity(deficit)} ${item.unit || "PCS"}`,
+      { html: `<span class="${stock < 0 ? "stock-negative" : ""}">${formatQuantity(stock)} ${escapeHtml(item.unit || "Pcs")}</span>` },
+      `${formatQuantity(minAlert)} ${item.unit || "Pcs"}`,
+      `${formatQuantity(deficit)} ${item.unit || "Pcs"}`,
       formatCurrency(costRate),
       formatCurrency(replenishCost),
-      badge,
+      { html: badge },
     ];
   });
 
