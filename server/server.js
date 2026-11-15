@@ -579,7 +579,7 @@ const server = http.createServer(async (req, res) => {
 
     if (existing) {
       if (existing.status === 'pending_approval') {
-        return sendJson(res, 400, { ok: false, error: 'An account with this email is already registered and awaiting Super Admin review.' });
+        return sendJson(res, 400, { ok: false, error: 'An account with this email is already registered and waiting for approval.' });
       } else if (existing.status === 'active') {
         return sendJson(res, 400, { ok: false, error: 'An active account already exists with this email. Please log in on the Windows app or User Portal.' });
       }
@@ -697,7 +697,7 @@ const server = http.createServer(async (req, res) => {
 
     return sendJson(res, 200, {
       ok: true,
-      message: 'Email successfully verified! Your registration has been submitted for Super Admin approval.',
+      message: 'Email successfully verified! Your registration has been submitted and is waiting for approval.',
       status: 'pending_approval'
     });
   }
@@ -774,7 +774,7 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 403, {
         ok: false,
         status: customer.status,
-        error: 'Your account is pending Super Admin review. You will receive an approval email shortly.'
+        error: 'Your account is waiting for approval. You will receive an approval email shortly.'
       });
     }
 
@@ -782,7 +782,7 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 403, {
         ok: false,
         status: 'rejected',
-        error: `Your account request was rejected. Reason: ${customer.rejection_reason || 'Criteria not met.'}`
+        error: `Your account request was not approved. Reason: ${customer.rejection_reason || 'Criteria not met.'}`
       });
     }
 
@@ -790,7 +790,7 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 403, {
         ok: false,
         status: 'suspended',
-        error: 'This account has been suspended by the Super Admin. Please contact support.'
+        error: 'This account has been suspended. Please contact support.'
       });
     }
 
@@ -947,7 +947,7 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 403, {
         ok: false,
         status: customer.status,
-        error: 'Your account is pending Super Admin review and approval. You will receive an email once approved.'
+        error: 'Your account is waiting for approval. You will receive an email once approved.'
       });
     }
 
@@ -955,7 +955,7 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 403, {
         ok: false,
         status: 'rejected',
-        error: `Your account request was rejected. Reason: ${customer.rejection_reason || 'Policy requirements not met.'}`
+        error: `Your account request was not approved. Reason: ${customer.rejection_reason || 'Policy requirements not met.'}`
       });
     }
 
@@ -963,7 +963,7 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 403, {
         ok: false,
         status: 'suspended',
-        error: 'This account has been suspended by the Super Admin. Please contact support.'
+        error: 'This account has been suspended. Please contact support.'
       });
     }
 

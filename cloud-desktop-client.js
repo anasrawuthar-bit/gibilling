@@ -1183,13 +1183,13 @@ class ActivationUiController {
             const code = result?.data?.code;
             let msg = result?.error || result?.data?.error || "Login failed.";
             if (status === "pending_approval") {
-              msg = "Your business account is pending Super Admin review. You will receive an approval email shortly.";
+              msg = "Your business account is waiting for approval. You will receive an approval email shortly.";
             } else if (status === "pending_verification") {
               msg = "Email address has not been verified yet. Please complete verification on the web portal.";
             } else if (status === "rejected") {
-              msg = result?.data?.error || "Your account registration was rejected. Please contact support.";
+              msg = result?.data?.error || "Your account registration was not approved. Please contact support.";
             } else if (status === "suspended") {
-              msg = "This business account has been suspended by the Super Admin. Please contact customer support.";
+              msg = "This business account has been suspended. Please contact customer support.";
             } else if (status === "expired") {
               msg = "Your subscription and 14-day offline grace period have expired. Please renew your plan.";
             } else if (code === "DEVICE_LIMIT_REACHED") {
