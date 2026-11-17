@@ -821,6 +821,11 @@ const server = http.createServer(async (req, res) => {
     // Send One-Time Verification Code email via SMTP
     await smtp.sendDeviceVerificationOtp(cleanEmail, otp, customer.company_name, machineName || 'Windows PC');
 
+    try {
+      masterDb.prepare('INSERT INTO login_logs (customer_id, login_type, machine_name, ip_address, user_agent, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)').run(
+        customer.id, 'desktop_app', machineName || '', clientIp, req.headers['user-agent'] || '', 'otp_sent', new Date().toISOString()
+      );
+    } catch (_) {}
     return sendJson(res, 200, {
       ok: true,
       requiresVerification: true,
@@ -2463,6 +2468,50 @@ const server = http.createServer(async (req, res) => {
   // ── Customer Web Portal Endpoints ─────────────────────────────────
 
   // 1. Customer Login
+  // ── Admin: Edit Customer Contact (email + phone) ─────────────────────────
+  const editContactMatch = pathname.match(/^\/api\/v1\/admin\/customers\/([^/]+)\/contact$/);
+  if (req.method === 'PATCH' && editContactMatch) {
+    if (!verifyAdmin(req, res)) return;
+    const customerId = decodeURIComponent(editContactMatch[1]);
+    const body = await parseJsonBody(req);
+    const { email, phone } = body;
+
+    if (!email || !email.trim()) {
+      return sendJson(res, 400, { ok: false, error: 'Email is required.' });
+    }
+    const cleanEmail = email.trim().toLowerCase();
+    const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRe.test(cleanEmail)) {
+      return sendJson(res, 400, { ok: false, error: 'Invalid email format.' });
+    }
+
+    const existing = masterDb.prepare('SELECT id FROM customers WHERE email = ? AND id != ?').get(cleanEmail, customerId);
+    if (existing) {
+      return sendJson(res, 409, { ok: false, error: 'This email is already registered to another account.' });
+    }
+
+    const updated = masterDb.prepare(
+      'UPDATE customers SET email = ?, phone = ?, updated_at = ? WHERE id = ?'
+    ).run(cleanEmail, (phone || '').trim(), new Date().toISOString(), customerId);
+
+    if (updated.changes === 0) {
+      return sendJson(res, 404, { ok: false, error: 'Customer not found.' });
+    }
+    return sendJson(res, 200, { ok: true, message: 'Contact information updated.' });
+  }
+
+  // ── Admin: Get Login Logs for Customer ────────────────────────────────────
+  const loginLogsMatch = pathname.match(/^\/api\/v1\/admin\/customers\/([^/]+)\/login-logs$/);
+  if (req.method === 'GET' && loginLogsMatch) {
+    if (!verifyAdmin(req, res)) return;
+    const customerId = decodeURIComponent(loginLogsMatch[1]);
+    const limit = Math.min(parseInt(url.searchParams.get('limit') || '50', 10), 200);
+    const logs = masterDb.prepare(
+      'SELECT * FROM login_logs WHERE customer_id = ? ORDER BY created_at DESC LIMIT ?'
+    ).all(customerId, limit);
+    return sendJson(res, 200, { ok: true, logs });
+  }
+
   if (req.method === 'POST' && pathname === '/api/v1/portal/login') {
     const body = await parseJsonBody(req);
     const { email, password } = body;
@@ -2489,6 +2538,13 @@ const server = http.createServer(async (req, res) => {
     const customer = masterDb.prepare('SELECT * FROM customers WHERE email = ?').get(cleanEmail);
 
     if (!customer || !verifyPassword(password, customer.password_hash, customer.password_salt)) {
+      try {
+        if (customer) {
+          masterDb.prepare('INSERT INTO login_logs (customer_id, login_type, ip_address, user_agent, status, created_at) VALUES (?, ?, ?, ?, ?, ?)').run(
+            customer.id, 'web_portal', clientIp, req.headers['user-agent'] || '', 'failed', new Date().toISOString()
+          );
+        }
+      } catch (_) {}
       return sendJson(res, 401, { ok: false, error: 'Invalid email or password.' });
     }
 
@@ -2513,6 +2569,11 @@ const server = http.createServer(async (req, res) => {
     const expiry = customer.valid_until ? new Date(customer.valid_until).getTime() : now + 365 * 86400000;
     const daysRemaining = Math.max(0, Math.ceil((expiry - now) / (24 * 60 * 60 * 1000)));
 
+    try {
+      masterDb.prepare('INSERT INTO login_logs (customer_id, login_type, ip_address, user_agent, status, created_at) VALUES (?, ?, ?, ?, ?, ?)').run(
+        customer.id, 'web_portal', clientIp, req.headers['user-agent'] || '', 'success', new Date().toISOString()
+      );
+    } catch (_) {}
     const cookieHeader = buildSessionCookie('zynbill_portal_session', sessionToken, 7 * 86400, req);
     return sendJson(res, 200, {
       ok: true,

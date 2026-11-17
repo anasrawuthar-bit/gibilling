@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ZynBill - Super Admin Customer Management (Vue 3)</title>
+  <title>ZynBill - Customer Management Panel</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -612,7 +612,7 @@
     <div v-if="!authenticated" style="max-width: 400px; margin: 100px auto; background: #fff; padding: 36px; border-radius: 14px; border: 1px solid var(--border); box-shadow: 0 10px 30px rgba(0,0,0,0.05); width: 90%;">
       <div style="text-align: center; margin-bottom: 24px;">
         <div class="brand-logo" style="margin: 0 auto 12px; width: 44px; height: 44px; font-size: 22px;">Z</div>
-        <h2 style="font-size: 20px; font-weight: 800; color: #0f172a;">Super Admin Access</h2>
+        <h2 style="font-size: 20px; font-weight: 800; color: #0f172a;">Admin Access</h2>
         <p style="font-size: 13px; color: var(--muted); margin-top: 4px;">Sign in to manage customers, plans &amp; releases</p>
       </div>
 
@@ -626,7 +626,7 @@
           <input type="password" v-model="loginForm.password" class="text-control" required placeholder="••••••••">
         </div>
         <button type="submit" class="btn-action btn-primary" style="width: 100%; height: 44px; font-size: 14px; margin-top: 8px;" :disabled="loginForm.loading">
-          {{ loginForm.loading ? 'Authenticating...' : 'Sign In as Super Admin' }}
+          {{ loginForm.loading ? 'Authenticating...' : 'Sign In as Admin' }}
         </button>
       </form>
       <div v-if="loginForm.error" style="color: #dc2626; font-size: 12.5px; margin-top: 14px; text-align: center;">
@@ -795,6 +795,8 @@
                   <button v-if="c.status === 'active'" class="btn-action btn-reject" style="margin-right: 6px;" @click="toggleCustomerStatus(c, 'suspended')">Suspend</button>
                   <button v-if="c.status === 'suspended'" class="btn-action btn-approve" style="margin-right: 6px;" @click="toggleCustomerStatus(c, 'active')">Re-activate</button>
                   <button class="btn-action btn-secondary" @click="openDevicesModal(c)">Devices</button>
+                  <button class="btn-action btn-secondary" style="margin-left:4px;" @click="openEditContactModal(c)">Edit</button>
+                  <button class="btn-action btn-secondary" style="margin-left:4px;" @click="openLoginLogsModal(c)">Logs</button>
                 </td>
               </tr>
             </tbody>
@@ -1347,6 +1349,66 @@
       </div>
     </div>
 
+    <!-- Edit Contact Modal -->
+    <div class="modal-backdrop" v-if="editContactModal.show" @click.self="editContactModal.show = false">
+      <div class="modal-card" style="max-width: 460px;">
+        <h3 style="font-size: 18px; font-weight: 800; color: #0f172a; margin-bottom: 6px;">Edit Contact Info</h3>
+        <p style="font-size: 13px; color: var(--muted); margin-bottom: 20px;">
+          Updating contact for <strong>{{ editContactModal.customer?.company_name }}</strong>
+        </p>
+        <div class="field-group">
+          <label class="field-label">Email Address</label>
+          <input type="email" v-model="editContactModal.email" class="text-control" placeholder="Registered email" required>
+        </div>
+        <div class="field-group">
+          <label class="field-label">Mobile / Phone</label>
+          <input type="text" v-model="editContactModal.phone" class="text-control" placeholder="10-digit mobile number">
+        </div>
+        <div v-if="editContactModal.error" style="color: #dc2626; font-size: 12.5px; margin-top: 8px;">{{ editContactModal.error }}</div>
+        <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 24px;">
+          <button class="btn-action btn-secondary" @click="editContactModal.show = false">Cancel</button>
+          <button class="btn-action btn-primary" @click="submitEditContact" :disabled="editContactModal.loading">
+            {{ editContactModal.loading ? 'Saving...' : 'Save Changes' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Login History Modal -->
+    <div class="modal-backdrop" v-if="loginLogsModal.show" @click.self="loginLogsModal.show = false">
+      <div class="modal-card" style="max-width: 680px;">
+        <h3 style="font-size: 18px; font-weight: 800; color: #0f172a; margin-bottom: 6px;">Login History</h3>
+        <p style="font-size: 13px; color: var(--muted); margin-bottom: 16px;">
+          <strong>{{ loginLogsModal.customer?.company_name }}</strong> — last 50 login events
+        </p>
+        <div v-if="loginLogsModal.loading" style="text-align:center; padding: 24px; color: var(--muted);">Loading logs...</div>
+        <div v-else-if="!loginLogsModal.logs.length" style="text-align:center; padding: 24px; background:#f8fafc; border-radius:8px; color:var(--muted); font-size:13px;">
+          No login history found for this account.
+        </div>
+        <div v-else style="max-height: 420px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px;">
+          <div v-for="log in loginLogsModal.logs" :key="log.id"
+               style="display: flex; align-items: center; gap: 12px; padding: 10px 14px; border: 1px solid var(--border); border-radius: 8px; background: #fff; font-size: 13px;">
+            <span style="font-size: 18px; flex-shrink:0;">{{ log.login_type === 'web_portal' ? '🌐' : '💻' }}</span>
+            <div style="flex:1; min-width:0;">
+              <div style="font-weight: 700; color: #0f172a;">{{ log.login_type === 'web_portal' ? 'Web Portal' : 'Desktop App' }}
+                <span v-if="log.machine_name" style="font-weight:400; color:var(--muted);"> — {{ log.machine_name }}</span>
+              </div>
+              <div style="color: var(--muted); font-size: 11.5px; margin-top:2px;">
+                {{ formatDateTime(log.created_at) }} &bull; IP: {{ log.ip_address || 'Unknown' }}
+              </div>
+            </div>
+            <span style="padding: 2px 10px; border-radius: 999px; font-size: 11px; font-weight: 700; flex-shrink:0;"
+                  :style="log.status === 'success' ? 'background:#dcfce7;color:#15803d;' : log.status === 'failed' ? 'background:#fee2e2;color:#991b1b;' : 'background:#fef3c7;color:#92400e;'">
+              {{ log.status }}
+            </span>
+          </div>
+        </div>
+        <div style="display: flex; justify-content: flex-end; margin-top: 20px;">
+          <button class="btn-action btn-secondary" @click="loginLogsModal.show = false">Close</button>
+        </div>
+      </div>
+    </div>
+
     <!-- Toast Notification -->
     <div v-if="toast.show" class="toast-popup" :class="toast.isError ? 'toast-error' : 'toast-success'">
       {{ toast.message }}
@@ -1359,7 +1421,7 @@
     createApp({
       setup() {
         const authenticated = ref(false);
-        const adminEmail = ref(localStorage.getItem('zynbill_admin_email') || 'Super Admin');
+        const adminEmail = ref(localStorage.getItem('zynbill_admin_email') || 'Admin');
         const adminToken = ref(localStorage.getItem('zynbill_admin_token') || '');
         const currentTab = ref('overview');
 
@@ -1685,6 +1747,8 @@
         const approveModal = reactive({ show: false, customer: null, plan: 'professional', validityDays: 365 });
         const devicesModal = reactive({ show: false, customer: null, devices: [] });
         const planModal = reactive({ show: false, name: '', code: '', price: 2999, max_devices: 2, duration_days: 365 });
+        const editContactModal = reactive({ show: false, customer: null, email: '', phone: '', loading: false, error: '' });
+        const loginLogsModal = reactive({ show: false, customer: null, logs: [], loading: false });
 
         const toast = reactive({ show: false, message: '', isError: false });
         const showToast = (message, isError = false) => {
@@ -1778,7 +1842,7 @@
             localStorage.setItem('zynbill_admin_email', adminEmail.value);
             authenticated.value = true;
             loadAllAdminData();
-            showToast('Super Admin authenticated successfully.');
+            showToast('Authenticated successfully.');
           } catch (err) {
             loginForm.error = err.message;
           } finally {
@@ -2141,6 +2205,65 @@
           }
         };
 
+        const openEditContactModal = (c) => {
+          editContactModal.customer = c;
+          editContactModal.email = c.email || '';
+          editContactModal.phone = c.phone || '';
+          editContactModal.error = '';
+          editContactModal.loading = false;
+          editContactModal.show = true;
+        };
+
+        const submitEditContact = async () => {
+          if (!editContactModal.customer) return;
+          editContactModal.error = '';
+          editContactModal.loading = true;
+          try {
+            const res = await fetch(`/api/v1/admin/customers/${editContactModal.customer.id}/contact`, {
+              method: 'PATCH',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': 'Bearer ' + adminToken.value
+              },
+              body: JSON.stringify({ email: editContactModal.email.trim(), phone: editContactModal.phone.trim() })
+            });
+            const data = await res.json();
+            if (!res.ok || !data.ok) {
+              editContactModal.error = data.error || 'Failed to update contact.';
+              return;
+            }
+            showToast('Contact information updated successfully.');
+            editContactModal.show = false;
+            loadCustomers();
+          } catch (err) {
+            editContactModal.error = err.message;
+          } finally {
+            editContactModal.loading = false;
+          }
+        };
+
+        const openLoginLogsModal = async (c) => {
+          loginLogsModal.customer = c;
+          loginLogsModal.logs = [];
+          loginLogsModal.loading = true;
+          loginLogsModal.show = true;
+          try {
+            const res = await fetch(`/api/v1/admin/customers/${c.id}/login-logs?limit=50`, {
+              headers: { 'Authorization': 'Bearer ' + adminToken.value }
+            });
+            const data = await res.json();
+            if (data.ok) {
+              loginLogsModal.logs = data.logs || [];
+            } else {
+              showToast(data.error || 'Could not load login history.', true);
+            }
+          } catch (err) {
+            showToast(err.message, true);
+          } finally {
+            loginLogsModal.loading = false;
+          }
+        };
+
         onMounted(() => {
           checkAdminAuth();
         });
@@ -2215,7 +2338,12 @@
           onBlockmapChange,
           onDropFile,
           resetUploadForm,
-          publishReleasePackage
+          publishReleasePackage,
+          editContactModal,
+          loginLogsModal,
+          openEditContactModal,
+          submitEditContact,
+          openLoginLogsModal
         };
       }
     }).mount('#app');

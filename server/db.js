@@ -148,6 +148,20 @@ masterDb.exec(`
   );
   CREATE INDEX IF NOT EXISTS idx_tenant_backups_cust_date ON tenant_backups(customer_id, created_at DESC);
 
+  CREATE TABLE IF NOT EXISTS login_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    customer_id TEXT NOT NULL,
+    login_type TEXT NOT NULL,
+    machine_name TEXT,
+    machine_id TEXT,
+    ip_address TEXT,
+    user_agent TEXT,
+    status TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY(customer_id) REFERENCES customers(id) ON DELETE CASCADE
+  );
+  CREATE INDEX IF NOT EXISTS idx_login_logs_cust ON login_logs(customer_id, created_at DESC);
+
   CREATE TABLE IF NOT EXISTS error_logs (
     id TEXT PRIMARY KEY,
     source TEXT NOT NULL,         -- 'server', 'desktop_client', 'sync_engine', 'auth', 'database'
