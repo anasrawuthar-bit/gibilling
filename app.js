@@ -19027,7 +19027,7 @@ function getTopSellingProducts(limit = 5, period = currentAnalyticsPeriod) {
 
 function getReceivablesAging() {
   const unpaidInvoices = (state.invoices || []).filter((inv) => {
-    return inv.type !== "purchase" && Number(inv.balance || 0) > 0;
+    return inv.type !== "purchase" && Number(inv.balance || 0) > 0 && invoiceStatusKey(inv) !== "cancelled";
   });
 
   const buckets = {
@@ -19054,14 +19054,11 @@ function getReceivablesAging() {
     }
   });
 
+  const invoiceReceivableTotal = unpaidInvoices.reduce((sum, inv) => sum + Number(inv.balance || 0), 0);
   const totRec = totalReceivable();
-  if (unpaidInvoices.length === 0 && totRec > 0) {
-    buckets.current.amount = Math.round(totRec * 0.7);
-    buckets.current.count = 1;
-    buckets.aging.amount = Math.round(totRec * 0.2);
-    buckets.aging.count = 1;
-    buckets.overdue.amount = Math.max(0, totRec - buckets.current.amount - buckets.aging.amount);
-    buckets.overdue.count = 1;
+  const unassignedReceivable = Math.max(0, totRec - invoiceReceivableTotal);
+  if (unassignedReceivable > 0) {
+    buckets.current.amount += unassignedReceivable;
   }
 
   return buckets;
@@ -19100,14 +19097,14 @@ function getMonthlyCashflowTrend() {
 }
 
 function getInventoryHealthStats() {
-  const items = state.items || [];
+  const items = (state.items || []).filter((i) => i.itemType !== "service");
   let healthy = 0;
   let low = 0;
   let out = 0;
 
   items.forEach((item) => {
-    const stock = Number(item.stock || 0);
-    const minStock = Number(item.minStock || 10);
+    const stock = Number(item.currentStock ?? item.stock ?? 0);
+    const minStock = Number(item.lowStockAlert !== undefined && item.lowStockAlert !== null && item.lowStockAlert !== "" ? item.lowStockAlert : (item.minStock || 5));
     if (stock <= 0) out++;
     else if (stock <= minStock) low++;
     else healthy++;
@@ -19123,10 +19120,10 @@ function growTemplate(period = currentAnalyticsPeriod) {
   const cashflow = getMonthlyCashflowTrend();
   const invHealth = getInventoryHealthStats();
 
-  const totalAgingAmt = (aging.current.amount + aging.aging.amount + aging.overdue.amount) || 1;
-  const currentPct = Math.round((aging.current.amount / totalAgingAmt) * 100);
-  const agingPct = Math.round((aging.aging.amount / totalAgingAmt) * 100);
-  const overduePct = Math.max(0, 100 - currentPct - agingPct);
+  const totalAgingAmt = aging.current.amount + aging.aging.amount + aging.overdue.amount;
+  const currentPct = totalAgingAmt > 0 ? Math.round((aging.current.amount / totalAgingAmt) * 100) : 0;
+  const agingPct = totalAgingAmt > 0 ? Math.round((aging.aging.amount / totalAgingAmt) * 100) : 0;
+  const overduePct = totalAgingAmt > 0 ? Math.max(0, 100 - currentPct - agingPct) : 0;
 
   const maxCashflow = Math.max(1, ...cashflow.map((c) => Math.max(c.sales, c.purchases)));
 
@@ -19239,8 +19236,8 @@ function growTemplate(period = currentAnalyticsPeriod) {
             <div class="analytics-chart-container">
               <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:12px;height:190px;padding:20px 10px 10px;border-bottom:1px solid #e2e8f0;">
                 ${cashflow.map((m) => {
-                  const sHeight = Math.max(6, Math.round((m.sales / maxCashflow) * 150));
-                  const pHeight = Math.max(6, Math.round((m.purchases / maxCashflow) * 150));
+                  const sHeight = m.sales > 0 ? Math.max(6, Math.round((m.sales / maxCashflow) * 150)) : 0;
+                  const pHeight = m.purchases > 0 ? Math.max(6, Math.round((m.purchases / maxCashflow) * 150)) : 0;
                   return `
                     <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;">
                       <div style="display:flex;align-items:flex-end;gap:4px;height:150px;">
@@ -33537,44 +33534,10 @@ function openWhatsAppInvoicePickerModal(party) {
 function ensureDefaultWhatsAppChatsForParty(party) {
   if (!party) return [];
   const partyKey = String(party.id || party.name || "default");
-  if (whatsappConnectState.chats && whatsappConnectState.chats[partyKey] && whatsappConnectState.chats[partyKey].length) {
-    whatsappConnectState.chats[partyKey] = deduplicateChatMessages(whatsappConnectState.chats[partyKey]);
-    return whatsappConnectState.chats[partyKey];
+  if (whatsappConnectState.chats && Array.isArray(whatsappConnectState.chats[partyKey])) {
+    return deduplicateChatMessages(whatsappConnectState.chats[partyKey]);
   }
-  whatsappConnectState.chats = whatsappConnectState.chats || {};
-
-  const latestInv = getPartyLatestInvoice(party);
-  const initialMsgs = [];
-  if (latestInv) {
-    initialMsgs.push({
-      id: "msg-init-1",
-      text: formatDirectInvoiceMessage(party, latestInv),
-      time: "12:46 PM",
-      from: "me",
-      status: "delivered",
-      attachment: {
-        name: `${String(latestInv.invoiceNo || "Invoice").replace(/[^a-zA-Z0-9_-]/g, "_")}.pdf`,
-        size: "82 KB • PDF Document",
-        type: "pdf"
-      },
-    });
-  }
-  const bal = Number(party.balance ?? party.receivable ?? 0);
-  if (bal > 0) {
-    const reminderTxt = formatDirectPaymentReminder(party);
-    if (reminderTxt) {
-      initialMsgs.push({
-        id: "msg-init-2",
-        text: reminderTxt,
-        time: "12:47 PM",
-        from: "me",
-        status: "delivered",
-      });
-    }
-  }
-  whatsappConnectState.chats[partyKey] = initialMsgs;
-  saveWhatsAppConnectState();
-  return initialMsgs;
+  return [];
 }
 
 function openWhatsAppBulkRemindersModal() {
@@ -33874,7 +33837,7 @@ async function renderWhatsAppPairingQr() {
 function whatsappConnectTemplate() {
   const isConnected = Boolean(whatsappConnectState.connected);
   const allParties = getWhatsAppAllParties();
-  const activeParty = getWhatsAppActiveParty() || allParties[0] || { id: "demo-1", name: "Walk-in Customer", phone: "", balance: 0 };
+  const activeParty = getWhatsAppActiveParty() || allParties[0] || null;
 
   if (!isConnected) {
     return `
@@ -34104,8 +34067,18 @@ function whatsappConnectTemplate() {
             </div>
           ` : `
             <div class="wa-chat-messages-scroll" id="waChatMessagesScroll">
-              <div class="wa-date-pill">TODAY</div>
-              ${messages.map(renderWhatsAppMessageBubble).join("")}
+              ${messages && messages.length ? `
+                <div class="wa-date-pill">TODAY</div>
+                ${messages.map(renderWhatsAppMessageBubble).join("")}
+              ` : `
+                <div class="wa-empty-chat" style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;min-height:200px;color:#94a3b8;text-align:center;padding:24px;">
+                  <div style="width:48px;height:48px;border-radius:50%;background:#f1f5f9;display:flex;align-items:center;justify-content:center;margin-bottom:12px;color:#64748b;">
+                    <svg class="gi-icon" style="width:24px;height:24px;"><use href="#gi-chat"></use></svg>
+                  </div>
+                  <strong style="color:#475569;font-size:14px;margin-bottom:4px;">No messages sent yet</strong>
+                  <p style="font-size:12.5px;max-width:320px;margin:0;">Use the quick actions below to send invoices, statements, or payment reminders to ${escapeHtml(currentActiveParty.name || "this customer")}.</p>
+                </div>
+              `}
             </div>
 
             <div class="wa-quick-pills-bar" style="position:relative;">
