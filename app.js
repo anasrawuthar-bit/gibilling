@@ -26087,7 +26087,7 @@ function reportFilterToolbar(activeReport, kpis = []) {
   const categories = Array.from(new Set([
     ...(state.itemCategories || []).map((c) => (typeof c === "object" ? c.name : c)),
     ...(state.items || []).map((i) => i.category),
-    ...(state.transactions || []).filter((t) => t.type === "expense").map((t) => t.category),
+    ...(state.transactions || []).filter((t) => t.type === "expense").map(expenseCategory),
   ])).filter(Boolean).sort();
 
   const isFiltered = Boolean(reportSearchQuery || reportDateFilter.preset !== "all" || reportPartyFilter || reportCategoryFilter);
@@ -28047,7 +28047,7 @@ function partyStatementReport() {
 function expenseBreakdownReport() {
   let expenses = (state.transactions || []).filter((t) => t.type === "expense" && isInReportDateScope(t));
   if (reportCategoryFilter) {
-    expenses = expenses.filter((t) => (t.category || "Uncategorized").toLowerCase() === reportCategoryFilter.toLowerCase());
+    expenses = expenses.filter((t) => expenseCategory(t).toLowerCase() === reportCategoryFilter.toLowerCase());
   }
 
   const categoryMap = {};
@@ -28056,7 +28056,7 @@ function expenseBreakdownReport() {
   let totalTaxable = 0;
 
   for (const exp of expenses) {
-    const cat = (exp.category || "Uncategorized").trim() || "Uncategorized";
+    const cat = expenseCategory(exp);
     const amount = Number(exp.amount || exp.total || 0);
     const tax = expenseTax(exp);
     const taxable = Math.max(0, amount - tax);
@@ -28096,12 +28096,14 @@ function expenseBreakdownReport() {
       const amt = Number(exp.amount || exp.total || 0);
       const tax = expenseTax(exp);
       const taxable = Math.max(0, amt - tax);
+      const meta = expenseMeta(exp);
+      const voucherNo = exp.invoiceNo || meta.referenceNo || exp.referenceNo || exp.voucherNo || (exp.id ? `EXP-${String(exp.id).replace(/[^a-zA-Z0-9]/g, "").slice(-6).toUpperCase()}` : "-");
       return [
         formatDate(exp.date || exp.transactionDate || exp.createdAt),
-        exp.referenceNo || exp.voucherNo || exp.id || "-",
-        exp.category || "Uncategorized",
-        titleCase(exp.paymentMode || exp.method || "Cash"),
-        exp.party || exp.paidTo || exp.vendor || "-",
+        voucherNo,
+        expenseCategory(exp),
+        titleCase(expensePaymentMethod(exp)),
+        expenseVendor(exp),
         formatCurrency(taxable),
         formatCurrency(tax),
         formatCurrency(amt),
