@@ -14,6 +14,7 @@
 
 const net = require('node:net');
 const tls = require('node:tls');
+const crypto = require('node:crypto');
 
 // In-memory record of dispatched emails for test suites & dev inspection
 const dispatchedEmails = [];
@@ -119,12 +120,20 @@ async function sendMail({ to, subject, html, text }) {
   return { ok: true, delivered: false, simulated: true };
 }
 
+function extractDomainFromConfig(config) {
+  const source = config.from || config.user || config.host || '';
+  const atMatch = source.match(/@([a-zA-Z0-9.-]+)/);
+  if (atMatch) return atMatch[1];
+  return 'anasrawuthar.in';
+}
+
 /**
- * Socket-level SMTP delivery (RFC 5321)
+ * Socket-level SMTP delivery (RFC 5321 & RFC 5322)
  */
 function deliverViaSocket(mail, config) {
   return new Promise((resolve, reject) => {
     const isDirectTls = config.secure || parseInt(config.port, 10) === 465;
+    const clientDomain = extractDomainFromConfig(config);
     let socket;
 
     function setupSmtpFlow(s, isEncrypted) {
@@ -143,10 +152,10 @@ function deliverViaSocket(mail, config) {
           if ((state === 'INIT' || state === 'PLAIN_INIT') && code === 220) {
             if (isDirectTls || isEncrypted) {
               state = 'HELO';
-              s.write('EHLO zynbill.cloud\r\n');
+              s.write(`EHLO ${clientDomain}\r\n`);
             } else {
               state = 'STARTTLS_EHLO';
-              s.write('EHLO zynbill.cloud\r\n');
+              s.write(`EHLO ${clientDomain}\r\n`);
             }
           } else if (state === 'STARTTLS_EHLO' && code === 250) {
             state = 'STARTTLS_REQ';
@@ -160,7 +169,7 @@ function deliverViaSocket(mail, config) {
               rejectUnauthorized: false
             }, () => {
               setupSmtpFlow(tlsSocket, true);
-              tlsSocket.write('EHLO zynbill.cloud\r\n');
+              tlsSocket.write(`EHLO ${clientDomain}\r\n`);
             });
             tlsSocket.on('error', reject);
             return;
@@ -184,16 +193,58 @@ function deliverViaSocket(mail, config) {
             s.write('DATA\r\n');
           } else if (state === 'DATA' && code === 354) {
             state = 'SEND_BODY';
-            const raw = [
-              `From: ${config.from}`,
-              `To: ${mail.to}`,
-              `Subject: ${mail.subject}`,
-              `MIME-Version: 1.0`,
-              `Content-Type: text/html; charset=UTF-8`,
-              ``,
-              mail.html || mail.text,
-              `\r\n.`
-            ].join('\r\n') + '\r\n';
+            
+            const messageId = `<${Date.now()}.${crypto.randomBytes(8).toString('hex')}@${clientDomain}>`;
+            const dateHeader = new Date().toUTCString();
+            let fromHeader = config.from || config.user;
+            if (!fromHeader.includes('<') && fromHeader.includes('@')) {
+              fromHeader = `ZynBill <${fromHeader}>`;
+            }
+
+            const boundary = `----=_Part_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
+            let raw = '';
+
+            if (mail.html && mail.text) {
+              raw = [
+                `Date: ${dateHeader}`,
+                `From: ${fromHeader}`,
+                `To: ${mail.to}`,
+                `Subject: ${mail.subject}`,
+                `Message-ID: ${messageId}`,
+                `MIME-Version: 1.0`,
+                `Content-Type: multipart/alternative; boundary="${boundary}"`,
+                ``,
+                `--${boundary}`,
+                `Content-Type: text/plain; charset=UTF-8`,
+                `Content-Transfer-Encoding: 7bit`,
+                ``,
+                mail.text,
+                ``,
+                `--${boundary}`,
+                `Content-Type: text/html; charset=UTF-8`,
+                `Content-Transfer-Encoding: 7bit`,
+                ``,
+                mail.html,
+                ``,
+                `--${boundary}--`,
+                `\r\n.`
+              ].join('\r\n') + '\r\n';
+            } else {
+              raw = [
+                `Date: ${dateHeader}`,
+                `From: ${fromHeader}`,
+                `To: ${mail.to}`,
+                `Subject: ${mail.subject}`,
+                `Message-ID: ${messageId}`,
+                `MIME-Version: 1.0`,
+                `Content-Type: text/html; charset=UTF-8`,
+                `Content-Transfer-Encoding: 7bit`,
+                ``,
+                mail.html || mail.text,
+                `\r\n.`
+              ].join('\r\n') + '\r\n';
+            }
+
             s.write(raw);
           } else if (state === 'SEND_BODY' && code === 250) {
             state = 'QUIT';
