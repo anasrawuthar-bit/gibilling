@@ -6195,8 +6195,8 @@ function openInvoicePreviewModal(previewData = null, options = {}) {
             <div class="preview-control-item">
               <span class="preview-control-label">Format:</span>
               <select id="previewFormatSelect" class="preview-select">
-                <option value="a4" ${currentFormat === "a4" ? "selected" : ""}>📄 A4 / Full Page</option>
-                <option value="thermal" ${currentFormat === "thermal" ? "selected" : ""}>🧾 Thermal POS Roll</option>
+                <option value="a4" ${currentFormat === "a4" ? "selected" : ""}>A4 / Full Page</option>
+                <option value="thermal" ${currentFormat === "thermal" ? "selected" : ""}>Thermal POS Roll</option>
               </select>
             </div>
             <div class="preview-control-item">
@@ -19477,8 +19477,8 @@ function barcodeGeneratorTemplate() {
           <label class="barcode-top-control-item">
             <span>Printer:</span>
             <select id="barcodePrinterTypeSelect" class="form-input">
-              <option value="label" ${currentPreset.isThermal ? "selected" : ""}>🏷️ Label Printer (Roll)</option>
-              <option value="regular" ${!currentPreset.isThermal ? "selected" : ""}>📄 Regular Printer (A4)</option>
+              <option value="label" ${currentPreset.isThermal ? "selected" : ""}>Label Printer (Roll)</option>
+              <option value="regular" ${!currentPreset.isThermal ? "selected" : ""}>Regular Printer (A4)</option>
             </select>
           </label>
 
@@ -23785,22 +23785,22 @@ function syncTemplate() {
           </div>
           <div class="sync-head-controls">
             <button class="primary-button compact-button" id="btnCloudSyncNow" type="button" style="display:inline-flex;align-items:center;gap:6px;">
-              <span>🔄</span>
+              <svg class="gi-icon" style="width:13px;height:13px;"><use href="#gi-refresh"></use></svg>
               <span>Sync Now</span>
             </button>
             <button class="secondary-button compact-button" id="btnCloudBackupUpload" type="button" style="display:inline-flex;align-items:center;gap:6px;" title="Push local database snapshot to cloud">
-              <span>☁️</span>
+              <svg class="gi-icon" style="width:13px;height:13px;"><use href="#gi-arrow-up"></use></svg>
               <span>Backup to Cloud</span>
             </button>
             <button class="secondary-button compact-button" id="btnCloudRestoreSnapshot" type="button" style="display:inline-flex;align-items:center;gap:6px;" title="Download and restore latest cloud database snapshot">
-              <span>📥</span>
+              <svg class="gi-icon" style="width:13px;height:13px;"><use href="#gi-arrow-down"></use></svg>
               <span>Restore from Cloud</span>
             </button>
           </div>
         </div>
         <div class="sync-card-body" style="padding:14px 20px; background:#f8fafc; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
           <div style="display:flex; align-items:center; gap:12px;">
-            <div style="font-size:22px;" id="cloudSyncStatusIcon">⚡</div>
+            <div id="cloudSyncStatusIcon" style="display:grid;place-items:center;width:24px;height:24px;color:#2563eb;"><svg class="gi-icon" style="width:18px;height:18px;"><use href="#gi-refresh"></use></svg></div>
             <div>
               <div style="font-weight:600; font-size:13.5px; color:#0f172a;" id="cloudSyncAccountTitle">Connected Account: <span id="cloudSyncTenantName">Loading...</span></div>
               <div style="font-size:12px; color:#64748b; margin-top:2px;" id="cloudSyncDetailsText">Checking latest cloud database snapshot...</div>
@@ -23814,8 +23814,8 @@ function syncTemplate() {
       <section class="sync-card" style="margin-bottom:16px;">
         <div class="sync-card-head sync-card-head--split">
           <div style="display:flex;align-items:center;gap:12px;">
-            <div style="width:38px;height:38px;border-radius:10px;background:#eff6ff;display:flex;align-items:center;justify-content:center;color:#2563eb;font-size:20px;">
-              💾
+            <div style="width:38px;height:38px;border-radius:10px;background:#eff6ff;display:flex;align-items:center;justify-content:center;color:#2563eb;">
+              <svg class="gi-icon" style="width:18px;height:18px;"><use href="#gi-database"></use></svg>
             </div>
             <div>
               <h2 class="sync-card-title">Local Database Backups</h2>
@@ -23835,15 +23835,15 @@ function syncTemplate() {
               <span>Backup Now</span>
             </button>
             <button class="secondary-button compact-button" data-action="backup-db" type="button" style="display:inline-flex;align-items:center;gap:6px;">
-              <span>📤</span>
+              <svg class="gi-icon" style="width:13px;height:13px;"><use href="#gi-arrow-up"></use></svg>
               <span>Export .zyn</span>
             </button>
             <button class="secondary-button compact-button" data-action="restore-db" type="button" style="display:inline-flex;align-items:center;gap:6px;">
-              <span>📥</span>
+              <svg class="gi-icon" style="width:13px;height:13px;"><use href="#gi-arrow-down"></use></svg>
               <span>Restore .zyn</span>
             </button>
             <button class="secondary-button compact-button" data-action="open-backup-folder" type="button" title="Open Backup Folder in File Explorer" style="display:inline-flex;align-items:center;gap:6px;">
-              <span>📁</span>
+              <svg class="gi-icon" style="width:13px;height:13px;"><use href="#gi-folder"></use></svg>
               <span>Open Folder</span>
             </button>
           </div>
@@ -23860,8 +23860,8 @@ function syncTemplate() {
       <section class="sync-card">
         <div class="sync-card-head sync-card-head--split">
           <div style="display:flex;align-items:center;gap:12px;">
-            <div style="width:38px;height:38px;border-radius:10px;background:#f0fdf4;display:flex;align-items:center;justify-content:center;color:#16a34a;font-size:20px;">
-              📋
+            <div style="width:38px;height:38px;border-radius:10px;background:#f0fdf4;display:flex;align-items:center;justify-content:center;color:#16a34a;">
+              <svg class="gi-icon" style="width:18px;height:18px;"><use href="#gi-file"></use></svg>
             </div>
             <div>
               <h2 class="sync-card-title">Available Backups on this PC</h2>
@@ -23869,7 +23869,7 @@ function syncTemplate() {
             </div>
           </div>
           <button class="secondary-button compact-button" data-action="refresh-backups-list" type="button" style="display:inline-flex;align-items:center;gap:6px;">
-            <span>🔄</span>
+            <svg class="gi-icon" style="width:13px;height:13px;"><use href="#gi-refresh"></use></svg>
             <span>Refresh</span>
           </button>
         </div>
@@ -25735,7 +25735,7 @@ function reportGroups() {
     {
       title: "Sales",
       note: "Sales register, product-wise sales, and customer summaries.",
-      icon: "📊",
+      icon: '<svg class="gi-icon" style="width:18px;height:18px;"><use href="#gi-trend"></use></svg>',
       reports: [
         { id: "sale", title: "Sales Register", note: "Invoice-by-invoice sales register, tax and balances." },
         { id: "salesByProduct", title: "Sales by Product", note: "Item-wise quantity sold, revenue, average rate and margin." },
@@ -25745,7 +25745,7 @@ function reportGroups() {
     {
       title: "Purchase",
       note: "Procurement bills register, supplier spend and operating expenses.",
-      icon: "🛒",
+      icon: '<svg class="gi-icon" style="width:18px;height:18px;"><use href="#gi-cart"></use></svg>',
       reports: [
         { id: "purchase", title: "Purchase Register", note: "Supplier bill-by-bill register with tax and balance payable." },
         { id: "purchaseBySupplier", title: "Purchase by Supplier", note: "Supplier-wise procurement volume, bills count and balances." },
@@ -25755,7 +25755,7 @@ function reportGroups() {
     {
       title: "Inventory",
       note: "Stock summary, valuation, low stock alerts, and movement audit trail.",
-      icon: "📦",
+      icon: '<svg class="gi-icon" style="width:18px;height:18px;"><use href="#gi-box"></use></svg>',
       reports: [
         { id: "stock", title: "Stock Summary", note: "Current quantity, valuation, unit, category and GST tax rates." },
         { id: "itemLedger", title: "Stock Ledger", note: "Detailed item-by-item chronological stock movement audit trail." },
@@ -25765,7 +25765,7 @@ function reportGroups() {
     {
       title: "Accounting",
       note: "Financial statements, running ledger, double-entry trial balance and P&L.",
-      icon: "📑",
+      icon: '<svg class="gi-icon" style="width:18px;height:18px;"><use href="#gi-receipt"></use></svg>',
       reports: [
         { id: "daybook", title: "Day Book", note: "Daily journal of all sales, purchases, receipts and payments." },
         { id: "ledger", title: "Party Statement (Ledger)", note: "Customer and supplier running ledger account statements." },
@@ -25777,7 +25777,7 @@ function reportGroups() {
     {
       title: "GST",
       note: "Statutory returns, GSTR-1, GSTR-3B, HSN summary, and tax liability set-off.",
-      icon: "🏛️",
+      icon: '<svg class="gi-icon" style="width:18px;height:18px;"><use href="#gi-building"></use></svg>',
       reports: [
         { id: "gstDashboard", title: "GST Dashboard", note: "Compliance overview, filing health and quick-action hub." },
         { id: "gstr1", title: "GSTR-1", note: "Outward supplies summary for GST portal filing." },
@@ -25789,7 +25789,7 @@ function reportGroups() {
     {
       title: "Receivables & Payables",
       note: "Customer dues, supplier dues, and aging analysis.",
-      icon: "💰",
+      icon: '<svg class="gi-icon" style="width:18px;height:18px;"><use href="#gi-wallet"></use></svg>',
       reports: [
         { id: "receivablesOutstanding", title: "Customer Outstanding", note: "Customer-wise pending balances and overdue days." },
         { id: "receivableAging", title: "Receivable Ageing", note: "Customer dues classified by age buckets (0-30, 31-60, 61-90, 90+)." },
@@ -25818,10 +25818,10 @@ function reportsTemplate(activeReport = "overview") {
           <span>Financial, Inventory & GST Center</span>
         </div>
         <div class="report-sidebar-search-wrap" style="padding: 2px 2px 8px;">
-          <input type="text" id="reportSearchFilterInput" class="report-sidebar-search-input" placeholder="🔍 Filter reports..." autocomplete="off" />
+          <input type="text" id="reportSearchFilterInput" class="report-sidebar-search-input" placeholder="Filter reports..." autocomplete="off" />
         </div>
         <button data-report-view="overview" class="report-nav-button ${activeReport === "overview" ? "active" : ""}" type="button">
-          <span style="display:flex;align-items:center;gap:6px;">📊 Dashboard</span><small>Report Command Center</small>
+          <span style="display:flex;align-items:center;gap:7px;"><svg class="gi-icon" style="width:14px;height:14px;"><use href="#gi-chart"></use></svg> Dashboard</span><small>Report Command Center</small>
         </button>
         ${allGroups.map((group) => `
           <div class="report-nav-group" data-nav-group="${escapeHtml(group.title.toLowerCase())}">
@@ -26109,7 +26109,7 @@ function reportOverview() {
     ],
     body: `
       <div class="report-overview-search-bar" style="margin-bottom: 16px;">
-        <input type="text" id="reportOverviewFilter" class="report-overview-search-box" placeholder="🔍 Search reports..." autocomplete="off" />
+        <input type="text" id="reportOverviewFilter" class="report-overview-search-box" placeholder="Search reports..." autocomplete="off" />
       </div>
       <section class="report-center-grid">
         ${reportGroups().map(reportGroupCard).join("")}
@@ -26117,7 +26117,7 @@ function reportOverview() {
       <section class="data-table-card report-card report-data-card" style="margin-top: 20px;">
         <div class="report-card-head">
           <div style="display:flex;align-items:center;gap:8px;">
-            <span style="font-size:18px;">🛡️</span>
+            <span style="display:flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:6px;background:#eff6ff;color:#2563eb;"><svg class="gi-icon" style="width:14px;height:14px;"><use href="#gi-tools"></use></svg></span>
             <h2>Statutory & Audit Checklist</h2>
           </div>
           <span class="report-count-badge" style="background:#fef3c7;color:#92400e;font-size:11px;font-weight:700;padding:2px 8px;border-radius:12px;">${attentionRows.length} checks</span>

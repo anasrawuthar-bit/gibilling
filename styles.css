@@ -9239,8 +9239,19 @@ body.privacy-mode-active .chart-wrap canvas,
 }
 
 .reports-menu .report-nav-button span {
+  display: flex;
+  align-items: center;
+  gap: 7px;
   font-size: 13px;
-  font-weight: 900;
+  font-weight: 700;
+}
+
+.reports-menu .report-nav-button .gi-icon {
+  width: 14px;
+  height: 14px;
+  stroke: currentColor;
+  fill: none;
+  flex-shrink: 0;
 }
 
 .reports-menu .report-nav-button small {
@@ -9601,6 +9612,14 @@ body.privacy-mode-active .chart-wrap canvas,
   background: #eff6ff;
   font-size: 16px;
   flex-shrink: 0;
+}
+
+.report-group-card header > span .gi-icon,
+.report-group-card header > span svg {
+  width: 18px;
+  height: 18px;
+  stroke: currentColor;
+  fill: none;
 }
 
 .report-group-card h2 {
