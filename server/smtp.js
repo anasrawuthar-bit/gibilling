@@ -78,35 +78,93 @@ function saveSmtpConfig({ host, port, secure, user, pass, from }) {
 }
 
 /**
+ * Injects a 1x1 transparent open-tracking pixel and wraps outbound links
+ * into redirect tracking URLs.
+ */
+function prepareTrackedContent(html, trackingId, baseUrl) {
+  if (!html || !trackingId || !baseUrl) return html;
+
+  // 1. Wrap external http(s) links in tracking redirect
+  let trackedHtml = html.replace(/<a\b([^>]*?)\bhref=(["'])(https?:\/\/[^"'>\s]+)\2([^>]*)>/gi, (match, prefix, quote, originalUrl, suffix) => {
+    // Avoid double-wrapping or tracking local/empty links
+    if (originalUrl.includes('/api/v1/track/')) {
+      return match;
+    }
+    const trackedUrl = `${baseUrl}/api/v1/track/click?id=${encodeURIComponent(trackingId)}&url=${encodeURIComponent(originalUrl)}`;
+    return `<a${prefix}href=${quote}${trackedUrl}${quote}${suffix}>`;
+  });
+
+  // 2. Append 1x1 transparent tracking pixel
+  const pixelHtml = `<img src="${baseUrl}/api/v1/track/open?id=${encodeURIComponent(trackingId)}" width="1" height="1" style="display:none;width:1px;height:1px;max-height:0;overflow:hidden;opacity:0;border:none;" alt="" />`;
+
+  if (trackedHtml.includes('</body>')) {
+    trackedHtml = trackedHtml.replace('</body>', `${pixelHtml}\n</body>`);
+  } else {
+    trackedHtml += `\n${pixelHtml}`;
+  }
+
+  return trackedHtml;
+}
+
+/**
  * Sends an email using either live socket SMTP if configured,
  * or records and simulates in development/offline mode.
+ * Supports Open Tracking, Link Tracing, and Campaign Logging.
  */
-async function sendMail({ to, subject, html, text }) {
+async function sendMail({ to, subject, html, text, campaignId = null, mailType = 'transactional', track = true, baseUrl = '' }) {
+  let db;
+  try { db = require('./db'); } catch (_) {}
+
+  const trackingId = 'trk_' + crypto.randomBytes(12).toString('hex');
+  const effectiveBaseUrl = (baseUrl || (db && db.getSetting('server_public_url')) || process.env.PUBLIC_URL || 'https://dir.anasrawuthar.in').replace(/\/+$/, '');
+
+  let processedHtml = html;
+  if (track && html) {
+    processedHtml = prepareTrackedContent(html, trackingId, effectiveBaseUrl);
+  }
+
   const mailRecord = {
     to,
     subject,
-    html,
+    html: processedHtml,
     text,
+    trackingId,
     timestamp: new Date().toISOString()
   };
   dispatchedEmails.push(mailRecord);
+
+  // Record initial pending/sent log
+  if (db && db.recordEmailLog) {
+    db.recordEmailLog({
+      id: trackingId,
+      campaignId,
+      recipient: to,
+      subject,
+      mailType,
+      status: 'sent',
+      createdAt: mailRecord.timestamp
+    });
+  }
 
   const config = getActiveSmtpConfig();
 
   // In test environment or simulated mode, do not open external network sockets
   if (process.env.NODE_ENV === 'test' || process.env.SIMULATE_SMTP === 'true') {
-    return { ok: true, delivered: false, simulated: true };
+    return { ok: true, delivered: false, simulated: true, trackingId };
   }
 
   // If live SMTP credentials are configured, send via network socket
   if (config.host && config.user && config.pass) {
     try {
       await deliverViaSocket(mailRecord, config);
-      console.log(`[SMTP] Live email successfully delivered to ${to} (${subject})`);
-      return { ok: true, delivered: true };
+      console.log(`[SMTP] Live email successfully delivered to ${to} (${subject}) [Tracking: ${trackingId}]`);
+      return { ok: true, delivered: true, trackingId };
     } catch (err) {
       console.error(`[SMTP] Live delivery failed to ${to}:`, err.message);
-      return { ok: false, error: err.message, fallbackRecorded: true };
+      if (db && db.updateEmailLogStatus) {
+        db.updateEmailLogStatus(trackingId, 'failed', err.message);
+      }
+      return { ok: false, error: err.message, fallbackRecorded: true, trackingId };
     }
   }
 
@@ -114,10 +172,11 @@ async function sendMail({ to, subject, html, text }) {
   console.log(`\n================== [ZynBill SMTP Notification] ==================`);
   console.log(`To: ${to}`);
   console.log(`Subject: ${subject}`);
+  console.log(`Tracking ID: ${trackingId}`);
   console.log(`Content:\n${text}`);
   console.log(`=================================================================\n`);
 
-  return { ok: true, delivered: false, simulated: true };
+  return { ok: true, delivered: false, simulated: true, trackingId };
 }
 
 function extractDomainFromConfig(config) {
@@ -508,6 +567,108 @@ function escapeHtml(str) {
     .replace(/'/g, '&#39;');
 }
 
+/**
+ * 7. Asynchronous Batch Campaign Sending Engine with rate limiting / delays
+ */
+async function sendBatchCampaign({ subject, html, text, targetGroup = 'all', customEmails = [], delayMs = 1000, baseUrl = '' }) {
+  let db;
+  try { db = require('./db'); } catch (_) {}
+  if (!db) throw new Error('Database module unavailable');
+
+  let recipients = [];
+  if (targetGroup === 'all') {
+    const rows = db.masterDb.prepare("SELECT email, company_name, owner_name FROM customers WHERE email IS NOT NULL AND trim(email) != ''").all();
+    recipients = rows.map(r => ({ email: r.email.trim(), companyName: r.company_name || r.owner_name || 'Valued Customer' }));
+  } else if (targetGroup === 'active') {
+    const rows = db.masterDb.prepare("SELECT email, company_name, owner_name FROM customers WHERE status = 'active' AND email IS NOT NULL AND trim(email) != ''").all();
+    recipients = rows.map(r => ({ email: r.email.trim(), companyName: r.company_name || r.owner_name || 'Valued Customer' }));
+  } else if (targetGroup === 'custom') {
+    recipients = (customEmails || []).filter(e => typeof e === 'string' && e.includes('@')).map(e => ({ email: e.trim(), companyName: 'Valued Customer' }));
+  }
+
+  // Deduplicate by lowercase email
+  const seen = new Set();
+  recipients = recipients.filter(r => {
+    const lower = r.email.toLowerCase();
+    if (seen.has(lower)) return false;
+    seen.add(lower);
+    return true;
+  });
+
+  if (recipients.length === 0) {
+    return { ok: false, error: 'No valid recipient email addresses found for target group.' };
+  }
+
+  const campaignId = 'camp_' + crypto.randomBytes(8).toString('hex');
+  const now = new Date().toISOString();
+
+  db.createEmailCampaign({
+    id: campaignId,
+    subject,
+    targetGroup,
+    totalRecipients: recipients.length,
+    createdAt: now
+  });
+
+  // Run in background without blocking caller
+  (async () => {
+    db.updateEmailCampaignProgress(campaignId, { status: 'processing' });
+    let sentCount = 0;
+    let failedCount = 0;
+
+    for (const r of recipients) {
+      try {
+        const pSubject = subject.replace(/\{\{\s*companyName\s*\}\}/gi, r.companyName);
+        const pHtml = html ? html.replace(/\{\{\s*companyName\s*\}\}/gi, escapeHtml(r.companyName)) : '';
+        const pText = text ? text.replace(/\{\{\s*companyName\s*\}\}/gi, r.companyName) : '';
+
+        const res = await sendMail({
+          to: r.email,
+          subject: pSubject,
+          html: pHtml,
+          text: pText,
+          campaignId,
+          mailType: 'broadcast',
+          track: true,
+          baseUrl
+        });
+
+        if (res.ok && res.delivered !== false && !res.error) {
+          sentCount++;
+        } else if (res.simulated) {
+          sentCount++;
+        } else {
+          failedCount++;
+        }
+      } catch (err) {
+        failedCount++;
+      }
+
+      db.updateEmailCampaignProgress(campaignId, { sentCount, failedCount });
+
+      if (delayMs > 0 && (sentCount + failedCount) < recipients.length) {
+        await new Promise(res => setTimeout(res, delayMs));
+      }
+    }
+
+    db.updateEmailCampaignProgress(campaignId, {
+      sentCount,
+      failedCount,
+      status: failedCount === recipients.length ? 'failed' : 'completed',
+      completedAt: new Date().toISOString()
+    });
+  })().catch(err => {
+    console.error(`[SMTP] Batch campaign ${campaignId} background failure:`, err);
+  });
+
+  return {
+    ok: true,
+    campaignId,
+    totalRecipients: recipients.length,
+    message: `Batch campaign started for ${recipients.length} recipients (${delayMs}ms delay between emails).`
+  };
+}
+
 module.exports = {
   dispatchedEmails,
   getActiveSmtpConfig,
@@ -520,5 +681,7 @@ module.exports = {
   sendPasswordResetOtp,
   sendPinResetOtp,
   sendApprovalEmail,
-  sendRejectionEmail
+  sendRejectionEmail,
+  sendBatchCampaign,
+  prepareTrackedContent
 };

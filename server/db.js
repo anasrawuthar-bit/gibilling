@@ -175,6 +175,41 @@ masterDb.exec(`
     created_at TEXT NOT NULL
   );
   CREATE INDEX IF NOT EXISTS idx_error_logs_created ON error_logs (created_at DESC);
+
+  CREATE TABLE IF NOT EXISTS email_campaigns (
+    id TEXT PRIMARY KEY,
+    subject TEXT NOT NULL,
+    target_group TEXT NOT NULL,
+    total_recipients INTEGER NOT NULL DEFAULT 0,
+    sent_count INTEGER NOT NULL DEFAULT 0,
+    failed_count INTEGER NOT NULL DEFAULT 0,
+    status TEXT NOT NULL DEFAULT 'pending',
+    created_at TEXT NOT NULL,
+    completed_at TEXT
+  );
+  CREATE INDEX IF NOT EXISTS idx_email_camp_created ON email_campaigns (created_at DESC);
+
+  CREATE TABLE IF NOT EXISTS email_logs (
+    id TEXT PRIMARY KEY,
+    campaign_id TEXT,
+    recipient TEXT NOT NULL,
+    subject TEXT NOT NULL,
+    mail_type TEXT NOT NULL DEFAULT 'transactional',
+    status TEXT NOT NULL DEFAULT 'sent',
+    error TEXT,
+    open_count INTEGER NOT NULL DEFAULT 0,
+    opened_at TEXT,
+    last_open_ip TEXT,
+    last_open_ua TEXT,
+    clicks_count INTEGER NOT NULL DEFAULT 0,
+    last_click_at TEXT,
+    last_click_url TEXT,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY(campaign_id) REFERENCES email_campaigns(id) ON DELETE SET NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_email_logs_created ON email_logs (created_at DESC);
+  CREATE INDEX IF NOT EXISTS idx_email_logs_recip ON email_logs (recipient);
+  CREATE INDEX IF NOT EXISTS idx_email_logs_camp ON email_logs (campaign_id);
 `);
 
 // Add pin columns to customers if not present
@@ -1273,6 +1308,146 @@ function restoreBackupToSandbox(backupFilePath, targetSandboxPath, options = {})
   }
 }
 
+// ── Email Tracking & Campaign Database Operations ────────────────────────
+function recordEmailLog({ id, campaignId, recipient, subject, mailType = 'transactional', status = 'sent', error = null, createdAt }) {
+  try {
+    masterDb.prepare(`
+      INSERT INTO email_logs (id, campaign_id, recipient, subject, mail_type, status, error, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(id, campaignId || null, recipient, subject, mailType, status, error || null, createdAt || new Date().toISOString());
+  } catch (err) {
+    console.error('[DB] recordEmailLog failed:', err.message);
+  }
+}
+
+function updateEmailLogStatus(id, status, error = null) {
+  try {
+    masterDb.prepare(`UPDATE email_logs SET status = ?, error = ? WHERE id = ?`).run(status, error || null, id);
+  } catch (_) {}
+}
+
+function recordEmailOpen(id, ip = '', userAgent = '') {
+  try {
+    const now = new Date().toISOString();
+    const res = masterDb.prepare(`
+      UPDATE email_logs
+      SET open_count = open_count + 1,
+          opened_at = COALESCE(opened_at, ?),
+          last_open_ip = ?,
+          last_open_ua = ?
+      WHERE id = ?
+    `).run(now, ip, userAgent, id);
+    return res.changes > 0;
+  } catch (err) {
+    console.error('[DB] recordEmailOpen failed:', err.message);
+    return false;
+  }
+}
+
+function recordEmailClick(id, targetUrl = '', ip = '', userAgent = '') {
+  try {
+    const now = new Date().toISOString();
+    const res = masterDb.prepare(`
+      UPDATE email_logs
+      SET clicks_count = clicks_count + 1,
+          last_click_at = ?,
+          last_click_url = ?
+      WHERE id = ?
+    `).run(now, targetUrl, id);
+    return res.changes > 0;
+  } catch (err) {
+    console.error('[DB] recordEmailClick failed:', err.message);
+    return false;
+  }
+}
+
+function createEmailCampaign({ id, subject, targetGroup, totalRecipients, createdAt }) {
+  try {
+    masterDb.prepare(`
+      INSERT INTO email_campaigns (id, subject, target_group, total_recipients, sent_count, failed_count, status, created_at)
+      VALUES (?, ?, ?, ?, 0, 0, 'pending', ?)
+    `).run(id, subject, targetGroup, totalRecipients, createdAt || new Date().toISOString());
+  } catch (err) {
+    console.error('[DB] createEmailCampaign failed:', err.message);
+  }
+}
+
+function updateEmailCampaignProgress(id, { sentCount, failedCount, status, completedAt } = {}) {
+  try {
+    const updates = [];
+    const params = [];
+    if (sentCount !== undefined) { updates.push('sent_count = ?'); params.push(sentCount); }
+    if (failedCount !== undefined) { updates.push('failed_count = ?'); params.push(failedCount); }
+    if (status !== undefined) { updates.push('status = ?'); params.push(status); }
+    if (completedAt !== undefined) { updates.push('completed_at = ?'); params.push(completedAt); }
+    if (updates.length > 0) {
+      params.push(id);
+      masterDb.prepare(`UPDATE email_campaigns SET ${updates.join(', ')} WHERE id = ?`).run(...params);
+    }
+  } catch (err) {
+    console.error('[DB] updateEmailCampaignProgress failed:', err.message);
+  }
+}
+
+function getEmailLogs({ limit = 100, offset = 0, campaignId = null, search = '' } = {}) {
+  try {
+    let sql = 'SELECT * FROM email_logs';
+    const params = [];
+    const where = [];
+    if (campaignId) {
+      where.push('campaign_id = ?');
+      params.push(campaignId);
+    }
+    if (search) {
+      where.push('(recipient LIKE ? OR subject LIKE ?)');
+      params.push(`%${search}%`, `%${search}%`);
+    }
+    if (where.length > 0) sql += ' WHERE ' + where.join(' AND ');
+    sql += ' ORDER BY created_at DESC LIMIT ? OFFSET ?';
+    params.push(limit, offset);
+    return masterDb.prepare(sql).all(...params);
+  } catch (err) {
+    console.error('[DB] getEmailLogs failed:', err.message);
+    return [];
+  }
+}
+
+function getEmailCampaigns({ limit = 20 } = {}) {
+  try {
+    return masterDb.prepare('SELECT * FROM email_campaigns ORDER BY created_at DESC LIMIT ?').all(limit);
+  } catch (err) {
+    console.error('[DB] getEmailCampaigns failed:', err.message);
+    return [];
+  }
+}
+
+function getEmailTrackingStats() {
+  try {
+    const totalSent = masterDb.prepare("SELECT COUNT(*) as count FROM email_logs WHERE status = 'sent'").get().count;
+    const totalFailed = masterDb.prepare("SELECT COUNT(*) as count FROM email_logs WHERE status = 'failed'").get().count;
+    const openedEmails = masterDb.prepare("SELECT COUNT(*) as count FROM email_logs WHERE open_count > 0").get().count;
+    const clickedEmails = masterDb.prepare("SELECT COUNT(*) as count FROM email_logs WHERE clicks_count > 0").get().count;
+    const totalOpens = masterDb.prepare("SELECT COALESCE(SUM(open_count), 0) as count FROM email_logs").get().count;
+    const totalClicks = masterDb.prepare("SELECT COALESCE(SUM(clicks_count), 0) as count FROM email_logs").get().count;
+    const openRate = totalSent > 0 ? ((openedEmails / totalSent) * 100).toFixed(1) : '0.0';
+    const clickRate = totalSent > 0 ? ((clickedEmails / totalSent) * 100).toFixed(1) : '0.0';
+
+    return {
+      totalSent,
+      totalFailed,
+      openedEmails,
+      clickedEmails,
+      totalOpens,
+      totalClicks,
+      openRate,
+      clickRate
+    };
+  } catch (err) {
+    console.error('[DB] getEmailTrackingStats failed:', err.message);
+    return { totalSent: 0, totalFailed: 0, openedEmails: 0, clickedEmails: 0, totalOpens: 0, totalClicks: 0, openRate: '0.0', clickRate: '0.0' };
+  }
+}
+
 module.exports = {
   masterDb,
   hashPassword,
@@ -1304,5 +1479,14 @@ module.exports = {
   restoreBackupToSandbox,
   getCanonicalPath,
   getTenantBackupsDir,
-  syncSuperAdminCredentials
+  syncSuperAdminCredentials,
+  recordEmailLog,
+  updateEmailLogStatus,
+  recordEmailOpen,
+  recordEmailClick,
+  createEmailCampaign,
+  updateEmailCampaignProgress,
+  getEmailLogs,
+  getEmailCampaigns,
+  getEmailTrackingStats
 };

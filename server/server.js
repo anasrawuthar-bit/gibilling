@@ -45,7 +45,12 @@ const {
   verifyAndInspectBackup,
   restoreBackupToSandbox,
   getTenantBackupsDir,
-  syncSuperAdminCredentials
+  syncSuperAdminCredentials,
+  recordEmailOpen,
+  recordEmailClick,
+  getEmailLogs,
+  getEmailCampaigns,
+  getEmailTrackingStats
 } = require('./db');
 const smtp = require('./smtp');
 const {
@@ -65,6 +70,9 @@ const STAGING_DIR = path.join(DATA_DIR, 'staging');
 // Ensure persistent directories exist
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 if (!fs.existsSync(STAGING_DIR)) fs.mkdirSync(STAGING_DIR, { recursive: true });
+
+// 1x1 Transparent GIF pixel for email open tracking
+const TRANSPARENT_GIF_PIXEL = Buffer.from('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7', 'base64');
 
 function getClientIp(req) {
   return String(req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown').split(',')[0].trim();
@@ -399,6 +407,15 @@ const server = http.createServer(async (req, res) => {
     if (pathname === '/portal' || pathname === '/user' || pathname === '/login') {
       return sendHtml(res, path.join(PUBLIC_DIR, 'portal.html'));
     }
+    if (pathname === '/terms') {
+      return sendHtml(res, path.join(PUBLIC_DIR, 'terms.html'));
+    }
+    if (pathname === '/privacy') {
+      return sendHtml(res, path.join(PUBLIC_DIR, 'privacy.html'));
+    }
+    if (pathname === '/refund') {
+      return sendHtml(res, path.join(PUBLIC_DIR, 'refund.html'));
+    }
   }
 
   // ── Static Web Assets (/js/*, /css/*, /assets/*) ──────────────────────
@@ -549,6 +566,51 @@ const server = http.createServer(async (req, res) => {
       activePlans: planCount,
       timestamp: new Date().toISOString()
     });
+  }
+
+  // ── Email Open Tracking Pixel (1x1 Transparent GIF) ───────────────
+  if (req.method === 'GET' && pathname === '/api/v1/track/open') {
+    const trackingId = query.id;
+    if (trackingId) {
+      const clientIp = getClientIp(req);
+      const userAgent = req.headers['user-agent'] || '';
+      recordEmailOpen(trackingId, clientIp, userAgent);
+    }
+    res.writeHead(200, {
+      'Content-Type': 'image/gif',
+      'Content-Length': TRANSPARENT_GIF_PIXEL.length,
+      'Cache-Control': 'no-cache, no-store, must-revalidate, private',
+      'Pragma': 'no-cache',
+      'Expires': '0'
+    });
+    return res.end(TRANSPARENT_GIF_PIXEL);
+  }
+
+  // ── Email Link Click Tracking Redirect ────────────────────────────
+  if (req.method === 'GET' && pathname === '/api/v1/track/click') {
+    const trackingId = query.id;
+    const targetUrl = query.url;
+    if (trackingId && targetUrl) {
+      const clientIp = getClientIp(req);
+      const userAgent = req.headers['user-agent'] || '';
+      recordEmailClick(trackingId, targetUrl, clientIp, userAgent);
+    }
+
+    let destination = '/';
+    if (targetUrl) {
+      try {
+        const parsed = new URL(targetUrl);
+        if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+          destination = parsed.href;
+        }
+      } catch (_) {}
+    }
+
+    res.writeHead(302, {
+      'Location': destination,
+      'Cache-Control': 'no-cache, no-store, must-revalidate'
+    });
+    return res.end();
   }
 
   // ── Auth & Registration Endpoints ─────────────────────────────────
@@ -1572,6 +1634,65 @@ const server = http.createServer(async (req, res) => {
     const targetEmail = body.testEmail || admin.email;
     const testResult = await smtp.testSmtpConnection(targetEmail);
     return sendJson(res, testResult.ok ? 200 : 400, testResult);
+  }
+
+  // 4. Batch Email Campaign Dispatch
+  if (req.method === 'POST' && pathname === '/api/v1/admin/emails/batch') {
+    const admin = verifyAdmin(req, res);
+    if (!admin) return;
+
+    const body = await parseJsonBody(req);
+    const { subject, html, text, targetGroup, customEmails, delayMs } = body;
+
+    if (!subject || (!html && !text)) {
+      return sendJson(res, 400, { ok: false, error: 'Subject and email body (HTML or text) are required.' });
+    }
+
+    const proto = req.headers['x-forwarded-proto'] || 'https';
+    const host = req.headers.host || 'dir.anasrawuthar.in';
+    const baseUrl = `${proto}://${host}`;
+
+    try {
+      const result = await smtp.sendBatchCampaign({
+        subject,
+        html,
+        text,
+        targetGroup: targetGroup || 'all',
+        customEmails: Array.isArray(customEmails) ? customEmails : [],
+        delayMs: typeof delayMs === 'number' ? Math.max(0, delayMs) : 1000,
+        baseUrl
+      });
+
+      return sendJson(res, result.ok ? 200 : 400, result);
+    } catch (err) {
+      return sendJson(res, 500, { ok: false, error: err.message });
+    }
+  }
+
+  // 5. Get Email Activity Logs & Open/Click Tracking
+  if (req.method === 'GET' && pathname === '/api/v1/admin/emails/logs') {
+    if (!verifyAdmin(req, res)) return;
+    const limit = parseInt(query.limit || '100', 10);
+    const offset = parseInt(query.offset || '0', 10);
+    const campaignId = query.campaignId || null;
+    const search = query.search || '';
+    const logs = getEmailLogs({ limit, offset, campaignId, search });
+    return sendJson(res, 200, { ok: true, logs });
+  }
+
+  // 6. Get Batch Email Campaigns List
+  if (req.method === 'GET' && pathname === '/api/v1/admin/emails/campaigns') {
+    if (!verifyAdmin(req, res)) return;
+    const limit = parseInt(query.limit || '20', 10);
+    const campaigns = getEmailCampaigns({ limit });
+    return sendJson(res, 200, { ok: true, campaigns });
+  }
+
+  // 7. Get Email Tracking Performance Stats
+  if (req.method === 'GET' && pathname === '/api/v1/admin/emails/stats') {
+    if (!verifyAdmin(req, res)) return;
+    const stats = getEmailTrackingStats();
+    return sendJson(res, 200, { ok: true, stats });
   }
 
   // ── App Release & Version Management Endpoints (Super Admin) ─────────

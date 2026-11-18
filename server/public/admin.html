@@ -646,8 +646,8 @@
         <button class="main-tab-btn" :class="{ active: currentTab === 'plans' }" @click="currentTab = 'plans'">
           <span>📜</span> Subscription Plans ({{ plans.length }})
         </button>
-        <button class="main-tab-btn" :class="{ active: currentTab === 'smtp' }" @click="currentTab = 'smtp'">
-          <span>✉️</span> SMTP Emailer
+        <button class="main-tab-btn" :class="{ active: currentTab === 'smtp' }" @click="currentTab = 'smtp'; loadSmtp(); loadEmailStats(); loadEmailLogs(); loadEmailCampaigns();">
+          <span>✉️</span> SMTP Emailer &amp; Tracking
         </button>
         <button class="main-tab-btn" :class="{ active: currentTab === 'releases' }" @click="currentTab = 'releases'">
           <span>🚀</span> Releases &amp; Updates
@@ -846,55 +846,232 @@
         </div>
       </div>
 
-      <!-- TAB 4: SMTP CONFIGURATION -->
-      <div v-if="currentTab === 'smtp'" style="max-width: 640px; margin: 0 auto; width: 100%;">
-        <div class="table-card" style="padding: 24px;">
-          <h3 style="font-size: 16px; font-weight: 700; color: #0f172a; margin-bottom: 6px;">Outbound SMTP Configuration</h3>
-          <p style="font-size: 13px; color: var(--muted); margin-bottom: 20px;">
-            Configure your business mailer for sending OTP verification codes, license renewal alerts, and PIN resets.
-          </p>
+      <!-- TAB 4: SMTP CONFIGURATION & EMAIL SUITE -->
+      <div v-if="currentTab === 'smtp'" style="display: flex; flex-direction: column; gap: 24px;">
 
-          <form @submit.prevent="saveSmtpConfig">
-            <div class="field-group">
-              <label class="field-label">SMTP Host / Server</label>
-              <input type="text" v-model="smtp.host" class="text-control" placeholder="smtp.gmail.com or mail.yourdomain.in" required>
+        <!-- TOP GRID: SMTP CONFIG & BATCH CAMPAIGN DISPATCHER -->
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap: 24px;">
+
+          <!-- Card 1: Outbound SMTP Credentials -->
+          <div class="table-card" style="padding: 24px;">
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
+              <h3 style="font-size: 16px; font-weight: 700; color: #0f172a; margin: 0;">Outbound SMTP Gateway</h3>
+              <span class="badge" :class="smtp.isConfigured ? 'badge-active' : 'badge-suspended'">
+                {{ smtp.isConfigured ? 'Configured' : 'Not Connected' }}
+              </span>
             </div>
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+            <p style="font-size: 13px; color: var(--muted); margin-bottom: 20px;">
+              Configure Hostinger or custom mail credentials for OTPs, security PIN resets, and batch alerts.
+            </p>
+
+            <form @submit.prevent="saveSmtpConfig">
               <div class="field-group">
-                <label class="field-label">Port</label>
-                <input type="number" v-model="smtp.port" class="text-control" placeholder="587 or 465" required>
+                <label class="field-label">SMTP Host / Server</label>
+                <input type="text" v-model="smtp.host" class="text-control" placeholder="smtp.hostinger.com" required>
+              </div>
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+                <div class="field-group">
+                  <label class="field-label">Port</label>
+                  <input type="number" v-model="smtp.port" class="text-control" placeholder="587 or 465" required>
+                </div>
+                <div class="field-group">
+                  <label class="field-label">Security</label>
+                  <select v-model="smtp.secure" class="text-control">
+                    <option :value="false">STARTTLS (Port 587)</option>
+                    <option :value="true">SSL / TLS (Port 465)</option>
+                  </select>
+                </div>
               </div>
               <div class="field-group">
-                <label class="field-label">Security</label>
-                <select v-model="smtp.secure" class="text-control">
-                  <option :value="false">STARTTLS (Port 587)</option>
-                  <option :value="true">SSL / TLS (Port 465)</option>
-                </select>
+                <label class="field-label">Username / Email Address</label>
+                <input type="text" v-model="smtp.user" class="text-control" placeholder="admin@anasrawuthar.in" required>
               </div>
-            </div>
-            <div class="field-group">
-              <label class="field-label">Username / Email Address</label>
-              <input type="text" v-model="smtp.user" class="text-control" placeholder="notifications@yourdomain.in" required>
-            </div>
-            <div class="field-group">
-              <label class="field-label">Password / App Password</label>
-              <input type="password" v-model="smtp.pass" class="text-control" placeholder="••••••••••••••••">
-            </div>
-            <div class="field-group">
-              <label class="field-label">Sender From Name</label>
-              <input type="text" v-model="smtp.from" class="text-control" placeholder="ZynBill <noreply@yourdomain.in>">
-            </div>
+              <div class="field-group">
+                <label class="field-label">Password / App Password</label>
+                <input type="password" v-model="smtp.pass" class="text-control" placeholder="••••••••••••••••">
+              </div>
+              <div class="field-group">
+                <label class="field-label">Sender From Header</label>
+                <input type="text" v-model="smtp.from" class="text-control" placeholder="ZynBill &lt;admin@anasrawuthar.in&gt;">
+              </div>
 
-            <div style="display: flex; gap: 12px; margin-top: 24px;">
-              <button type="submit" class="btn-action btn-primary" style="height: 42px; padding: 0 20px;" :disabled="smtpLoading">
-                {{ smtpLoading ? 'Saving...' : 'Save Configuration' }}
-              </button>
-              <button type="button" class="btn-action btn-secondary" style="height: 42px; padding: 0 16px;" @click="testSmtp">
-                Send Test Email
-              </button>
+              <div style="display: flex; gap: 12px; margin-top: 24px;">
+                <button type="submit" class="btn-action btn-primary" style="height: 40px; padding: 0 18px;" :disabled="smtpLoading">
+                  {{ smtpLoading ? 'Saving...' : 'Save Gateway' }}
+                </button>
+                <button type="button" class="btn-action btn-secondary" style="height: 40px; padding: 0 16px;" @click="testSmtp">
+                  Send Test Email
+                </button>
+              </div>
+            </form>
+          </div>
+
+          <!-- Card 2: Batch Email Campaign Mailer -->
+          <div class="table-card" style="padding: 24px;">
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
+              <h3 style="font-size: 16px; font-weight: 700; color: #0f172a; margin: 0;">Batch Campaign Mailer</h3>
+              <span class="badge badge-otp">Throttled Queue</span>
             </div>
-          </form>
+            <p style="font-size: 13px; color: var(--muted); margin-bottom: 20px;">
+              Send announcements or updates. Links are tracked automatically; open tracking pixel is embedded.
+            </p>
+
+            <form @submit.prevent="sendBatchBroadcast">
+              <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 16px;">
+                <div class="field-group">
+                  <label class="field-label">Target Audience</label>
+                  <select v-model="broadcast.targetGroup" class="text-control">
+                    <option value="all">All Registered Customers ({{ customers.length }})</option>
+                    <option value="active">Active Plan Tenants Only</option>
+                    <option value="custom">Custom Email Addresses</option>
+                  </select>
+                </div>
+                <div class="field-group">
+                  <label class="field-label">Throttle Delay</label>
+                  <select v-model="broadcast.delayMs" class="text-control">
+                    <option :value="500">500 ms (Fast)</option>
+                    <option :value="1000">1000 ms (Recommended)</option>
+                    <option :value="2000">2000 ms (Safe)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="field-group" v-if="broadcast.targetGroup === 'custom'">
+                <label class="field-label">Custom Email List (Comma or newline separated)</label>
+                <textarea v-model="broadcast.customEmailsText" class="text-control" rows="2" placeholder="client1@example.com, client2@example.com"></textarea>
+              </div>
+
+              <div class="field-group">
+                <label class="field-label">Subject Line <span style="color: var(--muted); font-weight: 400; font-size: 11px;">(Supports &#123;&#123;companyName&#125;&#125;)</span></label>
+                <input type="text" v-model="broadcast.subject" class="text-control" placeholder="Important Announcement for {{companyName}}" required>
+              </div>
+
+              <div class="field-group">
+                <label class="field-label">Message HTML or Text <span style="color: var(--muted); font-weight: 400; font-size: 11px;">(Links wrapped for tracking)</span></label>
+                <textarea v-model="broadcast.html" class="text-control" rows="4" placeholder="Hello {{companyName}},&#10;&#10;We've released ZynBill update v1.2.1! Check details at https://dir.anasrawuthar.in" required style="font-family: monospace; font-size: 12.5px;"></textarea>
+              </div>
+
+              <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 20px;">
+                <span style="font-size: 12px; color: var(--muted);">✓ Open pixel &amp; link click tracking injected automatically</span>
+                <button type="submit" class="btn-action btn-primary" style="height: 40px; padding: 0 18px;" :disabled="broadcast.loading">
+                  {{ broadcast.loading ? 'Dispatching Queue...' : 'Dispatch Batch Campaign' }}
+                </button>
+              </div>
+            </form>
+          </div>
+
         </div>
+
+        <!-- TRACKING ANALYTICS KPIS -->
+        <div class="kpi-grid">
+          <div class="kpi-card">
+            <div class="kpi-label">Total Outbound Mails</div>
+            <div class="kpi-value" style="color: #0284c7;">{{ emailStats.totalSent }}</div>
+            <div class="kpi-sub">{{ emailStats.totalFailed }} failed attempts</div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-label">Open Rate (Tracking Pixel)</div>
+            <div class="kpi-value" style="color: #047857;">{{ emailStats.openRate }}%</div>
+            <div class="kpi-sub">{{ emailStats.openedEmails }} recipients opened ({{ emailStats.totalOpens }} total opens)</div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-label">Click-Through Rate (Link Tracing)</div>
+            <div class="kpi-value" style="color: #6366f1;">{{ emailStats.clickRate }}%</div>
+            <div class="kpi-sub">{{ emailStats.clickedEmails }} clicked links ({{ emailStats.totalClicks }} total clicks)</div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-label">Recent Campaigns</div>
+            <div class="kpi-value">{{ emailCampaigns.length }}</div>
+            <div class="kpi-sub">Batch campaigns dispatched</div>
+          </div>
+        </div>
+
+        <!-- EMAIL LOGS & ENGAGEMENT TABLE -->
+        <div class="table-card">
+          <div style="padding: 20px 24px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px;">
+            <div>
+              <h3 style="font-size: 16px; font-weight: 700; color: #0f172a; margin: 0;">Live Email Engagement &amp; Delivery Logs</h3>
+              <p style="font-size: 13px; color: var(--muted); margin: 4px 0 0;">Inspect real-time delivery status, open tracking timestamps, and clicked links.</p>
+            </div>
+            <div style="display: flex; gap: 10px; align-items: center;">
+              <input type="text" v-model="emailLogSearch" @keyup.enter="loadEmailLogs" class="text-control" placeholder="Search recipient or subject..." style="height: 36px; width: 220px; font-size: 13px;">
+              <button class="btn-action btn-secondary" @click="loadEmailLogs" style="height: 36px; padding: 0 14px;">Search</button>
+              <button class="btn-action btn-secondary" @click="emailLogSearch = ''; loadEmailLogs(); loadEmailStats();" style="height: 36px; padding: 0 14px;">Refresh</button>
+            </div>
+          </div>
+
+          <div style="overflow-x: auto;">
+            <table class="data-table" v-if="emailLogs.length > 0">
+              <thead>
+                <tr>
+                  <th>Recipient</th>
+                  <th>Subject</th>
+                  <th>Type</th>
+                  <th>Status</th>
+                  <th>Open Tracking</th>
+                  <th>Link Tracing</th>
+                  <th>Dispatched At</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="l in emailLogs" :key="l.id">
+                  <td>
+                    <div style="font-weight: 600; color: #0f172a;">{{ l.recipient }}</div>
+                    <div style="font-size: 11px; color: var(--muted); font-family: monospace;">{{ l.id }}</div>
+                  </td>
+                  <td>
+                    <div style="font-size: 13.5px; color: #334155; max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                      {{ l.subject }}
+                    </div>
+                  </td>
+                  <td>
+                    <span class="badge" :class="l.mail_type === 'broadcast' ? 'badge-otp' : 'badge-pending'">
+                      {{ l.mail_type || 'transactional' }}
+                    </span>
+                  </td>
+                  <td>
+                    <span class="badge" :class="l.status === 'sent' ? 'badge-active' : 'badge-suspended'">
+                      {{ l.status === 'sent' ? '✓ Sent' : 'Failed' }}
+                    </span>
+                    <div v-if="l.error" style="font-size: 11px; color: #b91c1c; margin-top: 2px; max-width: 140px; overflow: hidden; text-overflow: ellipsis;" :title="l.error">
+                      {{ l.error }}
+                    </div>
+                  </td>
+                  <td>
+                    <div v-if="l.open_count > 0">
+                      <span class="badge badge-active">✓ Opened ({{ l.open_count }}x)</span>
+                      <div style="font-size: 11px; color: var(--muted); margin-top: 3px;">{{ formatDateTime(l.opened_at) }}</div>
+                    </div>
+                    <div v-else>
+                      <span class="badge" style="background: #f1f5f9; color: #64748b;">Unopened</span>
+                    </div>
+                  </td>
+                  <td>
+                    <div v-if="l.clicks_count > 0">
+                      <span class="badge badge-otp" style="background: #ede9fe; color: #6d28d9;">🔗 {{ l.clicks_count }} click{{ l.clicks_count > 1 ? 's' : '' }}</span>
+                      <div v-if="l.last_click_url" style="font-size: 11px; color: var(--muted); margin-top: 3px; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" :title="l.last_click_url">
+                        {{ l.last_click_url }}
+                      </div>
+                    </div>
+                    <div v-else>
+                      <span style="font-size: 12px; color: var(--muted);">No clicks</span>
+                    </div>
+                  </td>
+                  <td>
+                    <div style="font-size: 12.5px; color: var(--muted);">{{ formatDateTime(l.created_at) }}</div>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+
+            <div v-else style="padding: 48px; text-align: center; color: var(--muted);">
+              <div style="font-size: 32px; margin-bottom: 8px;">📬</div>
+              <div style="font-size: 14px; font-weight: 600;">No email activity logs recorded yet</div>
+              <div style="font-size: 13px; margin-top: 4px;">Outgoing registration OTPs, device codes, and batch campaigns will appear here in real time.</div>
+            </div>
+          </div>
+        </div>
+
       </div>
 
       <!-- TAB 5: RELEASES & UPDATES -->
@@ -1739,8 +1916,34 @@
           }
         };
 
-        const smtp = reactive({ host: '', port: 587, secure: false, user: '', pass: '', from: '' });
+        const smtp = reactive({ host: '', port: 587, secure: false, user: '', pass: '', from: '', isConfigured: false });
         const smtpLoading = ref(false);
+
+        const broadcast = reactive({
+          targetGroup: 'all',
+          customEmailsText: '',
+          subject: '',
+          html: '',
+          text: '',
+          delayMs: 1000,
+          loading: false
+        });
+
+        const emailStats = reactive({
+          totalSent: 0,
+          totalFailed: 0,
+          openedEmails: 0,
+          clickedEmails: 0,
+          totalOpens: 0,
+          totalClicks: 0,
+          openRate: '0.0',
+          clickRate: '0.0'
+        });
+
+        const emailLogs = ref([]);
+        const emailCampaigns = ref([]);
+        const emailLogsLoading = ref(false);
+        const emailLogSearch = ref('');
 
         const loginForm = reactive({ email: '', password: '', loading: false, error: '' });
         const approveModal = reactive({ show: false, customer: null, plan: 'professional', validityDays: 365 });
@@ -1944,6 +2147,9 @@
           loadSmtp();
           loadReleases();
           loadLogs();
+          loadEmailStats();
+          loadEmailLogs();
+          loadEmailCampaigns();
         };
 
         const openApproveModal = (c) => {
@@ -2138,11 +2344,123 @@
             const data = await res.json();
             if (data.ok) {
               showToast('Test email sent successfully! Check inbox/spam.');
+              setTimeout(() => { loadEmailStats(); loadEmailLogs(); }, 1500);
             } else {
               showToast(data.error || 'SMTP test failed.', true);
             }
           } catch (err) {
             showToast(err.message, true);
+          }
+        };
+
+        const loadEmailStats = async () => {
+          if (!adminToken.value) return;
+          try {
+            const res = await fetch('/api/v1/admin/emails/stats', {
+              headers: { 'Authorization': 'Bearer ' + adminToken.value }
+            });
+            const data = await res.json();
+            if (data.ok && data.stats) {
+              Object.assign(emailStats, data.stats);
+            }
+          } catch (_) {}
+        };
+
+        const loadEmailLogs = async () => {
+          if (!adminToken.value) return;
+          emailLogsLoading.value = true;
+          try {
+            const queryParams = new URLSearchParams({ limit: '100', offset: '0' });
+            if (emailLogSearch.value) queryParams.set('search', emailLogSearch.value.trim());
+            const res = await fetch('/api/v1/admin/emails/logs?' + queryParams.toString(), {
+              headers: { 'Authorization': 'Bearer ' + adminToken.value }
+            });
+            const data = await res.json();
+            if (data.ok && data.logs) {
+              emailLogs.value = data.logs;
+            }
+          } catch (_) {}
+          finally {
+            emailLogsLoading.value = false;
+          }
+        };
+
+        const loadEmailCampaigns = async () => {
+          if (!adminToken.value) return;
+          try {
+            const res = await fetch('/api/v1/admin/emails/campaigns', {
+              headers: { 'Authorization': 'Bearer ' + adminToken.value }
+            });
+            const data = await res.json();
+            if (data.ok && data.campaigns) {
+              emailCampaigns.value = data.campaigns;
+            }
+          } catch (_) {}
+        };
+
+        const sendBatchBroadcast = async () => {
+          if (!broadcast.subject || (!broadcast.html && !broadcast.text)) {
+            showToast('Subject and email message content are required.', true);
+            return;
+          }
+
+          let customEmails = [];
+          if (broadcast.targetGroup === 'custom') {
+            customEmails = (broadcast.customEmailsText || '')
+              .split(/[\n,;]+/)
+              .map(e => e.trim())
+              .filter(e => e.includes('@'));
+            if (customEmails.length === 0) {
+              showToast('Please enter at least one valid email address in custom list.', true);
+              return;
+            }
+          }
+
+          const audienceLabel = broadcast.targetGroup === 'all'
+            ? `all registered customers (${customers.value.length})`
+            : broadcast.targetGroup === 'active'
+              ? 'active accounts only'
+              : `${customEmails.length} custom email recipients`;
+
+          const confirmed = confirm(`Are you sure you want to dispatch this batch campaign to ${audienceLabel} with a ${broadcast.delayMs}ms delay between messages?`);
+          if (!confirmed) return;
+
+          broadcast.loading = true;
+          try {
+            const res = await fetch('/api/v1/admin/emails/batch', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': 'Bearer ' + adminToken.value
+              },
+              body: JSON.stringify({
+                subject: broadcast.subject,
+                html: broadcast.html,
+                text: broadcast.text,
+                targetGroup: broadcast.targetGroup,
+                customEmails,
+                delayMs: parseInt(broadcast.delayMs, 10) || 1000
+              })
+            });
+            const data = await res.json();
+            if (data.ok) {
+              showToast(data.message || 'Batch campaign started successfully in background!');
+              broadcast.subject = '';
+              broadcast.html = '';
+              broadcast.text = '';
+              broadcast.customEmailsText = '';
+              setTimeout(() => {
+                loadEmailStats();
+                loadEmailLogs();
+                loadEmailCampaigns();
+              }, 1500);
+            } else {
+              showToast(data.error || 'Failed to start batch email campaign.', true);
+            }
+          } catch (err) {
+            showToast(err.message, true);
+          } finally {
+            broadcast.loading = false;
           }
         };
 
@@ -2342,7 +2660,17 @@
           loginLogsModal,
           openEditContactModal,
           submitEditContact,
-          openLoginLogsModal
+          openLoginLogsModal,
+          broadcast,
+          emailStats,
+          emailLogs,
+          emailCampaigns,
+          emailLogsLoading,
+          emailLogSearch,
+          loadEmailStats,
+          loadEmailLogs,
+          loadEmailCampaigns,
+          sendBatchBroadcast
         };
       }
     }).mount('#app');
