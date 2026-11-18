@@ -18007,12 +18007,133 @@ function bindFeatureActions() {
       showToast(button.dataset.reportMessage || "This report action is not available.");
     });
   });
-  const reportPartyFilterSelect = elements.featureView.querySelector("[data-report-party-filter]");
-  reportPartyFilterSelect?.addEventListener("change", () => {
-    reportPartyFilter = reportPartyFilterSelect.value;
-    const activeReport = reportPartyFilterSelect.dataset.reportPartyFilter || "overview";
-    navigateReport(activeReport, { clearSearch: false });
-  });
+  const reportPartyCombobox = elements.featureView.querySelector("[data-report-party-combobox]");
+  if (reportPartyCombobox) {
+    const activeReport = reportPartyCombobox.dataset.reportPartyCombobox || "overview";
+    const trigger = reportPartyCombobox.querySelector(".combobox-trigger");
+    const dropdown = reportPartyCombobox.querySelector(".combobox-dropdown");
+    const searchInput = reportPartyCombobox.querySelector(".combobox-search-input");
+    const items = reportPartyCombobox.querySelectorAll(".combobox-item");
+    const emptyMsg = reportPartyCombobox.querySelector(".combobox-empty-message");
+    const clearBtn = reportPartyCombobox.querySelector("[data-combobox-clear]");
+    const hiddenInput = reportPartyCombobox.querySelector("[data-report-party-filter]");
+
+    const openDropdown = () => {
+      dropdown?.classList.remove("hidden");
+      trigger?.setAttribute("aria-expanded", "true");
+      if (searchInput) {
+        searchInput.value = "";
+        filterItems("");
+        setTimeout(() => searchInput.focus(), 25);
+      }
+    };
+
+    const closeDropdown = () => {
+      dropdown?.classList.add("hidden");
+      trigger?.setAttribute("aria-expanded", "false");
+    };
+
+    const toggleDropdown = () => {
+      if (dropdown?.classList.contains("hidden")) {
+        openDropdown();
+      } else {
+        closeDropdown();
+      }
+    };
+
+    const filterItems = (query) => {
+      const q = query.trim().toLowerCase();
+      let visibleCount = 0;
+      items.forEach((item) => {
+        if (!q) {
+          item.classList.remove("hidden");
+          visibleCount++;
+          return;
+        }
+        if (item.dataset.value === "") {
+          item.classList.add("hidden");
+          return;
+        }
+        const searchText = item.dataset.search || item.textContent.toLowerCase();
+        if (searchText.includes(q)) {
+          item.classList.remove("hidden");
+          visibleCount++;
+        } else {
+          item.classList.add("hidden");
+        }
+      });
+      if (emptyMsg) {
+        if (visibleCount === 0) emptyMsg.classList.remove("hidden");
+        else emptyMsg.classList.add("hidden");
+      }
+    };
+
+    trigger?.addEventListener("click", (e) => {
+      if (e.target.closest("[data-combobox-clear]")) return;
+      toggleDropdown();
+    });
+
+    trigger?.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " " || e.key === "ArrowDown") {
+        e.preventDefault();
+        openDropdown();
+      }
+    });
+
+    searchInput?.addEventListener("input", (e) => {
+      filterItems(e.target.value);
+    });
+
+    searchInput?.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") {
+        closeDropdown();
+        trigger?.focus();
+      } else if (e.key === "Enter") {
+        e.preventDefault();
+        const firstVisible = Array.from(items).find((i) => !i.classList.contains("hidden"));
+        if (firstVisible) {
+          selectItem(firstVisible.dataset.value);
+        }
+      }
+    });
+
+    const selectItem = (val) => {
+      reportPartyFilter = val;
+      if (hiddenInput) hiddenInput.value = val;
+      closeDropdown();
+      navigateReport(activeReport, { clearSearch: false });
+    };
+
+    items.forEach((item) => {
+      item.addEventListener("click", () => {
+        selectItem(item.dataset.value);
+      });
+    });
+
+    if (clearBtn) {
+      clearBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        selectItem("");
+      });
+    }
+
+    const onDocClick = (e) => {
+      if (!reportPartyCombobox.contains(e.target)) {
+        closeDropdown();
+        document.removeEventListener("click", onDocClick);
+      }
+    };
+    setTimeout(() => {
+      document.addEventListener("click", onDocClick);
+    }, 15);
+  } else {
+    const reportPartyFilterSelect = elements.featureView.querySelector("[data-report-party-filter]");
+    reportPartyFilterSelect?.addEventListener("change", () => {
+      reportPartyFilter = reportPartyFilterSelect.value;
+      const activeReport = reportPartyFilterSelect.dataset.reportPartyFilter || "overview";
+      navigateReport(activeReport, { clearSearch: false });
+    });
+  }
   const reportCategoryFilterSelect = elements.featureView.querySelector("[data-report-category-filter]");
   reportCategoryFilterSelect?.addEventListener("change", () => {
     reportCategoryFilter = reportCategoryFilterSelect.value;
@@ -26014,15 +26135,56 @@ function reportFilterToolbar(activeReport, kpis = []) {
           <label class="report-date-input ${reportDateFilter.preset === "custom" ? "" : "hidden"}"><span>To</span><input class="form-input" data-report-date-to type="date" value="${escapeHtml(dateScope.to || "")}"></label>
           ${reportDateFilter.preset !== "all" ? `<span class="report-date-summary">${escapeHtml(formatReportDateScope(dateScope))}</span>` : ""}
         </div>
-        ${showPartyFilter ? `
-          <label class="report-filter-select">
-            <span>Party</span>
-            <select class="form-input" data-report-party-filter="${escapeHtml(activeReport)}">
-              <option value="" ${!reportPartyFilter ? "selected" : ""}>All Parties</option>
-              ${parties.map((p) => `<option value="${escapeHtml(String(p.id || p.name))}" ${reportPartyFilter === String(p.id || p.name) || (activeReport === "partyStatement" && !reportPartyFilter && p === parties[0]) ? "selected" : ""}>${escapeHtml(p.name)}</option>`).join("")}
-            </select>
-          </label>
-        ` : ""}
+        ${(() => {
+          if (!showPartyFilter) return "";
+          const selectedPartyObj = parties.find((p) => String(p.id || p.name) === reportPartyFilter);
+          const selectedPartyName = selectedPartyObj
+            ? selectedPartyObj.name
+            : (activeReport === "partyStatement" && !reportPartyFilter && parties[0] ? parties[0].name : "All Parties");
+          const isPartyActive = Boolean(reportPartyFilter);
+
+          return `
+            <div class="report-filter-combobox" data-report-party-combobox="${escapeHtml(activeReport)}">
+              <span class="combobox-label">Party</span>
+              <div class="combobox-trigger" tabindex="0" role="combobox" aria-expanded="false" aria-haspopup="listbox">
+                <span class="combobox-selected-text">${escapeHtml(selectedPartyName)}</span>
+                <button type="button" class="combobox-clear-btn ${isPartyActive ? "" : "hidden"}" data-combobox-clear title="Clear party filter">&times;</button>
+                <svg class="gi-icon combobox-chevron" style="width:11px;height:11px;"><use href="#gi-chevron-down"></use></svg>
+              </div>
+              <div class="combobox-dropdown hidden" role="listbox">
+                <div class="combobox-search-wrap">
+                  <svg class="gi-icon combobox-search-icon" style="width:13px;height:13px;"><use href="#gi-search"></use></svg>
+                  <input type="text" class="combobox-search-input" placeholder="Search party, phone, GSTIN..." autocomplete="off">
+                </div>
+                <ul class="combobox-list">
+                  <li class="combobox-item ${!reportPartyFilter ? "selected" : ""}" data-value="">
+                    <div class="combobox-item-main">
+                      <span class="combobox-party-name">All Parties</span>
+                    </div>
+                  </li>
+                  ${parties.map((p) => {
+                    const val = String(p.id || p.name);
+                    const isSelected = reportPartyFilter === val || (activeReport === "partyStatement" && !reportPartyFilter && p === parties[0]);
+                    const typeLabel = p.type ? (p.type === "both" ? "Customer/Supplier" : p.type) : "Customer";
+                    const phoneText = p.phone ? `<span class="combobox-party-sub">📞 ${escapeHtml(p.phone)}</span>` : "";
+                    const gstinText = p.gstin ? `<span class="combobox-party-sub">GSTIN: ${escapeHtml(p.gstin)}</span>` : "";
+                    return `
+                      <li class="combobox-item ${isSelected ? "selected" : ""}" data-value="${escapeHtml(val)}" data-search="${escapeHtml(`${p.name} ${p.phone || ""} ${p.gstin || ""} ${p.type || ""}`.toLowerCase())}">
+                        <div class="combobox-item-main">
+                          <span class="combobox-party-name">${escapeHtml(p.name)}</span>
+                          <span class="combobox-party-badge">${escapeHtml(typeLabel)}</span>
+                        </div>
+                        ${phoneText || gstinText ? `<div class="combobox-item-details">${phoneText} ${gstinText}</div>` : ""}
+                      </li>
+                    `;
+                  }).join("")}
+                </ul>
+                <div class="combobox-empty-message hidden">No matching parties found</div>
+              </div>
+              <input type="hidden" data-report-party-filter="${escapeHtml(activeReport)}" value="${escapeHtml(reportPartyFilter)}">
+            </div>
+          `;
+        })()}
         ${showCategoryFilter ? `
           <label class="report-filter-select">
             <span>Category</span>
