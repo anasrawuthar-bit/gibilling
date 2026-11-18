@@ -18905,62 +18905,112 @@ let currentAnalyticsPeriod = "this_month";
 
 function getAnalyticsSummary(period = currentAnalyticsPeriod) {
   const now = new Date();
-  const txs = state.transactions || [];
-  
-  const filtered = txs.filter((t) => {
-    if (!t.date) return false;
-    const d = new Date(t.date);
+  const isPeriodMatch = (dateStr) => {
+    if (!dateStr) return false;
+    const d = new Date(dateStr);
     if (isNaN(d.getTime())) return false;
-    if (period === "today") {
-      return d.toDateString() === now.toDateString();
-    }
+    if (period === "today") return d.toDateString() === now.toDateString();
     if (period === "this_week") {
       const startOfWeek = new Date(now);
       startOfWeek.setDate(now.getDate() - now.getDay());
       startOfWeek.setHours(0, 0, 0, 0);
       return d >= startOfWeek;
     }
-    if (period === "this_month") {
-      return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
-    }
-    if (period === "this_year") {
-      return d.getFullYear() === now.getFullYear();
-    }
+    if (period === "this_month") return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+    if (period === "this_year") return d.getFullYear() === now.getFullYear();
     return true; // all_time
-  });
+  };
 
-  const grossRevenue = filtered
+  const periodInvoices = (state.invoices || []).filter((inv) => isPeriodMatch(inv.date || inv.createdAt));
+  const periodTransactions = (state.transactions || []).filter((t) => isPeriodMatch(t.date || t.createdAt));
+
+  const grossRevenue = periodTransactions
     .filter((t) => t.type === "sale")
     .reduce((sum, t) => sum + Number(t.amount || 0), 0);
 
-  const purchases = filtered
+  const purchases = periodTransactions
     .filter((t) => t.type === "purchase")
     .reduce((sum, t) => sum + Number(t.amount || 0), 0);
 
-  const grossProfit = Math.max(0, grossRevenue - purchases);
-  const marginPercent = grossRevenue > 0 ? ((grossProfit / grossRevenue) * 100).toFixed(1) : "0.0";
+  const expenses = periodTransactions
+    .filter((t) => t.type === "expense")
+    .reduce((sum, t) => sum + Number(t.amount || 0), 0);
+
+  const totalCosts = purchases + expenses;
+
+  const grossSales = periodInvoices
+    .filter((inv) => inv.type === "sale" && invoiceStatusKey(inv) !== "cancelled")
+    .reduce((sum, inv) => sum + invoiceTaxableValue(inv), 0);
+
+  const grossPurchases = periodInvoices
+    .filter((inv) => inv.type === "purchase" && invoiceStatusKey(inv) !== "cancelled")
+    .reduce((sum, inv) => sum + invoiceTaxableValue(inv), 0);
+
+  const salesReturns = (state.creditNotes || [])
+    .filter((note) => creditNoteStatus(note) !== "cancelled" && isPeriodMatch(note.date || note.createdAt))
+    .reduce((sum, note) => sum + creditNoteTotalValue(note) - Number(note.taxTotal || 0), 0);
+  const netSales = Math.max(0, grossSales - salesReturns);
+
+  const purchaseReturns = (state.debitNotes || [])
+    .filter((note) => debitNoteStatus(note) !== "cancelled" && isPeriodMatch(note.date || note.createdAt))
+    .reduce((sum, note) => sum + debitNoteTotalValue(note) - Number(note.taxTotal || 0), 0);
+  const netPurchases = Math.max(0, grossPurchases - purchaseReturns);
+
+  const inventory = calculateInventoryValuation();
+  const cogs = Math.max(0, inventory.openingStockValue + netPurchases - inventory.closingStockValue);
+
+  const grossProfit = netSales - cogs;
+  const netProfit = grossProfit - expenses;
+  const marginPercent = netSales > 0
+    ? ((grossProfit / netSales) * 100).toFixed(1)
+    : (grossRevenue > 0 ? ((grossProfit / grossRevenue) * 100).toFixed(1) : "0.0");
   const receivables = totalReceivable();
   const payables = totalPayable();
 
   return {
     grossRevenue,
     purchases,
+    expenses,
+    totalCosts,
+    grossSales,
+    netSales,
+    cogs,
     grossProfit,
+    netProfit,
     marginPercent,
     receivables,
     payables,
   };
 }
 
-function getTopSellingProducts(limit = 5) {
+function getTopSellingProducts(limit = 5, period = currentAnalyticsPeriod) {
   const itemMap = new Map();
+  const now = new Date();
+  const isPeriodMatch = (dateStr) => {
+    if (!dateStr) return false;
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return false;
+    if (period === "today") return d.toDateString() === now.toDateString();
+    if (period === "this_week") {
+      const startOfWeek = new Date(now);
+      startOfWeek.setDate(now.getDate() - now.getDay());
+      startOfWeek.setHours(0, 0, 0, 0);
+      return d >= startOfWeek;
+    }
+    if (period === "this_month") return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+    if (period === "this_year") return d.getFullYear() === now.getFullYear();
+    return true; // all_time
+  };
+
   (state.invoices || []).forEach((inv) => {
-    if (inv.type === "purchase") return;
-    (inv.items || []).forEach((item) => {
+    if (inv.type === "purchase" || invoiceStatusKey(inv) === "cancelled") return;
+    if (!isPeriodMatch(inv.date || inv.createdAt)) return;
+    const lines = invoiceLinesFor(inv);
+    lines.forEach((item) => {
       const name = item.item || item.name || "Item";
-      const id = item.itemId || item.id || name;
+      const id = String(item.itemId || item.id || name);
       const qty = Number(item.qty || 1);
-      const amt = Number(item.amount || item.total || (qty * (Number(item.rate || item.salePrice) || 0)));
+      const amt = Number(item.lineTotal !== undefined && item.lineTotal !== null ? item.lineTotal : (item.amount || item.total || (qty * (Number(item.rate || item.price || item.salePrice) || 0))));
       if (!itemMap.has(id)) {
         itemMap.set(id, { id, name, qty: 0, revenue: 0 });
       }
@@ -18969,17 +19019,6 @@ function getTopSellingProducts(limit = 5) {
       record.revenue += amt;
     });
   });
-
-  if (itemMap.size === 0) {
-    (state.items || []).slice(0, limit).forEach((it) => {
-      itemMap.set(it.id, {
-        id: it.id,
-        name: it.name || "Item",
-        qty: Math.max(1, 40 - (Number(it.stock) || 0)),
-        revenue: (Number(it.salePrice) || 120) * Math.max(1, 40 - (Number(it.stock) || 0)),
-      });
-    });
-  }
 
   return Array.from(itemMap.values())
     .sort((a, b) => b.revenue - a.revenue)
@@ -19079,7 +19118,7 @@ function getInventoryHealthStats() {
 
 function growTemplate(period = currentAnalyticsPeriod) {
   const summary = getAnalyticsSummary(period);
-  const topProducts = getTopSellingProducts(5);
+  const topProducts = getTopSellingProducts(5, period);
   const aging = getReceivablesAging();
   const cashflow = getMonthlyCashflowTrend();
   const invHealth = getInventoryHealthStats();
@@ -19119,7 +19158,7 @@ function growTemplate(period = currentAnalyticsPeriod) {
           </div>
           <div class="kpi-main-val" id="analyticsGrossRev">${formatCurrency(summary.grossRevenue)}</div>
           <div class="kpi-footer-sub">
-            <span>Sales for ${period.replace("_", " ")}</span>
+            <span>Net Taxable: ${formatCurrency(summary.netSales || summary.grossSales || summary.grossRevenue)}</span>
             <span class="kpi-badge badge-green">Live</span>
           </div>
         </article>
@@ -19131,9 +19170,9 @@ function growTemplate(period = currentAnalyticsPeriod) {
               <svg class="gi-icon" style="width:18px;height:18px;"><use href="#gi-cart"></use></svg>
             </div>
           </div>
-          <div class="kpi-main-val" id="analyticsPurchases">${formatCurrency(summary.purchases)}</div>
+          <div class="kpi-main-val" id="analyticsPurchases">${formatCurrency(summary.totalCosts)}</div>
           <div class="kpi-footer-sub">
-            <span>Total supplier purchases</span>
+            <span>Purchases: ${formatCurrency(summary.purchases)} | Exp: ${formatCurrency(summary.expenses)}</span>
             <span class="kpi-badge badge-amber">Cost</span>
           </div>
         </article>
@@ -19145,10 +19184,10 @@ function growTemplate(period = currentAnalyticsPeriod) {
               <svg class="gi-icon" style="width:18px;height:18px;"><use href="#gi-wallet"></use></svg>
             </div>
           </div>
-          <div class="kpi-main-val" id="analyticsGrossProfit">${formatCurrency(summary.grossProfit)}</div>
+          <div class="kpi-main-val" id="analyticsGrossProfit" style="${summary.grossProfit < 0 ? "color:#ef4444;" : ""}">${formatCurrency(summary.grossProfit)}</div>
           <div class="kpi-footer-sub">
-            <span>Revenue - Purchases</span>
-            <span class="kpi-badge badge-green">Net</span>
+            <span>Net Sales - COGS (${formatCurrency(summary.cogs)})</span>
+            <span class="kpi-badge ${summary.grossProfit >= 0 ? "badge-green" : "badge-red"}">${summary.grossProfit >= 0 ? "Profit" : "Loss"}</span>
           </div>
         </article>
 
@@ -19159,10 +19198,10 @@ function growTemplate(period = currentAnalyticsPeriod) {
               <svg class="gi-icon" style="width:18px;height:18px;"><use href="#gi-chart"></use></svg>
             </div>
           </div>
-          <div class="kpi-main-val" id="analyticsMargin">${summary.marginPercent}%</div>
+          <div class="kpi-main-val" id="analyticsMargin" style="${Number(summary.marginPercent) < 0 ? "color:#ef4444;" : ""}">${summary.marginPercent}%</div>
           <div class="kpi-footer-sub">
             <span>Profitability ratio</span>
-            <span class="kpi-badge badge-blue">Ratio</span>
+            <span class="kpi-badge ${Number(summary.marginPercent) >= 0 ? "badge-blue" : "badge-red"}">${Number(summary.marginPercent) >= 0 ? "Ratio" : "Negative"}</span>
           </div>
         </article>
 
