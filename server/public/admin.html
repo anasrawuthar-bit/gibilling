@@ -310,8 +310,131 @@
       font-size: 13.5px;
       outline: none;
       width: 100%;
+      background-color: #ffffff;
+      color: #0f172a;
+      transition: border-color 0.15s ease, box-shadow 0.15s ease;
+      box-sizing: border-box;
     }
-    .text-control:focus { border-color: var(--primary); }
+    .text-control:focus {
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px rgba(2, 132, 199, 0.12);
+    }
+    textarea.text-control {
+      height: auto;
+      min-height: 125px;
+      padding: 10px 14px;
+      line-height: 1.55;
+      resize: vertical;
+      font-family: inherit;
+    }
+    select.text-control {
+      appearance: none;
+      -webkit-appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%2364748b'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'%3E%3C/path%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 12px center;
+      background-size: 16px;
+      padding-right: 36px;
+      cursor: pointer;
+    }
+    input:-webkit-autofill,
+    input:-webkit-autofill:hover,
+    input:-webkit-autofill:focus,
+    textarea:-webkit-autofill,
+    select:-webkit-autofill {
+      -webkit-box-shadow: 0 0 0px 1000px #ffffff inset !important;
+      -webkit-text-fill-color: #0f172a !important;
+      transition: background-color 5000s ease-in-out 0s;
+    }
+    input[type=number]::-webkit-inner-spin-button,
+    input[type=number]::-webkit-outer-spin-button {
+      -webkit-appearance: none;
+      margin: 0;
+    }
+    input[type=number] {
+      -moz-appearance: textfield;
+    }
+    .var-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 3px 8px;
+      font-size: 11px;
+      font-weight: 600;
+      font-family: monospace;
+      background: #f1f5f9;
+      color: #0369a1;
+      border: 1px solid #cbd5e1;
+      border-radius: 6px;
+      cursor: pointer;
+      user-select: none;
+      transition: all 0.15s ease;
+    }
+    .var-chip:hover {
+      background: #e0f2fe;
+      border-color: #7dd3fc;
+      color: #0284c7;
+      transform: translateY(-1px);
+    }
+    .preset-pill {
+      font-size: 11.5px;
+      font-weight: 600;
+      padding: 4px 10px;
+      border-radius: 6px;
+      border: 1px solid #e2e8f0;
+      background: #f8fafc;
+      color: #475569;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+    }
+    .preset-pill:hover {
+      background: #eff6ff;
+      border-color: #bfdbfe;
+      color: #1d4ed8;
+    }
+    .status-indicator {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11.5px;
+      font-weight: 700;
+      padding: 4px 10px;
+      border-radius: 20px;
+      letter-spacing: 0.02em;
+    }
+    .status-connected {
+      background: #ecfdf5;
+      color: #065f46;
+      border: 1px solid #a7f3d0;
+    }
+    .status-disconnected {
+      background: #fef2f2;
+      color: #991b1b;
+      border: 1px solid #fecaca;
+    }
+    .status-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background-color: currentColor;
+      display: inline-block;
+    }
+    .status-connected .status-dot {
+      background-color: #10b981;
+      box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.2);
+      animation: pulse-dot 2s infinite;
+    }
+    .status-disconnected .status-dot {
+      background-color: #ef4444;
+    }
+    @keyframes pulse-dot {
+      0% { transform: scale(0.95); opacity: 0.8; }
+      50% { transform: scale(1.15); opacity: 1; }
+      100% { transform: scale(0.95); opacity: 0.8; }
+    }
 
     /* Toast */
     .toast-popup {
@@ -856,13 +979,30 @@
           <div class="table-card" style="padding: 24px;">
             <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
               <h3 style="font-size: 16px; font-weight: 700; color: #0f172a; margin: 0;">Outbound SMTP Gateway</h3>
-              <span class="badge" :class="smtp.isConfigured ? 'badge-active' : 'badge-suspended'">
-                {{ smtp.isConfigured ? 'Configured' : 'Not Connected' }}
+              <span class="status-indicator" :class="smtp.isConfigured ? 'status-connected' : 'status-disconnected'">
+                <span class="status-dot"></span>
+                {{ smtp.isConfigured ? 'Connected &amp; Verified' : 'Not Connected' }}
               </span>
             </div>
-            <p style="font-size: 13px; color: var(--muted); margin-bottom: 20px;">
+            <p style="font-size: 13px; color: var(--muted); margin-bottom: 16px;">
               Configure Hostinger or custom mail credentials for OTPs, security PIN resets, and batch alerts.
             </p>
+
+            <!-- Quick Presets -->
+            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 18px; flex-wrap: wrap;">
+              <span style="font-size: 11.5px; font-weight: 600; color: #64748b;">Quick Presets:</span>
+              <button type="button" class="preset-pill" @click="applySmtpPreset('hostinger_tls')">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+                Hostinger (587 TLS)
+              </button>
+              <button type="button" class="preset-pill" @click="applySmtpPreset('hostinger_ssl')">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+                Hostinger (465 SSL)
+              </button>
+              <button type="button" class="preset-pill" @click="applySmtpPreset('gmail')">
+                Google Workspace
+              </button>
+            </div>
 
             <form @submit.prevent="saveSmtpConfig">
               <div class="field-group">
@@ -883,8 +1023,14 @@
                 </div>
               </div>
               <div class="field-group">
-                <label class="field-label">Username / Email Address</label>
-                <input type="text" v-model="smtp.user" class="text-control" placeholder="admin@anasrawuthar.in" required>
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                  <label class="field-label">Username / Email Address</label>
+                  <span style="font-size: 11px; color: #0284c7; font-weight: 500;">Use full email address</span>
+                </div>
+                <input type="text" v-model="smtp.user" class="text-control" placeholder="admin@anasrawuthar.in" required @input="onSmtpUserChange">
+                <small style="font-size: 11px; color: var(--muted); margin-top: 3px; display: block;">
+                  Hostinger requires your full email address (e.g. <code>admin@anasrawuthar.in</code>, not just <code>anas</code>).
+                </small>
               </div>
               <div class="field-group">
                 <label class="field-label">Password / App Password</label>
@@ -896,10 +1042,10 @@
               </div>
 
               <div style="display: flex; gap: 12px; margin-top: 24px;">
-                <button type="submit" class="btn-action btn-primary" style="height: 40px; padding: 0 18px;" :disabled="smtpLoading">
+                <button type="submit" class="btn-action btn-primary" style="height: 40px; padding: 0 20px;" :disabled="smtpLoading">
                   {{ smtpLoading ? 'Saving...' : 'Save Gateway' }}
                 </button>
-                <button type="button" class="btn-action btn-secondary" style="height: 40px; padding: 0 16px;" @click="testSmtp">
+                <button type="button" class="btn-action btn-secondary" style="height: 40px; padding: 0 18px;" @click="testSmtp">
                   Send Test Email
                 </button>
               </div>
@@ -912,12 +1058,12 @@
               <h3 style="font-size: 16px; font-weight: 700; color: #0f172a; margin: 0;">Batch Campaign Mailer</h3>
               <span class="badge badge-otp">Throttled Queue</span>
             </div>
-            <p style="font-size: 13px; color: var(--muted); margin-bottom: 20px;">
+            <p style="font-size: 13px; color: var(--muted); margin-bottom: 16px;">
               Send announcements or updates. Links are tracked automatically; open tracking pixel is embedded.
             </p>
 
             <form @submit.prevent="sendBatchBroadcast">
-              <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 16px;">
+              <div style="display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(180px, 1fr); gap: 16px;">
                 <div class="field-group">
                   <label class="field-label">Target Audience</label>
                   <select v-model="broadcast.targetGroup" class="text-control">
@@ -942,18 +1088,35 @@
               </div>
 
               <div class="field-group">
-                <label class="field-label">Subject Line <span style="color: var(--muted); font-weight: 400; font-size: 11px;">(Supports &#123;&#123;companyName&#125;&#125;)</span></label>
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                  <label class="field-label">Subject Line</label>
+                  <div style="display: flex; gap: 4px; align-items: center;">
+                    <span style="font-size: 11px; color: var(--muted); margin-right: 2px;">Insert:</span>
+                    <button type="button" class="var-chip" @click="insertVar('subject', '{{companyName}}')">&#123;&#123;companyName&#125;&#125;</button>
+                  </div>
+                </div>
                 <input type="text" v-model="broadcast.subject" class="text-control" placeholder="Important Announcement for {{companyName}}" required>
               </div>
 
               <div class="field-group">
-                <label class="field-label">Message HTML or Text <span style="color: var(--muted); font-weight: 400; font-size: 11px;">(Links wrapped for tracking)</span></label>
-                <textarea v-model="broadcast.html" class="text-control" rows="4" placeholder="Hello {{companyName}},&#10;&#10;We've released ZynBill update v1.2.1! Check details at https://dir.anasrawuthar.in" required style="font-family: monospace; font-size: 12.5px;"></textarea>
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                  <label class="field-label">Message Content (HTML or Plain Text)</label>
+                  <div style="display: flex; gap: 4px; align-items: center; flex-wrap: wrap;">
+                    <span style="font-size: 11px; color: var(--muted); margin-right: 2px;">Insert:</span>
+                    <button type="button" class="var-chip" @click="insertVar('html', '{{companyName}}')">&#123;&#123;companyName&#125;&#125;</button>
+                    <button type="button" class="var-chip" @click="insertVar('html', '{{customerName}}')">&#123;&#123;customerName&#125;&#125;</button>
+                    <button type="button" class="var-chip" @click="insertVar('html', '{{email}}')">&#123;&#123;email&#125;&#125;</button>
+                  </div>
+                </div>
+                <textarea v-model="broadcast.html" class="text-control" rows="5" placeholder="Hello {{companyName}},&#10;&#10;We've released ZynBill update v1.2.1! Check details at https://dir.anasrawuthar.in" required></textarea>
               </div>
 
-              <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 20px;">
-                <span style="font-size: 12px; color: var(--muted);">✓ Open pixel &amp; link click tracking injected automatically</span>
-                <button type="submit" class="btn-action btn-primary" style="height: 40px; padding: 0 18px;" :disabled="broadcast.loading">
+              <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 20px; flex-wrap: wrap; gap: 12px;">
+                <span style="font-size: 12px; color: var(--muted); display: inline-flex; align-items: center; gap: 4px;">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#16a34a" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                  Open tracking pixel &amp; click link tracing embedded automatically
+                </span>
+                <button type="submit" class="btn-action btn-primary" style="height: 40px; padding: 0 20px;" :disabled="broadcast.loading">
                   {{ broadcast.loading ? 'Dispatching Queue...' : 'Dispatch Batch Campaign' }}
                 </button>
               </div>
@@ -2304,6 +2467,51 @@
           }
         };
 
+        const applySmtpPreset = (preset) => {
+          if (preset === 'hostinger_tls') {
+            smtp.host = 'smtp.hostinger.com';
+            smtp.port = 587;
+            smtp.secure = false;
+            if (!smtp.from && smtp.user) {
+              smtp.from = `ZynBill <${smtp.user}>`;
+            } else if (!smtp.from) {
+              smtp.from = 'ZynBill <admin@anasrawuthar.in>';
+            }
+            showToast('Hostinger STARTTLS (Port 587) preset loaded.');
+          } else if (preset === 'hostinger_ssl') {
+            smtp.host = 'smtp.hostinger.com';
+            smtp.port = 465;
+            smtp.secure = true;
+            if (!smtp.from && smtp.user) {
+              smtp.from = `ZynBill <${smtp.user}>`;
+            } else if (!smtp.from) {
+              smtp.from = 'ZynBill <admin@anasrawuthar.in>';
+            }
+            showToast('Hostinger SSL/TLS (Port 465) preset loaded.');
+          } else if (preset === 'gmail') {
+            smtp.host = 'smtp.gmail.com';
+            smtp.port = 465;
+            smtp.secure = true;
+            showToast('Google Workspace (Port 465) preset loaded.');
+          }
+        };
+
+        const onSmtpUserChange = () => {
+          if (smtp.user && smtp.user.includes('@')) {
+            if (!smtp.from || smtp.from.includes('<admin@anasrawuthar.in>') || smtp.from === '') {
+              smtp.from = `ZynBill <${smtp.user.trim()}>`;
+            }
+          }
+        };
+
+        const insertVar = (target, token) => {
+          if (target === 'subject') {
+            broadcast.subject = (broadcast.subject || '') + (broadcast.subject ? ' ' : '') + token;
+          } else if (target === 'html') {
+            broadcast.html = (broadcast.html || '') + (broadcast.html ? '\n' : '') + token;
+          }
+        };
+
         const saveSmtpConfig = async () => {
           smtpLoading.value = true;
           try {
@@ -2318,6 +2526,8 @@
             const data = await res.json();
             if (data.ok) {
               showToast('SMTP mailer configuration saved.');
+              smtp.isConfigured = true;
+              loadSmtp();
             } else {
               showToast(data.error || 'Could not save SMTP settings.', true);
             }
@@ -2344,6 +2554,8 @@
             const data = await res.json();
             if (data.ok) {
               showToast('Test email sent successfully! Check inbox/spam.');
+              smtp.isConfigured = true;
+              loadSmtp();
               setTimeout(() => { loadEmailStats(); loadEmailLogs(); }, 1500);
             } else {
               showToast(data.error || 'SMTP test failed.', true);
@@ -2670,7 +2882,10 @@
           loadEmailStats,
           loadEmailLogs,
           loadEmailCampaigns,
-          sendBatchBroadcast
+          sendBatchBroadcast,
+          applySmtpPreset,
+          onSmtpUserChange,
+          insertVar
         };
       }
     }).mount('#app');
