@@ -1045,7 +1045,7 @@
                 <button type="submit" class="btn-action btn-primary" style="height: 40px; padding: 0 20px;" :disabled="smtpLoading">
                   {{ smtpLoading ? 'Saving...' : 'Save Gateway' }}
                 </button>
-                <button type="button" class="btn-action btn-secondary" style="height: 40px; padding: 0 18px;" @click="testSmtp">
+                <button type="button" class="btn-action btn-secondary" style="height: 40px; padding: 0 18px;" @click="openTestEmailModal">
                   Send Test Email
                 </button>
               </div>
@@ -1748,6 +1748,71 @@
       </div>
     </div>
 
+    <!-- Test Email Modal -->
+    <div class="modal-backdrop" v-if="testEmailModal.show" @click.self="testEmailModal.show = false">
+      <div class="modal-card" style="max-width: 480px;">
+        <div style="display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 6px;">
+          <div style="display: flex; align-items: center; gap: 10px;">
+            <div style="width: 36px; height: 36px; border-radius: 10px; background: #e0f2fe; color: #0284c7; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path><polyline points="22,6 12,13 2,6"></polyline></svg>
+            </div>
+            <div>
+              <h3 style="font-size: 17px; font-weight: 800; color: #0f172a; margin: 0;">Send Test Email</h3>
+              <p style="font-size: 12.5px; color: var(--muted); margin: 2px 0 0;">Verify outbound SMTP gateway connectivity</p>
+            </div>
+          </div>
+          <button type="button" @click="testEmailModal.show = false" style="background: none; border: none; font-size: 22px; line-height: 1; color: #94a3b8; cursor: pointer; padding: 2px 6px;">&times;</button>
+        </div>
+
+        <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px 14px; margin: 16px 0; font-size: 12.5px;">
+          <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+            <span style="color: #64748b;">Target Host:</span>
+            <strong style="color: #0f172a;">{{ smtp.host || 'smtp.hostinger.com' }}:{{ smtp.port || 587 }}</strong>
+          </div>
+          <div style="display: flex; justify-content: space-between;">
+            <span style="color: #64748b;">Sender Account:</span>
+            <span style="color: #0f172a; font-family: monospace; font-size: 11.5px;">{{ smtp.user || 'Not set' }}</span>
+          </div>
+        </div>
+
+        <form @submit.prevent="dispatchTestEmail">
+          <div class="field-group">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <label class="field-label">Recipient Email Address</label>
+              <div style="display: flex; gap: 6px;">
+                <button type="button" v-if="adminEmail && adminEmail !== 'Admin'" class="var-chip" @click="testEmailModal.recipient = adminEmail" style="font-size: 10.5px; padding: 2px 6px;">Use Admin</button>
+                <button type="button" v-if="smtp.user && smtp.user.includes('@')" class="var-chip" @click="testEmailModal.recipient = smtp.user" style="font-size: 10.5px; padding: 2px 6px;">Use Sender</button>
+              </div>
+            </div>
+            <input type="email" v-model="testEmailModal.recipient" class="text-control" placeholder="e.g. your-name@gmail.com" required autofocus>
+            <small style="font-size: 11.5px; color: var(--muted); margin-top: 4px; display: block;">
+              Enter any inbox where you can verify email delivery.
+            </small>
+          </div>
+
+          <!-- Realtime status / result feedback banner -->
+          <div v-if="testEmailModal.result" style="margin-top: 14px; padding: 12px 14px; border-radius: 8px; font-size: 12.5px; line-height: 1.45;"
+               :style="testEmailModal.success ? 'background: #ecfdf5; border: 1px solid #a7f3d0; color: #065f46;' : 'background: #fef2f2; border: 1px solid #fecaca; color: #991b1b;'">
+            <div style="font-weight: 700; display: flex; align-items: center; gap: 6px; margin-bottom: 2px;">
+              <span>{{ testEmailModal.success ? '✓ Delivery Successful' : '✕ Delivery Failed' }}</span>
+            </div>
+            <div>{{ testEmailModal.result }}</div>
+          </div>
+
+          <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 22px;">
+            <button type="button" class="btn-action btn-secondary" @click="testEmailModal.show = false">Close</button>
+            <button type="submit" class="btn-action btn-primary" :disabled="testEmailModal.loading || !testEmailModal.recipient">
+              <span v-if="testEmailModal.loading">Dispatching...</span>
+              <span v-else style="display: flex; align-items: center; gap: 6px;">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+                Send Test Message
+              </span>
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+
     <!-- Toast Notification -->
     <div v-if="toast.show" class="toast-popup" :class="toast.isError ? 'toast-error' : 'toast-success'">
       {{ toast.message }}
@@ -2114,6 +2179,13 @@
         const planModal = reactive({ show: false, name: '', code: '', price: 2999, max_devices: 2, duration_days: 365 });
         const editContactModal = reactive({ show: false, customer: null, email: '', phone: '', loading: false, error: '' });
         const loginLogsModal = reactive({ show: false, customer: null, logs: [], loading: false });
+        const testEmailModal = reactive({
+          show: false,
+          recipient: localStorage.getItem('zynbill_last_test_email') || '',
+          loading: false,
+          result: '',
+          success: false
+        });
 
         const toast = reactive({ show: false, message: '', isError: false });
         const showToast = (message, isError = false) => {
@@ -2538,10 +2610,27 @@
           }
         };
 
-        const testSmtp = async () => {
-          const testRecipient = prompt('Enter an email address to send a test message:', adminEmail.value);
-          if (!testRecipient) return;
-          showToast('Dispatching test message via SMTP...');
+        const openTestEmailModal = () => {
+          if (!testEmailModal.recipient) {
+            testEmailModal.recipient = localStorage.getItem('zynbill_last_test_email') || (adminEmail.value !== 'Admin' ? adminEmail.value : '') || smtp.user || '';
+          }
+          testEmailModal.result = '';
+          testEmailModal.success = false;
+          testEmailModal.show = true;
+        };
+
+        const dispatchTestEmail = async () => {
+          if (!testEmailModal.recipient || !testEmailModal.recipient.includes('@')) {
+            showToast('Please enter a valid recipient email address.', true);
+            return;
+          }
+          testEmailModal.loading = true;
+          testEmailModal.result = '';
+          testEmailModal.success = false;
+
+          const trimmedRecipient = testEmailModal.recipient.trim();
+          localStorage.setItem('zynbill_last_test_email', trimmedRecipient);
+
           try {
             const res = await fetch('/api/v1/admin/smtp/test', {
               method: 'POST',
@@ -2549,21 +2638,41 @@
                 'Content-Type': 'application/json',
                 'Authorization': 'Bearer ' + adminToken.value
               },
-              body: JSON.stringify({ to: testRecipient.trim() })
+              body: JSON.stringify({
+                to: trimmedRecipient,
+                testEmail: trimmedRecipient,
+                config: {
+                  host: smtp.host,
+                  port: parseInt(smtp.port, 10),
+                  secure: !!smtp.secure,
+                  user: smtp.user,
+                  pass: smtp.pass,
+                  from: smtp.from
+                }
+              })
             });
             const data = await res.json();
             if (data.ok) {
-              showToast('Test email sent successfully! Check inbox/spam.');
+              testEmailModal.success = true;
+              testEmailModal.result = `Test message delivered successfully to ${trimmedRecipient}! Server accepted transmission.`;
               smtp.isConfigured = true;
-              loadSmtp();
-              setTimeout(() => { loadEmailStats(); loadEmailLogs(); }, 1500);
+              showToast('Test email sent successfully! Check inbox/spam.');
+              setTimeout(() => { loadEmailStats(); loadEmailLogs(); }, 1200);
             } else {
+              testEmailModal.success = false;
+              testEmailModal.result = data.error || 'SMTP delivery failed. Check credentials, port, or TLS settings.';
               showToast(data.error || 'SMTP test failed.', true);
             }
           } catch (err) {
+            testEmailModal.success = false;
+            testEmailModal.result = err.message || 'Network error occurred while connecting to server.';
             showToast(err.message, true);
+          } finally {
+            testEmailModal.loading = false;
           }
         };
+
+        const testSmtp = openTestEmailModal;
 
         const loadEmailStats = async () => {
           if (!adminToken.value) return;
@@ -2885,7 +2994,10 @@
           sendBatchBroadcast,
           applySmtpPreset,
           onSmtpUserChange,
-          insertVar
+          insertVar,
+          testEmailModal,
+          openTestEmailModal,
+          dispatchTestEmail
         };
       }
     }).mount('#app');

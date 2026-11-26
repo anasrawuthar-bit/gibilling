@@ -111,7 +111,7 @@ function prepareTrackedContent(html, trackingId, baseUrl) {
  * or records and simulates in development/offline mode.
  * Supports Open Tracking, Link Tracing, and Campaign Logging.
  */
-async function sendMail({ to, subject, html, text, campaignId = null, mailType = 'transactional', track = true, baseUrl = '' }) {
+async function sendMail({ to, subject, html, text, campaignId = null, mailType = 'transactional', track = true, baseUrl = '', customConfig = null }) {
   let db;
   try { db = require('./db'); } catch (_) {}
 
@@ -146,7 +146,7 @@ async function sendMail({ to, subject, html, text, campaignId = null, mailType =
     });
   }
 
-  const config = getActiveSmtpConfig();
+  const config = customConfig && customConfig.host ? { ...getActiveSmtpConfig(), ...customConfig } : getActiveSmtpConfig();
 
   // In test environment or simulated mode, do not open external network sockets
   if (process.env.NODE_ENV === 'test' || process.env.SIMULATE_SMTP === 'true') {
@@ -339,8 +339,8 @@ function deliverViaSocket(mail, config) {
 /**
  * Super Admin Test SMTP Connection
  */
-async function testSmtpConnection(targetEmail) {
-  const config = getActiveSmtpConfig();
+async function testSmtpConnection(targetEmail, customConfig = null) {
+  const config = customConfig && customConfig.host ? { ...getActiveSmtpConfig(), ...customConfig } : getActiveSmtpConfig();
   if (!config.host || !config.user || !config.pass) {
     return { ok: false, error: 'SMTP settings incomplete. Please provide Host, Port, Username and Password.' };
   }
@@ -360,7 +360,7 @@ async function testSmtpConnection(targetEmail) {
         <p style="font-size: 12px; color: #94a3b8; margin-top: 14px;">ZynBill Cloud Multi-Tenant System</p>
       </div>
     `;
-    const res = await sendMail({ to: targetEmail, subject, text, html });
+    const res = await sendMail({ to: targetEmail, subject, text, html, customConfig: config });
     if (!res.ok || res.delivered === false) {
       return { ok: false, error: res.error || 'Failed to deliver email to SMTP server' };
     }

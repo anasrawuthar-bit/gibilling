@@ -1631,8 +1631,8 @@ const server = http.createServer(async (req, res) => {
     const admin = verifyAdmin(req, res);
     if (!admin) return;
     const body = await parseJsonBody(req);
-    const targetEmail = body.testEmail || admin.email;
-    const testResult = await smtp.testSmtpConnection(targetEmail);
+    const targetEmail = body.to || body.testEmail || admin.email;
+    const testResult = await smtp.testSmtpConnection(targetEmail, body.config || body.smtp);
     return sendJson(res, testResult.ok ? 200 : 400, testResult);
   }
 
